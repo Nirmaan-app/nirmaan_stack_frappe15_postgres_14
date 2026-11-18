@@ -5,25 +5,22 @@
     }
   },
   "src/components/CameraCapture.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-syntax": {
+    "typescript/no-explicit-any": {
+      "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
   "src/components/address-form.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/address-view.tsx": {
@@ -102,23 +99,23 @@
     }
   },
   "src/components/common/VendorAttachmentForPR.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/common/VendorQuotesAttachmentSummaryPR.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/common/assigneesTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -131,32 +128,32 @@
     }
   },
   "src/components/custom-select/category-select.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/custom-select/project-milestone-select.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/custom-select/project-select.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
+      "count": 1
+    },
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -171,7 +168,7 @@
     }
   },
   "src/components/data-table/SelfFetchingFacetFilter.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -181,27 +178,27 @@
     }
   },
   "src/components/data-table/data-table-models.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/components/data-table/data-table.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/components/data-table/date-filter-popover.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/components/data-table/facetConfig.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/components/data-table/new-data-table.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
@@ -216,29 +213,29 @@
     }
   },
   "src/components/helpers/ItemsHoverCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/components/helpers/ProcurementActionsHeaderCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/components/helpers/ProcurementHeaderCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -248,12 +245,12 @@
     }
   },
   "src/components/helpers/VendorsReactSelect.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/components/helpers/renderRightActionButton.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -288,27 +285,27 @@
     }
   },
   "src/components/layout/action-center/RemindersSection.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/components/layout/alert-banner/error-alert.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/components/layout/alert-banner/error-banner.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 4
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/layout/dashboards/dashboard-hr.tsx": {
@@ -317,24 +314,24 @@
     }
   },
   "src/components/layout/dashboards/procurement-dashboard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/components/layout/main-layout.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/components/nav/notifications.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/payees/AddPayeeDialog.tsx": {
@@ -393,10 +390,10 @@
     }
   },
   "src/components/paymentsVoucher/PaymentVoucherActions.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -409,11 +406,11 @@
     }
   },
   "src/components/procurement-packages.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/components/procurement-request/list-pr.tsx": {
@@ -435,11 +432,11 @@
     }
   },
   "src/components/project-gst-form.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
+      "count": 2
     }
   },
   "src/components/project-type-form.tsx": {
@@ -491,14 +488,14 @@
     }
   },
   "src/components/workHeaderMilestones.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 32
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 32
     }
   },
   "src/components/wp-card.tsx": {
@@ -512,24 +509,24 @@
     }
   },
   "src/config/queryKeys.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/config/selectTheme.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/hooks/useBulkPdfDownload.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/hooks/useCEOHoldGuard.ts": {
@@ -568,11 +565,11 @@
     }
   },
   "src/hooks/useFacetValues.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/hooks/useGstOptions.ts": {
@@ -581,11 +578,11 @@
     }
   },
   "src/hooks/useItemCatalog.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/hooks/useItemEstimate.ts": {
@@ -594,19 +591,19 @@
     }
   },
   "src/hooks/useMakeOptions.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/hooks/useOrderTotals.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/hooks/usePOValidation.ts": {
@@ -615,18 +612,18 @@
     }
   },
   "src/hooks/usePRorSBDelete.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/hooks/usePincode.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -636,11 +633,11 @@
     }
   },
   "src/hooks/useProjectAssignees.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/hooks/useSentBackCategory.ts": {
@@ -654,14 +651,14 @@
     }
   },
   "src/hooks/useServerDataTable.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 4
+    },
+    "typescript/no-explicit-any": {
+      "count": 9
     }
   },
   "src/hooks/useSidebarCounts.ts": {
@@ -673,10 +670,10 @@
     }
   },
   "src/hooks/useStickyState.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-properties": {
       "count": 2
     },
-    "no-restricted-properties": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -699,11 +696,11 @@
     }
   },
   "src/hooks/useUserSubmitHandlers.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/hooks/useVendorGstHold.ts": {
@@ -727,26 +724,23 @@
     }
   },
   "src/hooks/useWorkHeaderOrder.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/lib/frappeTypeUtils.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 7
     }
   },
   "src/main.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    },
     "no-restricted-properties": {
       "count": 1
     },
-    "no-restricted-syntax": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -761,7 +755,7 @@
     }
   },
   "src/pages/ApprovedQuotationsFlow/approvedQuotations.constants.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -771,11 +765,11 @@
     }
   },
   "src/pages/Assets/AssetOverview.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/Assets/components/AddAssetCategoryDialog.tsx": {
@@ -784,11 +778,11 @@
     }
   },
   "src/pages/Assets/components/AddAssetDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/Assets/components/AssetAuditList.tsx": {
@@ -797,11 +791,11 @@
     }
   },
   "src/pages/Assets/components/AssetCategoriesList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/Assets/components/AssetMasterList.tsx": {
@@ -810,19 +804,19 @@
     }
   },
   "src/pages/Assets/components/AssignAssetDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/Assets/components/AssignedAssetsList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/Assets/components/AuditFulfilledList.tsx": {
@@ -841,11 +835,11 @@
     }
   },
   "src/pages/Assets/components/PendingActionsList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/Assets/components/SignDeclarationDialog.tsx": {
@@ -859,19 +853,19 @@
     }
   },
   "src/pages/Assets/components/UnassignAssetDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/Assets/components/UnassignedAssetsList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/Assets/hooks/useAssetCategoryNamesByType.ts": {
@@ -920,36 +914,36 @@
     }
   },
   "src/pages/BulkDownload/steps/BulkSelectTable.dom.test.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/BulkDownload/steps/BulkSelectTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/BulkDownload/steps/DeliveryDocSteps.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/BulkDownload/steps/bulkTableColumns.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 18
     }
   },
   "src/pages/BulkDownload/steps/bulkTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 18
     }
   },
   "src/pages/BulkDownload/useBulkDownloadWizard.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 13
     }
   },
   "src/pages/BulkDownload/usePorterInvoices.ts": {
@@ -968,42 +962,39 @@
     }
   },
   "src/pages/CommissionReport/commission-report-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 7
     }
   },
   "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
     },
-    "no-restricted-syntax": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/CommissionReport/components/BulkApprovalDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/CommissionReport/components/BulkUpdateDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/CommissionReport/components/CommissionPackagesMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 13
     }
   },
@@ -1013,30 +1004,30 @@
     }
   },
   "src/pages/CommissionReport/components/GlobalApprovalsTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/CommissionReport/components/NewTrackerModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 8
     }
   },
   "src/pages/CommissionReport/components/ProjectWiseCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/CommissionReport/components/ReportActionCell.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/CommissionReport/components/ReportEditModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -1046,41 +1037,41 @@
     }
   },
   "src/pages/CommissionReport/components/TaskWiseTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/CommissionReport/config/commissionTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/CommissionReport/data/useCommissionLock.ts": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
   "src/pages/CommissionReport/data/useCommissionMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/CommissionReport/data/useCommissionQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/CommissionReport/hooks/useCommissionMasters.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
@@ -1090,7 +1081,7 @@
     }
   },
   "src/pages/CommissionReport/project-commission-report-details.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1150,7 +1141,7 @@
     }
   },
   "src/pages/CommissionReport/report-wizard/schema.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -1160,16 +1151,16 @@
     }
   },
   "src/pages/CommissionReport/types/index.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 16
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 16
     }
   },
   "src/pages/CriticalPOTracker/critical-po-tracker-detail.tsx": {
@@ -1183,62 +1174,62 @@
     }
   },
   "src/pages/DeliveryChallansAndMirs/DeliveryChallansAndMirs.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/DeliveryChallansAndMirs/components/DCMIRItemSelector.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/DeliveryChallansAndMirs/components/POListCards.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/DeliveryChallansAndMirs/components/POListTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/DeliveryNotes/ITMDeliveryNote.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/DeliveryNotes/components/VendorDCDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/DeliveryNotes/components/pivot-table/DeliveryPivotTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1248,10 +1239,10 @@
     }
   },
   "src/pages/DeliveryNotes/deliverynotes.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1276,7 +1267,7 @@
     }
   },
   "src/pages/DeliveryNotes/hooks/useDownloadDN.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1294,18 +1285,18 @@
     }
   },
   "src/pages/DeliveryNotes/hooks/useProjectDeliveryNotes.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/DeliveryNotes/hooks/useReturnSubmit.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1355,15 +1346,15 @@
     }
   },
   "src/pages/ExpenseRequests/components/ReviewActionDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ExpenseRequests/config/expenseRequestsColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1373,16 +1364,16 @@
     }
   },
   "src/pages/HandoverDocuments/DocumentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/HandoverDocuments/HandoverDocumentsTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/HandoverDocuments/hod-tracker-list.tsx": {
@@ -1395,13 +1386,8 @@
       "count": 1
     }
   },
-  "src/pages/HandoverDocuments/hodDownloads.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/pages/HandoverDocuments/hodRules.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -1411,19 +1397,19 @@
     }
   },
   "src/pages/HandoverDocuments/useHodBinder.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/HandoverDocuments/useHodTdsExport.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/InternalTransferMemos/Create/CreateITMPage.tsx": {
@@ -1442,23 +1428,23 @@
     }
   },
   "src/pages/InternalTransferMemos/ITMDetail.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/InternalTransferMemos/components/ITMDeliverySection.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/InternalTransferMemos/components/ITMDispatchSheet.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1478,19 +1464,19 @@
     }
   },
   "src/pages/Items/components/AddItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/Items/components/EditItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/Items/components/ItemsSummaryCard.tsx": {
@@ -1499,10 +1485,10 @@
     }
   },
   "src/pages/Items/item.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1512,76 +1498,76 @@
     }
   },
   "src/pages/Items/itemsPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/Manpower-and-WorkMilestones/MilestoneDailySummary.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/Manpower-and-WorkMilestones/MilestoneTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 11
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/Manpower-and-WorkMilestones/MilestonesSummary.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/CopyReportButton.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 18
-    },
     "no-restricted-imports": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 18
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/DailyReportView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 33
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/EditMilestoneDatesDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/OverallMilestonesReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/ProjectScheduler.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/Manpower-and-WorkMilestones/components/ReportControlBar.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1591,19 +1577,19 @@
     }
   },
   "src/pages/Manpower-and-WorkMilestones/hooks/useMilestoneReportData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 22
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 22
     }
   },
   "src/pages/Manpower-and-WorkMilestones/hooks/useProjectScheduler.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/Manpower-and-WorkMilestones/hooks/useTargetProgress.ts": {
@@ -1622,10 +1608,10 @@
     }
   },
   "src/pages/MaterialTestCertificates/hooks/useMTCMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1635,56 +1621,56 @@
     }
   },
   "src/pages/NonProjectExpenses/NonProjectExpensesPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/NonProjectExpenses/components/EditNonProjectExpense.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/NonProjectExpenses/components/UpdateInvoiceDetailsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/NonProjectExpenses/components/UpdatePaymentDetailsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/NonProjectExpenses/config/nonProjectExpensesTable.config.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/PMODashboard/components/EditTaskModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/PMODashboard/components/PMOPackagesMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 15
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 15
     }
   },
   "src/pages/PMODashboard/components/TaskHistoryDrawer.tsx": {
@@ -1693,27 +1679,27 @@
     }
   },
   "src/pages/PMODashboard/components/TaskWiseTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/PMODashboard/pmo-dashboard-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/PMODashboard/pmo-project-detail.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/PMODashboard/utils.ts": {
@@ -1722,15 +1708,15 @@
     }
   },
   "src/pages/POAdjustment/POAdjustmentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/POAdjustment/WriteOffDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1760,56 +1746,56 @@
     }
   },
   "src/pages/PORevision/PORevisionsApprovalList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/PORevision/components/PORevisionHistory.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/PORevision/components/Step1/AddNewItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/PORevision/components/Step1/Step1ReviseItems.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/PORevision/components/Step2/Step2NegativeFlow.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/PORevision/components/Step3/Step3Summary.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/PORevision/components/detail/PORevisionLineItems.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/PORevision/components/detail/PORevisionPaymentRectification.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/PORevision/config/poRevisions.config.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 8
     }
   },
@@ -1819,20 +1805,20 @@
     }
   },
   "src/pages/PORevision/data/usePORevisionQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/PORevision/hooks/usePORevision.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/PRTracker/components/PRTagTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1857,11 +1843,11 @@
     }
   },
   "src/pages/PaymentTDSDeductions/components/PayTdsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/PaymentTDSDeductions/components/PaymentTDSSummaryCard.tsx": {
@@ -1880,39 +1866,39 @@
     }
   },
   "src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 9
     }
   },
   "src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceLineMappingView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementOrders/invoices-and-dcs/components/LineItemMappingReview.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/ProcurementOrders/invoices-and-dcs/components/MappingTableView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -1922,12 +1908,6 @@
     }
   },
   "src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -1936,27 +1916,33 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 60
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
+      "count": 1
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/CriticalPOTaskLinkingSection.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 13
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/LinkedCriticalPOTag.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/POAttachments.tsx": {
@@ -1965,28 +1951,25 @@
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "react-hooks/rules-of-hooks": {
       "count": 38
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/POItemsHoverCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/POPaymentTermsCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -1995,6 +1978,9 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 19
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/POPdf.tsx": {
@@ -2006,24 +1992,24 @@
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/PORevisionsAndAdjustments.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/ProcurementOrders/purchase-order/components/TransactionDetailsCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementOrders/purchase-order/hooks/useCriticalPOTaskLinking.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProcurementOrders/purchase-order/hooks/usePORemarks.ts": {
@@ -2032,11 +2018,11 @@
     }
   },
   "src/pages/ProcurementOrders/purchase-order/release-po-select.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 14
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 14
     }
   },
   "src/pages/ProcurementOrders/testing/ProcurementOrdersTesting.tsx": {
@@ -2045,30 +2031,30 @@
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/ApprovePRContainer.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/ApprovePRView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/approve-pr.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/components/EditItemDialog.tsx": {
@@ -2082,14 +2068,14 @@
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/hooks/useApprovePRLogic.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/hooks/useCategoryList.ts": {
@@ -2098,13 +2084,13 @@
     }
   },
   "src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
+      "count": 2
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -2145,22 +2131,22 @@
     }
   },
   "src/pages/ProcurementRequests/ApproveVendorQuotes/approve-select-vendor.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementRequests/ApproveVendorQuotes/hooks/useApproveRejectLogic.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProcurementRequests/ApproveVendorQuotes/hooks/useApprovedQuotationsList.ts": {
@@ -2174,43 +2160,43 @@
     }
   },
   "src/pages/ProcurementRequests/NewPR/NewCustomPR.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/ProcurementRequests/NewPR/NewProcurementRequestPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProcurementRequests/NewPR/components/ItemSelectorControls.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 7
     }
   },
   "src/pages/ProcurementRequests/NewPR/components/ManageCategoryMakesDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProcurementRequests/NewPR/components/NewItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementRequests/NewPR/components/PreviousComments.tsx": {
@@ -2219,19 +2205,19 @@
     }
   },
   "src/pages/ProcurementRequests/NewPR/hooks/useProcurementRequestData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProcurementRequests/NewPR/hooks/useSubmitProcurementRequest.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/ProcurementProgressContainer.tsx": {
@@ -2243,20 +2229,17 @@
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/SelectVendorQuotesTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "react-hooks/rules-of-hooks": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -2265,6 +2248,9 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 28
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/components/GenerateRFQDialog.tsx": {
@@ -2273,7 +2259,7 @@
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/components/ItemVendorMakeSelection.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -2288,11 +2274,11 @@
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/hooks/useProcurementActions.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/hooks/useProcurementDocument.ts": {
@@ -2301,14 +2287,14 @@
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/hooks/useProcurementProgressLogic.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/hooks/useRFQManager.ts": {
@@ -2340,58 +2326,58 @@
     }
   },
   "src/pages/ProcurementRequests/VendorQuotesSelection/types/index.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProcurementRequests/procurement-requests.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/ProjectBilling/BillingTrackerPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/BillDrawer.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/BillingPackagesMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/ProjectBilling/components/BillsDataTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/EditPackageDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/RemovePackageDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/SetupBillingDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectBilling/components/SupplyDcSheet.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -2401,75 +2387,75 @@
     }
   },
   "src/pages/ProjectBilling/utils/billingFormat.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectDesignTracker/components/DeleteZoneDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectDesignTracker/components/DesignPackagesmaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 13
     }
   },
   "src/pages/ProjectDesignTracker/components/InlineTaskList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProjectDesignTracker/components/NewTrackerModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 9
     }
   },
   "src/pages/ProjectDesignTracker/components/ProjectWiseCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/ProjectDesignTracker/components/RenameZoneDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
-    }
-  },
-  "src/pages/ProjectDesignTracker/components/TaskEditModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
-  "src/pages/ProjectDesignTracker/components/TaskWiseTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
+  "src/pages/ProjectDesignTracker/components/TaskEditModal.tsx": {
+    "no-restricted-imports": {
+      "count": 1
     },
+    "typescript/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "src/pages/ProjectDesignTracker/components/TaskWiseTable.tsx": {
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/ProjectDesignTracker/components/TeamPerformanceSummary.tsx": {
@@ -2483,19 +2469,19 @@
     }
   },
   "src/pages/ProjectDesignTracker/config/taskTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/ProjectDesignTracker/design-tracker-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/ProjectDesignTracker/download/downloadSelection.test.ts": {
@@ -2506,9 +2492,6 @@
   "src/pages/ProjectDesignTracker/download/useDownloadReport.ts": {
     "no-restricted-properties": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/pages/ProjectDesignTracker/hooks/useDesignMasters.ts": {
@@ -2517,13 +2500,13 @@
     }
   },
   "src/pages/ProjectDesignTracker/hooks/useDesignTrackerLogic.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
+      "count": 1
+    },
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -2536,18 +2519,18 @@
     }
   },
   "src/pages/ProjectDesignTracker/project-design-tracker-details.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/ProjectDesignTracker/types/index.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -2557,27 +2540,27 @@
     }
   },
   "src/pages/ProjectExpenses/ProjectExpensesList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProjectExpenses/components/EditProjectExpenseDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProjectGst/ProjectGstPage.tsx": {
@@ -2586,43 +2569,43 @@
     }
   },
   "src/pages/ProjectInvoices/AllProjectInvoices.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProjectInvoices/ProjectInvoices.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectInvoices/components/EditProjectInvoiceDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProjectInvoices/components/NewProjectInvoiceDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProjectInvoices/components/ProjectInvoiceDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProjectInvoices/components/ProjectInvoiceTable.tsx": {
@@ -2631,11 +2614,11 @@
     }
   },
   "src/pages/ProjectPayments/AllPayments.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProjectPayments/PaymentSummaryCards.tsx": {
@@ -2644,31 +2627,31 @@
     }
   },
   "src/pages/ProjectPayments/PaymentsDataDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectPayments/RenderProjectPaymentsComponent.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProjectPayments/approve-payments/ApprovePayments.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectPayments/approve-payments/components/BulkActionBar.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -2678,7 +2661,7 @@
     }
   },
   "src/pages/ProjectPayments/approve-payments/hooks/useBulkApprovalActions.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -2688,11 +2671,11 @@
     }
   },
   "src/pages/ProjectPayments/components/DetailPopovers.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ProjectPayments/components/ExpenseBankLinesPopover.tsx": {
@@ -2711,15 +2694,15 @@
     }
   },
   "src/pages/ProjectPayments/components/QueueRowEditDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectPayments/config/queueRowActions.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -2737,7 +2720,7 @@
     }
   },
   "src/pages/ProjectPayments/hooks/useApprovalQueueExport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -2788,54 +2771,54 @@
     }
   },
   "src/pages/ProjectPayments/project-payments-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/ProjectPayments/request-payment/RequestPaymentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-properties": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/ProjectPayments/update-payment/AccountantTabs.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ProjectPayments/update-payment/DeletePaymentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-properties": {
       "count": 1
     },
-    "no-restricted-properties": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectPayments/update-payment/EditFulfilledPaymentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ProjectPayments/update-payment/UpdatePaymentDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/Reimbursements/ReimbursementsPage.tsx": {
@@ -2874,25 +2857,25 @@
     }
   },
   "src/pages/Reminders/NewReminderDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/Reminders/RemindersPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/Sent Back Requests/ApproveSBSQuotesContainer.tsx": {
@@ -2904,20 +2887,17 @@
     }
   },
   "src/pages/Sent Back Requests/ApproveSBSQuotesView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/Sent Back Requests/SBQuotesSelectionReview.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -2926,6 +2906,9 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 28
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/Sent Back Requests/approve-select-sent-back.tsx": {
@@ -2934,14 +2917,14 @@
     }
   },
   "src/pages/Sent Back Requests/hooks/useApproveSBSLogic.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/Sent Back Requests/hooks/useSBQuoteApprovalApi.ts": {
@@ -2950,11 +2933,11 @@
     }
   },
   "src/pages/Sent Back Requests/sent-back-request.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/Sent Back Requests/sent-back-summary.tsx": {
@@ -3001,19 +2984,19 @@
     }
   },
   "src/pages/ServiceRequests/service-request/SRPdf.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 12
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 12
     }
   },
   "src/pages/ServiceRequests/service-request/all-sr-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ServiceRequests/service-request/approve-amend-sr-list.tsx": {
@@ -3022,9 +3005,6 @@
     }
   },
   "src/pages/ServiceRequests/service-request/approve-amended-sr.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 18
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -3033,6 +3013,9 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 5
+    },
+    "typescript/no-explicit-any": {
+      "count": 18
     }
   },
   "src/pages/ServiceRequests/service-request/approve-service-request-list.tsx": {
@@ -3041,14 +3024,14 @@
     }
   },
   "src/pages/ServiceRequests/service-request/approve-service-request.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "react-hooks/rules-of-hooks": {
       "count": 17
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/ServiceRequests/service-request/approved-sr-list.tsx": {
@@ -3057,9 +3040,6 @@
     }
   },
   "src/pages/ServiceRequests/service-request/approved-sr.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -3068,6 +3048,9 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 58
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/ServiceRequests/service-request/components/GeneratedInvoices.tsx": {
@@ -3086,10 +3069,10 @@
     }
   },
   "src/pages/ServiceRequests/service-request/list-sr.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3099,34 +3082,34 @@
     }
   },
   "src/pages/ServiceRequests/service-request/select-service-vendor.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "react-hooks/rules-of-hooks": {
       "count": 5
+    },
+    "typescript/no-explicit-any": {
+      "count": 13
     }
   },
   "src/pages/ServiceRequests/sr-form/amend/transformers.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/ServiceRequests/sr-form/amend/useSRAmendForm.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ServiceRequests/sr-form/hooks/useSRAmendData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3136,20 +3119,20 @@
     }
   },
   "src/pages/ServiceRequests/sr-form/index.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/ServiceRequests/sr-form/steps/ServiceItemsStep.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/ServiceRequests/sr-form/steps/VendorRatesStep.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -3161,9 +3144,6 @@
   "src/pages/SnagList/download/useSnagDownload.ts": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "src/pages/SnagList/hooks/useProjectSnagSummaries.ts": {
@@ -3182,11 +3162,11 @@
     }
   },
   "src/pages/SnagList/hooks/useSnagMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/SnagList/hooks/useSnagStats.ts": {
@@ -3199,43 +3179,33 @@
       "count": 1
     }
   },
-  "src/pages/SnagList/import/UploadStep.tsx": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/pages/SnagList/import/templateDownload.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/pages/SnagList/snag-list-details.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
   },
   "src/pages/SnagList/snag-list.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/WOServicePackage/WOServicePackagesMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 14
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 14
     }
   },
   "src/pages/Warehouse/AddWarehouseStockDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/Warehouse/hooks/useWarehouseStock.ts": {
@@ -3259,23 +3229,18 @@
     }
   },
   "src/pages/auth/forgot-password.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "src/pages/boq-wizard/BoqDropZone.tsx": {
-    "no-restricted-syntax": {
+    },
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/BoqHubPage.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -3345,7 +3310,7 @@
     }
   },
   "src/pages/boq-wizard/PricingGrid.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -3365,9 +3330,6 @@
     }
   },
   "src/pages/boq-wizard/SheetCard.tsx": {
-    "jsx-a11y/no-autofocus": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     }
@@ -3381,29 +3343,29 @@
     }
   },
   "src/pages/boq-wizard/SheetPricingPage.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
+      "count": 2
     }
   },
   "src/pages/boq-wizard/SheetReviewPage.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
+      "count": 2
     }
   },
   "src/pages/boq-wizard/SheetSpokePage.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
+      "count": 2
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 2
     }
   },
@@ -3420,9 +3382,6 @@
   "src/pages/boq-wizard/TemplateEditorPage.tsx": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/pages/boq-wizard/TemplateRowsEditor.tsx": {
@@ -3431,74 +3390,74 @@
     }
   },
   "src/pages/boq-wizard/rate-helper/adp1.harness.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/boq-wizard/rate-helper/adp1.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 24
     }
   },
   "src/pages/boq-wizard/rate-helper/adp2.harness.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/boq-wizard/rate-helper/adp2.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 9
     }
   },
   "src/pages/boq-wizard/rate-helper/adp3b.harness.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/adp3b.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/adp4a.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/boq-wizard/rate-helper/adp5a.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/boq-wizard/rate-helper/adp5c.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/boq-wizard/rate-helper/adp5d.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/elr4aBlankPlate.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/itemListPricing.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-properties": {
       "count": 8
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-properties": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts": {
@@ -3512,67 +3471,67 @@
     }
   },
   "src/pages/boq-wizard/rate-helper/ruleReachability.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12d8.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12e2.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12e3b.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12e3c.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12e4b.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/boq-wizard/rate-helper/slice12e6c.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 7
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf2bCapacity.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf3aSet.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf3aSplit.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf3bExtras.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf4Borrowed.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/boq-wizard/rate-helper/vrf4Model.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3592,14 +3551,14 @@
     }
   },
   "src/pages/credits/hooks/useCredits.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/debug.tsx": {
@@ -3608,18 +3567,18 @@
     }
   },
   "src/pages/help-repository/components/AddHelpDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/help-repository/components/EditHelpDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3634,31 +3593,31 @@
     }
   },
   "src/pages/inflow-payments/InFlowPayments.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/inflow-payments/components/EditInflowPayment.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/inflow-payments/components/NewInflowPayment.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/inflow-payments/config/inflowPaymentsTable.config.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -3668,7 +3627,7 @@
     }
   },
   "src/pages/monthly-wip/MonthlyWIPPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3678,34 +3637,34 @@
     }
   },
   "src/pages/non-project-inflows/NonProjectInflows.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/non-project-inflows/components/NonProjectInflowDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/outflow-import/OutflowMasterPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/outflow-import/components/ApprovedRecordsPanel.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3720,19 +3679,19 @@
     }
   },
   "src/pages/outflow-import/components/ConfirmMatchedPanel.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/outflow-import/components/DecisionDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/outflow-import/components/ImportDiscardButton.tsx": {
@@ -3746,17 +3705,14 @@
     }
   },
   "src/pages/outflow-import/components/ImportStatementDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
     },
-    "no-restricted-syntax": {
-      "count": 2
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/outflow-import/components/InternalTransferDialog.tsx": {
@@ -3775,10 +3731,10 @@
     }
   },
   "src/pages/outflow-import/components/SkippedRowsDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -3793,15 +3749,15 @@
     }
   },
   "src/pages/outflow-import/outflowTableModel.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 46
     }
   },
   "src/pages/outflow-import/outflowTableModel.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-properties": {
       "count": 2
     },
-    "no-restricted-properties": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -3813,13 +3769,10 @@
   "src/pages/outflow-import/useOutflowRows.ts": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/pages/outflow-import/waitingRefundMatch.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -3839,17 +3792,14 @@
     }
   },
   "src/pages/pricing/PricingWorkbookPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 31
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 4
     },
-    "no-restricted-syntax": {
-      "count": 2
+    "typescript/no-explicit-any": {
+      "count": 31
     }
   },
   "src/pages/pricing/calculatorPanelParity.harness.ts": {
@@ -3858,7 +3808,7 @@
     }
   },
   "src/pages/pricing/calculatorPanelParity.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -3873,77 +3823,77 @@
     }
   },
   "src/pages/pricing/pricingClamp.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/pricing/pricingFormulaAst.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 8
     }
   },
   "src/pages/pricing/pricingFormulaAst.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/pricing/pricingFormulaScan.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/pricing/pricingFormulaScan.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/pricing/pricingHelpers.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 15
     }
   },
   "src/pages/pricing/pricingHitEval.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/pricing/pricingHitEval.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/pricing/pricingLibs.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 10
     }
   },
   "src/pages/pricing/pricingLiveFix.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 29
     }
   },
   "src/pages/pricing/pricingLiveFix.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 15
     }
   },
   "src/pages/pricing/pricingPipeline.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 12
     }
   },
   "src/pages/pricing/pricingTransforms.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 15
     }
   },
   "src/pages/pricing/pricingTransforms.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/pricing/pricingValidations.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -3963,62 +3913,62 @@
     }
   },
   "src/pages/pricing/rate-master/attributeRuleOrder.elr4a.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/pricing/rate-master/attributeRuleOrder.elr4b.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/pages/pricing/rate-master/elr3aAssemblyInputs.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 12
     }
   },
   "src/pages/pricing/rate-master/itemListRuleOrder.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 9
     }
   },
   "src/pages/pricing/rate-master/itemListRuleOrder.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 78
     }
   },
   "src/pages/pricing/rate-master/plainEnglish.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 9
     }
   },
   "src/pages/pricing/rate-master/pricingInputExact.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/pricing/rate-master/pricingInputExact.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/pricing/rate-master/pricingInputExactItemList.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/pricing/rate-master/pricingInputExamples.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/pricing/rate-master/pricingInputImpact.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/pricing/rate-master/pricingInputReach.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 15
     }
   },
@@ -4033,102 +3983,102 @@
     }
   },
   "src/pages/pricing/rate-master/rateMasterSpec.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 10
     }
   },
   "src/pages/pricing/rate-master/rateMasterSpec.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 14
     }
   },
   "src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 21
     }
   },
   "src/pages/pricing/rate-master/vrf2bReach.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/CashflowPlan/CashflowPlan.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/CashflowPlan/InflowCashflow.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/CashflowPlan/MiscCashflow.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/CashflowPlan/POCashflow.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/projects/CashflowPlan/WOCashflow.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/projects/CashflowPlan/components/AddPOCashflowForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 25
     }
   },
   "src/pages/projects/CashflowPlan/components/AddWOCashflowForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/CashflowPlan/components/EditPOCashflowForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 19
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 19
     }
   },
   "src/pages/projects/CashflowPlan/components/EditWOCashflowForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 11
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 11
     }
   },
   "src/pages/projects/CashflowPlan/components/FromMaterialPlanDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 17
-    },
     "no-restricted-properties": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 17
     }
   },
   "src/pages/projects/CashflowPlan/components/ReviewPOCashflowPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 29
     }
   },
   "src/pages/projects/CashflowPlan/components/SelectWOModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/CriticalPOTasks/CriticalPOTasksList.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -4138,59 +4088,56 @@
     }
   },
   "src/pages/projects/CriticalPOTasks/NoCriticalPOTasksView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/CriticalPOTasks/components/EditTaskDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 7
     }
   },
   "src/pages/projects/CriticalPOTasks/components/LinkPODialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/projects/CriticalPOTasks/components/LinkedPOsColumn.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/CriticalPOTasks/components/ManageSetupDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/CriticalPOTasks/config/taskTableColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/CriticalPOTasks/hooks/useBulkCreateTasks.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/pages/projects/ProjectMakesTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/projects/ProjectOverviewTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "react-hooks/rules-of-hooks": {
       "count": 1
     },
-    "react-hooks/rules-of-hooks": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4205,46 +4152,46 @@
     }
   },
   "src/pages/projects/ServiceRequestsAccordion.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/TDSRepository/TDSRepositoryTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/projects/TDSRepository/TDSRepositoryView.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/projects/TDSRepository/components/RequestTdsItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 14
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 14
     }
   },
   "src/pages/projects/TDSRepository/components/SetupTDSRepositoryDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/TDSRepository/components/TdsCreateForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/projects/TDSRepository/components/TdsHistoryTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4254,37 +4201,37 @@
     }
   },
   "src/pages/projects/components/AddCustomerPODialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
+      "count": 8
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
   "src/pages/projects/components/CustomerPODeatilsCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/projects/components/DCMIRWiseMaterialTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/components/EditCustomerPODialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-properties": {
       "count": 1
     },
-    "no-restricted-properties": {
+    "typescript/no-explicit-any": {
+      "count": 3
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -4294,16 +4241,16 @@
     }
   },
   "src/pages/projects/components/POWiseMaterialTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/components/ProgressTrackingSettingsCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/projects/components/ProjectActionItems.tsx": {
@@ -4312,43 +4259,43 @@
     }
   },
   "src/pages/projects/components/ProjectDriveLink.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/components/ProjectMaterialUsageTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/components/ProjectModuleDeactivationStatus.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/components/ProjectPOSummaryTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "react-hooks/rules-of-hooks": {
       "count": 15
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/components/ProjectPRSummaryTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/components/ProjectSRSummaryTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/components/ProjectStatusDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4358,71 +4305,71 @@
     }
   },
   "src/pages/projects/components/SetupProgressTrackingDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/components/planning/AddMaterialPlanForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 25
     }
   },
   "src/pages/projects/components/planning/AllPOsModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/components/planning/CategoryTaskSelector.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 16
     }
   },
   "src/pages/projects/components/planning/CreateWorkplantask.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/components/planning/EditMaterialPlanForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 10
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 10
     }
   },
   "src/pages/projects/components/planning/EditMilestoneDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/components/planning/ProjectManagerEditWorkPlanDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/components/planning/ReviewPlansPage.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 25
     }
   },
   "src/pages/projects/components/planning/SevenDaysMaterialPlan.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/projects/components/planning/SevendaysWorkPlan.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/components/planning/WorkPlanReferencePanel.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
@@ -4432,88 +4379,88 @@
     }
   },
   "src/pages/projects/config/projectTable.config.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/pages/projects/data/cashflow-plan/useCashflowPlanMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/projects/data/cashflow-plan/useCashflowPlanQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 9
     }
   },
   "src/pages/projects/data/critical-po/useCriticalPOMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/data/critical-po/useCriticalPOQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/data/material-plan/useMaterialPlanMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/projects/data/material-plan/useMaterialPlanQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/projects/data/project-form/useProjectFormMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/projects/data/project-form/useProjectFormQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/data/root/useProjectRootApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/projects/data/tab/financials/useCustomerPOApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/projects/data/tab/financials/useProjectFinancialsTabApi.ts": {
@@ -4527,10 +4474,10 @@
     }
   },
   "src/pages/projects/data/tab/makes/useProjectMakesTabApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4550,10 +4497,10 @@
     }
   },
   "src/pages/projects/data/tab/project-form/useEditProjectFormApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4573,37 +4520,37 @@
     }
   },
   "src/pages/projects/data/tab/work-report/projectTrackingHelpers.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/pages/projects/data/tab/work-report/useProjectTrackingSetupApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/data/tab/work-report/useProjectWorkReportTabApi.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/data/tds/tdsSettings.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   },
   "src/pages/projects/data/tds/useTdsMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/data/tds/useTdsQueries.ts": {
@@ -4617,11 +4564,11 @@
     }
   },
   "src/pages/projects/data/work-plan/useWorkPlanMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/projects/data/work-plan/useWorkPlanQueries.ts": {
@@ -4630,13 +4577,13 @@
     }
   },
   "src/pages/projects/edit-project-form.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
+      "count": 2
+    },
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -4646,13 +4593,13 @@
     }
   },
   "src/pages/projects/hooks/useProjectAllCredits.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
+      "count": 4
+    },
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
@@ -4662,14 +4609,11 @@
     }
   },
   "src/pages/projects/project-form/index.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-syntax": {
-      "count": 1
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/project-form/steps/AddTenderingBoqsDialog.tsx": {
@@ -4678,9 +4622,6 @@
     }
   },
   "src/pages/projects/project.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 16
-    },
     "no-restricted-imports": {
       "count": 1
     },
@@ -4689,15 +4630,18 @@
     },
     "react-hooks/rules-of-hooks": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 16
     }
   },
   "src/pages/projects/projects.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/projects/queries.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4707,24 +4651,24 @@
     }
   },
   "src/pages/projects/tendering/TenderingOverviewTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/tendering/TenderingProjectForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/pages/projects/tendering/TenderingProjectsTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/projects/tendering/hooks/usePincodeLocations.ts": {
@@ -4733,15 +4677,15 @@
     }
   },
   "src/pages/projects/tendering/hooks/useTenderingMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/remaining-items/components/ReportSummaryCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4751,19 +4695,19 @@
     }
   },
   "src/pages/remaining-items/hooks/useRemainingItemsForm.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/remaining-items/index.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/reports/components/CustomerReports.tsx": {
@@ -4772,19 +4716,19 @@
     }
   },
   "src/pages/reports/components/DCMIRReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 15
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 15
     }
   },
   "src/pages/reports/components/GSTReport/ProjectGSTReportDetails.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-properties": {
       "count": 3
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/reports/components/ITMDNDCQuantityReport.tsx": {
@@ -4793,90 +4737,90 @@
     }
   },
   "src/pages/reports/components/ITMDispatchedReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/reports/components/InflowReportTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/reports/components/InventoryReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/reports/components/PO2BReconcileReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/reports/components/POAttachmentReconcileReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/reports/components/POReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 11
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 11
     }
   },
   "src/pages/reports/components/ProjectProgressReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/reports/components/ProjectReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/reports/components/SR2BReconcileReport.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/reports/components/SRReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/reports/components/VendorReports.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -4886,24 +4830,24 @@
     }
   },
   "src/pages/reports/components/columns/poColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 11
     }
   },
   "src/pages/reports/components/columns/projectColumns.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 10
     }
   },
   "src/pages/reports/components/outflowReportTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/reports/hooks/useAmountPaidMismatch.ts": {
@@ -4922,34 +4866,34 @@
     }
   },
   "src/pages/reports/hooks/useOutflowReportData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/reports/hooks/usePO2BReconcileData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/reports/hooks/usePOAttachmentReconcileData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/reports/hooks/usePOReportsData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -4959,19 +4903,19 @@
     }
   },
   "src/pages/reports/hooks/useProjectGSTData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/reports/hooks/useProjectGSTDetailsData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 14
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 14
     }
   },
   "src/pages/reports/hooks/useProjectReportCalculations.ts": {
@@ -4980,18 +4924,18 @@
     }
   },
   "src/pages/reports/hooks/useSR2BReconcileData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/reports/hooks/useSRReportsData.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5024,10 +4968,10 @@
     }
   },
   "src/pages/tasks/invoices/components/PendingTasksTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5042,11 +4986,11 @@
     }
   },
   "src/pages/tasks/invoices/components/TaskHistoryTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/tasks/invoices/components/columns.tsx": {
@@ -5055,7 +4999,7 @@
     }
   },
   "src/pages/tasks/invoices/config/InvoiceTaskTable.config.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -5065,18 +5009,18 @@
     }
   },
   "src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/tasks/invoices/hooks/useInvoiceRowAdminActions.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5086,11 +5030,11 @@
     }
   },
   "src/pages/tasks/invoices/hooks/useInvoiceTasks.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/tasks/invoices/hooks/useReadExpenseBillAgain.ts": {
@@ -5109,11 +5053,11 @@
     }
   },
   "src/pages/tds/TDSApprovalDetail.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/tds/TDSApprovalList.tsx": {
@@ -5122,67 +5066,67 @@
     }
   },
   "src/pages/tds/TDSItemDetail.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 4
     }
   },
   "src/pages/tds/TDSRepositoryMaster.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 13
     }
   },
   "src/pages/tds/components/AddTDSEntryDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/tds/components/AddTDSItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 11
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 11
     }
   },
   "src/pages/tds/components/AddTDSItemWizard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 7
     }
   },
   "src/pages/tds/components/EditRequestItemModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/tds/components/EditTDSEntryDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 8
     }
   },
   "src/pages/tds/components/EditTDSItemDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/tds/components/ItemsSKUTab.tsx": {
@@ -5191,27 +5135,27 @@
     }
   },
   "src/pages/tds/components/MultiAddMembersDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/tds/components/ProjectEditTDSItemModal.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/tds/components/TDSItemPeekDialogs.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/tds/hooks/useTDSItemOptions.ts": {
@@ -5220,27 +5164,27 @@
     }
   },
   "src/pages/temp/ResolveInvoices.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 6
     }
   },
   "src/pages/users/EditUserForm.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/users/components/AssignAssetToUserDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 5
     }
   },
   "src/pages/users/components/EditOwnBankAccountDialog.tsx": {
@@ -5249,15 +5193,15 @@
     }
   },
   "src/pages/users/components/UserAssetsTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/users/components/UserProjectsTab.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5267,33 +5211,33 @@
     }
   },
   "src/pages/users/components/UserRowActions.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/users/user-form.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 2
+    },
+    "typescript/no-explicit-any": {
+      "count": 1
     }
   },
   "src/pages/users/user-profile.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "react-hooks/rules-of-hooks": {
       "count": 22
+    },
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/pages/users/users.tsx": {
@@ -5302,23 +5246,23 @@
     }
   },
   "src/pages/vendors/components/EditCreditLimitDialog.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/vendors/components/POVendorLedger.tsx": {
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "typescript/use-unknown-in-catch-callback-variable": {
       "count": 1
     }
   },
   "src/pages/vendors/components/VendorCreditLedgerTable.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5333,10 +5277,10 @@
     }
   },
   "src/pages/vendors/components/VendorGstHoldCard.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5361,47 +5305,47 @@
     }
   },
   "src/pages/vendors/data/useVendorMutations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/vendors/data/useVendorQueries.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/vendors/edit-vendor.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/vendors/hooks/usePaymentScreenshotHandler.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/pages/vendors/hooks/useVendorData.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
+    },
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/pages/vendors/new-vendor.tsx": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5416,52 +5360,52 @@
     }
   },
   "src/services/socketListeners.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 23
     }
   },
   "src/types/NirmaanStack/ManpowerReports.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/NirmaanVersions.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/PRCategory.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/ProcurementOrders.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/ProjectWorkMilestones.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/Projects.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
   "src/types/NirmaanStack/QuotationRequests.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/ServiceOrders.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/types/NirmaanStack/ServiceRequests.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
@@ -5481,35 +5425,29 @@
     }
   },
   "src/utils/auth/UserProvider.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-properties": {
       "count": 3
     },
-    "no-restricted-syntax": {
-      "count": 1
+    "typescript/no-explicit-any": {
+      "count": 2
     }
   },
   "src/utils/bulkDownload/bulkDownloadEvents.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/utils/bulkDownload/bulkDownloadEvents.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/utils/downloadPrintFormatPdf.ts": {
     "no-restricted-properties": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/utils/expenseFormat.test.ts": {
@@ -5528,28 +5466,25 @@
     }
   },
   "src/utils/exportToCsv.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 10
     }
   },
   "src/utils/frappeErrors.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
     "no-restricted-properties": {
       "count": 2
     },
-    "no-restricted-syntax": {
-      "count": 1
+    "typescript/no-explicit-any": {
+      "count": 3
     }
   },
   "src/utils/getAmounts.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 5
     }
   },
   "src/utils/getLowestQuoteFilled.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 2
     }
   },
@@ -5594,45 +5529,45 @@
     }
   },
   "src/utils/sentry/captureApiError.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/utils/sentry/sentryHelpers.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/utils/sentry/types.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/utils/sentry/useApiErrorLogger.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-imports": {
+    "typescript/no-explicit-any": {
       "count": 1
     }
   },
   "src/utils/tableFilters.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 3
     }
   },
   "src/zustand/eventListeners.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 14
     }
   },
   "src/zustand/useDialogStore.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 4
     }
   },
   "src/zustand/useFrappeDataStore.ts": {
-    "@typescript-eslint/no-explicit-any": {
+    "typescript/no-explicit-any": {
       "count": 6
     }
   }

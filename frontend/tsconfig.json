@@ -23,7 +23,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     /* shadcn-ui changes*/
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"

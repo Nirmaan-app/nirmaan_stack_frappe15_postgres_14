@@ -1205,7 +1205,10 @@ export const PurchaseOrder = () => {
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
-                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                {/* One column below 1280px (phones and tablets, owner 2026-11-17), side by side above. Each card
+                    also needs `max-[1279px]:col-span-full`: a fixed col-span in a one-column grid adds implicit
+                    columns and squeezes the cards back side by side. */}
+                <div className="grid gap-4 max-[1279px]:grid-cols-1 grid-cols-6">
                   <TransactionDetailsCard
                     estimatesViewing={estimatesViewing}
 
@@ -1230,6 +1233,7 @@ export const PurchaseOrder = () => {
 
                   {/* Cheques issued for this PO: Payment and Security Deposit (#1521); renders only for cheque users. */}
                   <PoChequesCard
+                    className="rounded-sm shadow-m col-span-6 max-[1279px]:col-span-full overflow-x-auto"
                     record={{
                       doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor,
                       vendor_name: PO?.vendor_name,

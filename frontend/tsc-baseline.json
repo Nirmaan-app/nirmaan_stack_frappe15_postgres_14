@@ -492,7 +492,6 @@
     ["src/pages/ProcurementRequests/NewPR/components/ManageCategoryMakesDialog.tsx","TS6133","'X' is declared but its value is never read.",1],
     ["src/pages/ProcurementRequests/NewPR/components/OrderListDisplay.tsx","TS6133","'selectedCategories' is declared but its value is never read.",1],
     ["src/pages/ProcurementRequests/NewPR/hooks/useProcurementRequestForm.ts","TS6133","'useMemo' is declared but its value is never read.",1],
-    ["src/pages/ProcurementRequests/NewPR/store/useProcurementRequestStore.ts","TS1016","A required parameter cannot follow an optional parameter.",1],
     ["src/pages/ProcurementRequests/NewPR/store/useProcurementRequestStore.ts","TS6133","'state' is declared but its value is never read.",1],
     ["src/pages/ProcurementRequests/VendorQuotesSelection/ProcurementProgressView.tsx","TS2322","Type '\"view\" | \"edit\" | \"review\"' is not assignable to type '\"view\" | \"edit\"'.\n  Type '\"review\"' is not assignable to type '\"view\" | \"edit\"'. Did you mean '\"view\"'?",1],
     ["src/pages/ProcurementRequests/VendorQuotesSelection/ProcurementProgressView.tsx","TS2322","Type '(itemId: string, vendorId: string, taxValue: string) => void' is not assignable to type '(itemId: string, tax: string) => void'.\n  Target signature provides too few arguments. Expected 3 or more, but got 2.",1],

@@ -91,14 +91,15 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
   `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
   that each hook's type defaults to `unknown` instead of `any`: pass the generated DocType type
   (`useFrappeGetDoc<CustomersDocType>(…)`, with `CustomersDocType` from `@/types/doctypes/Customers` and the hook
-  from `@/lib/frappe`, as `pages/customers/` does) or narrow the result. ESLint bans importing `frappe-react-sdk`
-  anywhere else (ADR-0049); files that did before are frozen in `eslint-suppressions.json` and move over folder
+  from `@/lib/frappe`, as `pages/customers/` does) or narrow the result. oxlint bans importing `frappe-react-sdk`
+  anywhere else (ADR-0049); files that did before are frozen in `oxlint-suppressions.json` and move over folder
   by folder. A folder's move starts with `node scripts/migrate_folder_to_typed.mjs <folder> [--dry-run]` (the
   imports, `JSON.parse`, `.json()`, `catch (e: any)`); the folder then joins the `no-unsafe-*` block in
-  `eslint.config.js`.
+  `.oxlintrc.json`.
 - **Parse JSON text with `parseJson()`** (`src/lib/parseJson.ts`), which returns `unknown` and otherwise behaves as
-  `JSON.parse` (invalid JSON or `""` throws a `SyntaxError`). ESLint bans raw `JSON.parse` and `.json()`; for a
-  fetch response use `parseJson(await response.text())`.
+  `JSON.parse` (invalid JSON or `""` throws a `SyntaxError`). oxlint bans raw `JSON.parse`, and residence check J1
+  bans new `.json()` calls (old ones are frozen per file in `json-call-suppressions.json`); for a fetch response use
+  `parseJson(await response.text())`.
 - **`useFrappeGetDoc`'s third argument is the SWR key, not options.** Fetch conditionally with
   `useFrappeGetDoc(doctype, id, id ? undefined : null)`; passing `{ enabled: !!id }` there becomes the cache
   key and breaks SWR deduplication. The same `swrKey` slot sits third on `useFrappeGetDocList`.
