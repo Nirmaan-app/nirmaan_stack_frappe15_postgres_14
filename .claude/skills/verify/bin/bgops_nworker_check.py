@@ -26,10 +26,13 @@ import sys
 import threading
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from bgops_workers import in_container, start_workers, stop_workers  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 DEVENV = os.path.join(APP, "scripts", "devenv", "devenv.sh")
-FRAPPE = "frappe_docker_devcontainer-frappe-1"
 POSTGRES = "frappe_docker_devcontainer-postgresql-1"
 
 ap = argparse.ArgumentParser()
@@ -39,38 +42,7 @@ ap.add_argument("--owner", default="Administrator", help="the user who starts ev
 ap.add_argument("--heavy-rows", type=int, default=200)
 a = ap.parse_args()
 
-bench = f"/workspace/development/benches/{a.task}"
 db = "t_" + a.task.replace("-", "_")
-
-
-def in_container(cmd):
-    return subprocess.run(["docker", "exec", FRAPPE, "bash", "-c", cmd], capture_output=True, text=True)
-
-
-def start_workers(count):
-    """Each worker runs the env's own code (PYTHONPATH: the editable install points at the master checkout) and
-    leads its own session; the shell that starts it prints its own pid (the session id) and then
-    becomes the worker, so `kill -- -<pgid>` reaches the worker and every work horse it forks."""
-    pgids = []
-    for i in range(count):
-        out = in_container(
-            f"cd {bench}/sites && FRAPPE_BENCH_ROOT={bench} PYTHONPATH={bench}/apps/nirmaan_stack setsid sh -c 'echo $$; exec {bench}/env/bin/python -m "
-            f"frappe.utils.bench_helper frappe worker --queue long >{bench}/logs/nworker-{i}.log 2>&1 </dev/null' &"
-            " sleep 0.5"
-        )
-        pgids.append(out.stdout.strip())
-    return pgids
-
-
-def stop_workers(pgids):
-    for pgid in pgids:
-        in_container(f"kill -TERM -- -{pgid} 2>/dev/null || true")
-    time.sleep(2)
-    for pgid in pgids:
-        in_container(f"kill -KILL -- -{pgid} 2>/dev/null || true")
-    left = in_container(f"ps -eo pgid= | grep -wE '{'|'.join(pgids)}' || true").stdout.split()
-    if left:
-        print(f"WARNING: {len(left)} worker processes still run; stop them: kill -- -<pgid> in the container")
 
 
 peaks = {"rss_mb": {}, "db_connections": 0}
@@ -98,7 +70,7 @@ def sample(pgids):
         time.sleep(1)
 
 
-pgids = start_workers(a.workers)
+pgids = start_workers(a.task, a.workers)
 print(f"started {a.workers} long workers for {a.task} (process groups {', '.join(pgids)})", flush=True)
 sampler = threading.Thread(target=sample, args=(pgids,), daemon=True)
 sampler.start()
