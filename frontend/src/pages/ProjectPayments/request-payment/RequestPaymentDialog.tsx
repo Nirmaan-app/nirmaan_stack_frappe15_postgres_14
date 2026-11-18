@@ -251,7 +251,7 @@ export default function RequestPaymentDialog(p:Props){
       ))}
       {toAccountant
         ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">
-            Goes to the Accountant first. Once approved, the payment follows the usual approval by amount.
+            Goes to the Accountant first. Once approved, it is ready to pay: no L1 or CEO approval.
           </p>
         : (() => {
             const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));

@@ -4,9 +4,10 @@ import { useUserData } from "@/hooks/useUserData";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
-import { useDocTypeEventListener } from "@/lib/frappe";
+import { FrappeContext, useDocTypeEventListener, useSWRConfig, type FrappeConfig } from "@/lib/frappe";
+import { PAYMENT_SUMMARY_API, PAYMENT_SUMMARY_SWR_KEY } from "./config/paymentSummaryKey";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
@@ -114,6 +115,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         canDecideGst ? "gst-requests-pending-count" : null,
     );
     useDocTypeEventListener("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
+    // A GST approval creates an Approved payment, which moves the Payment Summary's figures. The summary is READ
+    // on the decision and put in the cache, so its cards are current the moment another tab opens (they showed the
+    // figures from before the approval for a second). A bare mutate(key) would not do it: the cards are not on
+    // screen here, and SWR re-reads only hooks on screen. The SDK's own SWR cache, not "swr"'s.
+    const { mutate: mutateSwr } = useSWRConfig();
+    const { call } = useContext(FrappeContext) as FrappeConfig;
+    const onGstDecided = useCallback(() => {
+        mutateQueueCounts();
+        mutateGstWaiting();
+        void mutateSwr(PAYMENT_SUMMARY_SWR_KEY, call.get(PAYMENT_SUMMARY_API), { revalidate: false });
+    }, [mutateQueueCounts, mutateGstWaiting, mutateSwr, call]);
 
     const initialTab = useMemo(() => getUrlStringParam("tab", tabSet.defaultTab), [tabSet.defaultTab]);
 
@@ -256,7 +268,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         )
                     ) : tab === PP_TABS.GST_REQUESTS ? (
                         // Rows only, no Approve / Reject, for anyone who reaches it by a hand-edited URL.
-                        <GstRequestsTab canDecide={canDecideGst} onDecided={() => { mutateQueueCounts(); mutateGstWaiting(); }} />
+                        <GstRequestsTab canDecide={canDecideGst} onDecided={onGstDecided} />
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} refetchRef={listRefetchRef} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (

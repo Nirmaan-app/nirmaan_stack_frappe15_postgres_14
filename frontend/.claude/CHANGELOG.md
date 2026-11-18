@@ -59,6 +59,40 @@ Branch `feat/vendor-wo-pdf` (5 commits, unpushed). Backend, schema and print for
 
 ---
 
+## 2026-11-18 — GST Requests: vendor card on the Vendor column; "ready to pay" wording (ADR-0030 Amendment B)
+
+On `develop`, uncommitted. Backend: `../../.claude/CHANGELOG.md` (same date).
+
+- **Vendor card:** `gst-requests/GstRequestsTab.tsx` wraps the Vendor column's name in
+  `components/DetailPopovers.VendorDetailPopover`, the same click-to-open card the Payments queue
+  (`config/approvalColumns.tsx`) and Project Expenses use: GST, contact, phone, and the vendor's Payee account
+  (A/c No, IFSC, Bank), with "Open vendor". The GSTIN line under the name stays outside the trigger. The card's
+  reads stay lazy (nothing is fetched until it is opened).
+- **Wording (Amendment B):** the Request Payment dialog's GST note ("Once approved, it is ready to pay: no L1 or
+  CEO approval."), the GST Requests tab's intro, and a new line in the Approve dialog (`GstDecisionDialog.tsx`,
+  shown only while the request still fits: "The payment goes straight to Payment need to paid. No L1 or CEO
+  approval.").
+- **Fixed: names flash as ids.** `useLookup` in `GstRequestsTab.tsx` keyed its query on the exact ids on screen, so
+  any change of rows (a decision, another status pill) started an empty query and Project / Vendor / Raised By fell
+  back to raw ids and the vendor line to "No GSTIN" for about a second. It now keeps every record it has read
+  (`onSuccess` adds to `known`, merged with the current read), and a cell whose record is not read yet shows a
+  pulse placeholder, never the id or "No GSTIN". The rule is pure and tested: `utils/gstPaymentRequests`
+  `mergeLookup` / `lookupCell` (+6 vitest cases in `gstPaymentRequests.test.ts`).
+- **Fixed: Payment Summary late after a GST approval.** The summary is cached under one SWR key and shown from
+  cache when a tab opens, then refetched, so after approving in GST Requests the cards showed the old figures for
+  a moment. A bare `mutate(key)` was tried first and did NOT work (SWR re-reads only hooks on screen; the cards are
+  not on screen in GST Requests). `RenderProjectPaymentsComponent.onGstDecided` now READS the summary
+  (`call.get(PAYMENT_SUMMARY_API)`) and puts it in the cache (`mutate(PAYMENT_SUMMARY_SWR_KEY, read,
+  { revalidate: false })`), with `FrappeContext` / `useSWRConfig` from `@/lib/frappe`. Key and method live in
+  `config/paymentSummaryKey.ts` so the lazy `PaymentSummaryCards` is not pulled in. Browser-checked: after a ₹500
+  approval the cards opened at once on (7) ₹1,29,500 / Approved But not Paid (20). Owner (2026-11-18): an
+  Accountant's GST approval stays counted in the L1 / CEO Approval cards (both dates are stamped on purpose).
+- **Seen in the browser walk-through, not fixed (pre-existing):** Transaction Details on the Work Order does not
+  refetch GST requests after "Send to Accountant" (shows on reload); the Approve dialog's "GST already paid /
+  Other GST requests waiting" can be one approval stale. Its "GST left after this approval" was right each time.
+
+---
+
 ## 2026-11-12 — L1 single reject no longer stamps `approval_date`
 
 `approve-payments/ApprovePayments.tsx`: the L1 dialog's update writes `approval_date` only on an approve. A reject
