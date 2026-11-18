@@ -47,7 +47,8 @@ describe("while the job runs", () => {
         expect(text()).toContain("35%");
         expect(text()).toContain("PO/013");
         expect(text()).toContain("About 2 min left");
-        expect(text()).toContain("Keep this page open until the file downloads.");
+        expect(text()).toContain("You can leave this page. The download carries on and picks up again when you come back.");
+        expect(text()).not.toContain("Keep this page open");
         expect(buttons()).toEqual(["Cancel download"]); // no ✕, no Close, no background button
         expect(text()).not.toMatch(/Queued|Merging/); // no stepper
     });
