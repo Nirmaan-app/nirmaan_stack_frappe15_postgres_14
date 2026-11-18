@@ -306,15 +306,14 @@ The residence map and the ownership manifests stay.
 
 ### B3 and Candidate 6
 
-On the 2026-11-17 backup, 101 Procurement Requests read *Vendor Approved* while a linked Sent Back Category is
-still *Pending*, *Sent Back* or *Partially Approved* (117 Sent Back Categories). 18 of those Procurement Requests
-have such a Sent Back Category made on or after 2026-08-01.
-
-The owner decided (2026-11-18): a request with items still waiting in a Sent Back Category shows *Partially
-Approved*, and moves to *Vendor Approved* only when every item, its Sent Back items included, is decided. Today the
-status also depends on which button was pressed last: on the same backup, 23 requests with approved and sent-back
-items and none pending show *Sent Back* (11), *Partially Approved* (6) or *Vendor Approved* (6). Candidate 6
-(issue #1721) builds the one deriver that applies the rule.
+The owner decided (2026-11-18): a request shows *Partially Approved* while any of its items is still *Pending*, on
+the request or on a linked Sent Back Category, and *Vendor Approved* once at least one item is approved and none is
+Pending. A Sent Back Category's own status does not count: a second send-back moves the items to a new Sent Back
+Category and leaves the old one at *Sent Back* or *Partially Approved* with nothing in it to do. Removing a Sent Back
+Category recomputes its request. Today the status also depends on which button was pressed last: on the 2026-11-17
+backup, 23 requests with approved and sent-back items and none pending show *Sent Back* (11), *Partially Approved*
+(6) or *Vendor Approved* (6). Candidate 6 (issue #1721) builds the one deriver, and a one-time patch recomputes
+existing requests: 222 move forward to *Vendor Approved* and 2 move back, both with a real Pending item.
 
 ### Proofs and backlog
 
