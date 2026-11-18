@@ -394,7 +394,7 @@ Two separate holds sit on a Vendor. They share the word "hold" and nothing else 
 
 ## Module residence
 
-- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
+- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The residence rules (amended 2026-11-18) and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
 
 - **Deep module** — a module whose interface is much smaller than its implementation: it owns a concept behind a narrow seam, so callers depend on the seam, not the internals. A *shallow* module (interface nearly as large as its implementation) leaks its concept to every caller. The codebase spans both: BoQ / ITM / PO-Adjustments are deep; Service Requests / Procurement are shallow.
 

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Residence ratchet — enforce ADR-0010 module-residence rules by trend, not by fiat.
 
-ADR-0010 (docs/adr/0010-module-residence-rules.md) defines ten "residence" rules:
+ADR-0010 (docs/adr/0010-module-residence-rules.md) defines the "residence" rules:
 a concept (a business calculation, a JSON/child-table shape, a document's
 ``workflow_state``, a write path) must have ONE owning module and not scatter across
-call sites. The rules are prose; nothing enforces them, and the codebase carries
-measured drift (ad-hoc state writers, raw updateDoc call sites, inline JSON.parse).
+call sites.
+
+The 2026-11-18 amendment keeps two of its counters here (B1, B3); its other rules are review rules.
 
 A RATCHET fixes the drift in one direction. Each check counts the current violations
 of one rule and compares against a committed baseline in ``residence_baseline.json``.
@@ -28,12 +29,10 @@ from __future__ import annotations
 
 import argparse
 import ast
-import io
 import json
 import re
 import subprocess
 import sys
-import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NamedTuple
@@ -47,30 +46,8 @@ SKIP_DIRS = {"node_modules", "dist", "__pycache__", "public", ".git"}
 
 # --- Rule B1 -----------------------------------------------------------------
 # Modules DECLARED pure: no frappe.db / get_all / get_doc / sql. Extend this list
-# as more domain rules are extracted into pure modules (that is the whole point —
-# a shrinking violation surface as the good pattern spreads).
-# NOTE: services/finance.py is deliberately NOT here — it makes live frappe.get_all
-# calls; it is a mixed module, not a pure one, so it is out of scope for this check.
-#
-# ⚠️ THIS CHECK IS EFFECTIVELY INERT, AND ADDING A MODULE HERE BUYS ALMOST NOTHING TODAY.
-# ``strip_strings_and_comments`` (below) space-joins tokens, so ``frappe.db.get_value(...)``
-# reaches the regex as ``frappe . db . get_value ( )`` and the B1 pattern cannot match it.
-# This is NOT specific to ``frappe.db``: ALL FOUR alternatives — ``frappe.db``,
-# ``frappe.get_all(``, ``frappe.get_doc(``, ``frappe.sql(`` — are missed identically,
-# because every one of them spans a token boundary the joiner pads.
-#
-# The one case that DOES still match is an UNPARSEABLE file: the tokenize/IndentationError/
-# SyntaxError branch fails OPEN and returns the RAW source, which the pattern then matches
-# — including inside comments and docstrings, where a mere MENTION of ``frappe.db`` counts
-# as a violation. So the check is not uniformly blind; it is blind on every file that
-# parses, and over-eager on any that does not. Either way a green b1 count is NOT evidence
-# that a listed module was checked.
-#
-# The bug is repo-wide and belongs in its own slice (fixing it here would silently change
-# what a shared enforcement script reports for every module); it is recorded as debt at
-# slice BCS-S1b, and this note was corrected at BCS-S1c after the two claims above were
-# reproduced by execution. Registration below is correct-in-principle and starts covering
-# these modules the day the tokenizer is fixed.
+# as more domain rules are extracted into pure modules.
+# services/finance.py is deliberately NOT here: it makes live frappe.get_all calls.
 PURE_MODULES = [
     "nirmaan_stack/services/procurement_approval.py",
     # The two BCS column-confirmation rules (BCS-S1a relocation). Pure by contract: its
@@ -120,34 +97,36 @@ def count_lines(files: list[Path], pattern: re.Pattern) -> int:
     return total
 
 
-def count_files(files: list[Path], pattern: re.Pattern) -> int:
-    """Number of FILES that contain at least one pattern match."""
-    return sum(1 for p in files if pattern.search(read(p)))
+_DB_ACCESS = {"db", "qb", "sql", "get_all", "get_list", "get_doc", "get_cached_doc", "get_cached_value", "get_single"}
+_DB_ACCESS_TEXT = re.compile(r"frappe\.(db|qb|sql|get_all|get_list|get_doc|get_cached_doc|get_cached_value|get_single)\b")
 
 
-def strip_strings_and_comments(src: str) -> str:
-    """Return only the CODE tokens of a Python source — string literals and
-    comments removed. Lets a purity check ignore docstring mentions such as
-    ``no frappe.db`` while still catching a real ``frappe.db.get_value(...)`` call."""
-    kept = []
+def db_access_lines(src: str) -> list[int]:
+    """Lines of a Python source that reach the database through ``frappe`` (``frappe.db``, ``frappe.qb``,
+    ``frappe.get_all``, ``frappe.get_cached_value``, ...), under an alias or a ``from frappe import``.
+    Strings and comments never count."""
     try:
-        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
-            if tok.type in (tokenize.STRING, tokenize.COMMENT):
-                continue
-            kept.append(tok.string)
-    except (tokenize.TokenError, IndentationError, SyntaxError):
-        return src  # fail open: better to over-count than to hide a violation
-    return " ".join(kept)
+        tree = ast.parse(src)
+    except SyntaxError:
+        return [i + 1 for i, line in enumerate(src.splitlines()) if _DB_ACCESS_TEXT.search(line)]
+    frappe_names = {"frappe"}
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            frappe_names |= {a.asname for a in node.names if a.name == "frappe" and a.asname}
+        elif isinstance(node, ast.ImportFrom) and node.module == "frappe":
+            imported |= {a.asname or a.name for a in node.names if a.name in _DB_ACCESS}
+    return sorted({
+        node.lineno for node in ast.walk(tree)
+        if (isinstance(node, ast.Attribute) and node.attr in _DB_ACCESS
+            and isinstance(node.value, ast.Name) and node.value.id in frappe_names)
+        or (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in imported)
+    })
 
 
-def count_pure_module_impurity(pattern: re.Pattern) -> int:
-    """Total DB-access matches inside the declared PURE_MODULES (code only)."""
-    total = 0
-    for rel in PURE_MODULES:
-        p = REPO_ROOT / rel
-        if p.exists():
-            total += len(pattern.findall(strip_strings_and_comments(read(p))))
-    return total
+def pure_module_impurities() -> list[str]:
+    return [f"{rel}:{n}" for rel in PURE_MODULES if (REPO_ROOT / rel).exists()
+            for n in db_access_lines(read(REPO_ROOT / rel))]
 
 
 # --- Rule P1: adding up Project Payments to show a paid figure (ADR-0034) ------
@@ -555,17 +534,6 @@ class Check:
     pass_mark: int | None = None
 
 
-# b2: files containing the state literal, minus the predicate home and test files.
-_VENDOR_SELECTED = re.compile(r'"Vendor Selected"')
-
-def _measure_b2() -> int:
-    files = [
-        p for p in iter_files("nirmaan_stack", (".py",))
-        if p.name != "procurement_approval.py" and not p.name.startswith("test_")
-    ]
-    return count_files(files, _VENDOR_SELECTED)
-
-
 _GET_VALUE_ANY_ROW = re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}""")
 
 
@@ -608,43 +576,11 @@ CHECKS: list[Check] = [
     Check(
         id="b1_pure_module_purity",
         rule="B1",
-        description="frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
+        description="Database reads through frappe (db, qb, get_all, get_doc, get_cached_value, ...) inside declared PURE_MODULES (a pure module must have none).",
         route_hint="a PURE_MODULES entry reached into frappe.db — move the data access to a thin orchestrator "
                    "and keep the module pure, or remove it from PURE_MODULES (see ADR-0010 rule B1).",
-        measure=lambda: count_pure_module_impurity(re.compile(r"frappe\.(db\b|get_all\(|get_doc\(|sql\()")),
-    ),
-    Check(
-        id="b2_predicate_literal_scatter",
-        rule="B2",
-        description='Files hardcoding the "Vendor Selected" state literal instead of importing the shared predicate.',
-        route_hint="the awaiting-approval predicate lives in services/procurement_approval.py "
-                   "(AWAITING_APPROVAL_STATES / is_awaiting_approval) — import it, don't hardcode states.",
-        measure=_measure_b2,
-    ),
-    Check(
-        id="f5_raw_updatedoc_files",
-        rule="F5",
-        description="Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
-        route_hint="writes to shared docs should go through the write-safety seam (useEditingLock) — "
-                   "extend it, don't add a raw updateDoc call (ADR-0010 rule F5).",
-        # src/lib/frappe.ts re-exports the SDK hooks with typed defaults (ADR-0049): it names the hook and
-        # writes nothing, so it is not a write site.
-        measure=lambda: count_files(
-            [p for p in iter_files("frontend/src", (".ts", ".tsx"))
-             if p != REPO_ROOT / "frontend/src/lib/frappe.ts"],
-            re.compile(r"useFrappeUpdateDoc|updateDoc\("),
-        ),
-    ),
-    Check(
-        id="f2_inline_json_parse_pages",
-        rule="F2",
-        description="Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
-        route_hint="parse a backend JSON shape once, in a typed accessor (e.g. useITM()), not inline in a page "
-                   "(ADR-0010 rule F2).",
-        measure=lambda: count_lines(
-            iter_files("frontend/src/pages", (".ts", ".tsx")),
-            re.compile(r"JSON\.parse"),
-        ),
+        measure=lambda: len(pure_module_impurities()),
+        locate=pure_module_impurities,
     ),
     # Not an ADR-0010 residence rule: a test-data rule that rides this ratchet because it is the
     # repo's one counting check. `get_value(doctype, {})` returns the most recently MODIFIED row,
@@ -811,8 +747,8 @@ def do_init() -> int:
     return 0
 
 
-# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
-# (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
+# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's two
+# counters (B1, B3) run in the local hook only (ADR-0010 amendment, 2026-11-18).
 CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
 
 

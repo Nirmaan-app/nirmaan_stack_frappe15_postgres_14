@@ -105,13 +105,12 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
   key and breaks SWR deduplication. The same `swrKey` slot sits third on `useFrappeGetDocList`.
 - **A page's custom hook owns its fetching and mutations;** the rule itself lives as a pure function in
   `utils/<domain>` (F4), so it is unit-testable without React.
-- **Parse a backend shape at one typed accessor** (F2), like `useITM()`; an inline `JSON.parse` in a page is a
-  counted violation.
+- **Parse a backend shape at one typed accessor** (F2), like `useITM()`; oxlint refuses an inline `JSON.parse`.
 - **Write shared documents through the write-safety seam** (F5): `useEditingLock`
   (`src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts`) — Redis-backed, auto acquire/release,
   heartbeat, Socket.IO events, `sendBeacon` cleanup; disable locally with
   `localStorage.setItem('nirmaan-lock-disabled', 'true')`. Extend the seam rather than adding a raw
-  `updateDoc`, which is a counted violation.
+  `updateDoc`.
 - **A dialog that mutates its own list holds the row's name, not the row object.** A dialog holding the object
   (`useState<CriticalPOTask>`) keeps rendering the snapshot taken when it opened after its own action calls
   `mutate()` (stale PO chips). Store the name (`editingTaskName` in `CriticalPOTasksList.tsx`) and derive the live
@@ -268,21 +267,20 @@ Matrix of roles, sidebar entries, per-page actions and the PMO exceptions: `.cla
 
 ## Module residence (F1–F5)
 
-ADR-0010 (Proposed) gives each concept **one owning module**, never scattered across components; the full set,
-backend B1–B5 included, is in [ADR-0010](../docs/adr/0010-module-residence-rules.md).
+ADR-0010 (Accepted, amended 2026-11-18) gives each concept **one owning module**, never scattered across components;
+the full set, backend B1–B4 included, is in [ADR-0010](../docs/adr/0010-module-residence-rules.md). No F rule has a residence counter.
 
 - **F1** — a domain rule has one home, pinned to the backend's via a parity test (FE↔BE), like boq
   `reconcile.ts` / `priceability.ts`.
-- **F2** — backend shapes are parsed at **one typed accessor** (like itm `useITM()`); grep for inline parses.
+- **F2** — backend shapes are parsed at **one typed accessor** (like itm `useITM()`); oxlint bans `JSON.parse` and
+  residence check J1 bans new `.json()` calls.
 - **F3** — near-twin flows are **one parametric module**, not a copy (the PR/SB approval twin is the anti-pattern).
 - **F4** — pages/hooks stay **thin over pure logic** in `utils/<domain>`; the pure rule is unit-testable without React.
-- **F5** — writes go through **one safety seam** (`useEditingLock`, extend it); grep for raw `updateDoc`.
+- **F5** — writes go through **one safety seam** (`useEditingLock`, extend it).
 
 Worked example: faceted filters ([Building a table](#building-a-table)). Before adding a helper for an existing
 domain concept, consult the domain doc's `## Residence — concept → owner` manifest (first one:
-`../.claude/context/domain/procurement.md`). `scripts/residence_check.py` runs from the app root, not `frontend/`,
-and ratchets the F2/F5 counts against `scripts/residence_baseline.json` (root `CODING_STANDARDS.md` § Before
-committing).
+`../.claude/context/domain/procurement.md`). `scripts/residence_check.py` counts no F rule.
 
 ---
 

@@ -4,7 +4,8 @@ Date: 2026-07-01
 
 ## Status
 
-**Proposed — pending owner (Nitesh) sign-off.**
+**Accepted, as amended on 2026-11-18** (see [Amendment](#amendment-2026-11-18)). Signed by the owner,
+Abhishek Kumar. It was Proposed, pending Nitesh's sign-off, from 2026-07-01.
 
 Derived from the pass-3 architecture review *"Architecture review — Procurement + codebase
 residence rules"* (2026-06-25) and the procurement **performance investigation** (2026-07-01).
@@ -278,3 +279,43 @@ vs. fetch), not a precedent; the original table is left as written for the recor
    rebuild + deploy for the SDK fix to take effect.**
 6. **`key={tab}` full remount** (`release-po-select.tsx:654`) — a shared amplifier across #2, #3,
    and #4; removing it is high-leverage.
+
+## Amendment (2026-11-18)
+
+The owner reviewed every item of this ADR on 2026-11-18. The review page compared each rule with the code of that
+day. Four of the five counters froze old debt and gave no route to fix it, and the B1 counter counted nothing.
+The decisions below replace the tables above wherever they differ.
+
+### Rules
+
+| Rule | Decision | Checked by |
+|---|---|---|
+| B1 pure modules | Kept. The counter is fixed: it reads the parsed code, so a database read through `frappe` in a listed module counts (`frappe.db`, `frappe.qb`, `get_all`, `get_list`, `get_doc`, `get_cached_doc`, `get_cached_value`, `get_single`, under an alias or a `from frappe import` too). | `b1_pure_module_purity`, git hook only |
+| B2 one owner per data shape | Kept as a review rule. The counter of files holding `"Vendor Selected"` is retired. | review |
+| B3 state is derived | Kept, with its counter. | `b3_workflow_state_writers`, git hook only |
+| B4 thin endpoints | Reworded: an endpoint holds no business rule. The ban on importing a controller is dropped: 26 endpoint modules in `api/` import one, `create_itms.py` included. | review |
+| B5 calculations outside controllers | Dropped. | none |
+| F1 one home, pinned to the backend | Kept as is. Parity tests check it. | tests |
+| F2 parse at one accessor | Kept as a review rule. The counter is retired: oxlint bans `JSON.parse` in all of `frontend/src`, and J1 bans new `.json()` calls (ADR-0049). | review, oxlint, J1 |
+| F3 one parametric module for near-twin flows | Kept as a review rule. | review |
+| F4 thin pages and hooks | Kept as a review rule. | review |
+| F5 one write-safety seam | Kept as a review rule. The counter of 89 files is retired: the seam was never built, so the count had nowhere to send them. | review |
+
+The two remaining counters run in the git hook only, not in CI, and their baseline entries have no CI guard (owner's choice).
+The residence map and the ownership manifests stay.
+
+### B3 and Candidate 6
+
+On the 2026-11-17 backup, 101 Procurement Requests read *Vendor Approved* while a linked Sent Back Category is
+still *Pending*, *Sent Back* or *Partially Approved* (117 Sent Back Categories). 18 of those Procurement Requests
+have such a Sent Back Category made on or after 2026-08-01. Whether that status is wrong is a product question. Candidate 6 goes to an issue that asks it.
+
+### Proofs and backlog
+
+- First proof (`sidebar_counts`): done.
+- Second proof (facets): every page moved. The legacy `facetFilterOptions` path stays until someone next changes the
+  table component.
+- Backlog 1 (freshness home), 3 (facet search bound), 4 (PO summary endpoint) and 6 (`key={tab}` remount): each
+  becomes an issue.
+- Backlog 2 (Candidate 6): an issue, as above.
+- Backlog 5 (realtime registry): dropped. The `frappe-react-sdk` 1.17.0 upgrade fixed the leak behind it.

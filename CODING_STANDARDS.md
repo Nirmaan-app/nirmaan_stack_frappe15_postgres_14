@@ -97,11 +97,12 @@ above (folder vs owner):
 - **Calculations/decisions the business names** (Benchmark, Loss %, awaiting-approval) → a **pure module** in `services/` (no `frappe.db`, no request ctx) — B1.
 - **A JSON / child-table shape** → **one accessor** that parses + types + keys it — B2.
 - **`workflow_state` / status** → **one deriver** `f(items, descendants)`, never written ad-hoc across endpoints — B3.
-- **Whitelisted endpoints** → **thin orchestrators** (lock → load → call → persist → commit → publish); an endpoint must not reach into a controller validator — B4.
+- **Whitelisted endpoints** hold **no business rule**: they load, call the rule, save and publish. A review rule, with no counter — B4.
 - **A count/aggregate over many rows** → **the database** (`GROUP BY` / `EXISTS`), never a `get_doc`/row-loop in Python.
 
 First worked proof: the `sidebar_counts` aggregate rewrite + the shared `services/procurement_approval.py`
-predicate home. Frontend rules F1–F5 (stated in `frontend/CODING_STANDARDS.md`) and the deferred backlog live in ADR-0010.
+predicate home. Frontend rules F1–F5 are stated in `frontend/CODING_STANDARDS.md`. Only B1 and B3 are counted by
+`scripts/residence_check.py`; the other rules are review rules (ADR-0010 amendment, 2026-11-18).
 
 Before creating a helper for an existing domain concept, consult the domain doc's **`## Residence — concept → owner`**
 manifest (e.g. `.claude/context/domain/procurement.md`, `boq-backend.md`); an unassigned owner means ask the owner rather than
@@ -469,11 +470,11 @@ breaks it); its name is how a refusal is recognised (`services/outflow_import/im
 `.githooks/pre-commit` and `.githooks/pre-merge-commit` (a merge skips pre-commit) run `.githooks/checks.sh`;
 `yarn install` in `frontend/` switches them on (`core.hooksPath`). It runs `python3 scripts/residence_check.py`
 (from the app root), which ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on
-increase; auto-tighten on decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1) and rupee
+increase; auto-tighten on decrease). Besides ADR-0010's B1 and B3 it counts files over 500 lines (S1) and rupee
 formatters outside their two homes (R1), so a review need not hunt for those by hand, and the frontend's `.json()`
 calls against their frozen counts (J1). It then runs type-aware oxlint on the staged `.ts`/`.tsx` files under
 `frontend/src` (here, or inside the dev container where oxlint's native binary does not load): `any` in frontend
-code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's five rules:
+code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's B1 and B3:
 `residence_check.py --check --only ci` (`CI_SUBSET`), which never rewrites the baseline, `yarn lint`,
 `scripts/lint_same_twice.mjs` (the type-aware lint twice: one result), and `yarn type-coverage`. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).
