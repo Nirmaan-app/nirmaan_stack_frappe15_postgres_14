@@ -209,7 +209,7 @@ has "note  plugin versions differ (laptop -> box): pstack@p 1.0 -> 2.0" "another
 
 task done t3
 rc_is 0 "done t3"
-has "Separate review (fills the report's ## Review): /mattpocock-skills:code-review $(git -C "$L" merge-base master box/t3 | cut -c1-9), on box/t3" "done names the separate review against the task's base"
+has "Separate review (fills the report's 'Separate review:' line): /mattpocock-skills:code-review $(git -C "$L" merge-base master box/t3 | cut -c1-9), on box/t3" "done names the separate review against the task's base"
 
 TASK_ENV="STUB_FAIL_ON=_box STUB_FAIL_RC=255" task start t4 --box air --no-agent
 rc_is 3 "a box lost mid-start is exit 3"; has "Steps already done stay done" "a box lost mid-start says rerun"

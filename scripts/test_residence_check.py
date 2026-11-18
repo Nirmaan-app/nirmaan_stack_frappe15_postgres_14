@@ -1,22 +1,36 @@
-"""Tests for the P1, A1 and R1 rules of residence_check.py, and for what a failure prints.
+"""Tests for the P1 and R1 rules (and A1's retirement) of residence_check.py, and for what a failure prints.
 
-Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
+Stdlib only, like the check itself (J1's tests also need node and frontend/node_modules):  python3 scripts/test_residence_check.py
 """
 
+import io
+import json
+import os
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from residence_check import (  # noqa: E402
-    explicit_any_lines_ts,
+    BASELINE_PATH,
+    CHECKS,
+    CI_SUBSET,
+    Check,
     locations_to_show,
+    main,
+    select_checks,
     payment_sum_lines_jinja,
     payment_sum_lines_py,
     payment_sum_lines_ts,
     rupee_formatter_lines,
     tds_added_to_amount_paid_lines,
+    json_call_count,
+    json_call_counts,
+    json_call_drift,
 )
 
 
@@ -123,25 +137,15 @@ class BackendPaymentSums(unittest.TestCase):
         self.assertEqual(payment_sum_lines_py(src), [])
 
 
-class ExplicitAny(unittest.TestCase):
-    def test_each_way_of_typing_as_any_is_counted(self):
-        src = (
-            "} catch (err: any) {\n"
-            "const rows = data as any;\n"
-            "const list: any[] = [];\n"
-            "type R = Record<string, any>;\n"
-            "function f(a: any, b: number) {}\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [1, 2, 3, 4, 5])
+class TheAnyCountIsTheLints(unittest.TestCase):
+    """ADR-0049: oxlint's no-explicit-any (frontend/oxlint-suppressions.json) counts `any`, so this check does not."""
 
-    def test_unknown_prose_and_comments_are_not_counted(self):
-        src = (
-            "} catch (err: unknown) {\n"
-            'const note = "Note: any value works";\n'
-            "// const rows = data as any;\n"
-            "const company = anyCompany;\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [])
+    def test_no_check_counts_any(self):
+        self.assertNotIn("A1", [c.rule for c in CHECKS])
+
+    def test_every_baseline_entry_belongs_to_a_check(self):
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(baseline), sorted(c.id for c in CHECKS))
 
 
 class RupeeFormatters(unittest.TestCase):
@@ -169,6 +173,100 @@ class WhatAFailurePrints(unittest.TestCase):
         shown = locations_to_show(where, set())
         self.assertEqual(len(shown), 21)
         self.assertEqual(shown[-1], "... 5 more (--list prints them all)")
+
+def _fake_check(cid: str, rule: str, count: int) -> Check:
+    return Check(id=cid, rule=rule, description=cid, route_hint="move it", measure=lambda: count)
+
+
+class RunModes(unittest.TestCase):
+    """The local run (all checks, tightening the baseline) and the CI run (a named subset, check-only)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.baseline_path = Path(tmp.name) / "baseline.json"
+        self.baseline = {
+            "s1_big": {"count": 5, "rule": "S1", "description": ""},
+            "b3_state": {"count": 5, "rule": "B3", "description": ""},
+        }
+        self.baseline_path.write_text(json.dumps(self.baseline), encoding="utf-8")
+
+    def run_check(self, checks, *argv):
+        rc, out, _ = self.run_check_err(checks, *argv)
+        return rc, out
+
+    def run_check_err(self, checks, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(list(argv), checks=checks, baseline_path=self.baseline_path)
+        return rc, out.getvalue(), err.getvalue()
+
+    def stored(self):
+        return json.loads(self.baseline_path.read_text(encoding="utf-8"))
+
+    def test_the_local_run_tightens_the_baseline_when_a_count_falls(self):
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.stored()["s1_big"]["count"], 3)
+
+    def test_check_only_passes_a_fallen_count_and_leaves_the_baseline_file_alone(self):
+        before = self.baseline_path.read_bytes()
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)], "--check")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_check_only_fails_a_risen_count(self):
+        rc, out = self.run_check([_fake_check("s1_big", "S1", 6)], "--check")
+        self.assertEqual(rc, 1)
+        self.assertIn("✗ s1_big", out)
+
+    def test_only_runs_the_named_checks_by_rule_or_id(self):
+        checks = [_fake_check("s1_big", "S1", 5), _fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "S1")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        rc, out = self.run_check(checks, "--check", "--only", "b3_state")
+        self.assertEqual(rc, 1)
+        self.assertNotIn("s1_big", out)
+
+    def test_an_unknown_name_is_refused(self):
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--check", "--only", "S1,Z9")
+        self.assertEqual(rc, 2)
+        self.assertIn("Z9", err)
+        self.assertEqual(out, "")
+
+    def test_only_with_init_is_refused_and_writes_no_baseline(self):
+        before = self.baseline_path.read_bytes()
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--init", "--only", "S1")
+        self.assertEqual(rc, 2)
+        self.assertIn("--init", err)
+        self.assertEqual(out, "")
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_only_ci_runs_the_ci_subset(self):
+        checks = [_fake_check(n, n, 0) for n in CI_SUBSET] + [_fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "ci")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        for n in CI_SUBSET:
+            self.assertIn(f"✓ {n} ", out)
+
+    def test_ci_subset_names_the_seven_checks_outside_adr_0010(self):
+        ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
+        self.assertEqual(sorted(ids), sorted([
+            "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
+            "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
+            "j1_json_calls_unfrozen",
+        ]))
+
+    def test_ci_runs_the_ci_subset_check_only(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
+        self.assertIn("python3 scripts/residence_check.py --check --only ci\n", workflow)
+
+    def test_ci_runs_the_residence_checks_after_install_for_j1s_parser(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
+        self.assertLess(workflow.index("run: yarn install"), workflow.index("scripts/residence_check.py --check"))
+
 
 class TaxAddedOntoAmountPaid(unittest.TestCase):
     """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),
@@ -198,6 +296,143 @@ class TaxAddedOntoAmountPaid(unittest.TestCase):
             "const t = parseNumber(row.total_amount) + parseNumber(row.total_tds);\n"
         )
         self.assertEqual(tds_added_to_amount_paid_lines(src), [])
+
+
+class JsonCalls(unittest.TestCase):
+    """J1, the `.json()` ban of ADR-0049: `response.json()` returns `any`; parseJson(await response.text()) does not."""
+
+    def test_counts_each_json_call_in_code(self):
+        src = (
+            "const a = await response.json();\n"
+            "const b = await r?.json();\n"
+            "const c = await res.json<Row[]>();\n"
+            "const d = await fetch(url).then((r) => r\n  .json());\n"
+        )
+        self.assertEqual(json_call_count(src), 4)
+
+    def test_a_json_call_in_a_comment_or_a_string_is_not_counted(self):
+        src = (
+            "// do not call response.json() here\n"
+            "/* nor res.json() */\n"
+            "const hint = \"use r.json() never\";\n"
+            "const t = `call ${\"x\"} r.json() in text`;\n"
+        )
+        self.assertEqual(json_call_count(src), 0)
+
+    def test_a_json_call_inside_a_template_placeholder_is_counted(self):
+        self.assertEqual(json_call_count("const t = `got ${await r.json()} rows`;\n"), 1)
+
+    def test_a_regex_literal_with_a_quote_or_slashes_hides_no_call_after_it(self):
+        src = (
+            "const q = /'/; const a = await res.json();\n"
+            "const t = /`/; const b = await res.json();\n"
+            "const u = /https?:\\/\\//.test(url) && (await res.json());\n"
+            "const v = s.replace(/[/'\"]/g, ''); const c = await res.json();\n"
+            "if (ok) return /x'/.test(await r.json());\n"
+        )
+        self.assertEqual(json_call_count(src), 5)
+
+    # Each probe below once blanked the call: the old hand-written scanner read the `/` as a regex's start.
+    def test_a_call_after_a_template_divided_is_counted(self):
+        self.assertEqual(json_call_count("const a = `x` / 2; const b = await r.json(); const c = n / 3;\n"), 1)
+
+    def test_a_call_after_jsx_is_counted(self):
+        src = "function P() {\n  return <p>hi</p>; const b = await r.json(); const c = n / 3;\n}\n"
+        self.assertEqual(json_call_counts({"src/P.tsx": src}), {"src/P.tsx": 1})
+
+    def test_a_call_after_a_regex_that_follows_a_paren_or_keyword_is_counted(self):
+        for before in ("if (ok) /`/.test(s);", "if (ok) {} else /`/.test(s);", "do /`/.test(s); while (0);",
+                       "export default /`/;"):
+            with self.subTest(before=before):
+                self.assertEqual(json_call_count(f"{before}\nconst b = await r.json();\n"), 1)
+
+    def test_a_call_after_an_increment_divided_is_counted(self):
+        self.assertEqual(json_call_count("let i = 0;\ni++ / 2; const b = await r.json(); const c = n / 3;\n"), 1)
+
+    def test_a_json_call_count_reads_tsx_files_as_tsx(self):
+        counts = json_call_counts({"src/A.tsx": "const a = <p>{x}</p>;\nr.json();\n", "src/b.ts": "r.json(); r.json();\n"})
+        self.assertEqual(counts, {"src/A.tsx": 1, "src/b.ts": 2})
+
+    def test_division_is_not_a_regex(self):
+        src = "const half = total / 2; const r = await res.json(); const q = a / b / c;\n"
+        self.assertEqual(json_call_count(src), 1)
+
+    def test_a_private_or_escaped_json_method_call_is_counted(self):
+        # ESLint's selector matched both: a private name's node is named `json`, and an escape is read decoded.
+        src = "class A { #json() {} f() { this.#json(); } }\nr.j\\u0073on();\n"
+        self.assertEqual(json_call_count(src), 2)
+
+    def test_the_real_tree_sends_every_file_to_the_parser(self):
+        with mock.patch("residence_check.json_call_counts", return_value={}) as counts, \
+                redirect_stdout(io.StringIO()):
+            main(["--check", "--only", "J1"])
+        self.assertTrue("src/lib/frappe.ts" in counts.call_args.args[0], "a file without `json` was not sent")
+
+    def test_a_field_or_function_called_json_is_not_a_call_of_it(self):
+        src = "const x = row.json;\nconst y = toJson(row);\nconst z = row.jsonText();\nfunction json() {}\n"
+        self.assertEqual(json_call_count(src), 0)
+
+    def frozen(self, **counts):
+        return {path.replace("__", "/") + ".ts": {"no-json-call": {"count": n}} for path, n in counts.items()}
+
+    def test_the_frozen_counts_hold(self):
+        found = {"src/a.ts": 2, "src/b.ts": 1}
+        self.assertEqual(json_call_drift(found, self.frozen(src__a=2, src__b=1)), [])
+
+    def test_a_new_call_fails_even_where_another_file_lost_one(self):
+        found = {"src/a.ts": 3, "src/b.ts": 0}
+        self.assertEqual(json_call_drift(found, self.frozen(src__a=2, src__b=1)), [
+            "frontend/src/a.ts: 3 .json() calls, 2 frozen (a new call: use parseJson)",
+            "frontend/src/b.ts: 0 .json() calls, 1 frozen (fewer: lower its count in frontend/json-call-suppressions.json)",
+        ])
+
+    def test_a_call_in_a_file_with_none_frozen_fails(self):
+        self.assertEqual(json_call_drift({"src/new.ts": 1}, {}), [
+            "frontend/src/new.ts: 1 .json() calls, 0 frozen (a new call: use parseJson)",
+        ])
+
+    def test_j1_fails_and_says_why_when_node_is_missing(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--check", "--only", "J1"])
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("J1 could not count .json() calls: node could not run", out.getvalue())
+
+    def test_in_the_commit_hook_j1_warns_and_passes_when_node_is_missing(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--hook", "--only", "J1"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("⚠ J1 skipped: node could not run", out.getvalue())
+        self.assertIn("CI counts .json() calls on every pull request", out.getvalue())
+
+    def test_in_the_commit_hook_j1_still_refuses_a_new_call(self):
+        out = io.StringIO()
+        frozen = json.loads((Path(__file__).resolve().parent.parent / "frontend/json-call-suppressions.json")
+                            .read_text())
+        counts = {path: rules["no-json-call"]["count"] for path, rules in frozen.items()} | {"src/new.ts": 1}
+        with mock.patch("residence_check.json_call_counts", return_value=counts), redirect_stdout(out):
+            rc = main(["--hook", "--check", "--only", "J1"])
+        self.assertEqual(rc, 1, out.getvalue())
+
+    def test_a_raised_baseline_entry_does_not_let_a_new_call_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            baseline = Path(d) / "baseline.json"
+            baseline.write_text(json.dumps({"j1_json_calls_unfrozen": {"count": 5, "rule": "J1"}}))
+            out = io.StringIO()
+            frozen = json.loads((Path(__file__).resolve().parent.parent / "frontend/json-call-suppressions.json")
+                                .read_text())
+            counts = {path: rules["no-json-call"]["count"] for path, rules in frozen.items()} | {"src/new.ts": 1}
+            with mock.patch("residence_check.json_call_counts", return_value=counts), redirect_stdout(out):
+                rc = main(["--check", "--only", "J1"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("frontend/src/new.ts: 1 .json() calls, 0 frozen", out.getvalue())
+
+    def test_the_real_tree_holds_its_frozen_counts(self):
+        rc, out = 0, io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "J1"])
+        self.assertEqual(rc, 0, out.getvalue())
 
 
 if __name__ == "__main__":

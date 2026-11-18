@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Building2, ChevronDown, FolderKanban, CalendarPlus } from "lucide-react";
-import { useFrappePostCall } from "frappe-react-sdk";
-import { useCounts } from "@/hooks/useCounts";
+import { useFrappePostCall } from "@/lib/frappe";
+import { countOf, useCounts } from "@/hooks/useCounts";
 import { TailSpin } from "react-loader-spinner";
 import { CUSTOMER_DOCTYPE } from '../customers.constants';
 import { cn } from "@/lib/utils";
@@ -128,14 +128,17 @@ const QuickStat: React.FC<QuickStatProps> = ({ icon, value, label }) => (
     </div>
 );
 
+/** What `get_customer_stats` returns. */
+interface CustomerStats {
+    total: number;
+    by_state: Record<string, number>;
+    with_projects: number;
+    without_projects: number;
+    recent_30_days: number;
+}
+
 export const CustomersSummaryCard: React.FC = () => {
-    const [stats, setStats] = useState<{
-        total: number;
-        by_state: Record<string, number>;
-        with_projects: number;
-        without_projects: number;
-        recent_30_days: number;
-    } | null>(null);
+    const [stats, setStats] = useState<CustomerStats | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -147,10 +150,10 @@ export const CustomersSummaryCard: React.FC = () => {
         [{ key: "total", doctype: CUSTOMER_DOCTYPE }],
         `${CUSTOMER_DOCTYPE}_total_summary`
     );
-    const totalCountData = countsData?.message?.total as number | undefined;
+    const totalCountData = countOf(countsData?.message, "total");
 
     // Fetch customer stats
-    const { call: getCustomerStats } = useFrappePostCall(
+    const { call: getCustomerStats } = useFrappePostCall<{ message: CustomerStats }>(
         "nirmaan_stack.api.customers.customer_stats.get_customer_stats"
     );
 

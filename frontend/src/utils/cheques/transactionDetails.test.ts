@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { listedInTransactionDetails } from "./transactionDetails";
 
-const UNPAID = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Rejected"];
-const EVERY_STATUS = [...UNPAID, "Paid"];
+const WAITING = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"];
+const EVERY_STATUS = [...WAITING, "Rejected", "Paid"];
 
 describe("listedInTransactionDetails", () => {
-    it.each(UNPAID)("hides a cheque payment at %s: the bank has not paid it yet", (status) => {
+    it.each(WAITING)("hides a cheque payment at %s: the bank has not paid it yet", (status) => {
         expect(listedInTransactionDetails({ mode_of_payment: "Cheque", status })).toBe(false);
     });
 
     it("lists a cheque payment once it is Paid", () => {
         expect(listedInTransactionDetails({ mode_of_payment: "Cheque", status: "Paid" })).toBe(true);
+    });
+
+    it("lists a Rejected cheque payment, so the PO page shows the rejection and can delete it", () => {
+        expect(listedInTransactionDetails({ mode_of_payment: "Cheque", status: "Rejected" })).toBe(true);
     });
 
     it.each(EVERY_STATUS)("lists an online payment at %s, as before", (status) => {

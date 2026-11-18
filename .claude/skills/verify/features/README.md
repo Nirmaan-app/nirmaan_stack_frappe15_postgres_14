@@ -55,6 +55,9 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   as a negative Non-Project Expense, and the dialog's Review / Creating / Finished / Needs another Create (spec
   #1653). Walked end to end by `BIN/walk_card_import.py`.
 - [Projects](./projects.md): the project list and a project's page.
+- [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
+  and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
+  (`--part view` for the read-only Accountant steps).
 - [Office Rent](./office-rent.md): a bill incl. 18% GST raised by HR, approved by Admin and the CEO, split
   into rent, GST, TDS and what the landlord gets, paid by an Accountant. Walked end to end by
   `BIN/walk_office_rent.py`.

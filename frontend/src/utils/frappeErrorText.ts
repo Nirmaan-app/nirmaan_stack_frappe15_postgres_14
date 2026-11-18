@@ -1,3 +1,5 @@
+import { parseJson } from "@/lib/parseJson";
+
 // SLICE SR-1 C9 (2026-11-17): THE one typed accessor for the text of a failed frappe whitelisted call (a frappe.throw),
 // so a page never parses frappe's error shape inline (frontend CODING_STANDARDS rule F2).
 
@@ -10,12 +12,12 @@ export function serverRefusalText(err: unknown): string | null {
   const clean = (s: string) => s.replace(/<[^>]*>/g, "").trim();
   if (typeof e._server_messages === "string") {
     try {
-      const list = JSON.parse(e._server_messages) as unknown[];
-      const texts = list
+      const list = parseJson(e._server_messages);
+      const texts = (Array.isArray(list) ? list : [])
         .map((m) => {
           if (typeof m !== "string") return "";
           try {
-            const o = JSON.parse(m) as { message?: unknown };
+            const o = parseJson(m) as { message?: unknown } | null;
             return typeof o?.message === "string" ? clean(o.message) : clean(m);
           } catch {
             return clean(m);

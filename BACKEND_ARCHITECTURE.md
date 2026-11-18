@@ -320,6 +320,10 @@ scheduler_events = {
 | `populate_target_rates_by_unit()` | `populate_target_rates.py` | Approved Quotations → Target Rates | Weighted average rates (3-month window) |
 | `update_payment_term_status()` | `tasks/payment_term_worker.py` | PO Payment Terms | Created → Scheduled when due_date ≤ today |
 | `update_item_status()` | `tasks/item_status_update.py` | Items, Approved Quotations, PO | Active/Inactive based on quote history |
+| `run_nightly()` (cron `0 2 * * *`) | `services/stale_payment_reject.py` | Project Payments, PO Payment Terms | The **30-day rule** (GLOSSARY): Online payments still Requested / CEO Pending more than 30 days after `creation` → Rejected with `rejection_reason`; skips Cheque mode, live Payment cheques and CEO Hold projects; one savepoint + commit per payment, a payment whose PO term does not reach Rejected rolled back and reported, failures to the Error Log. `reject_stale_payments(dry_run=True)` lists without writing |
+
+The table above lists the original daily tasks plus the 30-day rule; `hooks.py` `scheduler_events["cron"]` is the
+full, current list.
 
 ---
 

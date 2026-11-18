@@ -1,4 +1,4 @@
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "@/lib/frappe";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 /** One row exactly as `get_customer_ledger_data` returns it (amounts in rupees). */

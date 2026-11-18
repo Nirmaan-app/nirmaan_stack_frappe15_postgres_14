@@ -10,9 +10,14 @@ import {
     startOfQuarter, endOfQuarter, startOfYear, endOfYear
 } from 'date-fns';
 
+/** What `dateFilterFn` reads of a row. A TanStack `Row` fits it, and so does plain data's `{ getValue }`. */
+export interface DateFilterRow {
+    getValue: (columnId: string) => unknown;
+}
+
 // Helper to parse cell value to a Date object.
 // Ensure your cell values are consistently formatted date strings (e.g., ISO 8601) or already Date objects.
-const getCellValueAsDate = (row: Row<any>, columnId: string): Date | null => {
+const getCellValueAsDate = (row: DateFilterRow, columnId: string): Date | null => {
     const cellValue = row.getValue(columnId);
     if (cellValue instanceof Date) {
         return cellValue;
@@ -37,12 +42,14 @@ const getCellValueAsDate = (row: Row<any>, columnId: string): Date | null => {
     return null;
 };
 
-// Custom filter function for DateFilterValue
-export const dateFilterFn: FilterFn<any> = (
-    row: Row<any>,
+/**
+ * The date column filter: keeps a row whose date in `columnId` matches `filterValue`. It reads only
+ * `row.getValue`, so a TanStack column takes it as its `filterFn` and plain data passes `{ getValue }`.
+ */
+export const dateFilterFn = (
+    row: DateFilterRow,
     columnId: string,
-    filterValue: DateFilterValue, // This is { operator: string, value: string | string[] | null }
-    _addMeta: (meta: any) => void
+    filterValue: DateFilterValue | undefined, // { operator: string, value: string | string[] | null }
 ): boolean => {
     if (!filterValue || filterValue.value === null || filterValue.value === undefined) {
         return true; // No filter applied or invalid filter

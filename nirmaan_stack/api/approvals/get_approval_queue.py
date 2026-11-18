@@ -244,6 +244,9 @@ def _payments_select():
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
             -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
             ''::text                        AS invoice,
+            -- Why the payment was rejected (`rejection_reason`): the 30-day rule's reason or the one the
+            -- rejecter typed. ⚠️ POSITIONAL: right after `invoice` in `_expense_select` too (blank there).
+            COALESCE(p."rejection_reason", '')::text AS rejection_reason,
             -- The full bill ("Req. Amount"): the stored amount plus the tax withheld from the vendor
             -- (`payment_tds.counted_deductions_sql`; tax the company paid on top is not added).
             -- ⚠️ POSITIONAL: right before the pay-to columns in `_expense_select` too.
@@ -364,6 +367,8 @@ def _expense_select(table, source, project_col):
             0                               AS is_gst_payment,
             COALESCE(e."request_id", '')::text AS request_id,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
+            -- A payment's rejection reason; an expense keeps its reason on the timeline, not in a field.
+            ''::text                        AS rejection_reason,
             -- The full bill: the amount, or a withheld expense's rent before withholding.
             {requested_expr}                AS requested_amount,
             {_pay_to_columns("e")}
@@ -721,16 +726,21 @@ def get_approval_queue_counts():
     # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
     # caller, Admin included, matching what that tab now lists. Its own key, not inside
     # `counts`, which is keyed by status.
-    by_me = frappe.db.sql(
-        f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
+    by_me_rows = frappe.db.sql(
+        f'SELECT q."status" AS status, COUNT(*) AS cnt FROM ({union}) q WHERE q."raised_by" = %s GROUP BY q."status"',
         (frappe.session.user,),
-    )[0][0]
+        as_dict=True,
+    )
+    by_me_counts = {r["status"] or "": cint(r["cnt"]) for r in by_me_rows}
+    by_me = sum(by_me_counts.values())
     # "All Payments" badge (#1476): every readable ledger, every status -- what that tab lists
     # (the queue with no filter), the Cheque Tracker's payments included. Its own key, like `by_me`.
     return {
         "counts": counts,
         "amounts": amounts,
         "by_me": cint(by_me),
+        # The "Paid" and "Rejected" views inside "Payment Raised By Me": the same rows, by status.
+        "by_me_counts": by_me_counts,
         "all": sum(counts.values()) + cint(tracker[0]),
         "cheque_tracker": {"payments": cint(tracker[0]), "cheques": cint(tracker[1])},
     }

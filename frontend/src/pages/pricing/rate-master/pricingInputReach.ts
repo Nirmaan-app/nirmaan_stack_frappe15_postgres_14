@@ -40,7 +40,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 // the SAME spec reader `isItemListConfig` is built on -- imported rather than re-tested here,
 // so "is this category item-list" has one definition. Taken from `itemListPricing` directly so
 // this module keeps no edge back to `pricingInputExact`, which imports a type from here.
-import { itemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
+import { itemListPricingSpec, type ItemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
 // the SHARED "does this row carry the axes the rules ladder on" predicate. `pricingInputExact`
 // imports only TYPES from this module, so this value import creates no runtime cycle.
 import { skuCarriesGeometry } from "./pricingInputExact";
@@ -324,6 +324,17 @@ function narrowAdditiveByBranch(
 }
 
 /**
+ * A config whose `list_spec.pricing` is an object. Looser than `itemListPricingSpec()`, which also wants `kind`,
+ * `unit_classes`, `families` and `numbers`: `unitsConvertUses` reads a partial block, guarding every field it reads.
+ */
+function hasListSpecPricing(cfg: unknown): cfg is { list_spec: { pricing: Partial<ItemListPricingSpec> } } {
+  if (!cfg || typeof cfg !== "object" || !("list_spec" in cfg)) return false;
+  const ls = cfg.list_spec;
+  if (!ls || typeof ls !== "object" || !("pricing" in ls)) return false;
+  return !!ls.pricing && typeof ls.pricing === "object";
+}
+
+/**
  * VRF-2b (owner R-INPUTS / R-CONV) -- A CAPACITY READER'S CONVERT TABLE READS ITS PRICING INPUTS. One entry per (input,
  * family) where the family's rule needs a number whose reader converts units through that input
  * (`list_spec.pricing.numbers[*].units.convert[*].input`). The input moves no SKU's own rate: it decides WHICH SKU a row
@@ -331,11 +342,11 @@ function narrowAdditiveByBranch(
  * shape. The Python twin is `csv_exporter._units_convert_uses`. PURE; never throws on a malformed config.
  */
 export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: string }> {
-  const pr = (cfg as any)?.list_spec?.pricing;
-  if (!pr || typeof pr !== "object") return [];
+  if (!hasListSpecPricing(cfg)) return [];
+  const pr = cfg.list_spec.pricing;
   const byInput = new Map<string, Set<string>>();
-  for (const [nid, rd] of Object.entries<any>(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    for (const c of Object.values<any>(rd?.units?.convert ?? {})) {
+  for (const [nid, rd] of Object.entries(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    for (const c of Object.values(rd?.units?.convert ?? {})) {
       const id = c?.input;
       if (typeof id === "string" && id) (byInput.get(id) ?? byInput.set(id, new Set<string>()).get(id)!).add(nid);
     }
@@ -344,10 +355,10 @@ export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: s
   for (const id of [...byInput.keys()].sort()) {
     const nids = byInput.get(id)!;
     for (const fam of Object.keys(pr.families ?? {}).sort()) {
-      const fd = pr.families[fam];
+      const fd = pr.families?.[fam];
       if (!fd || typeof fd !== "object") continue;
       const needs = new Set<string>(Array.isArray(fd.needs) ? fd.needs : []);
-      for (const u of Object.values<any>(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
+      for (const u of Object.values(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
       if ([...nids].some((n) => needs.has(n))) out.push({ input: id, family: fam });
     }
   }
