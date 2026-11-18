@@ -248,6 +248,8 @@ check "R2: the laptop poller runs catch-up by itself when the desktop answers ag
 check "the help names catch-up (B4 back home)" 'grep -q "catch-up --slice" <<< "$H"'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'
+check "db-push makes the laptop backup's envsync/backups/<stamp> folder on the desktop before copying into it (SYNC-D4)" '
+  awk "/^cmd_db_push\\(\\)/,/^}/" "$SRC/env_sync.sh" | grep -B1 -A3 "New-Item -ItemType Directory -Force -Path .\$D_BENCH/sites/\$(dirname \"\$lprefix\")" | grep -q "for suf in -database.sql.gz"'
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

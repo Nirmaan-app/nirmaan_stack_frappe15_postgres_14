@@ -471,6 +471,9 @@ cmd_db_push() {
   [ -n "$lprefix" ] || die "the laptop backup failed; nothing changed on the desktop:\n$out"
   out=$(rrun laptop bash prove_backup.sh "$lprefix")
   [ "$(kv proof "$out")" = ok ] || die "the laptop backup did not prove whole; nothing changed on the desktop:\n$out"
+  # The laptop's backup sits in its own envsync/backups/<stamp>/ folder (backup_local.sh), which the desktop does not
+  # have yet: make it there first, or scp has nowhere to write (SYNC-D4, 2026-11-18: the first db-push after CKP-2).
+  dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/sites/$(dirname "$lprefix")' | Out-Null" > /dev/null
   for suf in -database.sql.gz -files.tar -private-files.tar; do
     f="$BENCH_HOST/sites/$lprefix$suf"
     "$SCP" -q "${SSHO[@]}" "$f" "$DESKTOP:$D_BENCH/sites/$lprefix$suf" || die "copying $lprefix$suf to the desktop failed; nothing changed on the desktop"
