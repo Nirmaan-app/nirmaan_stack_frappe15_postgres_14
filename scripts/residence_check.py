@@ -601,20 +601,102 @@ def rules_the_config_turns_on(config: dict) -> dict[str, str]:
     return rules
 
 
-def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dict[str, dict]:
-    """The disable comments per file that can switch off one of ``rules`` (rules_the_config_turns_on), in oxlint's suppressions
-    shape ({path: {rule key: {"count": n}}}); a comment naming no rule counts under EVERY_RULE, and a file-wide one
-    under its key plus FILE_WIDE. A comment counts once per rule it names, however many of that rule's names it gives.
-    Files with none are left out."""
+def _glob_regex(glob: str) -> str:
+    """A glob as a regex over a `/` path: `**/` any folders or none, `**` anything, `*` and `?` within a name,
+    `[...]` and `{a,b}` as in a shell; nothing else (no extglob: oxlint 1.94 matched no file by `!(x)`)."""
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif glob[i] == "?":
+            out.append("[^/]")
+            i += 1
+        elif glob[i] == "[" and "]" in glob[i + 2:]:
+            end = glob.index("]", i + 2)
+            body = glob[i + 1:end]
+            out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
+            i = end + 1
+        elif glob[i] == "{" and "}" in glob[i:]:
+            end = glob.index("}", i)
+            out.append("(?:" + "|".join(_glob_regex(part) for part in glob[i + 1:end].split(",")) + ")")
+            i = end + 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return "".join(out)
+
+
+def override_glob_matches(glob: str, path: str) -> bool:
+    """Whether an override's `files` glob picks ``path`` (relative to the config's folder), as oxlint 1.94 does
+    (measured, #1705): a glob without a `/` matches a file's name in any folder, one with a `/` the whole path;
+    a leading `./` is dropped."""
+    glob = glob.removeprefix("./")
+    target = path if "/" in glob else path.rsplit("/", 1)[-1]
+    return re.fullmatch(_glob_regex(glob), target) is not None
+
+
+def ignored_by(patterns: list[str], path: str) -> bool:
+    """Whether the config's `ignorePatterns` skip ``path`` (relative to the config's folder), read as .gitignore
+    lines, as oxlint 1.94 does (measured, #1705): a pattern names a file or a folder holding it; one without a `/`
+    (a trailing one aside) matches a name in any folder, one with a `/` the path from the config's folder; a
+    trailing `/` names folders only; the last pattern that matches wins, and a `!` one re-includes."""
+    parts = path.split("/")
+    candidates = [("/".join(parts[:n]), n < len(parts)) for n in range(1, len(parts) + 1)]
+    ignored = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        pattern = pattern.removeprefix("!")
+        folders_only = pattern.endswith("/")
+        pattern = pattern.rstrip("/")
+        anchored = "/" in pattern
+        regex = _glob_regex(pattern.removeprefix("/"))
+        for candidate, is_folder in candidates:
+            if folders_only and not is_folder:
+                continue
+            target = candidate if anchored else candidate.rsplit("/", 1)[-1]
+            if re.fullmatch(regex, target):
+                ignored = not negated
+                break
+    return ignored
+
+
+def rules_on_in(config: dict, path: str) -> set[str]:
+    """The names (oxlint_settings_check.rule_name) of the rules the config turns on for ``path`` (relative to the
+    config's folder): the top-level rules, then each override whose `files` match it, in order."""
+    on: set[str] = set()
+    blocks = [config.get("rules", {})] + [o.get("rules", {}) for o in config.get("overrides", [])
+                                          if any(override_glob_matches(g, path) for g in o.get("files", []))]
+    for block in blocks:
+        for key, setting in block.items():
+            (on.add if severity(setting) != "off" else on.discard)(rule_name(key))
+    return on
+
+
+def disable_counts(comments: dict[str, list[str]], config: dict) -> dict[str, dict]:
+    """The disable comments per file that can switch off a rule ``config`` (the oxlint config) turns on for that file,
+    in oxlint's suppressions shape ({path: {rule key: {"count": n}}}), keyed by the rule's name in the config; a comment
+    naming no rule counts under EVERY_RULE, and a file-wide one under its key plus FILE_WIDE. A comment counts once
+    per rule it names, however many of that rule's names it gives. Files with none are left out.
+
+    Raises ValueError as rules_the_config_turns_on does."""
+    keys = rules_the_config_turns_on(config)
     out: dict[str, dict] = {}
     for path, texts in comments.items():
+        on = rules_on_in(config, path)
         for text in texts:
             named = disable_directive(text)
             if named is None:
                 continue
-            keys = {rules[rule_name(r)] for r in named if rule_name(r) in rules} if named else {EVERY_RULE}
+            counted = {keys[rule_name(r)] for r in named if rule_name(r) in on} if named else {EVERY_RULE}
             suffix = FILE_WIDE if is_file_wide(text) else ""
-            for key in (key + suffix for key in keys):
+            for key in (key + suffix for key in counted):
                 entry = out.setdefault(path, {}).setdefault(key, {"count": 0})
                 entry["count"] += 1
     return out
@@ -643,11 +725,13 @@ def disable_comment_sources(frontend: Path) -> tuple[dict[str, str], list[str]]:
 
     oxlint walks every folder (`public`, `dist` and hidden ones too) and skips what a .gitignore names, a file added
     with `git add -f` included (measured on oxlint 1.94), so git lists the files: tracked or untracked, less every
-    ignored one. Raises OSError or CalledProcessError when git cannot list them."""
+    ignored one, and less what the config's `ignorePatterns` name. Raises OSError or CalledProcessError when git
+    cannot list them."""
+    ignore = parse_jsonc(read(frontend / ".oxlintrc.json")).get("ignorePatterns", [])
     sources, unreadable = {}, []
     for rel in sorted(_git_files(frontend, "--cached", "--others") - _git_files(frontend, "--cached", "--ignored")):
         p = frontend / rel
-        if not p.is_file():  # deleted in the working tree, not yet staged
+        if not p.is_file() or ignored_by(ignore, rel):  # not p: deleted in the working tree, not yet staged
             continue
         if p.suffix in LINTED_SUFFIXES and "-disable" in (src := read(p)):
             sources[rel] = src
@@ -662,8 +746,8 @@ def disable_comments_found() -> tuple[dict[str, dict], list[str]]:
 
     Raises TsParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
     sources, unreadable = disable_comment_sources(REPO_ROOT / "frontend")
-    rules = rules_the_config_turns_on(parse_jsonc(read(REPO_ROOT / CONFIG)))
-    return disable_counts(disable_comment_texts(sources), rules), unreadable
+    config = parse_jsonc(read(REPO_ROOT / CONFIG))
+    return disable_counts(disable_comment_texts(sources), config), unreadable
 
 
 def _rule_label(rule: str) -> str:

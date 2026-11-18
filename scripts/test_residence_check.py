@@ -38,6 +38,8 @@ from residence_check import (  # noqa: E402
 from residence_check import (  # noqa: E402  (D1, #1705)
     EVERY_RULE,
     FILE_WIDE,
+    ignored_by,
+    override_glob_matches,
     rules_the_config_turns_on,
     disable_comment_sources,
     disable_comment_texts,
@@ -551,7 +553,7 @@ class DisableComments(unittest.TestCase):
             rules_the_config_turns_on({"categories": {"suspicious": "error"}})
 
     def test_counts_per_file_and_rule_under_any_alias_and_comments_naming_no_rule(self):
-        rules = {"no-explicit-any": "typescript/no-explicit-any", "rules-of-hooks": "react/rules-of-hooks"}
+        rules = {"rules": {"typescript/no-explicit-any": "error", "react/rules-of-hooks": "error"}}
         comments = {
             "src/a.ts": ["// eslint-disable-next-line @typescript-eslint/no-explicit-any -- why",
                          "// oxlint-disable-next-line typescript/no-explicit-any",
@@ -566,7 +568,7 @@ class DisableComments(unittest.TestCase):
         })
 
     def test_a_file_wide_comment_counts_apart_from_a_line_comment_for_the_same_rule(self):
-        rules = {"no-explicit-any": "typescript/no-explicit-any"}
+        rules = {"rules": {"typescript/no-explicit-any": "error"}}
         comments = {"src/a.ts": ["// eslint-disable-next-line typescript/no-explicit-any",
                                  "/* eslint-disable @typescript-eslint/no-explicit-any */",
                                  "// oxlint-disable no-explicit-any -- why", "/* eslint-disable */",
@@ -574,6 +576,64 @@ class DisableComments(unittest.TestCase):
         self.assertEqual(disable_counts(comments, rules), {"src/a.ts": {
             "typescript/no-explicit-any": {"count": 1}, f"typescript/no-explicit-any{FILE_WIDE}": {"count": 2},
             EVERY_RULE: {"count": 1}, f"{EVERY_RULE}{FILE_WIDE}": {"count": 1}}})
+
+    CONFIG = {"rules": {"typescript/no-explicit-any": "error", "no-restricted-imports": "error"},
+              "overrides": [{"files": ["src/pages/customers/**/*.{ts,tsx}"],
+                             "rules": {"typescript/no-unsafe-call": "error"}},
+                            {"files": ["src/lib/frappe.ts"], "rules": {"no-restricted-imports": "off"}}]}
+
+    def test_a_rule_on_only_in_an_override_counts_only_in_the_files_it_matches(self):
+        unsafe = ["// eslint-disable-next-line @typescript-eslint/no-unsafe-call"]
+        counts = disable_counts({"src/pages/customers/a.tsx": unsafe, "src/pages/customers/x/b.ts": unsafe,
+                                 "src/pages/other/c.tsx": unsafe, "src/pages/customers/d.js": unsafe}, self.CONFIG)
+        self.assertEqual(sorted(counts), ["src/pages/customers/a.tsx", "src/pages/customers/x/b.ts"])
+
+    def test_a_rule_an_override_turns_off_counts_only_where_it_is_on(self):
+        imports = ["// eslint-disable-next-line no-restricted-imports"]
+        self.assertEqual(disable_counts({"src/lib/frappe.ts": imports, "src/lib/other.ts": imports}, self.CONFIG),
+                         {"src/lib/other.ts": {"no-restricted-imports": {"count": 1}}})
+
+    def test_an_override_glob_matches_as_oxlint_does(self):
+        # Measured on oxlint 1.94: an override whose `files` holds the glob switched a rule on in these files only.
+        files = ["src/x.ts", "src/x.tsx", "src/a/y.ts", "src/a/b/z.ts", "src/a/b/c/w.tsx", "src/ab/v.ts", "src/a1.ts",
+                 "src/a/b/z.js"]
+        measured = {
+            "*.ts": ["src/a/b/z.ts", "src/a/y.ts", "src/a1.ts", "src/ab/v.ts", "src/x.ts"],
+            "src/*.ts": ["src/a1.ts", "src/x.ts"],
+            "src/a/**": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/a/b/z.ts", "src/a/y.ts"],
+            "./src/a/**": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/a/b/z.ts", "src/a/y.ts"],
+            "src/a/**/*.ts": ["src/a/b/z.ts", "src/a/y.ts"],
+            "src/a/b/**/*.{ts,tsx}": ["src/a/b/c/w.tsx", "src/a/b/z.ts"],
+            "**/*.{ts,tsx}": ["src/a/b/c/w.tsx", "src/a/b/z.ts", "src/a/y.ts", "src/a1.ts", "src/ab/v.ts", "src/x.ts",
+                              "src/x.tsx"],
+            "**/z.ts": ["src/a/b/z.ts"], "z.ts": ["src/a/b/z.ts"], "src/a?.ts": ["src/a1.ts"],
+            "src/[a]1.ts": ["src/a1.ts"], "src/a/": [], "a/**": [], "src/a": [], "src/!(x).ts": [],
+        }
+        for glob, matched in measured.items():
+            self.assertEqual([f for f in sorted(files) if override_glob_matches(glob, f)], matched, glob)
+
+    def test_an_ignore_pattern_matches_as_oxlint_does(self):
+        # Measured on oxlint 1.94 over the same files: `ignorePatterns: [pattern]` left these linted.
+        files = ["src/x.ts", "src/x.tsx", "src/a/y.ts", "src/a/b/z.ts", "src/a/b/c/w.tsx", "src/ab/v.ts", "src/a1.ts",
+                 "src/a/b/z.js"]
+        outside_a = ["src/a1.ts", "src/ab/v.ts", "src/x.ts", "src/x.tsx"]
+        measured = {
+            "*.ts": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/x.tsx"],
+            "src/*.ts": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/a/b/z.ts", "src/a/y.ts", "src/ab/v.ts", "src/x.tsx"],
+            "src/a/**": outside_a, "a": outside_a, "src/a": outside_a, "src/a/": outside_a, "/src/a": outside_a,
+            "b": ["src/a/y.ts", "src/a1.ts", "src/ab/v.ts", "src/x.ts", "src/x.tsx"],
+            "src/**/*.tsx": ["src/a/b/z.js", "src/a/b/z.ts", "src/a/y.ts", "src/a1.ts", "src/ab/v.ts", "src/x.ts"],
+            "z.ts": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/a/y.ts", "src/a1.ts", "src/ab/v.ts", "src/x.ts",
+                     "src/x.tsx"],
+            "!src/a/y.ts": sorted(files),
+            "src/a/**/*.ts": ["src/a/b/c/w.tsx", "src/a/b/z.js", "src/a1.ts", "src/ab/v.ts", "src/x.ts", "src/x.tsx"],
+        }
+        for pattern, linted in measured.items():
+            self.assertEqual([f for f in sorted(files) if not ignored_by([pattern], f)], linted, pattern)
+
+    def test_a_file_the_config_ignores_is_not_read(self):
+        root = self.frontend_tree({"src/components/ui/button.tsx": self.DISABLE, "src/components/b.tsx": self.DISABLE})
+        self.assertEqual(sorted(disable_comment_sources(root)[0]), ["src/components/b.tsx"])
 
     def comments(self, src, path="src/a.ts"):
         return disable_comment_texts({path: src})[path]
