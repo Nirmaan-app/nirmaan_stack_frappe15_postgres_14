@@ -94,7 +94,7 @@ if [ -f "$LOG" ]; then cut_off=$(date -d '30 days ago' +%F); awk -v c="$cut_off"
 
 [ -f "$ST/paused" ] && finish "PAUSED (since $(cat "$ST/paused"); env_sync.sh poller resume)"
 read -r SLICE NAME _ < "$ST/active.txt" 2>/dev/null || true
-if [ -z "${SLICE:-}" ] || [ -z "${NAME:-}" ]; then finish "IDLE (no slice followed)"; fi
+if [ -z "${SLICE:-}" ] || [ -z "${NAME:-}" ]; then LOCATION=$(where_am_i); finish "IDLE (no slice followed)"; fi   # the location is shown even when idle (the owner's Status shortcut reads it)
 ACTIVE="$SLICE (session $NAME)"
 # EVERY run writes the heartbeat, and writes it FIRST: a stale heartbeat must only ever mean "the job did not run" (the
 # laptop asleep or off, the user logged off, the task removed). A long step (a database copy takes 10-15 minutes) shows as

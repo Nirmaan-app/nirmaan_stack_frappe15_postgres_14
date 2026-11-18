@@ -42,6 +42,7 @@
 #   env_sync.sh poller pause | resume  the off switch (runs still write a PAUSED heartbeat)
 #   env_sync.sh poller run             one run now, in this terminal
 #   env_sync.sh poller remove          unregister the task (the undo of install)
+#   env_sync.sh poller shortcuts       the owner's Desktop shortcuts "Copier - Pause / Resume / Status" (shortcuts-remove)
 #
 # Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
 # Scheduler, so no SSH connection has to stay open):
@@ -1003,6 +1004,8 @@ cmd_poller() {
     unfollow) if [ -f "$POLL_ST/active.txt" ]; then mv -f "$POLL_ST/active.txt" "$POLL_ST/last_active.txt"; fi; rm -f "$POLL_ST/offline"; echo "poller: following nothing (IDLE)";;
     pause) date '+%F %T' > "$POLL_ST/paused"; echo "poller: paused (runs write a PAUSED heartbeat and copy nothing); undo: env_sync.sh poller resume";;
     resume) rm -f "$POLL_ST/paused"; echo "poller: resumed";;
+    shortcuts) powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HERE/laptop/copier_shortcuts.ps1")" -Action create 2>&1 | tr -d '\r';;
+    shortcuts-remove) powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HERE/laptop/copier_shortcuts.ps1")" -Action remove 2>&1 | tr -d '\r';;
     run) bash "$HERE/poller_run.sh"; echo "poller: one run done"; sed 's/^/  /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null;;
     status)
       poller_ps -Action status | sed 's/^/  /'
@@ -1011,7 +1014,7 @@ cmd_poller() {
       echo "  heartbeat=$RUN_RECORDS/ckp_heartbeat.txt"
       sed 's/^/    /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null || echo "    (no heartbeat yet)"
       echo "  log=$BENCH_HOST/$STAGE/checkpoints/poller.log";;
-    *) die "poller takes: install | status | follow --slice S --name N | unfollow | pause | resume | run | remove";;
+    *) die "poller takes: install | status | follow --slice S --name N | unfollow | pause | resume | run | remove | shortcuts | shortcuts-remove";;
   esac
 }
 

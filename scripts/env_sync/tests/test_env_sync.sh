@@ -415,6 +415,13 @@ check "catch-up reads the last copy's moment from a db-pull record AND a db-push
   a=$(echo "# desktop fingerprint at the laptop'"'"'s last db-pull (2026-11-17 20:20:56, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
   b=$(echo "# desktop fingerprint after the laptop'"'"'s db-push (2026-11-18 13:57:40, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
   [ "$a" = "2026-11-17 20:20:56" ] && [ "$b" = "2026-11-18 13:57:40" ]'
+check "IDLE runs still say where the laptop is (the owner's Status shortcut shows it)" '
+  preset; POLLER_LOCATION=office prun; [[ "$(hb)" == IDLE* ]] && grep -q "^location:  *office" "$PW/hb.txt" && [ "$(calls .)" = 0 ]'
+check "the owner's Desktop shortcuts: Pause / Resume / Status, hidden start, the scripts stay in the repo, the off switch is undoable" '
+  grep -q "Copier - Pause" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Resume" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Status" "$SRC/laptop/copier_shortcuts.ps1" &&
+  grep -q "wscript.exe" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "poller pause" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller resume" "$SRC/laptop/copier_shortcut.vbs" &&
+  grep -q "The checkpoint copier is PAUSED" "$SRC/laptop/copier_shortcut.vbs" && grep -q "The checkpoint copier is ON" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller shortcuts" <<< "$H" &&
+  [ "$(grep -c "$(printf "\r")" "$SRC/env_sync.sh")" = 0 ]'
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
