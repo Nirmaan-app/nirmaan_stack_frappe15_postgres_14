@@ -335,6 +335,24 @@ class LintSettings(unittest.TestCase):
         self.edit_config('"typescript/no-unsafe-return": "error"', '"typescript/no-unsafe-return": "warn"')
         self.refused("typescript/no-unsafe-return")
 
+    def test_a_nested_config_anywhere_under_frontend_is_refused(self):
+        for name in (".oxlintrc.json", ".oxlintrc.jsonc", "oxlint.config.ts"):
+            with self.subTest(name):
+                nested = self.repo / "frontend/src/pages/orders" / name
+                nested.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+                self.refused(f"frontend/src/pages/orders/{name}")
+                nested.unlink()
+
+    def test_an_eslintignore_or_a_gitignore_that_hides_a_linted_file_is_refused(self):
+        (self.repo / "frontend/src/pages/orders/list.tsx").write_text("export {};\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "a page")
+        (self.repo / "frontend/.eslintignore").write_text("src/pages/\n")
+        self.refused("frontend/.eslintignore")
+        (self.repo / "frontend/.eslintignore").unlink()
+        (self.repo / "frontend/src/pages/.gitignore").write_text("orders/\n")
+        self.refused("frontend/src/pages/orders/list.tsx", "gitignore")
+
     def test_a_folder_moved_to_the_typed_path_passes(self):
         self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]',
                          '"files": ["src/pages/orders/**/*.{ts,tsx}", "src/pages/vendors/**/*.{ts,tsx}"]')

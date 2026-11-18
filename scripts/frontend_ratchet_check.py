@@ -192,6 +192,29 @@ def override_loosenings(base, head):
     return problems
 
 
+def tree_loosenings(root):
+    """Files in the working tree that change what oxlint lints, from outside .oxlintrc.json, one sentence each.
+
+    oxlint reads a config in any folder below the one it runs in (a nested .oxlintrc.json), an .eslintignore, and
+    every .gitignore, even for a file git tracks. ADR-0049 has one config, in frontend/, and no ignore file.
+    """
+    def git_files(*args):
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", *args], capture_output=True, text=True,
+                                check=True).stdout
+        return [path for path in listed.split("\0") if path and "node_modules/" not in path]
+
+    problems = []
+    for path in git_files("--cached", "--others", "--exclude-standard", "--", "frontend"):
+        name = path.rsplit("/", 1)[-1]
+        if path != CONFIG and (name in (".oxlintrc.json", ".oxlintrc.jsonc") or name.startswith("oxlint.config.")):
+            problems.append(f"{path}: a nested oxlint config (oxlint reads it on its own); keep one, {CONFIG}")
+        elif name == ".eslintignore":
+            problems.append(f"{path}: oxlint skips the files it names; use ignorePatterns in {CONFIG}")
+    problems += [f"{path}: a .gitignore hides it from oxlint" for path in
+                 git_files("--cached", "--ignored", "--exclude-standard", "--", "frontend/src")]
+    return problems
+
+
 def counts(rules):
     """{rule: count} of one file's suppressions entry."""
     return {rule: entry.get("count", 0) for rule, entry in rules.items()}
@@ -299,6 +322,7 @@ def main(argv=None):
     if base_config is not None:
         head_config = (root / CONFIG).read_text() if (root / CONFIG).exists() else "{}"
         problems += config_loosenings(parse_jsonc(base_config), parse_jsonc(head_config))
+    problems += tree_loosenings(root)
     if problems:
         print(f"✘ This change loosens the frontend ratchet against {args.base_ref} (ADR-0049):", file=sys.stderr)
         for problem in problems:
