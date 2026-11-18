@@ -126,7 +126,7 @@ class CashbookPlan:
 
     @property
     def opening(self) -> tuple[PlannedRow, ...]:
-        """The open lines (#1594): unpaired wallet refunds and wallet credits, in file order."""
+        """The open lines (#1594): the wallet credits, in file order (an unpaired refund creates since #1709)."""
         return tuple(row for row in self.rows if row.opens)
 
     @property

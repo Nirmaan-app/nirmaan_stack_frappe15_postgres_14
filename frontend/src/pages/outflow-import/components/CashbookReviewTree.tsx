@@ -17,14 +17,13 @@ import {
     lateBillsHeading,
     ledgerSections,
     openLinesHeading,
-    pairSpendLabel,
-    pairsHeading,
     reopenedHeading,
     reopenedLabel,
+    spendsHeadline,
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
-import { refundLabel, refundsHeading } from "../cashbookRefunds";
+import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "../cashbookRefunds";
 import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
 
 /**
@@ -84,7 +83,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
         <div className="space-y-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
                 <p className="text-sm font-medium">
-                    {preview.creating} expense {preview.creating === 1 ? "record" : "records"}
+                    {spendsHeadline(preview)}
                     {preview.period_from && preview.period_to ? (
                         <span className="font-normal text-muted-foreground">
                             {" "}

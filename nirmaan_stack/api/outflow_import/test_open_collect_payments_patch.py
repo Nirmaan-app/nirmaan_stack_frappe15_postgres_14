@@ -88,3 +88,19 @@ class TestThePatchCreatesEachOpenCollectPayment(OpenCollectPaymentCase):
         self.assertEqual(sum(report.created.values()), 0)
         for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
             self.assertEqual((self._line(txn).row_status, self._expenses_of(txn)), ("Mismatched", []))
+
+
+class TestALineWithNoLedgerIsPlacedAsTheJobPlacesIt(OpenCollectPaymentCase):
+    def test_it_gets_the_ledger_and_type_the_plan_gives_it_and_its_expense(self):
+        planned = frappe.db.get_value(
+            "Outflow Import Row", self.lines[1], ["suggested_doctype", "suggested_expense_type"], as_dict=True
+        )
+        frappe.db.set_value(
+            "Outflow Import Row", self.lines[1], {"suggested_doctype": None, "suggested_expense_type": None},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        report = self._patch()
+        self.assertEqual((sum(report.created.values()), report.failed), (2, []))
+        expense = self._expense_of(COLLECT_NO_LINK)
+        self.assertEqual((expense.doctype, expense.type), (planned.suggested_doctype, planned.suggested_expense_type))

@@ -8,7 +8,6 @@
 // else -- see `sortGroups`.
 
 
-import type { CashbookRefundLine } from "./cashbookRefunds";
 
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
@@ -59,6 +58,16 @@ export interface CashbookInternalTransferLine {
     reason: string;
 }
 
+/** #1709: an unpaired wallet refund, created at minus its Credit where its spend is booked (`cashbookRefunds.ts`). */
+export interface CashbookRefundLine extends CashbookSkippedRow {
+    refund_of: string;
+    reduces: string;
+    spend_on_statement: boolean;
+    ledger: string;
+    project_name: string;
+    expense_type: string;
+}
+
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
 export interface CashbookRefundPair {
     refund: CashbookSkippedRow;
@@ -73,6 +82,8 @@ export interface CashbookPreviewResult {
     period_to: string | null;
     total_rows: number;
     creating: number;
+    /** #1709 code review: the spends among `creating` (the wallet refunds left out), the count `total_value` sums. */
+    spending?: number;
     skipping: number;
     total_value: number;
     warnings: string[];
@@ -377,7 +388,14 @@ export const stoppedText = (status: CashbookStatus | null | undefined): string |
     return `Stopped: ${parts.join(", ")}`;
 };
 
-const count = (n: number): string => n.toLocaleString("en-IN");
+/** A count as Review prints it: "1,305". The one formatter of this screen's sentences. */
+export const count = (n: number): string => n.toLocaleString("en-IN");
+
+/** Review's headline, "115 expense records": the spends only, as `total_value` sums them; refunds are apart (#1709). */
+export const spendsHeadline = (preview: { creating: number; spending?: number }): string => {
+    const n = preview.spending ?? preview.creating;
+    return `${count(n)} expense ${n === 1 ? "record" : "records"}`;
+};
 
 /**
  * What Review says about the bills before Create (#1591), or null when there is nothing to say:
@@ -417,18 +435,6 @@ export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined)
 };
 
 /**
- * The heading over the Paired wallet refunds on Review (#1594), or null when there are none:
- * "2 paired wallet refunds: each refund gives back a whole spend, so neither line is recorded".
- */
-export const pairsHeading = (pairs: readonly CashbookRefundPair[] | undefined): string | null => {
-    const n = pairs?.length ?? 0;
-    if (n === 0) return null;
-    return n === 1
-        ? "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
-        : `${count(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
-};
-
-/**
  * The heading over the lines that stay open (#1594), or null when there are none. They are decided on the
  * main table, with the choices a card credit has.
  */
@@ -439,12 +445,6 @@ export const openLinesHeading = (lines: readonly CashbookSkippedRow[] | undefine
         ? "1 line will stay open for someone to decide on the transactions screen"
         : `${count(n)} lines will stay open for someone to decide on the transactions screen`;
 };
-
-/** How a pair's spend reads beside its refund: "Collect Payment OBO…3 · Testshop Collect Three". */
-export const pairSpendLabel = (pair: CashbookRefundPair): string =>
-    [`${pair.spend.row_kind || "Spend"} ${pair.spend.transfer_id}`, pair.spend.beneficiary_name || pair.spend.remarks]
-        .filter(Boolean)
-        .join(" · ");
 
 /**
  * The heading over the existing Expenses that get a late bill (#1593), or null when there are none. The line

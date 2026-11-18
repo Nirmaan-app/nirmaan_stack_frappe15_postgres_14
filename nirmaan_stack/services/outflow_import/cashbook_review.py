@@ -118,6 +118,8 @@ def preview_payload(
         "period_to": str(parsed.period_to) if parsed.period_to else None,
         "total_rows": len(parsed.rows),
         "creating": len(plan.creating),
+        # The spends among them: the count Review's headline shows beside `total_value`, which sums the same rows.
+        "spending": len(plan.spending),
         "skipping": len(plan.skipping),
         "opening": len(plan.opening),
         "total_value": float(plan.total_value),

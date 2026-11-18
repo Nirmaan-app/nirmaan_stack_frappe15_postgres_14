@@ -93,7 +93,7 @@ class RefundExpenseCase(FrappeTestCase):
         leg = self._leg(txn)
         return frappe.get_doc(leg.target_doctype, leg.target_name)
 
-    def _hand_project_expense(self, spend: str, expense_type: str) -> str:
+    def _hand_project_expense(self, spend: str, expense_type: str, amount: float = 640, when=date(2026, 7, 1)) -> str:
         """A Paid Project Expense keyed in by hand for `spend` (its `payment_ref`), on a live Won project."""
         project = frappe.db.get_value(
             "Projects", {"tendering_status": "Won", "status": ["!=", "CEO Hold"]}, "name", order_by="creation asc"
@@ -104,8 +104,8 @@ class RefundExpenseCase(FrappeTestCase):
                 "projects": project,
                 "type": expense_type,
                 "status": "Paid",
-                "amount": 640,
-                "payment_date": date(2026, 7, 1),
+                "amount": amount,
+                "payment_date": when,
                 "payment_ref": self._id(spend),
                 "description": "Hand-keyed wallet spend",
             }
@@ -225,6 +225,19 @@ class TestThePatchBooksTheRefundsLeftOpen(RefundExpenseCase):
         report = create_open_refund_expenses(self.refunds)
         self.assertEqual(sum(report.created.values()), 1)
         self.assertEqual(frappe.db.get_value("Outflow Import Row", self.refunds[0], "row_status"), "Mismatched")
+
+
+    def test_a_refund_already_booked_is_counted_once_not_listed_and_left_open(self):
+        from nirmaan_stack.patches.v3_0.create_open_cashbook_refund_expenses import create_open_refund_expenses
+
+        line = self._line("REF-" + EARLIER_SPEND)
+        expense_type = frappe.db.get_value("Expense Type", {"project": 1, "non_project": 0}, "name")
+        self._hand_project_expense("REF-" + EARLIER_SPEND, expense_type, -line.amount, line.added_on.date())
+        report = create_open_refund_expenses(self.refunds)
+        self.assertEqual((report.created["Non Project Expenses"], report.already_booked, report.failed), (1, 1, []))
+        self.assertIn("Already booked: 1", report.text())
+        self.assertNotIn(line.name, report.text())
+        self.assertEqual(frappe.db.get_value("Outflow Import Row", line.name, "row_status"), "Mismatched")
 
 
 class TestAReUpload(RefundExpenseCase):

@@ -14,7 +14,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_OPEN, ACTION_SKIP, SKIP_ALREADY_BOOKED
-from nirmaan_stack.services.outflow_import.cashbook_refund_expense import SpendExpense, refund_description
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import (
+    RefundPlacement,
+    SpendExpense,
+    refund_description,
+    refund_placement,
+)
 from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts, preview_payload
 from nirmaan_stack.services.outflow_import.duplicates import DuplicateVerdict
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
@@ -148,7 +153,30 @@ class TestReviewListsRefundsApart(unittest.TestCase):
             },
         )
         self.assertEqual(payload["creating"], 2)
+        # The headline's count is the spends only, as `total_value` sums them; the refund is under `refunds`.
+        self.assertEqual((payload["spending"], payload["total_value"]), (1, 500.0))
         self.assertEqual(payload["open_lines"], [])
+
+
+class TestThePlacementHasOneShape(unittest.TestCase):
+    """`refund_placement` answers with the same fields on every branch, so no reader has to ask which keys it got."""
+
+    RULES = {"Non Project": (("flight", "Travel Expenses"),)}
+
+    def test_booked_planned_and_neither_each_fill_every_field(self):
+        booked = refund_placement(REFUND, "", SpendExpense(PROJECT_LEDGER, "PE-1", "P-1", "Telus", "Tools"), None, {})
+        self.assertEqual(
+            booked, RefundPlacement(PROJECT_LEDGER, "P-1", "Telus", "Tools", "", SPEND, "PE-1", False)
+        )
+        planned = {"ledger": NON_PROJECT_LEDGER, "project": None, "project_name": "", "expense_type": "Petty Cash"}
+        self.assertEqual(
+            refund_placement(REFUND, "", None, planned, {}),
+            RefundPlacement(NON_PROJECT_LEDGER, None, "", "Petty Cash", "", SPEND, "", True),
+        )
+        self.assertEqual(
+            refund_placement("CRADJ-7", "flight refund", None, None, self.RULES),
+            RefundPlacement(NON_PROJECT_LEDGER, None, "", "Travel Expenses", "flight", "", "", False),
+        )
 
 
 class TestTheDescription(unittest.TestCase):

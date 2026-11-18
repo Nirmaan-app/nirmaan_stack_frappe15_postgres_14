@@ -71,20 +71,21 @@ def refunded_spend_id(transfer_id: str) -> str:
 
 def pair_refunds(
     kept: Sequence[KeptLine],
-    opens: Sequence[bool],
+    creates: Sequence[bool],
     pairable: Callable[[KeptLine], bool],
 ) -> list[tuple[int, int]]:
     """`(refund position, spend position)` in `kept` for each *Paired wallet refund*.
 
-    `opens[i]` says the plan would leave line `i` open; only an open refund looks for its spend. `pairable` says
-    whether a line is a Wallet Spend or Collect Payment that, unpaired, nothing would skip but its kind. Only KEPT
-    lines are candidates: an exact repeat of an earlier import already has its Expense, so its refund stays open.
+    `creates[i]` says the plan, unpaired, would create line `i` (a refund's *Wallet refund expense*, #1709); only such
+    a refund looks for its spend. `pairable` says whether a line is a Wallet Spend or Collect Payment that, unpaired,
+    nothing would skip but its kind. Only KEPT lines are candidates: an exact repeat of an earlier import already has
+    its Expense, so its refund does not pair, and is booked on that Expense (#1709).
     One spend pairs with one refund: the first, in file order.
     """
     taken: set[int] = set()
     pairs: list[tuple[int, int]] = []
     for at, line in enumerate(kept):
-        if not opens[at] or row_kind(line.row) not in REFUND_ROW_KINDS:
+        if not creates[at] or row_kind(line.row) not in REFUND_ROW_KINDS:
             continue
         spend_id = refunded_spend_id(getattr(line.row, "transfer_id", ""))
         if not spend_id:

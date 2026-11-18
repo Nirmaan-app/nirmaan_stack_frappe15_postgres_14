@@ -275,9 +275,9 @@ export const isCashbookLineItsJobOwns = (row: { row_status: string; source?: str
 export const canSkipByHand = (
     row: { row_status: string; source?: string | null } | null | undefined,
 ): boolean =>
-    Boolean(row) &&
-    isOpen(row!.row_status) &&
-    !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH);
+    row != null &&
+    isOpen(row.row_status) &&
+    !(NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) && row.row_status === ROW_PENDING_MATCH);
 
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the

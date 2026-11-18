@@ -23,7 +23,7 @@ from nirmaan_stack.services.outflow_import.cashbook_placement import pick_expens
 from nirmaan_stack.services.outflow_import.cashbook_refunds import refunded_spend_id
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
 
-__all__ = ["SpendExpense", "refund_placement", "refund_description"]
+__all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description"]
 
 
 @dataclass(frozen=True)
@@ -37,41 +37,64 @@ class SpendExpense:
     expense_type: str
 
 
+@dataclass(frozen=True)
+class RefundPlacement:
+    """Where an unpaired refund's Expense goes: the `PlannedRow` fields of a *Wallet refund expense*, the same fields
+    on every branch. `refund_of`: the spend Txn Id it names (blank when none); `reduces`: that spend's existing
+    Expense (blank when it has none); `spend_on_statement`: this statement creates the spend."""
+
+    ledger: str
+    project: str | None
+    project_name: str
+    expense_type: str
+    matched_keyword: str
+    refund_of: str
+    reduces: str
+    spend_on_statement: bool
+
+
 def refund_placement(
     transfer_id: str,
     remarks: str,
     booked: SpendExpense | None,
     planned_spend: Mapping | None,
     expense_rules: Mapping[str, Sequence[tuple[str, str]]],
-) -> dict:
-    """The `PlannedRow` fields of an unpaired refund's Expense. `booked`: its spend's existing Expense, if any;
-    `planned_spend`: the placement this plan gives its spend when the spend is created from this statement."""
+) -> RefundPlacement:
+    """Where an unpaired refund's Expense goes. `booked`: its spend's existing Expense, if any; `planned_spend`: the
+    placement this plan gives its spend when the spend is created from this statement."""
     refund_of = refunded_spend_id(transfer_id)
     if booked is not None:
-        return dict(
+        return RefundPlacement(
             ledger=booked.doctype,
             project=booked.project or None,
             project_name=booked.project_name or "",
             expense_type=booked.expense_type,
+            matched_keyword="",
             refund_of=refund_of,
             reduces=booked.name,
+            spend_on_statement=False,
         )
     if planned_spend is not None:
-        return dict(
+        return RefundPlacement(
             ledger=planned_spend["ledger"],
             project=planned_spend["project"],
             project_name=planned_spend["project_name"],
             expense_type=planned_spend["expense_type"],
+            matched_keyword="",
             refund_of=refund_of,
+            reduces="",
             spend_on_statement=True,
         )
     expense_type, keyword = pick_expense_type(remarks, expense_rules.get("Non Project", ()))
-    return dict(
+    return RefundPlacement(
         ledger=NON_PROJECT_EXPENSE_DOCTYPE,
         project=None,
+        project_name="",
         expense_type=expense_type,
         matched_keyword=keyword,
         refund_of=refund_of,
+        reduces="",
+        spend_on_statement=False,
     )
 
 

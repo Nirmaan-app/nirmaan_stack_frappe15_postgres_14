@@ -1,25 +1,10 @@
 // src/pages/outflow-import/cashbookRefunds.ts
 //
-// The wallet refunds on the Cashbook import's Review (#1709, ADR-0015 Amendment D), as pure data. No React, no fetch.
+// The wallet refunds on the Cashbook import's Review, as pure data: the Paired wallet refunds (#1594) and the
+// unpaired ones (#1709, ADR-0015 Amendment D). No React, no fetch.
 // GLOSSARY: *Wallet refund expense*. Split out of `cashbookPreview.ts` (file size).
 
-import type { CashbookSkippedRow } from "./cashbookPreview";
-
-/**
- * An unpaired wallet refund: created at minus its Credit (`amount`) where its spend is booked. `refund_of` is the
- * spend's Txn Id (blank when the refund names none); `reduces` the spend's existing Expense (blank when it has none);
- * `spend_on_statement` says this same import creates the spend's Expense.
- */
-export interface CashbookRefundLine extends CashbookSkippedRow {
-    refund_of: string;
-    reduces: string;
-    spend_on_statement: boolean;
-    ledger: string;
-    project_name: string;
-    expense_type: string;
-}
-
-const count = (n: number): string => n.toLocaleString("en-IN");
+import { count, type CashbookRefundLine, type CashbookRefundPair } from "./cashbookPreview";
 
 /** The heading over the wallet refunds, or null when there are none. */
 export const refundsHeading = (lines: readonly CashbookRefundLine[] | undefined): string | null => {
@@ -38,3 +23,21 @@ export const refundLabel = (line: CashbookRefundLine): string => {
         .filter(Boolean)
         .join(" · ");
 };
+
+/**
+ * The heading over the Paired wallet refunds on Review (#1594), or null when there are none:
+ * "2 paired wallet refunds: each refund gives back a whole spend, so neither line is recorded".
+ */
+export const pairsHeading = (pairs: readonly CashbookRefundPair[] | undefined): string | null => {
+    const n = pairs?.length ?? 0;
+    if (n === 0) return null;
+    return n === 1
+        ? "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
+        : `${count(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
+};
+
+/** How a pair's spend reads beside its refund: "Collect Payment OBO…3 · Testshop Collect Three". */
+export const pairSpendLabel = (pair: CashbookRefundPair): string =>
+    [`${pair.spend.row_kind || "Spend"} ${pair.spend.transfer_id}`, pair.spend.beneficiary_name || pair.spend.remarks]
+        .filter(Boolean)
+        .join(" · ");

@@ -26,8 +26,6 @@ import {
     lateBillsHeading,
     ledgerSections,
     openLinesHeading,
-    pairSpendLabel,
-    pairsHeading,
     progressFraction,
     progressText,
     reopenedHeading,
@@ -35,10 +33,12 @@ import {
     showsResume,
     stoppedText,
     sortGroups,
+    spendsHeadline,
     typeHint,
     typeLabel,
 } from "./cashbookPreview";
-import { CashbookRefundLine, refundLabel, refundsHeading } from "./cashbookRefunds";
+import type { CashbookRefundLine } from "./cashbookPreview";
+import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "./cashbookRefunds";
 
 const group = (
     ledger: string,
@@ -479,6 +479,18 @@ describe("cutoffNotice (#1707)", () => {
     it("says nothing when no line was left out, or the server predates it", () => {
         expect(cutoffNotice({ before_cutoff_note: "" })).toBeNull();
         expect(cutoffNotice({})).toBeNull();
+    });
+});
+
+describe("Review's headline counts what its total sums (#1709 code review)", () => {
+    it("counts the spends only, as `total_value` sums them; the refunds are listed apart", () => {
+        expect(spendsHeadline({ creating: 3, spending: 2 })).toBe("2 expense records");
+        expect(spendsHeadline({ creating: 2, spending: 1 })).toBe("1 expense record");
+        expect(spendsHeadline({ creating: 1305, spending: 1305 })).toBe("1,305 expense records");
+    });
+
+    it("reads `creating` from a server that sends no `spending`", () => {
+        expect(spendsHeadline({ creating: 4 })).toBe("4 expense records");
     });
 });
 

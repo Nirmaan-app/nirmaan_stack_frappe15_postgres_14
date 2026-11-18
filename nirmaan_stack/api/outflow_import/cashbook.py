@@ -499,6 +499,13 @@ def _lock_pending_line(row_name: str):
         return None
 
 
+def write_line_expense(row_name: str, batch: str, actor: str) -> bool:
+    """Write one staged line's Expense exactly as the job does (`_write_one`), for a writer outside the job: the
+    one-time patches of spec #1711 (`cashbook_open_lines`). The line must be `Pending match run` with its placement;
+    `False` -- nothing written -- when it is not. Never commits."""
+    return _write_one(row_name, batch, actor, _statement_file_url(batch))
+
+
 def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | None) -> bool:
     """One row -> one expense -> one match record -> the row flips to Settled. Returns whether it wrote:
     `False` -- nothing written -- when the line is no longer this job's (`_lock_pending_line`)."""
@@ -690,18 +697,9 @@ def _plan_claiming_reopens(parsed) -> CashbookPlan:
 def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
     """Read the two lookup tables and decide. The ONE place the plan is computed. `not_reopening`: earlier lines
     confirm found taken meanwhile (`_plan_claiming_reopens`), planned as if they were not own-balances skips."""
-    won = frappe.db.sql(
-        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
-        (_WON,),
-        as_dict=True,
-    )
-    index = build_project_index(
-        [(row["name"], row.get("project_name") or "") for row in won],
-        aliases=load_project_aliases(),
-    )
     return plan_statement(
         parsed.rows,
-        index,
+        project_index(),
         load_expense_rules(),
         already_imported=_already_imported(parsed),
         already_booked=_already_booked(parsed),
@@ -710,6 +708,19 @@ def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
         ],
         # #1709: where each refund's spend is booked, so an unpaired refund is booked there too.
         refunded_spends=spend_expenses(refunds_spend_ids(_statement_transfer_ids(parsed))),
+    )
+
+
+def project_index():
+    """The Won projects and their aliases: what the plan places a line against (`cashbook_placement.placement`)."""
+    won = frappe.db.sql(
+        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
+        (_WON,),
+        as_dict=True,
+    )
+    return build_project_index(
+        [(row["name"], row.get("project_name") or "") for row in won],
+        aliases=load_project_aliases(),
     )
 
 
@@ -853,6 +864,12 @@ def _booked_index(ids) -> dict:
     return index_prior_sightings(entries)
 
 
+def booked_as(transfer_id: str, amount, when) -> str | None:
+    """The Expense already carrying `transfer_id` at `amount` on `when`, as the label the "already booked" skip names
+    ("<doctype> <name>"), or `None`: the one check `_already_booked` makes, for one Txn Id."""
+    return find_prior_sighting(_booked_index([transfer_id]), transfer_id, amount, when)
+
+
 def booked_elsewhere(row: str) -> str | None:
     """Where this Cashbook line's money is already booked, as the label the skip sentence names -- or
     `None`. The unskip re-check for a Cashbook line (#1314, owner Q5; trap 3).
@@ -874,9 +891,7 @@ def booked_elsewhere(row: str) -> str | None:
     if not transfer_id:
         return None
     staged = StagedRow(line)
-    label = find_prior_sighting(
-        _booked_index([transfer_id]), transfer_id, staged.amount, staged.added_on_date
-    )
+    label = booked_as(transfer_id, staged.amount, staged.added_on_date)
     if label:
         return label
     leg = frappe.db.get_value(
