@@ -3,8 +3,33 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
-	canDecideGstRequest, canDeleteGstRequest, gstDecisionFigures, lookupCell, mergeLookup,
+	canDecideGstRequest, canDeleteGstRequest, gstDecisionFigures, gstRequestColumnsFor, gstRequestHasActions, lookupCell,
+	mergeLookup,
 } from "./gstPaymentRequests";
+
+describe("GST Requests columns by status pill", () => {
+	it("shows Actions only where a row can have a button", () => {
+		expect(gstRequestColumnsFor("Pending").actions).toBe(true); // approve, reject, delete
+		expect(gstRequestColumnsFor("Rejected").actions).toBe(true); // delete
+		expect(gstRequestColumnsFor("Approved").actions).toBe(false);
+		expect(gstRequestColumnsFor("Paid").actions).toBe(false);
+		expect(gstRequestColumnsFor("All").actions).toBe(true); // mixes Pending and Rejected rows in
+	});
+
+	it("shows Reviewed wherever a row can have been decided", () => {
+		expect(gstRequestColumnsFor("Pending").reviewed).toBe(false); // nobody has decided yet
+		expect(gstRequestColumnsFor("Approved").reviewed).toBe(true);
+		expect(gstRequestColumnsFor("Paid").reviewed).toBe(true);
+		expect(gstRequestColumnsFor("Rejected").reviewed).toBe(true);
+		expect(gstRequestColumnsFor("All").reviewed).toBe(true);
+	});
+
+	it("agrees with the delete rule: a status with no actions can never be deleted", () => {
+		for (const status of ["Pending", "Approved", "Rejected", "Paid"] as const) {
+			if (!gstRequestHasActions(status)) expect(canDeleteGstRequest("Nirmaan Admin Profile", "a@x", status)).toBe(false);
+		}
+	});
+});
 
 describe("who decides a GST request", () => {
 	it("is the Admin, the accountants and the Administrator user", () => {

@@ -35,6 +35,19 @@ export const GST_REQUEST_CHIP: Record<GstRequestStatus, { label: string; classNa
 export const canDeleteGstRequest = (role: string, userId: string, status: GstRequestStatus): boolean =>
 	canDecideGstRequest(role, userId) && (status === "Pending" || status === "Rejected");
 
+/** Can a request at this status ever have a button (approve, reject, delete)? Approved and Paid never do. */
+export const gstRequestHasActions = (status: GstRequestStatus): boolean => status === "Pending" || status === "Rejected";
+
+/**
+ * Which optional columns the GST Requests table shows for a status pill (owner, 2026-11-18). Actions only where a
+ * row can have a button, so Approved and Paid carry no empty column; "Reviewed" (who approved or rejected it, and
+ * when) wherever a row can have been decided, so not on Pending. "All" mixes every status, so it shows both.
+ */
+export const gstRequestColumnsFor = (pill: GstRequestStatus | "All"): { actions: boolean; reviewed: boolean } => ({
+	actions: pill === "All" || gstRequestHasActions(pill),
+	reviewed: pill !== "Pending",
+});
+
 /** The server's ₹10 rounding tolerance on the GST cap (`work_order_payment_limit.TOLERANCE`). */
 export const GST_CAP_TOLERANCE = 10;
 
