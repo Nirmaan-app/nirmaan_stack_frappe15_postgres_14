@@ -20,8 +20,8 @@ still honours "per-sheet, not a single global flag".
 import json
 
 import frappe
-from frappe.utils.background_jobs import get_job_status
 
+from nirmaan_stack.services import operation_marker
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.runner import load_ruleset
 from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
@@ -48,10 +48,11 @@ def _marker_key(boq, sheet_name, discipline):
 
 
 def _set_marker(boq, sheet_name, discipline, job_id, user):
-    frappe.cache().set_value(
+    """Claim the marker for `job_id`: set only when no marker is there (operation_marker.claim). True when set."""
+    return operation_marker.claim(
         _marker_key(boq, sheet_name, discipline),
         {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        expires_in_sec=_MARKER_TTL_SEC,
+        _MARKER_TTL_SEC,
     )
 
 
@@ -82,29 +83,12 @@ def _update_marker_progress(boq, sheet_name, discipline, done, total):
 
 
 def _maybe_self_heal(boq, sheet_name, discipline, marker):
-    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale'. Clears the marker
-    when the RQ job is terminal (finished/failed/unknown) or the enqueue is older than the stale
-    cap. Mirrors parse_run._maybe_self_heal_parse_state."""
-    job_id = marker.get("job_id")
-    status = None
-    if job_id:
-        try:
-            status = get_job_status(job_id)
-        except Exception:
-            status = None
-    if status in ("finished", "failed") or status is None:
+    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale' (operation_marker.job_state: stale
+    counts from the start of running), clearing the marker unless it is running."""
+    state = operation_marker.job_state(marker.get("job_id"), marker.get("enqueued_at"), _STALE_CLASSIFY_SECONDS)
+    if state != "running":
         _clear_marker(boq, sheet_name, discipline)
-        return "cleared"
-    enqueued_at = marker.get("enqueued_at")
-    if enqueued_at:
-        try:
-            age = frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at)
-        except Exception:
-            age = 0
-        if age > _STALE_CLASSIFY_SECONDS:
-            _clear_marker(boq, sheet_name, discipline)
-            return "cleared_stale"
-    return "running"
+    return state
 
 
 def _resolve_committed_version(boq, sheet_name):
@@ -150,8 +134,8 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
 
     scope = {"mode":"sheet"} or {"mode":"range","start":<int>,"end":<int>} (Excel rows).
     Validates: engine available (registry), the sheet is committed, and start<=end for a range.
-    Sets a per-(boq,sheet,discipline) Redis in-progress marker AFTER a successful enqueue, then
-    commits. URL: /api/method/nirmaan_stack.api.boq.wizard.classify.start_classify
+    Claims a per-(boq,sheet,discipline) Redis in-progress marker BEFORE the enqueue (#1660).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.start_classify
     """
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
@@ -198,35 +182,40 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
     else:
         frappe.throw(f"Unknown scope mode {mode!r}.", title="Bad scope")
 
-    # Double-fire guard + self-heal.
+    # Double-fire guard + self-heal, then CLAIM the marker before the enqueue (#1660): set only
+    # when absent, so of two starts that both read "no marker" only one queues.
+    # Raw (un-namespaced) job id -- frappe.enqueue namespaces internally; get_job_status
+    # re-namespaces on read, so the RAW id is what we store (parse_run convention).
+    raw_job_id = frappe.generate_hash(length=32)
+    user = frappe.session.user
     marker = _get_marker(boq, sheet_name, discipline)
-    if marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running":
+    if (marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running") or not _set_marker(
+        boq, sheet_name, discipline, raw_job_id, user
+    ):
         frappe.throw(
             "A classification run is already in progress for this sheet. "
             "Wait for it to finish before starting another.",
             title="Classify in progress",
         )
-
-    # Raw (un-namespaced) job id -- frappe.enqueue namespaces internally; get_job_status
-    # re-namespaces on read, so the RAW id is what we store (parse_run convention).
-    raw_job_id = frappe.generate_hash(length=32)
-    user = frappe.session.user
-    frappe.enqueue(
-        "nirmaan_stack.api.boq.wizard.classify._classify_worker",
-        queue="long",
-        timeout=600,
-        job_id=raw_job_id,
-        user=user,
-        boq=boq,
-        sheet_name=sheet_name,
-        discipline=discipline,
-        scope=norm_scope,
-    )
-    # Clear any stale terminal payload from a prior run, set the marker, commit -- all AFTER a
-    # successful enqueue so a failed enqueue never leaves state stuck.
+    # The claim is ours: drop a prior run's terminal payload, commit, then queue (the job reads
+    # only committed rows). A failed queue call removes the claim so nothing is left stuck.
     frappe.cache().delete_value(_status_key(boq, sheet_name, discipline))
-    _set_marker(boq, sheet_name, discipline, raw_job_id, user)
     frappe.db.commit()
+    try:
+        frappe.enqueue(
+            "nirmaan_stack.api.boq.wizard.classify._classify_worker",
+            queue="long",
+            timeout=600,
+            job_id=raw_job_id,
+            user=user,
+            boq=boq,
+            sheet_name=sheet_name,
+            discipline=discipline,
+            scope=norm_scope,
+        )
+    except Exception:
+        _clear_marker(boq, sheet_name, discipline)
+        raise
     return {"status": "queued", "job_id": raw_job_id}
 
 

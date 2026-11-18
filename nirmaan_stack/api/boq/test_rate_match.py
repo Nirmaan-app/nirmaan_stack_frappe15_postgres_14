@@ -22,6 +22,7 @@ reached only through patched seams (nothing is written).
                    rebuild  /  the 06:00 job keeps its own deduplicated id  /  a broken queue cannot touch a run
 """
 import json
+import pickle
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_match as RM
 from nirmaan_stack.api.boq import rate_master
+from nirmaan_stack.services.test_operation_marker import (
+    held_in_queue, later, never_queued, new_request, queue_call_fails, started_job,
+)
 
 
 class _Cache:
@@ -44,6 +48,15 @@ class _Cache:
 
     def delete_value(self, k):
         self.d.pop(k, None)
+
+    def make_key(self, k):
+        return k
+
+    def set(self, k, v, nx=False, ex=None):
+        if nx and k in self.d:
+            return None
+        self.d[k] = pickle.loads(v)
+        return True
 
 
 class TestClocks(FrappeTestCase):
@@ -186,7 +199,7 @@ class TestTrigger(FrappeTestCase):
     def test_one_run_per_sheet_a_live_match_starts_none(self):
         self.cache.set_value(RM._marker_key("B", "S"), {"job_id": "j", "enqueued_at": frappe.utils.now()})
         with patch.object(RM, "match_enabled", return_value=True), patch.object(frappe, "enqueue") as enq, \
-                patch.object(RM, "get_job_status", return_value="started"):
+                patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
             out = RM.start_after_suggest("B", "S", "run1")
         self.assertEqual(out["queued"], False)
         enq.assert_not_called()
@@ -196,6 +209,86 @@ class TestTrigger(FrappeTestCase):
                 patch.object(frappe.db, "get_value", side_effect=RuntimeError("db gone")), patch.object(frappe.db, "rollback"):
             out = RM.start_after_suggest("B", "S", "run1")
         self.assertEqual(out, {"queued": False, "reason": "matching could not be started"})
+
+
+class TestAlreadyRunning(FrappeTestCase):
+    """#1660: the match marker is claimed (set only when absent) before the match is queued; a match waiting in the
+    queue is never judged stale; one whose worker never starts is still healed. The real cache and rq; the Suggest
+    run lookup, the run doc and the commits are patched."""
+
+    def setUp(self):
+        frappe.utils.now()          # warm the system settings before frappe.db is patched
+        self.boq, self.sheet = f"MATCH-RUNNING-{frappe.generate_hash(length=6)}", "S"
+        docs = iter(f"run-{n}" for n in range(1, 10))
+
+        def new_doc(fields):
+            doc = MagicMock()
+            doc.name = next(docs)
+            return doc
+
+        self.p = [patch.object(RM, "match_enabled", return_value=True),
+                  patch.object(frappe.db, "get_value", return_value={"name": "srun", "committed_version": 4}),
+                  patch.object(frappe, "get_doc", side_effect=new_doc),
+                  patch.object(frappe.db, "commit"), patch.object(frappe.db, "rollback"),
+                  patch.object(frappe, "log_error")]
+        for p in self.p:
+            p.start()
+
+    def tearDown(self):
+        for p in reversed(self.p):
+            p.stop()
+        frappe.cache().delete_value(RM._marker_key(self.boq, self.sheet))
+        frappe.cache().delete_value(RM._status_key(self.boq, self.sheet))
+        new_request()
+
+    def _start(self):
+        new_request()
+        return RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+
+    def _state(self):
+        new_request()
+        return RM.get_match_status(self.boq, self.sheet)["state"]
+
+    def test_a_second_start_that_also_read_no_marker_is_refused(self):
+        second = []
+        real_get = RM._get_marker
+
+        def first_reads_then_second_runs(*args):
+            seen = real_get(*args)
+            if not second:
+                second.append(None)
+                saved = frappe.local.cache
+                second[0] = self._start()
+                frappe.local.cache = saved
+            return seen
+
+        with held_in_queue() as jobs, patch.object(RM, "_get_marker", side_effect=first_reads_then_second_runs):
+            first = RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+        self.assertTrue(second[0]["queued"])
+        self.assertFalse(first["queued"])
+        self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
+
+    def test_a_match_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
+        with held_in_queue() as jobs, patch.object(RM, "_STALE_MATCH_SECONDS", 0):
+            self.assertTrue(self._start()["queued"])
+            with later(60):
+                self.assertEqual(self._state(), "running")
+                self.assertFalse(self._start()["queued"])
+        self.assertEqual(len(jobs), 1)
+
+    def test_a_match_whose_worker_never_starts_is_healed(self):
+        # The run doc it left `queued` is halted by tasks/match_run_healer (test_match_run_healer
+        # test_a_dead_running_or_queued_run_is_halted); the marker heals on the next read.
+        with never_queued():
+            self.assertTrue(self._start()["queued"])
+            with later(RM._STALE_MATCH_SECONDS + 1):
+                self.assertEqual(self._state(), "idle")
+                self.assertTrue(self._start()["queued"])
+
+    def test_a_failed_queue_call_leaves_no_marker(self):
+        with queue_call_fails():
+            self.assertEqual(self._start(), {"queued": False, "reason": "matching could not be started"})
+        self.assertEqual(self._state(), "idle")
 
 
 def _env(complete=True):
@@ -311,7 +404,7 @@ class TestEndpoints(FrappeTestCase):
             self.assertEqual(RM.get_match_status("B", "S")["state"], "idle")
             self.cache.set_value(RM._marker_key("B", "S"), {"job_id": "j", "enqueued_at": frappe.utils.now(), "phase": "judge",
                                                             "done": 4, "total": 10, "run": "BRMR-1", "suggest_run_id": "r"})
-            with patch.object(RM, "get_job_status", return_value="started"):
+            with patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
                 st = RM.get_match_status("B", "S")
             self.assertEqual((st["state"], st["phase"], st["done"], st["total"], st["suggest_run_id"]), ("running", "judge", 4, 10, "r"))
             self.assertIn("estimate_left_s", st)

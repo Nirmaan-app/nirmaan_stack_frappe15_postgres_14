@@ -40,6 +40,9 @@ from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.api.boq.wizard.test_classify import _FakeClient, _Resp, _new_boq, _new_sheet, _node
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.services.test_operation_marker import (
+    held_in_queue, later, never_queued, new_request, queue_call_fails,
+)
 
 _ROW_CATEGORY = "BoQ Row Category"
 _RUN = "BoQ Rate Suggestion Run"
@@ -1364,6 +1367,81 @@ class TestRateSuggest(FrappeTestCase):
         self.assertGreater(marker, job,
                            "the progress marker must outlive the job, or the progress bar goes "
                            "blank while the run is still going")
+
+    # ---- "already running?" counts from the start of running (#1660) ----
+    def _start_suggest(self):
+        new_request()
+        return rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+
+    def _suggest_state(self):
+        new_request()
+        return rate_master.get_suggest_status(boq=self.boq, sheet_name=self.sheet_name)["state"]
+
+    def _forget_suggest_marker(self):
+        rate_master._s_clear_marker(self.boq, self.sheet_name)
+        frappe.cache().delete_value(rate_master._s_status_key(self.boq, self.sheet_name))
+        new_request()
+
+    def test_43_a_second_start_that_also_read_no_marker_is_refused(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        second = []
+        real_get = rate_master._s_get_marker
+
+        def first_reads_then_second_runs(*args):
+            seen = real_get(*args)
+            if not second:
+                second.append(None)
+                saved = frappe.local.cache
+                second[0] = self._start_suggest()
+                frappe.local.cache = saved
+            return seen
+
+        try:
+            with held_in_queue() as jobs, \
+                    mock.patch.object(rate_master, "_s_get_marker", side_effect=first_reads_then_second_runs):
+                with self.assertRaises(frappe.ValidationError):
+                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+            self.assertEqual(second[0]["status"], "queued")
+            self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
+        finally:
+            self._forget_suggest_marker()
+
+    def test_44_a_run_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        try:
+            with held_in_queue() as jobs, mock.patch.object(rate_master, "_STALE_SUGGEST_SECONDS", 0):
+                self._start_suggest()
+                with later(60):
+                    self.assertEqual(self._suggest_state(), "running")
+                    with self.assertRaises(frappe.ValidationError):
+                        self._start_suggest()
+            self.assertEqual(len(jobs), 1)
+        finally:
+            self._forget_suggest_marker()
+
+    def test_45_a_run_whose_worker_never_starts_is_healed(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        try:
+            with never_queued():
+                self._start_suggest()
+                with later(rate_master._STALE_SUGGEST_SECONDS + 1):
+                    self.assertEqual(self._suggest_state(), "idle")
+                    self.assertEqual(self._start_suggest()["status"], "queued")
+        finally:
+            self._forget_suggest_marker()
+
+    def test_46_a_failed_queue_call_leaves_no_marker(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        try:
+            with queue_call_fails(), self.assertRaises(ConnectionError):
+                self._start_suggest()
+            self.assertEqual(self._suggest_state(), "idle")
+        finally:
+            self._forget_suggest_marker()
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════

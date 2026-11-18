@@ -191,7 +191,7 @@ def get_rate_category_config(discipline=None, category_id=None):
 # the active-run read, and the fire-and-forget Use-telemetry insert.
 # ══════════════════════════════════════════════════════════════════════════════════════
 
-from frappe.utils.background_jobs import get_job_status  # noqa: E402
+from nirmaan_stack.services import operation_marker  # noqa: E402
 
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
@@ -220,7 +220,8 @@ _S_MARKER_PREFIX = "boq_suggest_marker"
 #     job timeout  <  stale threshold  <  marker TTL
 #   * _STALE_SUGGEST_SECONDS is the "a run is already in progress" guard. Below the job
 #     timeout it declares a LIVE run dead and lets a SECOND worker start on the same sheet --
-#     two runs, double the AI spend. It must clear the job timeout AND rq's 60s kill grace.
+#     two runs, double the AI spend. It must clear the job timeout AND rq's 60s kill grace. It
+#     counts from the job's start of running, never from its queueing (#1660).
 #   * _S_MARKER_TTL_SEC is the Redis key holding the progress bar. If it expires mid-run the
 #     bar goes blank while the work is still going.
 # Raising the timeout alone is what WAKES the stale-guard bug, which is why it is derived here
@@ -244,10 +245,11 @@ def _s_marker_key(boq, sheet_name):
 
 
 def _s_set_marker(boq, sheet_name, job_id, user):
-    frappe.cache().set_value(
+    """Claim the marker for `job_id`: set only when no marker is there (operation_marker.claim). True when set."""
+    return operation_marker.claim(
         _s_marker_key(boq, sheet_name),
         {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        expires_in_sec=_S_MARKER_TTL_SEC,
+        _S_MARKER_TTL_SEC,
     )
 
 
@@ -269,27 +271,12 @@ def _s_update_marker_progress(boq, sheet_name, done, total):
 
 
 def _s_maybe_self_heal(boq, sheet_name, marker):
-    """'running' | 'cleared' | 'cleared_stale' -- mirrors classify._maybe_self_heal."""
-    job_id = marker.get("job_id")
-    status = None
-    if job_id:
-        try:
-            status = get_job_status(job_id)
-        except Exception:
-            status = None
-    if status in ("finished", "failed") or status is None:
+    """'running' | 'cleared' | 'cleared_stale' -- classify._maybe_self_heal's rule (stale counts from the start of
+    running, #1660), clearing the marker unless it is running."""
+    state = operation_marker.job_state(marker.get("job_id"), marker.get("enqueued_at"), _STALE_SUGGEST_SECONDS)
+    if state != "running":
         _s_clear_marker(boq, sheet_name)
-        return "cleared"
-    enqueued_at = marker.get("enqueued_at")
-    if enqueued_at:
-        try:
-            age = frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at)
-        except Exception:
-            age = 0
-        if age > _STALE_SUGGEST_SECONDS:
-            _s_clear_marker(boq, sheet_name)
-            return "cleared_stale"
-    return "running"
+    return state
 
 
 def _resolve_committed_version(boq, sheet_name):
@@ -527,29 +514,35 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     if resume_run_id:
         _validate_resume_target(boq, sheet_name, cv, resume_run_id)
 
+    # Claim the marker BEFORE the enqueue (#1660): set only when absent, so of two starts that both read "no marker"
+    # only one queues; and the worker always finds its own job id in it.
+    raw_job_id = frappe.generate_hash(length=32)
+    user = frappe.session.user
     marker = _s_get_marker(boq, sheet_name)
-    if marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running":
+    if (marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running") or not _s_set_marker(
+        boq, sheet_name, raw_job_id, user
+    ):
         frappe.throw(
             "A suggestion run is already in progress for this sheet. Wait for it to finish.",
             title="Suggest in progress",
         )
-
-    raw_job_id = frappe.generate_hash(length=32)
-    user = frappe.session.user
-    frappe.enqueue(
-        "nirmaan_stack.api.boq.rate_master._suggest_worker",
-        queue="long",
-        timeout=_SUGGEST_JOB_TIMEOUT_SEC,
-        job_id=raw_job_id,
-        user=user,
-        boq=boq,
-        sheet_name=sheet_name,
-        resume_run_id=resume_run_id,
-        only_rows=only,
-    )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
-    _s_set_marker(boq, sheet_name, raw_job_id, user)
     frappe.db.commit()
+    try:
+        frappe.enqueue(
+            "nirmaan_stack.api.boq.rate_master._suggest_worker",
+            queue="long",
+            timeout=_SUGGEST_JOB_TIMEOUT_SEC,
+            job_id=raw_job_id,
+            user=user,
+            boq=boq,
+            sheet_name=sheet_name,
+            resume_run_id=resume_run_id,
+            only_rows=only,
+        )
+    except Exception:
+        _s_clear_marker(boq, sheet_name)
+        raise
     return {
         "status": "queued",
         "job_id": raw_job_id,

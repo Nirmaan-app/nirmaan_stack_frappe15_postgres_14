@@ -56,6 +56,9 @@ from nirmaan_stack.services.boq_category.persist import resolve_row_ladder as _r
 from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
+from nirmaan_stack.services.test_operation_marker import (
+    held_in_queue, later, never_queued, new_request, queue_call_fails, started_job,
+)
 
 _ROW_CATEGORY = "BoQ Row Category"
 _AI_SETTINGS = "BOQ Upload Review AI Settings"
@@ -476,6 +479,82 @@ class TestStartClassify(FrappeTestCase):
         frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, "Electrical"))
 
 
+# ── "ALREADY RUNNING?" COUNTS FROM THE START OF RUNNING (#1660) ──────────────────
+class TestClassifyAlreadyRunning(FrappeTestCase):
+    """The marker is claimed (set only when absent) before the run is queued; a run waiting in the queue is never
+    judged stale; a run whose worker never starts is still healed."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Already Running Classify BoQ")
+        cls.sheet = "RunFix "
+        _new_sheet(cls.boq, cls.sheet)
+
+    @classmethod
+    def tearDownClass(cls):
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        purge_boq(cls.boq)
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, "Electrical"))
+        frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, "Electrical"))
+        new_request()
+
+    def _start(self):
+        new_request()
+        return start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
+
+    def _status(self):
+        new_request()
+        return get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline="Electrical")["state"]
+
+    def test_a_second_start_that_also_read_no_marker_is_refused(self):
+        second = []
+        real_get = classify._get_marker
+
+        def first_reads_then_second_runs(*args):
+            seen = real_get(*args)
+            if not second:
+                second.append(None)
+                saved = frappe.local.cache
+                second[0] = self._start()
+                frappe.local.cache = saved
+            return seen
+
+        with held_in_queue() as jobs, \
+                mock.patch.object(classify, "_get_marker", side_effect=first_reads_then_second_runs):
+            with self.assertRaises(frappe.ValidationError):
+                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
+        self.assertEqual(second[0]["status"], "queued")
+        self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
+
+    def test_a_run_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
+        with held_in_queue() as jobs, mock.patch.object(classify, "_STALE_CLASSIFY_SECONDS", 0):
+            self._start()
+            with later(60):
+                self.assertEqual(self._status(), "running")
+                with self.assertRaises(frappe.ValidationError):
+                    self._start()
+        self.assertEqual(len(jobs), 1)
+
+    def test_a_run_whose_worker_never_starts_is_healed(self):
+        with never_queued():
+            self._start()
+            with later(classify._STALE_CLASSIFY_SECONDS + 1):
+                self.assertEqual(self._status(), "idle")
+                self.assertEqual(self._start()["status"], "queued")
+
+    def test_a_failed_queue_call_leaves_no_marker(self):
+        with queue_call_fails(), self.assertRaises(ConnectionError):
+            self._start()
+        self.assertEqual(self._status(), "idle")
+
+
 # ── STATUS ───────────────────────────────────────────────────────────────────────
 class TestClassifyStatus(FrappeTestCase):
     @classmethod
@@ -509,7 +588,7 @@ class TestClassifyStatus(FrappeTestCase):
 
     def test_running_when_marker_live(self):
         classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
-        with mock.patch("nirmaan_stack.api.boq.wizard.classify.get_job_status", return_value="started"):
+        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
             res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
         self.assertEqual(res["state"], "running")
 
@@ -517,7 +596,7 @@ class TestClassifyStatus(FrappeTestCase):
         # A marker set at start (no done/total yet) -> running WITHOUT done/total (the poll bar
         # stays indeterminate until the first batch writes progress).
         classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
-        with mock.patch("nirmaan_stack.api.boq.wizard.classify.get_job_status", return_value="started"):
+        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
             res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
         self.assertEqual(res["state"], "running")
         self.assertNotIn("done", res)
@@ -528,7 +607,7 @@ class TestClassifyStatus(FrappeTestCase):
         # feeds straight into the progress bar.
         classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
         classify._update_marker_progress(self.boq, self.sheet, self.disc, 20, 57)
-        with mock.patch("nirmaan_stack.api.boq.wizard.classify.get_job_status", return_value="started"):
+        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
             res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
         self.assertEqual(res["state"], "running")
         self.assertEqual(res["done"], 20)
