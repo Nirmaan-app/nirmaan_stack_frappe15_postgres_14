@@ -6,8 +6,8 @@ The ratchet is counts and a number a PR can only tighten:
     or an entry go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all`
     does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
-  - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json
-    (no wider ignorePatterns, no rule removed or turned down to "warn" or "off", at the top level or in an override,
+  - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json,
+    compared by oxlint_settings_check.py (no wider ignorePatterns, no rule removed or turned down to "warn" or "off", at the top level or in an override,
     no folder taken off the typed path), no nested oxlint config, .eslintignore or .gitignore that hides src files,
     the `lint` script in frontend/package.json (no path, flag or shell word that narrows it), and the counts of
     scripts/residence_baseline.json that CI's residence checks read. A tightening passes: a rule switched on, a
@@ -37,12 +37,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # noqa: E402
 from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
+from oxlint_settings_check import CONFIG, config_loosenings, parse_jsonc  # noqa: E402
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
 PACKAGE = "frontend/package.json"
 RESIDENCE = "scripts/residence_baseline.json"
-CONFIG = "frontend/.oxlintrc.json"
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -144,172 +144,6 @@ def from_eslint(eslint_supp, name):
     return out
 
 
-SEVERITY = {"error": "error", "deny": "error", 2: "error", "warn": "warn", 1: "warn", "off": "off", "allow": "off", 0: "off"}
-RANK = {"off": 0, "warn": 1, "error": 2}
-# The rules whose options are ban lists: an entry may be added (a tightening), never dropped.
-BAN_LISTS = {"no-restricted-imports", "no-restricted-properties", "no-restricted-globals"}
-# The top-level keys compared below, and the ones that change no finding of an ADR-0049 rule. Any other key (e.g.
-# `extends`, which pulls in another config) is refused when it changes: this check cannot tell what it loosens.
-COMPARED = {"plugins", "categories", "ignorePatterns", "rules", "overrides"}
-HARMLESS = {"$schema", "env", "globals", "settings"}
-OVERRIDE_KEYS = {"files", "rules", "env", "globals", "plugins"}
-
-
-def severity(setting):
-    """"error", "warn" or "off" for a rule's setting: "error", 2, ["error", {options}], ...; "off" when malformed."""
-    level = setting[0] if isinstance(setting, list) and setting else setting
-    if not isinstance(level, (str, int)):
-        return "off"
-    return SEVERITY.get(level.lower() if isinstance(level, str) else level, "off")
-
-
-def rule_name(key):
-    """The rule a config key names. oxlint reads `typescript/x`, `@typescript-eslint/x`, `eslint/x` and a bare `x` as
-    one rule (the key it reads last wins), so they are compared as one; two plugins' rules of one name count as one."""
-    return key.rsplit("/", 1)[-1]
-
-
-def options_kept(name, base_setting, head_setting):
-    """True when head's options for rule <name> refuse at least what base's did (equal; ban lists may grow).
-
-    A ban's `message` is text for the reader, not a limit: it may change. A new `!` entry in a ban list is no growth:
-    oxlint reads it as "but not these", so ["x/*", "!x/**"] bans nothing.
-    """
-    grow = name in BAN_LISTS
-
-    def kept(before, after):
-        if isinstance(before, dict) and isinstance(after, dict):
-            keys = set(before) - {"message"}
-            return keys == set(after) - {"message"} and all(kept(before[k], after[k]) for k in keys)
-        if isinstance(before, list) and isinstance(after, list):
-            if grow:
-                new = [a for a in after if not any(kept(b, a) for b in before)]
-                return (all(any(kept(b, a) for a in after) for b in before)
-                        and not any(isinstance(a, str) and a.startswith("!") for a in new))
-            return len(before) == len(after) and all(map(kept, before, after))
-        return before == after
-
-    return kept(options(base_setting), options(head_setting))
-
-
-def options(setting):
-    """A rule setting's options: what follows the severity in ["error", {...}]."""
-    return setting[1:] if isinstance(setting, list) else []
-
-
-def as_strict(name, base_setting, head_setting):
-    """True when head's setting of rule <name> is an error that refuses at least what base's did."""
-    return severity(head_setting) == "error" and options_kept(name, base_setting, head_setting)
-
-
-def config_loosenings(base, head):
-    """The ways head's .oxlintrc.json weakens base's ADR-0049 lint, one sentence each; empty when it does not."""
-    problems = [f"{CONFIG}: plugin {plugin} was dropped (its rules no longer run)"
-                for plugin in base.get("plugins", []) if plugin not in head.get("plugins", [])]
-    head_categories = head.get("categories", {})
-    for category, setting in sorted(base.get("categories", {}).items()):
-        if severity(setting) == "error" and severity(head_categories.get(category, "off")) != "error":
-            problems.append(f"{CONFIG}: category {category} is set to {severity(head_categories.get(category, 'off'))}")
-    base_ignores, head_ignores = base.get("ignorePatterns", []), head.get("ignorePatterns", [])
-    problems += [f"{CONFIG}: ignorePatterns adds {pattern} (its files are no longer linted)"
-                 for pattern in head_ignores if pattern not in base_ignores and not pattern.startswith("!")]
-    problems += [f"{CONFIG}: ignorePatterns drops {pattern} (the files it brought back are no longer linted)"
-                 for pattern in base_ignores if pattern.startswith("!") and pattern not in head_ignores]
-    problems += ignore_order_loosenings(base_ignores, head_ignores)
-    head_rules = head.get("rules", {})
-    for key, setting in sorted(base.get("rules", {}).items()):
-        if severity(setting) != "error":
-            continue
-        name = rule_name(key)
-        found = {k: s for k, s in head_rules.items() if rule_name(k) == name}
-        if not found:
-            problems.append(f"{CONFIG}: rule {key} was removed")
-        for head_key, head_setting in sorted(found.items()):
-            alias = f" (as {head_key})" if head_key != key else ""
-            if severity(head_setting) != "error":
-                why = " (oxlint exits 0 on a warning)" if severity(head_setting) == "warn" else ""
-                problems.append(f"{CONFIG}: rule {key} is set to {severity(head_setting)}{alias}{why}")
-            elif not options_kept(name, setting, head_setting):
-                problems.append(f"{CONFIG}: rule {key} has weaker options than before{alias}")
-    problems += override_loosenings(base, head)
-    problems += [f"{CONFIG}: key {key} changed; this check cannot tell what it loosens, so it is refused"
-                 for key in sorted((set(base) | set(head)) - COMPARED - HARMLESS) if base.get(key) != head.get(key)]
-    return problems
-
-
-def ignore_order_loosenings(base_ignores, head_ignores):
-    """A sentence per `!` pattern of ignorePatterns that head moved before an ignore pattern it followed in base.
-
-    The last pattern that matches a file wins, so the `!` pattern no longer brings back the files both match. Moving
-    it after one lints more and passes. Patterns are compared as written, not by the files they match.
-    """
-    def last(patterns):
-        return {pattern: index for index, pattern in enumerate(patterns)}
-
-    base_at, head_at = last(base_ignores), last(head_ignores)
-    kept = [pattern for pattern in base_at if pattern in head_at]
-    return [f"{CONFIG}: ignorePatterns moves {negated} before {ignored}, so {ignored} wins for the files both match "
-            f"(they are no longer linted)"
-            for negated in kept if negated.startswith("!") for ignored in kept if not ignored.startswith("!")
-            and base_at[ignored] < base_at[negated] and head_at[ignored] > head_at[negated]]
-
-
-def override_entries(config):
-    """(override index, file pattern, rule key, setting, relaxes) per rule each override sets, per pattern.
-
-    An override either turns a rule on for some files (the typed path: `no-unsafe-*` per folder) or relaxes one for
-    them (an exception): it sets the rule to "warn" or "off", or to an error weaker than the top level's.
-    """
-    top = {rule_name(key): setting for key, setting in config.get("rules", {}).items()}
-    return [(index, pattern, key, setting,
-             not (severity(setting) == "error" and (rule_name(key) not in top
-                                                    or options_kept(rule_name(key), top[rule_name(key)], setting))))
-            for index, override in enumerate(config.get("overrides", []))
-            for key, setting in override.get("rules", {}).items() for pattern in override.get("files", [])]
-
-
-def relaxed_after_on(entries):
-    """(relaxed pattern, rule, turned-on pattern) where an override relaxing the rule follows one turning it on.
-
-    oxlint applies overrides in order, the later winning, so an exception placed after the typed path beats it.
-    """
-    return {(p, key, on_p) for i, p, key, _, relaxes in entries if relaxes
-            for j, on_p, on_key, _, on_relaxes in entries
-            if rule_name(on_key) == rule_name(key) and not on_relaxes and j < i}
-
-
-def override_loosenings(base, head):
-    """The ways head's `overrides` weaken base's, one sentence each.
-
-    A relaxation in head must already be in base, for the same file pattern, no weaker, and not moved after an
-    override that turns its rule on. A rule base's overrides turn on must stay on for each of its patterns, here or
-    at the top level. Patterns are compared as written, not by the files they match.
-    """
-    problems = [f"{CONFIG}: an override sets key {key}; this check cannot tell what it loosens, so it is refused"
-                for override in head.get("overrides", []) if override not in base.get("overrides", [])
-                for key in sorted(set(override) - OVERRIDE_KEYS)]
-    base_entries, head_entries = override_entries(base), override_entries(head)
-    head_top = {rule_name(key): setting for key, setting in head.get("rules", {}).items()}
-    for _, pattern, key, setting, relaxes in head_entries:
-        name = rule_name(key)
-        if relaxes and not any(p == pattern and rule_name(k) == name and r and RANK[severity(s)] <= RANK[severity(setting)]
-                               and (severity(setting) != "error" or options_kept(name, s, setting))
-                               for _, p, k, s, r in base_entries):
-            shown = severity(setting) if severity(setting) != "error" else "error with weaker options"
-            problems.append(f"{CONFIG}: an override sets {key} to {shown} for {pattern}")
-    for _, pattern, key, setting, relaxes in base_entries:
-        name = rule_name(key)
-        if relaxes or (name in head_top and as_strict(name, setting, head_top[name])):
-            continue
-        if not any(p == pattern and rule_name(k) == name and as_strict(name, setting, s)
-                   for _, p, k, s, _ in head_entries):
-            problems.append(f"{CONFIG}: rule {key} no longer applies to {pattern}, as an error with the same options")
-    problems += [f"{CONFIG}: an override relaxing {key} for {pattern} now comes after the one that turns it on for "
-                 f"{on_pattern}, so it wins there" for pattern, key, on_pattern in
-                 sorted(relaxed_after_on(head_entries) - relaxed_after_on(base_entries))]
-    return problems
-
-
 def tree_loosenings(root):
     """Files in the working tree that change what oxlint lints, from outside .oxlintrc.json, one sentence each.
 
@@ -351,52 +185,6 @@ def at_least(pkg):
         return float(found.group(1))
     except ValueError:
         raise ValueError(f"{PACKAGE}: type-coverage --at-least {found.group(1)!r} is not a number.") from None
-
-
-def parse_jsonc(text):
-    """JSON with comments (// and /* */) and trailing commas, as oxlint reads its config."""
-    out, i, in_string = [], 0, False
-    while i < len(text):
-        char = text[i]
-        if in_string:
-            out.append(char)
-            if char == "\\":
-                out.append(text[i + 1:i + 2])
-                i += 1
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-            out.append(char)
-        elif text.startswith("//", i):
-            i = text.find("\n", i)
-            i = len(text) if i < 0 else i
-            continue
-        elif text.startswith("/*", i):
-            end = text.find("*/", i)
-            if end < 0:
-                raise ValueError("a /* comment is never closed")
-            i = end + 2
-            continue
-        else:
-            out.append(char)
-        i += 1
-    return json.loads(_drop_trailing_commas("".join(out)))
-
-
-def _drop_trailing_commas(text):
-    """<text> without a comma that only whitespace separates from a closing } or ] (outside strings)."""
-    out, in_string, escaped = [], False, False
-    for i, char in enumerate(text):
-        if in_string:
-            in_string = escaped or char != '"'
-            escaped = not escaped and char == "\\"
-        elif char == '"':
-            in_string = True
-        elif char == "," and text[i + 1:].lstrip()[:1] in ("}", "]"):
-            continue
-        out.append(char)
-    return "".join(out)
 
 
 def text_at(root, ref, path):

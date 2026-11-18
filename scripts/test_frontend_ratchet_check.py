@@ -43,6 +43,13 @@ def loosenings(base, head, base_pkg=None, head_pkg=None):
     return suppression_loosenings(OXLINT, base, head) + threshold_loosenings(*pkgs)
 
 
+def commit(repo, message):
+    """Commit everything in <repo>'s working tree, as a made-up author (a CI runner has no git identity)."""
+    subprocess.run(["git", "-C", str(repo), "add", "-A", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                    "commit", "-qm", message], check=True, capture_output=True)
+
+
 class Suppressions(unittest.TestCase):
     def test_a_grown_count_is_refused(self):
         head = suppressions(orders={"typescript/no-explicit-any": 4, "no-restricted-imports": 1})
@@ -122,8 +129,7 @@ class CommandLine(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.repo)
         self.git("init", "-q", "-b", "base")
         self.write(BASE, package(97.47))
-        self.git("add", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base")
+        self.commit("base")
 
     def git(self, *args):
         subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
@@ -135,8 +141,7 @@ class CommandLine(unittest.TestCase):
         (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
 
     def commit(self, message):
-        self.git("add", "-A", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message)
+        commit(self.repo, message)
 
     def run_script(self):
         return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
@@ -236,8 +241,11 @@ BASELINE = {"s1_oversized_files": {"count": 3, "rule": "S1", "description": "big
             "b3_workflow_state_writers": {"count": 5, "rule": "B3", "description": "local only"}}
 
 
-class LintSettings(unittest.TestCase):
-    """A PR that weakens the lint itself, without touching a suppressions file, is refused, naming the loosening."""
+class LintRepo:
+    """A git repo with a made-up frontend at commit `base`; the test edits the working tree and runs the script.
+
+    Mixed into a unittest.TestCase (here and in test_oxlint_settings_check.py).
+    """
 
     def setUp(self):
         self.repo = Path(tempfile.mkdtemp())
@@ -250,11 +258,13 @@ class LintSettings(unittest.TestCase):
         self.config(CONFIG_TEXT)
         self.package(LINT_PACKAGE)
         self.baseline(BASELINE)
-        self.git("add", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base")
+        self.commit("base")
 
     def git(self, *args):
         subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+
+    def commit(self, message):
+        commit(self.repo, message)
 
     def config(self, text, where="frontend/.oxlintrc.json"):
         (self.repo / where).write_text(text)
@@ -266,6 +276,10 @@ class LintSettings(unittest.TestCase):
 
     def package(self, pkg):
         (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
+
+    def lint_script(self, script):
+        """frontend/package.json with LINT_PACKAGE's scripts, its `lint` script set to <script>."""
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": script}})
 
     def baseline(self, data):
         (self.repo / "scripts/residence_baseline.json").write_text(json.dumps(data))
@@ -285,66 +299,9 @@ class LintSettings(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_a_rule_set_to_warn_is_refused(self):
-        self.edit_config('"typescript/no-explicit-any": "error"', '"typescript/no-explicit-any": "warn"')
-        self.refused("typescript/no-explicit-any", "warn")
 
-    def test_a_rule_turned_off_or_removed_is_refused(self):
-        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "off",')
-        self.refused("react/rules-of-hooks", "off")
-        self.edit_config('"react/rules-of-hooks": "off",', '')
-        self.refused("react/rules-of-hooks", "removed")
-
-    def test_a_ban_list_entry_dropped_is_refused(self):
-        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}', '{"paths": []}')
-        self.refused("no-restricted-imports", "options")
-
-    def test_a_ban_list_emptied_by_a_new_negated_entry_is_refused(self):
-        # oxlint reads a `!` entry as "but not these": ["sdk-lib/*", "!sdk-lib/**"] bans nothing.
-        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
-                         '{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}], '
-                         '"patterns": [{"group": ["sdk-lib/*"], "message": "Use \'@/lib/sdk\'"}]}')
-        self.git("commit", "-qam", "ban sdk-lib's subpaths")
-        self.edit_config('"group": ["sdk-lib/*"]', '"group": ["sdk-lib/*", "!sdk-lib/**"]')
-        self.refused("no-restricted-imports", "options")
-
-    def test_an_ignored_folder_with_its_suppressions_pruned_is_refused(self):
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/components/ui/**", "src/orders.tsx"]')
-        (self.repo / OXLINT).write_text("{}")
-        self.refused("ignorePatterns", "src/orders.tsx")
-
-    def test_a_plugin_dropped_is_refused(self):
-        self.edit_config('"plugins": ["eslint", "typescript", "react"]', '"plugins": ["eslint", "typescript"]')
-        self.refused("plugin react")
-
-    def test_a_category_turned_down_from_error_is_refused(self):
-        self.edit_config('"categories": {"correctness": "off"}', '"categories": {"correctness": "error"}')
-        self.git("commit", "-qam", "correctness on")
-        self.edit_config('"categories": {"correctness": "error"}', '"categories": {"correctness": "warn"}')
-        self.refused("category correctness", "warn")
-
-    def test_an_unknown_top_level_key_added_is_refused(self):
-        self.edit_config('"plugins"', '"extends": ["./loose.json"], "plugins"')
-        self.refused("extends")
-
-    def test_an_override_that_turns_a_rule_off_for_a_new_folder_is_refused(self):
-        self.edit_config('{"files": ["src/lib/sdk.ts"], "rules": {"no-restricted-imports": "off"}}',
-                         '{"files": ["src/lib/sdk.ts", "src/pages/**"], "rules": {"no-restricted-imports": "off"}}')
-        self.refused("override", "no-restricted-imports", "src/pages/**")
-
-    def test_a_new_override_that_sets_a_rule_to_warn_is_refused(self):
-        self.edit_config('"overrides": [', '"overrides": [{"files": ["src/x/**"], "rules": {"typescript/no-explicit-any": "warn"}},')
-        self.refused("override", "typescript/no-explicit-any", "warn", "src/x/**")
-
-    def test_a_folder_taken_off_the_typed_path_is_refused(self):
-        self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]', '"files": ["src/pages/other/**/*.{ts,tsx}"]')
-        self.refused("typescript/no-unsafe-call", "src/pages/orders/**/*.{ts,tsx}")
-
-    def test_a_rule_dropped_from_the_typed_path_or_set_to_warn_there_is_refused(self):
-        self.edit_config('"typescript/no-unsafe-call": "error", ', '')
-        self.refused("typescript/no-unsafe-call", "src/pages/orders/**/*.{ts,tsx}")
-        self.edit_config('"typescript/no-unsafe-return": "error"', '"typescript/no-unsafe-return": "warn"')
-        self.refused("typescript/no-unsafe-return")
+class LintSettings(LintRepo, unittest.TestCase):
+    """A PR that weakens the lint itself, without touching a suppressions file, is refused, naming the loosening."""
 
     def test_a_nested_config_anywhere_under_frontend_is_refused(self):
         for name in (".oxlintrc.json", ".oxlintrc.jsonc", "oxlint.config.ts"):
@@ -369,8 +326,7 @@ class LintSettings(unittest.TestCase):
 
     def test_an_eslintignore_or_a_gitignore_that_hides_a_linted_file_is_refused(self):
         (self.repo / "frontend/src/pages/orders/list.tsx").write_text("export {};\n")
-        self.git("add", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "a page")
+        self.commit("a page")
         (self.repo / "frontend/.eslintignore").write_text("src/pages/\n")
         self.refused("frontend/.eslintignore")
         (self.repo / "frontend/.eslintignore").unlink()
@@ -385,7 +341,7 @@ class LintSettings(unittest.TestCase):
                               ("oxlint --type-aware src || true", "adds ||"),
                               ("oxlint --type-aware --disable-nested-config -c loose.json src", "-c loose.json")]:
             with self.subTest(script):
-                self.package({**LINT_PACKAGE, "scripts": {**LINT_PACKAGE["scripts"], "lint": script}})
+                self.lint_script(script)
                 self.refused("lint script", named)
 
     def test_a_removed_lint_script_or_a_new_prelint_is_refused(self):
@@ -395,17 +351,17 @@ class LintSettings(unittest.TestCase):
         self.refused("prelint")
 
     def test_a_lint_script_that_denies_warnings_too_passes(self):
-        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --deny-warnings src"}})
+        self.lint_script("oxlint --type-aware --deny-warnings src")
         self.passes()
 
     def test_a_lint_script_that_sets_max_warnings_to_0_either_way_passes(self):
         for flag in ("--max-warnings=0", "--max-warnings 0"):
             with self.subTest(flag):
-                self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": f"oxlint --type-aware {flag} src"}})
+                self.lint_script(f"oxlint --type-aware {flag} src")
                 self.passes()
 
     def test_a_lint_script_that_allows_warnings_is_refused(self):
-        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --max-warnings 5 src"}})
+        self.lint_script("oxlint --type-aware --max-warnings 5 src")
         self.refused("lint script", "--max-warnings")
 
     def test_a_raised_residence_baseline_entry_that_ci_reads_is_refused(self):
@@ -418,76 +374,13 @@ class LintSettings(unittest.TestCase):
                        "b3_workflow_state_writers": {**BASELINE["b3_workflow_state_writers"], "count": 6}})
         self.passes()
 
-    def test_a_broken_config_or_a_malformed_rule_setting_is_refused_without_a_traceback(self):
-        self.config(CONFIG_TEXT + "/* never closed")
-        self.refused(".oxlintrc.json")
-        self.config(CONFIG_TEXT.replace('"typescript/no-explicit-any": "error"', '"typescript/no-explicit-any": {"x": 1}'))
-        self.refused("typescript/no-explicit-any")
-
-    def test_an_exception_moved_after_the_override_that_turns_its_rule_on_is_refused(self):
-        # oxlint applies overrides in order, the later winning: the exception first is beaten by the typed path.
-        typed = '{"files": ["src/pages/orders/**/*.{ts,tsx}"], "rules": {"typescript/no-unsafe-call": "error"}}'
-        exception = '{"files": ["src/pages/orders/**/*.{ts,tsx}"], "rules": {"typescript/no-unsafe-call": "off"}}'
-        self.config('{"plugins": ["typescript"], "overrides": [' + exception + ", " + typed + "]}")
-        self.git("add", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "exception first")
-        self.config('{"plugins": ["typescript"], "overrides": [' + typed + ", " + exception + "]}")
-        self.refused("typescript/no-unsafe-call", "now comes after")
-
-    def test_an_unknown_key_in_an_override_is_refused(self):
-        self.edit_config('{"files": ["src/lib/sdk.ts"],', '{"files": ["src/lib/sdk.ts"], "extends": ["./loose.json"],')
-        self.refused("override", "extends")
-
     def test_a_lint_script_word_dropped_once_of_two_is_refused(self):
-        self.package({**LINT_PACKAGE, "scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware src src/pages"}})
-        self.git("commit", "-qam", "two paths")
-        self.package({**LINT_PACKAGE, "scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware src src"}})
+        self.lint_script("oxlint --type-aware src src/pages")
+        self.commit("two paths")
+        self.lint_script("oxlint --type-aware src src")
         self.refused("drops src/pages")
-        self.package({**LINT_PACKAGE, "scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware src/pages src/pages"}})
+        self.lint_script("oxlint --type-aware src/pages src/pages")
         self.refused("drops src")
-
-    def test_a_rule_turned_off_under_another_name_oxlint_reads_as_the_same_rule_is_refused(self):
-        for alias in ("@typescript-eslint/no-explicit-any", "no-explicit-any", "eslint/no-explicit-any"):
-            with self.subTest(alias):
-                self.config(CONFIG_TEXT.replace('"react/rules-of-hooks": "error",',
-                                                f'"react/rules-of-hooks": "error", "{alias}": "off",'))
-                self.refused("no-explicit-any", "off")
-
-    def test_a_negated_ignore_pattern_moved_before_the_pattern_it_undoes_is_refused(self):
-        # The last pattern that matches a file wins: "!src/ui/b.ts" first is beaten by "src/ui/**", so b.ts is skipped.
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
-        self.git("commit", "-qam", "lint b.ts")
-        self.edit_config('"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
-        self.refused("ignorePatterns", "!src/ui/b.ts", "src/ui/**")
-
-    def test_a_negated_ignore_pattern_moved_after_the_pattern_it_undoes_passes(self):
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
-        self.git("commit", "-qam", "b.ts not yet linted")
-        self.edit_config('"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
-        self.passes()
-
-    def test_a_negated_ignore_pattern_lints_more_and_passes(self):
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]',
-                         '"ignorePatterns": ["src/components/ui/**", "!src/components/ui/button.tsx"]')
-        self.passes()
-
-    def test_a_folder_moved_to_the_typed_path_passes(self):
-        self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]',
-                         '"files": ["src/pages/orders/**/*.{ts,tsx}", "src/pages/vendors/**/*.{ts,tsx}"]')
-        (self.repo / OXLINT).write_text(json.dumps(suppressions(orders={"typescript/no-explicit-any": 1})))
-        self.passes()
-
-    def test_a_new_rule_switched_on_and_an_exception_narrowed_pass(self):
-        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "error", "no-debugger": "error",')
-        self.edit_config('"typescript/no-unsafe-call": "error"', '"typescript/no-unsafe-call": "error", "typescript/no-unsafe-member-access": "error"')
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": []')
-        self.edit_config('"no-restricted-imports": ["error", {"paths": [', '"no-restricted-imports": ["error", {"paths": [{"name": "other-lib"}, ')
-        self.passes()
-
-    def test_the_typed_path_list_replaced_by_the_rule_on_for_all_of_src_passes(self):
-        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "error", "typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error",')
-        self.edit_config('{\n      "files": ["src/pages/orders/**/*.{ts,tsx}"],\n      "rules": {"typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error"}\n    },', '')
-        self.passes()
 
 
 if __name__ == "__main__":

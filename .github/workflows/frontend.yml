@@ -41,7 +41,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          python3 -m unittest scripts.test_frontend_ratchet_check
+          python3 -m unittest scripts.test_frontend_ratchet_check scripts.test_oxlint_settings_check
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           python3 scripts/frontend_ratchet_check.py --base-ref "$BASE_SHA"
 
