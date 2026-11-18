@@ -130,8 +130,10 @@ def check_file(tab, record, download, out, kind):
           f"{tab}: the downloaded file is its own operation's ({path.stat().st_size} bytes, record says {want})")
 
 
-def two_tab_downloads(page, out, kind_a, kind_b, start_a, start_b, timeout_s=600):
-    """Start an operation in each of two tabs with no worker, show both queued, then run them on two workers."""
+def two_tab_downloads(page, out, kind_a, kind_b, start_a, start_b, timeout_s=600, queued_b=QUEUED):
+    """Start an operation in each of two tabs with no worker, show both queued, then run them on two workers.
+
+    `queued_b` is what tab b shows while its operation waits (the Handover TDS export says only "Exporting...")."""
     page_b = page.context.new_page()
     page_b.goto(page.url.split("?")[0])
     ops_a, ops_b, dl_a, dl_b = follow_ops(page), follow_ops(page_b), [], []
@@ -139,9 +141,9 @@ def two_tab_downloads(page, out, kind_a, kind_b, start_a, start_b, timeout_s=600
     collect_downloads(page_b, dl_b)
     start_a(page)
     start_b(page_b)
-    for name, p in (("a", page), ("b", page_b)):
-        check(wait_until(lambda p=p: p.get_by_text(QUEUED).count() > 0, 30, page=p),
-              f"tab {name}: shows '{QUEUED}' while no worker runs")
+    for name, p, text in (("a", page, QUEUED), ("b", page_b, queued_b)):
+        check(wait_until(lambda p=p, text=text: p.get_by_text(text).count() > 0, 30, page=p),
+              f"tab {name}: shows '{text}' while no worker runs")
         save(p, out, f"02-tab-{name}-queued")
     with long_workers(a.task, 2):
         wait_until(lambda: dl_a and dl_b, timeout_s, page=page)
@@ -194,7 +196,7 @@ def part_handover(page, out):
         tick_one(d, 0)
         d.get_by_role("button", name=re.compile(r"^Download PDF \(1\)")).click()
 
-    two_tab_downloads(page, out, "hod_binder", "tds_export", binder, tds, timeout_s=900)
+    two_tab_downloads(page, out, "hod_binder", "tds_export", binder, tds, timeout_s=900, queued_b="Exporting...")
 
 
 def one_download(page, out, kind, start, timeout_s=600):
@@ -303,8 +305,10 @@ def part_template(page, out):
     save(page, out, "01-templates")
 
     def upload(p, wb):
+        p.get_by_role("button", name=re.compile("Seed the master template|Re-seed", re.I)).first.click()
+        p.get_by_role("alertdialog").get_by_role("button", name="Continue").click()
         with p.expect_file_chooser() as fc:
-            p.get_by_role("button", name=re.compile("Seed the master template|Re-seed", re.I)).first.click()
+            p.get_by_role("dialog").get_by_role("button", name=re.compile("Drop a .xlsx")).click()
         fc.value.set_files(str(wb))
 
     upload_failure_path([page], out, "boq_template_seed", "Seeding failed", upload)

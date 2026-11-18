@@ -59,6 +59,7 @@ Preconditions:
   bucket. The walk drives the failure path, which is what proves each tab shows its own outcome.
 - The status records live in the cache Redis for 24 hours, not in the DB; finished files are in
   `sites/<site>/private/background_ops/<op_id>.bin`, and `logs/background_ops.log` has one line per ended operation.
-- The bulk download window says "Waiting for the server to start…" while queued, not "Waiting in the queue".
+- The bulk download window says "Waiting for the server to start…" while queued, and the Handover TDS export only
+  "Exporting..." (its ticket asks queued apart from running of the binder only).
 - TDS exports and the Handover TDS export read each datasheet from the production bucket (read-only downloads); one
   item takes about a minute.
