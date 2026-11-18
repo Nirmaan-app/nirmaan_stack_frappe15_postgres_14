@@ -120,7 +120,10 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   tracked file under `frontend/src/` (oxlint reads all three on its own); the `lint` script with a word dropped or
   added (only `--deny-warnings`, `--max-warnings=0` (or `--max-warnings 0`) and `--report-unused-disable-directives`
   may be added), or a new `prelint`/`postlint`; a top-level config key it does not compare (such as `extends`)
-  changed; and a raised count in `scripts/residence_baseline.json` for a check CI runs. A tightening passes: a rule
+  changed; and a raised count in `scripts/residence_baseline.json` for a check CI runs. A ban rule's options are
+  judged per key, by a table of what each key means (`OPTION_KEYS`, measured on oxlint 1.94: a longer `paths` or
+  `importNames` bans more, a longer `allowImportNames` or `allowProperties` bans less, `allowTypeImports: true` bans
+  less), and any key not in it must stay equal. A tightening passes: a rule
   switched on, a folder added to the typed path, an ignore pattern or exception dropped. It reads the settings rather
   than linting the PR with the base's settings: a rule set to `"warn"` lets no violation through in the PR that sets
   it, so a lint run would pass that PR.
