@@ -51,11 +51,19 @@ CKP-3 the copies are made by a **Windows scheduled task on the laptop**, `BoQ Ch
 | As | the logged-on user, "run only when the user is logged on" (no password is stored), least privilege |
 | Follows | the slice named with `env_sync.sh poller follow --slice S --name N` (the laptop session runs this right after it launches a desktop session). Each run checks the desktop session's status file, read-only; `DONE` / `FAILED` there ends the following after one last B1 |
 | Each run | nothing followed -> IDLE. Desktop silent -> OFFLINE (logged once, B1 skipped). Desktop back -> the B4 catch-up by itself, `CAUGHT-UP` in the log and one relay entry. Otherwise B1 `checkpoint-code --if-older 13`, then B2 when the session's newest `DBCOPY-POINT` is newer than the last database copy |
+| **Office vs away** | **In the office: code only. After "leaving" and at home: code + database** (owner 2026-11-18 16:42 "ok option a"). "Office" = the laptop reaches the desktop over a direct private-LAN path (`tailscale ping` says `via 192.168.x.x:port` and the like); the Tailscale relay, a public address, no answer or no Tailscale = "away". In the office a due `DBCOPY-POINT` is NOT copied by the poller and the laptop's Docker is never started for it (`B2 not in office`); the point stays due and is copied at the first run away. The standing rules are unchanged: code after every commit, the slice-end `db-pull`, and the B3 "leaving" checkpoint with its full code + database copy on the office LAN. The heartbeat has a `location:` line |
 | B2 and standby | Docker Desktop and the four main containers are started only for the copy and put back as they were (MEM-R0 F3); never dev2. After Docker starts the run waits 45 s before the copy (a just-started Docker Desktop dropped a 277 MB `docker cp` with "502 Bad Gateway") |
 | B2 guards | No copy starts with under 3,000 MB of memory free on the laptop (`B2 PENDING`, tried again at the next run, not a failure): both AC5 failures on 2026-11-18 were the laptop's Docker falling over with about 2 GB free. A FAILED copy is tried again for the same `DBCOPY-POINT` only after 60 minutes (each try costs a desktop backup). The whole output of the last copy is kept in `envsync\poll\b2_last_output.txt` |
 | Heartbeat | `<laptop Desktop>\BoQ main lane\_run_records\ckp_heartbeat.txt`, overwritten at every run: run time, result (`IDLE` / `B1 OK` / `B1 SKIP not due` / `B2 OK` / `OFFLINE` / `CAUGHT-UP` / `FAILED ...` / `PAUSED`), the slice, desktop reachable, the last good B1 and B2. Text only |
 | Log | `frappe-bench\envsync\checkpoints\poller.log` (appended, 30 days kept) |
 | A failure | one heartbeat line + one log line; `ckfail` adds the one `<slice>-CKPFAIL` relay entry (F1 unchanged). No retry loop: the next run tries at its next mark |
+
+**The owner's off switch.** The owner says "pause the copier", "resume the copier" or "remove the copier" to chat-Claude
+or to the laptop session, which runs `poller pause`, `poller resume` or `poller remove` and confirms with the heartbeat.
+
+**Every run writes the heartbeat first** (`RUNNING since <start>`, then the result), paused, idle and not-due runs
+included. A stale heartbeat therefore only ever means the job did not run: the laptop asleep, hibernated (a flat battery
+did this on 2026-11-18) or off, the user logged off, or the task removed.
 
 **Off switch and undo.** `env_sync.sh poller status` shows the task, what it follows and the last heartbeat.
 `poller pause` / `poller resume` stop and restart the copying (a paused run still writes a `PAUSED` heartbeat).
