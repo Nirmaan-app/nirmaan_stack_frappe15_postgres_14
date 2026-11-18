@@ -17,10 +17,27 @@ The screens (`walk_background_operation_screens.py --part <name>`):
 - `handover` the handover binder (`Download binder`) and the Handover TDS export (row "Material Technical Data Sheet"
   -> Edit -> tick -> Download PDF; a not-Done row's Download is refused), at once in two tabs: each ends in its own file.
 - `commission` Commission Report tab -> `Bulk Approved Reports` -> Export: the reports PDF.
-- `bulk` Bulk Download tab -> a document type -> tick rows -> `Download N ...`: the merged PDF.
+- `bulk` Bulk Download tab -> a document type -> tick rows -> `Download N ...`: the merged PDF. While it waits, the
+  window says "You can leave this page. The download carries on and picks up again when you come back." (no "Keep
+  this page open"); leaving for the home page and coming Back in the same browser tab shows the same download's
+  window again, and it still ends in its file (#1664).
 - `boq` Upload BoQ: two tabs upload at once, each shows its own outcome; the 30 s "taking a little longer" note waits
   for the parse to start running.
 - `template` Admin Options -> BoQ Templates -> seed from a workbook: queued, then its own outcome.
+- `clone` Upload BoQ -> a project -> Create from Template -> Create BoQ: "Waiting in the queue…" with no worker,
+  "Building your BoQ…" once one runs, then the hub of the record's BoQ; record `boq_template_clone`, the walker's,
+  finished (#1669).
+- `snag` Snag List tab -> a batch's tab (`Download` is hidden on "All") -> `Download` -> the dialog's `Download`: the
+  toast says "Waiting for the server to start on it..." with no worker, then "Building the PDF..." (or "Built i of n
+  sections..."), then the file saves and a Success toast shows; record `snag_pdf`, file size equal to the record's.
+  A different user (`--other-user`) gets HTTP 403 from `get_status` and `collect_result` for that op id (#1669).
+- `commission-second` a commission bulk download left queued (no worker), then a second from `--project2`'s
+  Commission Report tab in a second browser tab: the `Failed` toast names the first ("Your commission reports
+  download for <project> is still being prepared. ..."), and the refused operation's record reads failed and never
+  started. A worker then finishes the first, which ends in its own file (#1664).
+- `binder-second` the same for the handover binder: a second tab's `Download binder` shows "Your handover binder
+  for <project> (<system>) is still being prepared. ..." while the first waits; then the first ends in its file
+  (#1663).
 
 The N-worker check (`walk_background_operations.py --workers N`, no screen: it drives the endpoints the screens call
 and reads each operation's outcome where the screen reads it):
@@ -86,10 +103,16 @@ The screens, as their roles:
 
 - Users from `free_users.py "<profile>"` with a password set (`DEVENV run <task> set-password <email> <pw>`): a
   Project Manager with a project that has TDS items, Done HVAC handover documents and Submitted Field commission
-  reports; a Procurement Executive on a project with delivery challans; an Estimates Executive.
+  reports; a Procurement Executive on a project with delivery challans; an Estimates Executive. For `snag` and
+  `commission-second`, a Project Manager with two projects that have commission trackers, one of them with snag
+  batches (on the 2026-11-17 backup few free PMs qualify; query `User Permission` x `Project Commission Report` x
+  `Project Snag`). `clone` needs the env's active master BoQ Template (see Gotchas).
 - **Whole walk, one part at a time.** `python3 BIN/walk_background_operation_screens.py --task <task> --part
-  tds|handover|commission|bulk|boq|template --user <email> --password <pw> [--project <id> --project-name <name>]`
-  (the four project parts need both project flags). It starts its operations with no worker running, saves the
+  tds|handover|commission|bulk|boq|template|clone|snag|commission-second|binder-second --user <email> --password <pw>
+  [--project <id> --project-name <name>]` (every part but `boq`, `template` and `clone` needs both project flags;
+  `commission-second` also `--project2 <id> --project2-name <name>`, a second project of the same Project Manager
+  with Submitted Field reports; `snag` also `--other-user <email> --other-password <pw>`; `binder-second` takes
+  `--hod-system`, default HVAC). It starts its operations with no worker running, saves the
   screen showing them queued, then starts the worker(s) it needs through `BIN/bgops_workers.py`. It prints one
   `ok`/`MISS` line per check and exits 1 on any miss.
 - **What it proves.** Each tab's operation id comes from the hook's `get_status?op_id=` reads. `BIN/bgops_db.py`
@@ -121,6 +144,10 @@ The N-worker check, one command:
 
 - A dev env serves no realtime (Socket.IO), so every screen here ends by polling alone (about every 3 s with the
   socket down). That is also the dropped-socket case.
+- So work that runs under about two status reads (a small clone, one snag batch's PDF: about 3 s each on the
+  2026-11-17 backup) can go from queued straight to finished on screen, never showing "Building...". The `clone`
+  and `snag` parts then print a `note` line with the run time from the record instead of a `MISS`; a run of 6 s or
+  more that never showed it is a `MISS`.
 - BoQ upload and template seed always fail on a dev env: the worker reads the workbook only from the production
   bucket (`sheet_preview._fetch_boq_file_to_tempfile`). The screen walk drives the failure path, which is what proves
   each tab shows its own outcome, and no N-worker flow drives the upload, the other operation that holds the BoQ
