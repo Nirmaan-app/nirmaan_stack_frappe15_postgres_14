@@ -107,7 +107,8 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   neither. It reads every file type `oxlint src` lints (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`,
   `.cjs`). A file-wide comment counts apart from a line comment for the same rule (its key ends ` (file-wide)`), so
   widening a frozen line comment to the whole file is a new entry. It reads the comments with TypeScript's parser
-  (`frontend/scripts/disable_comments.mjs`), so text in a string is not one. Today's 11 are in
+  (`frontend/scripts/disable_comments.mjs`), so text in a string is not one, plus the HTML-like comments oxlint
+  reads outside `.mjs` and `.mts` (a line from `<!--`, or from `-->` at a line's start). Today's 11 are in
   `frontend/disable-comment-suppressions.json`; a file off its count fails, in CI and in the commit hooks (which
   skip it with a warning where node cannot run, as J1). A change that removes a comment lowers the frozen count in
   the same change, with `python3 scripts/residence_check.py --prune-disable-comments`; the ratchet check refuses a
