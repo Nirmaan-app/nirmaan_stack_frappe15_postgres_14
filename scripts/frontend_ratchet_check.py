@@ -95,7 +95,7 @@ def lint_script_loosenings(base_pkg, head_pkg):
         return problems
     if "lint" not in head_scripts:
         return problems + [f"{PACKAGE}: the lint script was removed"]
-    before, after = shlex.split(base_scripts["lint"]), shlex.split(head_scripts["lint"])
+    before, after = lint_words(base_scripts["lint"]), lint_words(head_scripts["lint"])
     dropped = [word for word in before if word not in after]
     added = [word for word in after if word not in before and word not in STRICTER_FLAGS]
     if dropped or added:
@@ -103,6 +103,15 @@ def lint_script_loosenings(base_pkg, head_pkg):
         problems.append(f"{PACKAGE}: the lint script {change} ({base_scripts['lint']!r} -> {head_scripts['lint']!r}); "
                         f"it may only add {', '.join(sorted(STRICTER_FLAGS))}")
     return problems
+
+
+def lint_words(script):
+    """The shell words of a `lint` script, with `--max-warnings N` written as one word, `--max-warnings=N`."""
+    words = shlex.split(script)
+    for index in range(len(words) - 2, -1, -1):
+        if words[index] == "--max-warnings":
+            words[index:index + 2] = [f"--max-warnings={words[index + 1]}"]
+    return words
 
 
 def residence_loosenings(base_baseline, head_baseline):

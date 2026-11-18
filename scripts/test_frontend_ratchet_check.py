@@ -398,6 +398,16 @@ class LintSettings(unittest.TestCase):
         self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --deny-warnings src"}})
         self.passes()
 
+    def test_a_lint_script_that_sets_max_warnings_to_0_either_way_passes(self):
+        for flag in ("--max-warnings=0", "--max-warnings 0"):
+            with self.subTest(flag):
+                self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": f"oxlint --type-aware {flag} src"}})
+                self.passes()
+
+    def test_a_lint_script_that_allows_warnings_is_refused(self):
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --max-warnings 5 src"}})
+        self.refused("lint script", "--max-warnings")
+
     def test_a_raised_residence_baseline_entry_that_ci_reads_is_refused(self):
         self.baseline({**BASELINE, "s1_oversized_files": {**BASELINE["s1_oversized_files"], "count": 4}})
         self.refused("scripts/residence_baseline.json", "s1_oversized_files", "3 -> 4")
