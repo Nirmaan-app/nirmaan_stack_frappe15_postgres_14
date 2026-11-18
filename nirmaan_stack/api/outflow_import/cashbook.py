@@ -88,7 +88,12 @@ from nirmaan_stack.services.outflow_import.candidates import (
     prior_import_sightings,
 )
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
-from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, only_before_cutoff_message
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import (
+    before_cutoff_note,
+    kept_lines,
+    kept_period,
+    only_before_cutoff_message,
+)
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
 from nirmaan_stack.services.outflow_import.cashbook_refund_expense import money_in_description
 from nirmaan_stack.services.outflow_import.cashbook_refunds import CREDIT_ROW_KINDS
@@ -152,7 +157,7 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     return preview_payload(parsed, plan, filename, verdict, [_late_bill_preview(b) for b in late], len(fills))
 
@@ -176,7 +181,7 @@ def confirm_cashbook_import():
     # path): `store_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
@@ -546,7 +551,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         payment_by=(spent_by or "").strip() or None,
         # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
         cashbook_batch=batch,
-        cashbook_refund=money_in,
+        cashbook_money_in=money_in,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now
@@ -933,6 +938,13 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: 
     )
 
 
+def _zero_records_to_fill(parsed) -> tuple:
+    """The ₹0 Internal Transfer records this statement fills, read from its KEPT lines only (#1715, owner decision 2):
+    a line before 1 Apr 2026 or undated is left out like any other early line, so it fills nothing, and a file of
+    nothing else is refused by `_assess`."""
+    return internal_transfer_records.zero_records_to_fill(kept_lines(parsed.rows))
+
+
 def _statement_transfer_ids(parsed) -> list[str]:
     """The distinct, non-blank transfer ids in this statement -- the narrowing both lookups use.
 
@@ -957,6 +969,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
     # A line that re-opens an earlier one (#1596) is stored in that line's import, so its money is too.
     stored = [raw for raw, planned in zip(all_kept, plan.rows, strict=True) if not planned.reopens]
     gross, charges = stored_money(stored)
+    period_from, period_to = kept_period(parsed.rows)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -964,8 +977,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
             "source": SOURCE,
             "source_file": file_url,
             "original_filename": filename,
-            "period_from": parsed.period_from,
-            "period_to": parsed.period_to,
+            # #1715: the period of the kept lines; a line left out by date does not count toward it.
+            "period_from": period_from,
+            "period_to": period_to,
             "gross_amount": float(gross),
             "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).

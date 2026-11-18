@@ -49,6 +49,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_PORTER_TOP_UP,
     SKIP_KIND_REPEATED_IN_FILE,
     SKIP_KINDS,
+    RETIRED_SKIP_KINDS,
 )
 
 _DOCTYPE_JSON = os.path.join(
@@ -99,16 +100,9 @@ class TestVocabulary(unittest.TestCase):
                 "No amount",
                 "Outflow Already Recorded",
                 "Inflow Already Recorded",
-                "Cashfree wallet top-up",
-                "Cashbook wallet top-up",
-                "Porter wallet top-up",
-                "Wallet money returned",
-                "Bank internal transfer",
+                # #1628: the 8 kinds whose lines are Internal Transfers since spec #1619 left this list.
                 "Failed payment bounced back",
                 "Bank card rounding (₹2)",
-                "Credit card bill payment",
-                "Credit card auto-debit",
-                "Cashbook internal movement",
                 "Skipped by hand",
                 # #1443 (ADR-0032): a Porter Statement line whose order Porter cancelled.
                 "Porter order cancelled",
@@ -128,8 +122,37 @@ class TestVocabulary(unittest.TestCase):
         self.assertEqual(
             set(SKIP_KIND_BY_EXCLUSION_CATEGORY), set(bank_exclusions.SKIP_CATEGORY_IDS)
         )
-        for kind in SKIP_KIND_BY_EXCLUSION_CATEGORY.values():
-            self.assertIn(kind, SKIP_KINDS)
+
+    def test_a_rule_that_can_still_skip_has_a_live_kind_and_an_internal_one_a_retired_kind(self):
+        """#1628: a category whose every line is an Internal Transfer skips nothing, so its kind left the list and
+        is kept only to read old lines (the #1627 patch and back-fill). The rest still skip under a live kind."""
+        from nirmaan_stack.services.outflow_import.internal_transfers import bank_line_transfer
+
+        for category, kind in SKIP_KIND_BY_EXCLUSION_CATEGORY.items():
+            with self.subTest(category=category):
+                always_internal = bank_line_transfer(category, "") is not None
+                self.assertEqual(kind in RETIRED_SKIP_KINDS, always_internal)
+                self.assertEqual(kind in SKIP_KINDS, not always_internal)
+
+    def test_the_retired_kinds(self):
+        """#1628 (owner, 2026-11-19): eight kinds left the Skip Type list; Failed payment bounced back and Card
+        payment received stay."""
+        self.assertEqual(
+            set(RETIRED_SKIP_KINDS),
+            {
+                "Cashfree wallet top-up",
+                "Cashbook wallet top-up",
+                "Porter wallet top-up",
+                "Wallet money returned",
+                "Bank internal transfer",
+                "Credit card bill payment",
+                "Credit card auto-debit",
+                "Cashbook internal movement",
+            },
+        )
+        self.assertFalse(set(RETIRED_SKIP_KINDS) & set(SKIP_KINDS))
+        self.assertIn("Failed payment bounced back", SKIP_KINDS)
+        self.assertIn("Card payment received", SKIP_KINDS)
 
     def test_the_leaf_imports_nothing(self):
         import inspect

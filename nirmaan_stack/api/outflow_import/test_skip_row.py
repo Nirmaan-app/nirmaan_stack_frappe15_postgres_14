@@ -39,6 +39,7 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.services.outflow_import.skip_kinds import RETIRED_SKIP_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
     cashbook_pending_line_refusal,
@@ -127,6 +128,11 @@ class SkipFixture(unittest.TestCase):
             doc.insert(ignore_permissions=True)
             batch = doc.name
             self.batches.append(batch)
+        # #1628: a retired kind is no longer a Select option, so it is written raw after the insert, as an import
+        # before spec #1619 left it (the #1627 patch and back-fill tests read such lines).
+        retired = fields.get("skip_kind") if fields.get("skip_kind") in RETIRED_SKIP_KINDS else None
+        if retired:
+            fields = {**fields, "skip_kind": None}
         transfer_id = f"skip-{frappe.generate_hash(length=10)}"
         row = frappe.new_doc(ROW_DOCTYPE)
         row.update(
@@ -143,6 +149,8 @@ class SkipFixture(unittest.TestCase):
             }
         )
         row.insert(ignore_permissions=True)
+        if retired:
+            frappe.db.set_value(ROW_DOCTYPE, row.name, "skip_kind", retired, update_modified=False)
         frappe.db.commit()
         self.rows.append(row.name)
         return row.name

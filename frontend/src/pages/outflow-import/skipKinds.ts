@@ -24,17 +24,12 @@ export const SKIP_KIND_CASHBOOK_REFUND_PAIR = "Paired wallet refund";
 /**
  * The kinds a bank-statement rule decided: the line was read as money moving inside the bank or between
  * our own accounts. Unskipping one warns first -- the re-check does not re-apply the rule (owner, B1).
+ * #1628: the bank rules whose lines are all Internal Transfers since spec #1619 skip nothing, so their kinds
+ * (`skip_kinds.RETIRED_SKIP_KINDS`) left this set.
  */
 export const BANK_RULE_SKIP_KINDS: ReadonlySet<string> = new Set([
-    "Cashfree wallet top-up",
-    "Cashbook wallet top-up",
-    "Porter wallet top-up",
-    "Wallet money returned",
-    "Bank internal transfer",
     "Failed payment bounced back",
     "Bank card rounding (₹2)",
-    "Credit card bill payment",
-    "Credit card auto-debit",
 ]);
 
 /**

@@ -1021,7 +1021,7 @@ def create_expense_from_row(
     cashbook_batch: str | None = None,
     blank_payment_by_is_actor: bool = True,
     card_refund: bool = False,
-    cashbook_refund: bool = False,
+    cashbook_money_in: bool = False,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1043,7 +1043,7 @@ def create_expense_from_row(
     and the Expense is written at MINUS its amount. It is the one way past the "zero or less" guard: the line's
     own amount must still be above zero, and it is refused without `credit_card_statement` on a Non-Project
     Expense, so no other caller can write a negative expense through here.
-    `cashbook_refund` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
+    `cashbook_money_in` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
     refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
@@ -1077,7 +1077,7 @@ def create_expense_from_row(
                 title="Not a card refund",
             )
         amount = -amount
-    if cashbook_refund:
+    if cashbook_money_in:
         # ⚠️ THE OTHER NEGATIVE WRITE (#1709, #1720): a wallet refund gives back money a wallet spend took, and a
         # wallet credit is money paid in from outside; each is booked at minus itself, on either ledger. Only the
         # Cashbook job marks one.
