@@ -192,13 +192,13 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
             )
         self.assertIn(COLLECT_FULL + self.suffix, self._only_line(REFUND_FULL).skip_reason)
 
-        # #1709: an unpaired refund is a Wallet refund expense, created by its own import's job; the wallet credit
-        # stays open.
+        # #1709: an unpaired refund is a Wallet refund expense, created by its own import's job; so is the wallet
+        # credit's Wallet credit expense since #1720.
         for txn, amount, status in (
             (PART_REFUND, 11248.0, "Settled"),
             (ADJUSTMENT, 2600.0, "Settled"),
             (EARLIER_REFUND, 640.0, "Settled"),
-            (WALLET_CREDIT, 9000.0, "Mismatched"),
+            (WALLET_CREDIT, 9000.0, "Settled"),
         ):
             line = self._only_line(txn)
             self.assertEqual(
@@ -206,7 +206,6 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
                 (self.old, status, amount, "Credit"),
                 txn,
             )
-        self.assertTrue(self._only_line(WALLET_CREDIT).outcome_note.startswith("Wallet credit:"))
 
         self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": new}), 0)
 
@@ -227,13 +226,14 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
         self.assertTrue({"row_status", "amount", "skip_reason"} <= changed, changed)
 
     def test_reopening_creates_the_collect_payments_and_refunds_expenses_in_their_own_import(self):
-        """CHANGED AT #1709: the 3 unpaired refunds are Wallet refund expenses too."""
+        """CHANGED AT #1709: the 3 unpaired refunds are Wallet refund expenses too; CHANGED AT #1720: and the wallet
+        credit is a Wallet credit expense."""
         before = self._expense_matches()
         self.assertEqual(before, SPENDS_OF_THE_OLD_BATCH)
 
         self._upload()
 
-        self.assertEqual(self._expense_matches(), before + 2 + 3)
+        self.assertEqual(self._expense_matches(), before + 2 + 3 + 1)
         for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
             line = self._only_line(txn)
             self.assertEqual(frappe.db.get_value(line.suggested_doctype, line.suggested_name, "cashbook_batch"), self.old)
@@ -257,11 +257,13 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
         self.assertIn(f"Re-opened by the Cashbook import {new}", comments[0])
         self.assertIn("Its import creates its expense now.", comments[0])
 
-    def test_the_earlier_import_counts_its_reopened_lines_as_open(self):
+    def test_the_earlier_import_counts_its_reopened_lines_as_created(self):
         self._upload()
         status = cb.get_cashbook_status(self.old)
-        # CHANGED AT #1709: the 3 unpaired refunds are created too; only the wallet credit stays open.
-        self.assertEqual((status["open"], status["pending"], status["created"]), (1, 0, SPENDS_OF_THE_OLD_BATCH + 2 + 3))
+        # CHANGED AT #1709: the 3 unpaired refunds are created too; CHANGED AT #1720: so is the wallet credit.
+        self.assertEqual(
+            (status["open"], status["pending"], status["created"]), (0, 0, SPENDS_OF_THE_OLD_BATCH + 2 + 3 + 1)
+        )
 
     def test_a_second_upload_of_the_same_statement_reopens_nothing_more(self):
         self._upload()
@@ -324,8 +326,8 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
         self.assertEqual(
             frappe.db.get_value("Outflow Import Batch", new, "repeats_not_saved"), expected.split.repeats_not_saved
         )
-        # The other wrong skips are still re-opened.
-        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
+        # The other wrong skips are still re-opened (the wallet credit created since #1720).
+        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Settled")
         self.assertEqual(self._only_line(WALLET_CREDIT).import_batch, self.old)
 
     def test_a_line_taken_while_the_statement_is_saved_falls_back_too(self):
@@ -353,7 +355,7 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
             "Comment", filters={"reference_doctype": ROW_DOCTYPE, "reference_name": taken.name, "comment_type": "Comment"}
         )
         self.assertEqual(comments, [])
-        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
+        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Settled")
         self.assertTrue(frappe.db.exists("Outflow Import Batch", new))
 
 
@@ -370,6 +372,6 @@ class TestReviewListsTheLinesToBeReopened(ReopenCase):
         self.assertEqual({line["earlier_batch"] for line in listed.values()}, {self.old})
         self.assertEqual(listed[COLLECT_FULL]["becomes"], "paired")
         self.assertEqual(listed[COLLECT_NO_LINK]["becomes"], "created")
-        self.assertEqual(listed[WALLET_CREDIT]["becomes"], "open")
+        self.assertEqual(listed[WALLET_CREDIT]["becomes"], "created")  # #1720
         self.assertEqual(listed[WALLET_CREDIT]["amount"], 9000.0)
         self.assertFalse(preview["refused"])

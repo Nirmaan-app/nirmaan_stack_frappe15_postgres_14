@@ -274,10 +274,11 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Unpaired wallet refund** — a refund that is not a *Paired wallet refund*: it gives back only part of a spend, or a spend from an earlier statement or already recorded, or it names no spend. It is recorded as a *Wallet refund expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment D](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 
-- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it is a **Non-Project** Expense typed from the refund's own remark, else Petty Cash, and never on a project. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
+- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it goes where its own remark places it, as a *Wallet credit expense* does. It needs no bill, and it counts as no payment. (Owner, 2026-11-18; placed by its remark since #1720, before that always Non-Project.)
   *Avoid*: negative spend, reversal.
 
-- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, and a company top-up is never one (that is an Internal Transfer). It is recorded as a *Wallet credit expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment E](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
+- **Wallet credit expense** — the *Paid* Expense of minus a *Wallet credit*'s amount. It goes on a project when its remark names exactly one, typed from the remark; otherwise it is a Non-Project Expense typed from the remark, else Petty Cash. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
 
 ## Expense bills
 

@@ -1043,8 +1043,8 @@ def create_expense_from_row(
     and the Expense is written at MINUS its amount. It is the one way past the "zero or less" guard: the line's
     own amount must still be above zero, and it is refused without `credit_card_statement` on a Non-Project
     Expense, so no other caller can write a negative expense through here.
-    `cashbook_refund` is the Cashbook job's (#1709, ADR-0015 Amendment D): the line is a *Wallet refund expense*,
-    written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
+    `cashbook_refund` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
+    refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1078,11 +1078,12 @@ def create_expense_from_row(
             )
         amount = -amount
     if cashbook_refund:
-        # ⚠️ THE OTHER NEGATIVE WRITE (#1709): a wallet refund gives back money a wallet spend took, so it is booked
-        # at minus itself where that spend is booked, on either ledger. Only the Cashbook job marks one.
+        # ⚠️ THE OTHER NEGATIVE WRITE (#1709, #1720): a wallet refund gives back money a wallet spend took, and a
+        # wallet credit is money paid in from outside; each is booked at minus itself, on either ledger. Only the
+        # Cashbook job marks one.
         if not cashbook_batch:
             frappe.throw(
-                "Only a wallet refund on a Cashbook import is recorded as a negative expense.",
+                "Only a wallet refund or wallet credit on a Cashbook import is recorded as a negative expense.",
                 WrongStatusError,
                 title="Not a wallet refund",
             )

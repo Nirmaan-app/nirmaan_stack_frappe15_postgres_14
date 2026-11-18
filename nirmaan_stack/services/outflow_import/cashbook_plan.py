@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""What a Cashbook plan is made of: the four actions, one planned line (`PlannedRow`) and the whole plan
+"""What a Cashbook plan is made of: the three actions, one planned line (`PlannedRow`) and the whole plan
 (`CashbookPlan`).
 
 PURE MODULE, split out of `cashbook.py` (file size, #1709), which re-exports every name here; `cashbook.plan_statement`
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook_placement import FALLBACK_EXPENSE_TYPE
+from nirmaan_stack.services.outflow_import.cashbook_refunds import WALLET_CREDIT_ROW_KIND
 from nirmaan_stack.services.outflow_import.cashbook_reopen import EarlierWrongSkip
 from nirmaan_stack.services.outflow_import.internal_transfers import CashbookMove
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
@@ -22,8 +23,8 @@ from nirmaan_stack.services.outflow_import.repeats import RepeatSplit
 # The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
 ACTION_CREATE = "create"
 ACTION_SKIP = "skip"
-# An open line (#1594): staged at `Mismatched`, a status the job never takes, and decided on the main table.
-ACTION_OPEN = "open"
+# There is no "open" action any more (#1720): a refund (#1709) and a wallet credit (#1720) create, and only a person
+# (an Unreconcile, a hand reopen) leaves a Cashbook line open on the main table.
 # One of Cashbook's own moves (#1623, spec #1619): staged at `Internal Transfer` with one record, never an expense.
 ACTION_INTERNAL = "internal"
 
@@ -76,14 +77,20 @@ class PlannedRow:
         return self.action == ACTION_CREATE
 
     @property
-    def opens(self) -> bool:
-        return self.action == ACTION_OPEN
+    def money_in(self) -> bool:
+        """A line the plan creates at minus its Credit, needing no bill: a *Wallet refund expense* (#1709) or a
+        *Wallet credit expense* (#1720). Every other line the plan creates is a spend."""
+        return self.creates and self.direction == DIRECTION_CREDIT
 
     @property
     def refunds(self) -> bool:
-        """A *Wallet refund expense* (#1709): a refund the plan creates, at minus its Credit. Every other line the plan
-        creates is a spend."""
-        return self.creates and self.direction == DIRECTION_CREDIT
+        """A *Wallet refund expense* (#1709)."""
+        return self.money_in and self.row_kind != WALLET_CREDIT_ROW_KIND
+
+    @property
+    def credits(self) -> bool:
+        """A *Wallet credit expense* (#1720): a Wallet Credit, money paid into the wallet from outside."""
+        return self.money_in and self.row_kind == WALLET_CREDIT_ROW_KIND
 
     @property
     def is_fallback_type(self) -> bool:
@@ -108,13 +115,18 @@ class CashbookPlan:
 
     @property
     def spending(self) -> tuple[PlannedRow, ...]:
-        """The spends to create: every created line but a *Wallet refund expense* (#1709)."""
-        return tuple(row for row in self.creating if not row.refunds)
+        """The spends to create: every created line but the money in (#1709, #1720)."""
+        return tuple(row for row in self.creating if not row.money_in)
 
     @property
     def refunding(self) -> tuple[PlannedRow, ...]:
         """The *Wallet refund expenses* to create (#1709), in file order. Review lists them apart from the spends."""
         return tuple(row for row in self.creating if row.refunds)
+
+    @property
+    def crediting(self) -> tuple[PlannedRow, ...]:
+        """The *Wallet credit expenses* to create (#1720), in file order. Review lists them in their own group."""
+        return tuple(row for row in self.creating if row.credits)
 
     @property
     def skipping(self) -> tuple[PlannedRow, ...]:
@@ -126,20 +138,15 @@ class CashbookPlan:
         return tuple(row for row in self.rows if row.action == ACTION_INTERNAL)
 
     @property
-    def opening(self) -> tuple[PlannedRow, ...]:
-        """The open lines (#1594): the wallet credits, in file order (an unpaired refund creates since #1709)."""
-        return tuple(row for row in self.rows if row.opens)
-
-    @property
     def reopening(self) -> tuple[PlannedRow, ...]:
         """The lines that re-open an earlier own-balances skip in place (#1596), in file order."""
         return tuple(row for row in self.rows if row.reopens)
 
     @property
     def total_value(self) -> Decimal:
-        """What the spends add up to. A refund is not in it (#1709): Review lists the refunds apart."""
+        """What the spends add up to. A refund or a credit is not in it (#1709, #1720): Review lists them apart."""
         return sum((row.amount for row in self.spending), Decimal("0"))
 
     def for_ledger(self, ledger: str) -> tuple[PlannedRow, ...]:
-        """The spends `ledger` gets (Review's groups); refunds are listed apart (#1709)."""
+        """The spends `ledger` gets (Review's groups); refunds and credits are listed apart (#1709, #1720)."""
         return tuple(row for row in self.spending if row.ledger == ledger)

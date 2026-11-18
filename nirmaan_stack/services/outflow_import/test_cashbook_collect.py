@@ -38,7 +38,7 @@ class TestACollectPaymentIsCreatedLikeAWalletSpend(unittest.TestCase):
     def test_it_is_counted_with_the_spends_the_import_creates(self):
         plan = _plan(_row(kind=COLLECT, amount="480"), _row(number=2, transfer_id="OBO2", amount="20"))
         self.assertEqual([r.transfer_id for r in plan.creating], ["OBO1", "OBO2"])
-        self.assertEqual((plan.opening, plan.skipping), ((), ()))
+        self.assertEqual(plan.skipping, ())
         self.assertEqual(plan.total_value, Decimal("500"))
 
     def test_it_gets_the_placement_a_wallet_spend_would_get(self):

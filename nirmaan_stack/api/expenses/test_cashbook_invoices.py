@@ -89,11 +89,12 @@ class CashbookInvoiceCase(ExpenseTypeFlagGuard, FrappeTestCase):
         return batch
 
     def _created(self) -> dict:
-        """{doctype: [names]} of the Expenses the job made, and each one's import line."""
+        """{doctype: [names]} of the spends' Expenses the job made, and each one's import line. A refund's or a Wallet
+        Credit's Expense (#1709, #1720) is below zero and waits for no bill, so it is left out."""
         rows = frappe.db.sql(
             """SELECT m.target_doctype, m.target_name, r.added_by_raw, r.remarks
                FROM "tabOutflow Row Match" m JOIN "tabOutflow Import Row" r ON r.name = m.import_row
-               WHERE m.import_batch = %s ORDER BY m.target_name""",
+               WHERE m.import_batch = %s AND m.target_amount > 0 ORDER BY m.target_name""",
             (self.batch,), as_dict=True,
         )
         self.lines = {r.target_name: r for r in rows}

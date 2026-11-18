@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    CashbookMoneyInLine,
     CashbookPreviewGroup,
     CashbookPreviewResult,
     DuplicateNotice,
@@ -16,7 +17,6 @@ import {
     lateBillLabel,
     lateBillsHeading,
     ledgerSections,
-    openLinesHeading,
     reopenedHeading,
     reopenedLabel,
     spendsHeadline,
@@ -24,6 +24,7 @@ import {
     typeLabel,
 } from "../cashbookPreview";
 import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "../cashbookRefunds";
+import { creditLabel, creditsHeading } from "../cashbookCredits";
 import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
 
 /**
@@ -59,18 +60,18 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const cutoff = cutoffNotice(preview);
     const invoices = invoiceCountsText(preview);
     const pairs = preview.pairs ?? [];
-    const openLines = preview.open_lines ?? [];
     const pairsTitle = pairsHeading(pairs);
     const internalLines = preview.internal_transfers ?? [];
     const internalTitle = internalTransfersHeading(internalLines.length);
     const fillText = recordsToFillText(preview.records_to_fill ?? 0);
-    const openTitle = openLinesHeading(openLines);
     const lateBills = preview.late_bills ?? [];
     const lateTitle = lateBillsHeading(lateBills);
     const reopened = preview.reopened ?? [];
     const reopenedTitle = reopenedHeading(reopened);
     const refunds = preview.refunds ?? [];
     const refundsTitle = refundsHeading(refunds);
+    const credits = preview.credits ?? [];
+    const creditsTitle = creditsHeading(credits);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -140,52 +141,10 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                 ))}
             </div>
 
-            {/* #1709: each unpaired wallet refund, booked at minus its Credit where its spend is booked, with the spend
-                it reduces. Not in the groups or the total above, which are the spends. */}
-            {refundsTitle && (
-                <div className="rounded-md border">
-                    <p className="px-2 py-1.5 text-xs font-semibold">{refundsTitle}</p>
-                    <div className="border-t">
-                        {refunds.map((line) => (
-                            <div
-                                key={line.transfer_id || line.row_number}
-                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
-                            >
-                                <span className="w-24 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
-                                    {formatToRoundedIndianRupee(-line.amount)}
-                                </span>
-                                <span className="min-w-0 flex-1 truncate">{refundLabel(line)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* #1594: money that came in. Lines that stay open are shown, never folded away: each is a
-                decision someone still has to make. */}
-            {openTitle && (
-                <div className="rounded-md border border-amber-300 bg-amber-50/40 dark:border-amber-700 dark:bg-amber-950/20">
-                    <p className="px-2 py-1.5 text-xs font-semibold">{openTitle}</p>
-                    <div className="border-t">
-                        {openLines.map((row) => (
-                            <div
-                                key={row.transfer_id || row.row_number}
-                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
-                            >
-                                <span className="w-24 shrink-0 text-right tabular-nums">
-                                    {formatToRoundedIndianRupee(row.amount)}
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                    <span className="block truncate">{row.reason}</span>
-                                    <span className="block truncate text-muted-foreground">
-                                        {[row.row_kind, row.transfer_id, row.remarks].filter(Boolean).join(" · ")}
-                                    </span>
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+            {/* #1709, #1720: each unpaired wallet refund and each Wallet Credit, booked at minus its Credit, with where it
+                goes. Not in the groups or the total above, which are the spends. */}
+            <MoneyInList title={refundsTitle} lines={refunds} label={refundLabel} />
+            <MoneyInList title={creditsTitle} lines={credits} label={creditLabel} />
 
             {/* #1596: lines an earlier import wrongly skipped as own balances, re-opened in the import that holds them.
                 Each is also listed under what it becomes. */}
@@ -416,3 +375,31 @@ const GroupBranch = ({
         )}
     </div>
 );
+
+/** A list of lines booked at minus their Credit (#1709, #1720): its heading, then each line's minus amount and label. */
+function MoneyInList<Line extends CashbookMoneyInLine>({
+    title,
+    lines,
+    label,
+}: {
+    title: string | null;
+    lines: readonly Line[];
+    label: (line: Line) => string;
+}) {
+    if (!title) return null;
+    return (
+        <div className="rounded-md border">
+            <p className="px-2 py-1.5 text-xs font-semibold">{title}</p>
+            <div className="border-t">
+                {lines.map((line) => (
+                    <div key={line.transfer_id || line.row_number} className="flex items-baseline gap-3 px-3 py-1.5 text-xs">
+                        <span className="w-24 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
+                            {formatToRoundedIndianRupee(-line.amount)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{label(line)}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}

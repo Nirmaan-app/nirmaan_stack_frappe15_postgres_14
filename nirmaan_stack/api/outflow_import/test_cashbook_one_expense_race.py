@@ -239,7 +239,8 @@ class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
         self.addCleanup(_purge, self.a)
         pending = frappe.get_all(
             "Outflow Import Row",
-            filters={"import_batch": self.b, "row_status": "Pending match run"},
+            # A spend: a Link takes only a debit, and the sample's wallet credit is created too since #1720.
+            filters={"import_batch": self.b, "row_status": "Pending match run", "direction": ["is", "not set"]},
             fields=["name", "transfer_id"],
             order_by="name asc",
         )

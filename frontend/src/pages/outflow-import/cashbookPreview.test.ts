@@ -25,7 +25,6 @@ import {
     lateBillsDoneText,
     lateBillsHeading,
     ledgerSections,
-    openLinesHeading,
     progressFraction,
     progressText,
     reopenedHeading,
@@ -347,17 +346,9 @@ describe("the paired wallet refunds and the open lines on Review (#1594)", () =>
         );
     });
 
-    it("heads the lines that stay open", () => {
-        expect(openLinesHeading([line()])).toBe("1 line will stay open for someone to decide on the transactions screen");
-        expect(openLinesHeading([line(), line(), line()])).toBe(
-            "3 lines will stay open for someone to decide on the transactions screen"
-        );
-    });
-
     it("says nothing when a server sends none, or an older server sends no key", () => {
         expect(pairsHeading([])).toBeNull();
         expect(pairsHeading(undefined)).toBeNull();
-        expect(openLinesHeading(undefined)).toBeNull();
     });
 
     it("names a pair's spend by its kind, its Txn Id and who was paid", () => {
@@ -421,10 +412,10 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
         transfer_id: "PTM6",
         amount: 9000,
         remarks: "",
-        reason: "Wallet credit: money paid into the wallet from outside. Decide what it is.",
+        reason: "",
         row_kind: "Wallet Credit",
         earlier_batch: "OFI-26-00237",
-        becomes: "open",
+        becomes: "created",
         ...over,
     });
 
@@ -440,7 +431,8 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
     });
 
     it("names the line, the import that holds it and what it becomes", () => {
-        expect(reopenedLabel(reopened())).toBe("Wallet Credit PTM6 · in OFI-26-00237 · stays open");
+        // #1720: a Wallet Credit is created at minus its Credit, as a new one is.
+        expect(reopenedLabel(reopened())).toBe("Wallet Credit PTM6 · in OFI-26-00237 · its expense is created");
         expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO3", becomes: "paired" }))).toBe(
             "Collect Payment OBO3 · in OFI-26-00237 · paired wallet refund"
         );
