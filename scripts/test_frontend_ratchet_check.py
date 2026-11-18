@@ -316,6 +316,43 @@ class LintSettings(unittest.TestCase):
         self.edit_config('"plugins"', '"extends": ["./loose.json"], "plugins"')
         self.refused("extends")
 
+    def test_an_override_that_turns_a_rule_off_for_a_new_folder_is_refused(self):
+        self.edit_config('{"files": ["src/lib/sdk.ts"], "rules": {"no-restricted-imports": "off"}}',
+                         '{"files": ["src/lib/sdk.ts", "src/pages/**"], "rules": {"no-restricted-imports": "off"}}')
+        self.refused("override", "no-restricted-imports", "src/pages/**")
+
+    def test_a_new_override_that_sets_a_rule_to_warn_is_refused(self):
+        self.edit_config('"overrides": [', '"overrides": [{"files": ["src/x/**"], "rules": {"typescript/no-explicit-any": "warn"}},')
+        self.refused("override", "typescript/no-explicit-any", "warn", "src/x/**")
+
+    def test_a_folder_taken_off_the_typed_path_is_refused(self):
+        self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]', '"files": ["src/pages/other/**/*.{ts,tsx}"]')
+        self.refused("typescript/no-unsafe-call", "src/pages/orders/**/*.{ts,tsx}")
+
+    def test_a_rule_dropped_from_the_typed_path_or_set_to_warn_there_is_refused(self):
+        self.edit_config('"typescript/no-unsafe-call": "error", ', '')
+        self.refused("typescript/no-unsafe-call", "src/pages/orders/**/*.{ts,tsx}")
+        self.edit_config('"typescript/no-unsafe-return": "error"', '"typescript/no-unsafe-return": "warn"')
+        self.refused("typescript/no-unsafe-return")
+
+    def test_a_folder_moved_to_the_typed_path_passes(self):
+        self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]',
+                         '"files": ["src/pages/orders/**/*.{ts,tsx}", "src/pages/vendors/**/*.{ts,tsx}"]')
+        (self.repo / OXLINT).write_text(json.dumps(suppressions(orders={"typescript/no-explicit-any": 1})))
+        self.passes()
+
+    def test_a_new_rule_switched_on_and_an_exception_narrowed_pass(self):
+        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "error", "no-debugger": "error",')
+        self.edit_config('"typescript/no-unsafe-call": "error"', '"typescript/no-unsafe-call": "error", "typescript/no-unsafe-member-access": "error"')
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": []')
+        self.edit_config('"no-restricted-imports": ["error", {"paths": [', '"no-restricted-imports": ["error", {"paths": [{"name": "other-lib"}, ')
+        self.passes()
+
+    def test_the_typed_path_list_replaced_by_the_rule_on_for_all_of_src_passes(self):
+        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "error", "typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error",')
+        self.edit_config('{\n      "files": ["src/pages/orders/**/*.{ts,tsx}"],\n      "rules": {"typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error"}\n    },', '')
+        self.passes()
+
 
 if __name__ == "__main__":
     unittest.main()

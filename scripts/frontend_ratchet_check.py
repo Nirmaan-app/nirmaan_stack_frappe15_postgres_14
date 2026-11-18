@@ -143,8 +143,52 @@ def config_loosenings(base, head):
             problems.append(f"{CONFIG}: rule {rule} is set to {severity(head_rules[rule])} (oxlint passes a warning)")
         elif not options_kept(rule, setting, head_rules[rule]):
             problems.append(f"{CONFIG}: rule {rule} has weaker options than before")
+    problems += override_loosenings(base, head)
     problems += [f"{CONFIG}: key {key} changed; this check cannot tell what it loosens, so it is refused"
                  for key in sorted((set(base) | set(head)) - COMPARED - HARMLESS) if base.get(key) != head.get(key)]
+    return problems
+
+
+RANK = {"off": 0, "warn": 1, "error": 2}
+
+
+def override_entries(config):
+    """(file pattern, rule, setting) for each rule each override sets, per pattern of its `files`."""
+    return [(pattern, rule, setting) for override in config.get("overrides", [])
+            for rule, setting in override.get("rules", {}).items() for pattern in override.get("files", [])]
+
+
+def override_loosenings(base, head):
+    """The ways head's `overrides` weaken base's, one sentence each.
+
+    An override either turns a rule on for some files (the typed path: `no-unsafe-*` per folder) or relaxes one for
+    them (an exception). A relaxation in head must already be in base, for the same file pattern, and no weaker. A
+    rule base's overrides turn on must stay on for each of its patterns, here or at the top level.
+    """
+    problems = []
+    head_rules = head.get("rules", {})
+    base_entries = override_entries(base)
+    for pattern, rule, setting in override_entries(head):
+        level = severity(setting)
+        weaker = level == "error" and rule in head_rules and not options_kept(rule, head_rules[rule], setting)
+        if level == "error" and not weaker:
+            continue
+        if any(p == pattern and r == rule and RANK[severity(s)] <= RANK[level]
+               and (level != "error" or options_kept(rule, s, setting)) for p, r, s in base_entries):
+            continue
+        shown = "error with weaker options" if weaker else level
+        problems.append(f"{CONFIG}: an override sets {rule} to {shown} for {pattern}")
+    head_entries = override_entries(head)
+    for pattern, rule, setting in base_entries:
+        if severity(setting) != "error":
+            continue
+        top = head_rules.get(rule)
+        if top is not None and severity(top) == "error" and options_kept(rule, setting, top):
+            continue
+        if any(p == pattern and r == rule and severity(s) == "error" and options_kept(rule, setting, s)
+               for p, r, s in head_entries):
+            continue
+        problems.append(f"{CONFIG}: rule {rule} no longer applies to {pattern}, as an error with the same options")
     return problems
 
 
