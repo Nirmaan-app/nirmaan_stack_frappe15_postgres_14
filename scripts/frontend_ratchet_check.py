@@ -206,6 +206,7 @@ def config_loosenings(base, head):
                  for pattern in head_ignores if pattern not in base_ignores and not pattern.startswith("!")]
     problems += [f"{CONFIG}: ignorePatterns drops {pattern} (the files it brought back are no longer linted)"
                  for pattern in base_ignores if pattern.startswith("!") and pattern not in head_ignores]
+    problems += ignore_order_loosenings(base_ignores, head_ignores)
     head_rules = head.get("rules", {})
     for key, setting in sorted(base.get("rules", {}).items()):
         if severity(setting) != "error":
@@ -225,6 +226,23 @@ def config_loosenings(base, head):
     problems += [f"{CONFIG}: key {key} changed; this check cannot tell what it loosens, so it is refused"
                  for key in sorted((set(base) | set(head)) - COMPARED - HARMLESS) if base.get(key) != head.get(key)]
     return problems
+
+
+def ignore_order_loosenings(base_ignores, head_ignores):
+    """A sentence per `!` pattern of ignorePatterns that head moved before an ignore pattern it followed in base.
+
+    The last pattern that matches a file wins, so the `!` pattern no longer brings back the files both match. Moving
+    it after one lints more and passes. Patterns are compared as written, not by the files they match.
+    """
+    def last(patterns):
+        return {pattern: index for index, pattern in enumerate(patterns)}
+
+    base_at, head_at = last(base_ignores), last(head_ignores)
+    kept = [pattern for pattern in base_at if pattern in head_at]
+    return [f"{CONFIG}: ignorePatterns moves {negated} before {ignored}, so {ignored} wins for the files both match "
+            f"(they are no longer linted)"
+            for negated in kept if negated.startswith("!") for ignored in kept if not ignored.startswith("!")
+            and base_at[ignored] < base_at[negated] and head_at[ignored] > head_at[negated]]
 
 
 def override_entries(config):

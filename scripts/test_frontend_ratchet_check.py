@@ -443,6 +443,19 @@ class LintSettings(unittest.TestCase):
                                                 f'"react/rules-of-hooks": "error", "{alias}": "off",'))
                 self.refused("no-explicit-any", "off")
 
+    def test_a_negated_ignore_pattern_moved_before_the_pattern_it_undoes_is_refused(self):
+        # The last pattern that matches a file wins: "!src/ui/b.ts" first is beaten by "src/ui/**", so b.ts is skipped.
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
+        self.git("commit", "-qam", "lint b.ts")
+        self.edit_config('"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
+        self.refused("ignorePatterns", "!src/ui/b.ts", "src/ui/**")
+
+    def test_a_negated_ignore_pattern_moved_after_the_pattern_it_undoes_passes(self):
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
+        self.git("commit", "-qam", "b.ts not yet linted")
+        self.edit_config('"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
+        self.passes()
+
     def test_a_negated_ignore_pattern_lints_more_and_passes(self):
         self.edit_config('"ignorePatterns": ["src/components/ui/**"]',
                          '"ignorePatterns": ["src/components/ui/**", "!src/components/ui/button.tsx"]')
