@@ -14,19 +14,31 @@ const SCRIPT_KINDS = {
   ".cjs": ts.ScriptKind.JS,
 };
 
-/** The comments of one source that hold `-disable`, in source order, each with its `//` or `/* *\/`. */
-export function disableComments(path, source) {
-  const kind = SCRIPT_KINDS[path.slice(path.lastIndexOf("."))] ?? ts.ScriptKind.TS;
+// oxlint reads every file but these as a script when it can (measured, #1705), and a script may hold ECMAScript
+// Annex B's HTML-like comments: a line from `<!--`, or from a `-->` that only whitespace or `/* */` comments precede on
+// its line. TypeScript's parser reads them as code, so they are found here.
+const MODULE_ONLY = new Set([".mjs", ".mts"]);
+// Tokens whose text is no code: an HTML-like comment cannot start inside one.
+const LITERALS = new Set([
+  ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral, ts.SyntaxKind.TemplateHead,
+  ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail, ts.SyntaxKind.RegularExpressionLiteral,
+  ts.SyntaxKind.JsxText,
+]);
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/** The comments and the literal tokens of one parse: each a [start, end) range in source order. */
+function parse(path, source, kind) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, kind);
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, file.languageVariant);
-  const found = [];
+  const comments = [];
+  const literals = [];
   const triviaBefore = (token) => {
     const start = token.getStart(file);
     scanner.setText(source, token.pos, start - token.pos);
     for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
-      const text = scanner.getTokenText();
-      if ((kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) &&
-          text.includes("-disable")) found.push(text);
+      if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) {
+        comments.push([scanner.getTokenStart(), scanner.getTokenEnd()]);
+      }
     }
   };
   const visit = (node) => {
@@ -35,13 +47,65 @@ export function disableComments(path, source) {
     const children = node.getChildren(file);
     if (children.length) {
       children.forEach(visit);
-    } else if (node.kind !== ts.SyntaxKind.JsxText) {
-      // JSX text is not trivia: `<div>// x</div>` holds no comment.
-      triviaBefore(node);
+      return;
     }
+    // JSX text is not trivia: `<div>// x</div>` holds no comment.
+    if (node.kind !== ts.SyntaxKind.JsxText) triviaBefore(node);
+    if (LITERALS.has(node.kind)) literals.push([node.getStart(file), node.end]);
   };
   visit(file);
-  return found;
+  return { comments, literals };
+}
+
+const inside = (ranges, at) => ranges.some(([start, end]) => start <= at && at < end);
+
+/** Whether only whitespace and comments stand between the start of ``at``'s line and ``at``. */
+function startsItsLine(source, comments, at) {
+  for (let i = at - 1; i >= 0; i--) {
+    if (LINE_BREAK.test(source[i])) return true;
+    const comment = comments.find(([start, end]) => start <= i && i < end);
+    if (comment) {
+      if (comment[0] < i && LINE_BREAK.test(source.slice(comment[0], i))) return true;
+      i = comment[0];
+    } else if (!/\s/.test(source[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The first HTML-like comment of ``source`` as oxlint reads it, as [start, end of its line), or null. */
+function firstHtmlComment(source, { comments, literals }) {
+  for (const found of source.matchAll(/<!--|-->/g)) {
+    const at = found.index;
+    if (inside(comments, at) || inside(literals, at)) continue;
+    if (found[0] === "-->" && !startsItsLine(source, comments, at)) continue;
+    const rest = source.slice(at).search(LINE_BREAK);
+    return [at, rest === -1 ? source.length : at + rest];
+  }
+  return null;
+}
+
+/** The comments of one source that hold `-disable`, in source order, each as written (`//`, `/* *\/`, `<!--`, `-->`). */
+export function disableComments(path, source) {
+  const ext = path.slice(path.lastIndexOf("."));
+  const kind = SCRIPT_KINDS[ext] ?? ts.ScriptKind.TS;
+  // Each HTML-like comment, first to last, is blanked out before the next parse: the text after it on its line is no
+  // code, so a quote or backtick there opens no string.
+  const html = [];
+  let code = source;
+  let found = parse(path, code, kind);
+  if (!MODULE_ONLY.has(ext)) {
+    for (let at = firstHtmlComment(code, found); at; at = firstHtmlComment(code, found)) {
+      html.push(at);
+      code = code.slice(0, at[0]) + " ".repeat(at[1] - at[0]) + code.slice(at[1]);
+      found = parse(path, code, kind);
+    }
+  }
+  return [...found.comments, ...html]
+    .sort((a, b) => a[0] - b[0])
+    .map(([start, end]) => source.slice(start, end))
+    .filter((text) => text.includes("-disable"));
 }
 
 // Real paths: a symlinked checkout (or macOS /tmp) gives argv[1] and import.meta.filename different spellings.

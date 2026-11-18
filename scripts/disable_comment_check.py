@@ -31,13 +31,19 @@ def read(path: Path) -> str:
 # `/*` whose first word is `*` is no directive. Rules are split on commas and whitespace up to the first `--` (a
 # reason); a rule matches by its last `/` segment, whatever the plugin prefix. Comments only: a string, template or
 # regex literal holding the text switches nothing off (frontend/scripts/disable_comments.mjs reads the comments).
+# Outside .mjs and .mts, oxlint also reads ECMAScript Annex B's HTML-like comments, a line from `<!--` or from a `-->`
+# that starts its line, and honours a directive in them as in `//` (measured, #1705).
 
 _DISABLE_DIRECTIVE = re.compile(r"(?:eslint|oxlint)-disable(-next-line|-line)?(?=\s|$)")
 
 
 def _directive(comment: str) -> tuple[re.Match, str] | None:
     """The directive match in a comment and the comment's trimmed text, or None when it is no disable directive."""
-    body = (comment[2:-2] if comment.startswith("/*") else comment[2:]).strip()
+    if comment.startswith("/*"):
+        body = comment[2:-2]
+    else:  # `//`, or an HTML-like comment: `<!--`, or `-->` at a line's start (read to the end of its line)
+        body = comment[4:] if comment.startswith("<!--") else comment[3:] if comment.startswith("-->") else comment[2:]
+    body = body.strip()
     found = _DISABLE_DIRECTIVE.match(body)
     return (found, body) if found else None
 

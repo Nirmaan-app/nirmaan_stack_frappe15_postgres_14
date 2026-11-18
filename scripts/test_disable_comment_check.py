@@ -25,6 +25,7 @@ from disable_comment_check import (  # noqa: E402
     disable_counts,
     disable_directive,
     ignored_by,
+    is_file_wide,
     override_glob_matches,
     rules_the_config_turns_on,
 )
@@ -49,6 +50,17 @@ class DisableComments(unittest.TestCase):
         self.assertEqual(disable_directive("/* eslint-disable-next-line\n   x */"), ["x"])
         self.assertEqual(disable_directive("/*eslint-disable-next-line x*/"), ["x"])
         self.assertEqual(disable_directive("// eslint-disable-next-line ,x,,y"), ["x", "y"])
+
+    def test_reads_the_rules_an_html_like_comment_names(self):
+        self.assertEqual(disable_directive("<!-- eslint-disable-next-line no-restricted-properties"),
+                         ["no-restricted-properties"])
+        self.assertEqual(disable_directive("--> oxlint-disable typescript/no-explicit-any"),
+                         ["typescript/no-explicit-any"])
+        self.assertEqual(disable_directive("<!--eslint-disable-line a -->"), ["a"])
+        self.assertTrue(is_file_wide("--> oxlint-disable x"))
+        self.assertTrue(is_file_wide("<!-- eslint-disable"))
+        self.assertFalse(is_file_wide("<!-- eslint-disable-next-line x"))
+        self.assertIsNone(disable_directive("<!-- just a note"))
 
     def test_a_reason_after_two_dashes_names_no_rule(self):
         self.assertEqual(disable_directive("// eslint-disable-next-line x -- why, y"), ["x"])
@@ -218,6 +230,41 @@ class DisableComments(unittest.TestCase):
         ts = "const a = <T,>(x: T): T => x; // eslint-disable-line z\n"
         for path in ("src/c.mts", "src/c.cts"):
             self.assertEqual(self.comments(ts, path), ["// eslint-disable-line z"], path)
+
+    # Measured on oxlint 1.94: it reads a line from `<!--`, or from `-->` that only whitespace or `/* */` comments
+    # precede on its line, as a comment (ECMAScript Annex B) in every file it lints except .mjs and .mts, and honours a
+    # disable directive in it. A package.json `type` changes nothing. In a .js, .jsx, .ts or .tsx file that holds
+    # module syntax (import, export) the same line is a parse error, so oxlint fails the file either way.
+    HTML_COMMENT_EXTS = (".cjs", ".cts", ".js", ".jsx", ".ts", ".tsx")
+
+    def test_reads_an_html_like_comment_where_oxlint_does(self):
+        src = ('<!-- eslint-disable-next-line no-restricted-properties\nJSON.parse("1");\n'
+               '--> oxlint-disable typescript/no-explicit-any\n'
+               '  <!-- eslint-disable-next-line a\n'
+               '/* x\n */ --> eslint-disable-next-line b\n'
+               'JSON.parse("1"); <!-- eslint-disable-line c\n')
+        for ext in self.HTML_COMMENT_EXTS:
+            self.assertEqual(self.comments(src, "src/f" + ext),
+                             ["<!-- eslint-disable-next-line no-restricted-properties",
+                              "--> oxlint-disable typescript/no-explicit-any",
+                              "<!-- eslint-disable-next-line a", "--> eslint-disable-next-line b",
+                              "<!-- eslint-disable-line c"], ext)
+        for ext in (".mjs", ".mts"):
+            self.assertEqual(self.comments(src, "src/f" + ext), [], ext)
+
+    def test_an_html_like_comment_hides_the_rest_of_its_line_as_oxlint_reads_it(self):
+        # A backtick or quote inside an HTML-like comment opens no string: the next line's comment is still one.
+        src = "<!-- a ` b\n<!-- eslint-disable-next-line x\nJSON.parse('1');\n--> c ` d\n"
+        self.assertEqual(self.comments(src, "src/f.cjs"), ["<!-- eslint-disable-next-line x"])
+
+    def test_an_html_like_comment_among_jsx_children_is_a_comment_as_oxlint_reads_it(self):
+        # Measured on oxlint 1.94: `<!--` among a .jsx, .tsx, .js or .cjs file's JSX children opens a comment to the
+        # end of its line, and a directive there silences the next line.
+        jsx = ('const C = () => (<div>\n<!-- eslint-disable-next-line no-restricted-properties -->\n'
+               '{JSON.parse("1")}\n</div>);\n')
+        for ext in (".jsx", ".tsx", ".js", ".cjs"):
+            self.assertEqual(self.comments(jsx, "src/f" + ext),
+                             ["<!-- eslint-disable-next-line no-restricted-properties -->"], ext)
 
     def frontend_tree(self, files):
         """A made-up frontend/ folder in git, holding ``files`` ({path: text}), with the real oxlint config."""
