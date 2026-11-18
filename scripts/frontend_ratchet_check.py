@@ -136,28 +136,36 @@ def from_eslint(eslint_supp, name):
 
 
 SEVERITY = {"error": "error", "deny": "error", 2: "error", "warn": "warn", 1: "warn", "off": "off", "allow": "off", 0: "off"}
-
-
-def severity(setting):
-    """"error", "warn" or "off" for a rule's setting: "error", 2, ["error", {options}], ..."""
-    level = setting[0] if isinstance(setting, list) and setting else setting
-    return SEVERITY.get(level.lower() if isinstance(level, str) else level, "off")
-
-
+RANK = {"off": 0, "warn": 1, "error": 2}
 # The rules whose options are ban lists: an entry may be added (a tightening), never dropped.
 BAN_LISTS = {"no-restricted-imports", "no-restricted-properties", "no-restricted-globals"}
 # The top-level keys compared below, and the ones that change no finding of an ADR-0049 rule. Any other key (e.g.
 # `extends`, which pulls in another config) is refused when it changes: this check cannot tell what it loosens.
 COMPARED = {"plugins", "categories", "ignorePatterns", "rules", "overrides"}
 HARMLESS = {"$schema", "env", "globals", "settings"}
+OVERRIDE_KEYS = {"files", "rules", "env", "globals", "plugins"}
 
 
-def options_kept(rule, base_setting, head_setting):
-    """True when head's options for <rule> refuse at least what base's did (equal, ban lists may grow).
+def severity(setting):
+    """"error", "warn" or "off" for a rule's setting: "error", 2, ["error", {options}], ...; "off" when malformed."""
+    level = setting[0] if isinstance(setting, list) and setting else setting
+    if not isinstance(level, (str, int)):
+        return "off"
+    return SEVERITY.get(level.lower() if isinstance(level, str) else level, "off")
+
+
+def rule_name(key):
+    """The rule a config key names. oxlint reads `typescript/x`, `@typescript-eslint/x`, `eslint/x` and a bare `x` as
+    one rule (the key it reads last wins), so they are compared as one; two plugins' rules of one name count as one."""
+    return key.rsplit("/", 1)[-1]
+
+
+def options_kept(name, base_setting, head_setting):
+    """True when head's options for rule <name> refuse at least what base's did (equal; ban lists may grow).
 
     A ban's `message` is text for the reader, not a limit: it may change.
     """
-    grow = rule in BAN_LISTS
+    grow = name in BAN_LISTS
 
     def kept(before, after):
         if isinstance(before, dict) and isinstance(after, dict):
@@ -169,8 +177,17 @@ def options_kept(rule, base_setting, head_setting):
             return len(before) == len(after) and all(map(kept, before, after))
         return before == after
 
-    options = lambda setting: setting[1:] if isinstance(setting, list) else []  # noqa: E731
     return kept(options(base_setting), options(head_setting))
+
+
+def options(setting):
+    """A rule setting's options: what follows the severity in ["error", {...}]."""
+    return setting[1:] if isinstance(setting, list) else []
+
+
+def as_strict(name, base_setting, head_setting):
+    """True when head's setting of rule <name> is an error that refuses at least what base's did."""
+    return severity(head_setting) == "error" and options_kept(name, base_setting, head_setting)
 
 
 def config_loosenings(base, head):
@@ -181,64 +198,85 @@ def config_loosenings(base, head):
     for category, setting in sorted(base.get("categories", {}).items()):
         if severity(setting) == "error" and severity(head_categories.get(category, "off")) != "error":
             problems.append(f"{CONFIG}: category {category} is set to {severity(head_categories.get(category, 'off'))}")
+    base_ignores, head_ignores = base.get("ignorePatterns", []), head.get("ignorePatterns", [])
     problems += [f"{CONFIG}: ignorePatterns adds {pattern} (its files are no longer linted)"
-                 for pattern in head.get("ignorePatterns", []) if pattern not in base.get("ignorePatterns", [])]
+                 for pattern in head_ignores if pattern not in base_ignores and not pattern.startswith("!")]
+    problems += [f"{CONFIG}: ignorePatterns drops {pattern} (the files it brought back are no longer linted)"
+                 for pattern in base_ignores if pattern.startswith("!") and pattern not in head_ignores]
     head_rules = head.get("rules", {})
-    for rule, setting in sorted(base.get("rules", {}).items()):
+    for key, setting in sorted(base.get("rules", {}).items()):
         if severity(setting) != "error":
             continue
-        if rule not in head_rules:
-            problems.append(f"{CONFIG}: rule {rule} was removed")
-        elif severity(head_rules[rule]) != "error":
-            problems.append(f"{CONFIG}: rule {rule} is set to {severity(head_rules[rule])} (oxlint passes a warning)")
-        elif not options_kept(rule, setting, head_rules[rule]):
-            problems.append(f"{CONFIG}: rule {rule} has weaker options than before")
+        name = rule_name(key)
+        found = {k: s for k, s in head_rules.items() if rule_name(k) == name}
+        if not found:
+            problems.append(f"{CONFIG}: rule {key} was removed")
+        for head_key, head_setting in sorted(found.items()):
+            alias = f" (as {head_key})" if head_key != key else ""
+            if severity(head_setting) != "error":
+                why = " (oxlint exits 0 on a warning)" if severity(head_setting) == "warn" else ""
+                problems.append(f"{CONFIG}: rule {key} is set to {severity(head_setting)}{alias}{why}")
+            elif not options_kept(name, setting, head_setting):
+                problems.append(f"{CONFIG}: rule {key} has weaker options than before{alias}")
     problems += override_loosenings(base, head)
     problems += [f"{CONFIG}: key {key} changed; this check cannot tell what it loosens, so it is refused"
                  for key in sorted((set(base) | set(head)) - COMPARED - HARMLESS) if base.get(key) != head.get(key)]
     return problems
 
 
-RANK = {"off": 0, "warn": 1, "error": 2}
-
-
 def override_entries(config):
-    """(file pattern, rule, setting) for each rule each override sets, per pattern of its `files`."""
-    return [(pattern, rule, setting) for override in config.get("overrides", [])
-            for rule, setting in override.get("rules", {}).items() for pattern in override.get("files", [])]
+    """(override index, file pattern, rule key, setting, relaxes) per rule each override sets, per pattern.
+
+    An override either turns a rule on for some files (the typed path: `no-unsafe-*` per folder) or relaxes one for
+    them (an exception): it sets the rule to "warn" or "off", or to an error weaker than the top level's.
+    """
+    top = {rule_name(key): setting for key, setting in config.get("rules", {}).items()}
+    return [(index, pattern, key, setting,
+             not (severity(setting) == "error" and (rule_name(key) not in top
+                                                    or options_kept(rule_name(key), top[rule_name(key)], setting))))
+            for index, override in enumerate(config.get("overrides", []))
+            for key, setting in override.get("rules", {}).items() for pattern in override.get("files", [])]
+
+
+def relaxed_after_on(entries):
+    """(relaxed pattern, rule, turned-on pattern) where an override relaxing the rule follows one turning it on.
+
+    oxlint applies overrides in order, the later winning, so an exception placed after the typed path beats it.
+    """
+    return {(p, key, on_p) for i, p, key, _, relaxes in entries if relaxes
+            for j, on_p, on_key, _, on_relaxes in entries
+            if rule_name(on_key) == rule_name(key) and not on_relaxes and j < i}
 
 
 def override_loosenings(base, head):
     """The ways head's `overrides` weaken base's, one sentence each.
 
-    An override either turns a rule on for some files (the typed path: `no-unsafe-*` per folder) or relaxes one for
-    them (an exception). A relaxation in head must already be in base, for the same file pattern, and no weaker. A
-    rule base's overrides turn on must stay on for each of its patterns, here or at the top level.
+    A relaxation in head must already be in base, for the same file pattern, no weaker, and not moved after an
+    override that turns its rule on. A rule base's overrides turn on must stay on for each of its patterns, here or
+    at the top level. Patterns are compared as written, not by the files they match.
     """
-    problems = []
-    head_rules = head.get("rules", {})
-    base_entries = override_entries(base)
-    for pattern, rule, setting in override_entries(head):
-        level = severity(setting)
-        weaker = level == "error" and rule in head_rules and not options_kept(rule, head_rules[rule], setting)
-        if level == "error" and not weaker:
+    problems = [f"{CONFIG}: an override sets key {key}; this check cannot tell what it loosens, so it is refused"
+                for override in head.get("overrides", []) if override not in base.get("overrides", [])
+                for key in sorted(set(override) - OVERRIDE_KEYS)]
+    base_entries, head_entries = override_entries(base), override_entries(head)
+    head_top = {rule_name(key): setting for key, setting in head.get("rules", {}).items()}
+    for _, pattern, key, setting, relaxes in head_entries:
+        name = rule_name(key)
+        if relaxes and not any(p == pattern and rule_name(k) == name and r and RANK[severity(s)] <= RANK[severity(setting)]
+                               and (severity(setting) != "error" or options_kept(name, s, setting))
+                               for _, p, k, s, r in base_entries):
+            shown = severity(setting) if severity(setting) != "error" else "error with weaker options"
+            problems.append(f"{CONFIG}: an override sets {key} to {shown} for {pattern}")
+    for _, pattern, key, setting, relaxes in base_entries:
+        name = rule_name(key)
+        if relaxes or (name in head_top and as_strict(name, setting, head_top[name])):
             continue
-        if any(p == pattern and r == rule and RANK[severity(s)] <= RANK[level]
-               and (level != "error" or options_kept(rule, s, setting)) for p, r, s in base_entries):
-            continue
-        shown = "error with weaker options" if weaker else level
-        problems.append(f"{CONFIG}: an override sets {rule} to {shown} for {pattern}")
-    head_entries = override_entries(head)
-    for pattern, rule, setting in base_entries:
-        if severity(setting) != "error":
-            continue
-        top = head_rules.get(rule)
-        if top is not None and severity(top) == "error" and options_kept(rule, setting, top):
-            continue
-        if any(p == pattern and r == rule and severity(s) == "error" and options_kept(rule, setting, s)
-               for p, r, s in head_entries):
-            continue
-        problems.append(f"{CONFIG}: rule {rule} no longer applies to {pattern}, as an error with the same options")
+        if not any(p == pattern and rule_name(k) == name and as_strict(name, setting, s)
+                   for _, p, k, s, _ in head_entries):
+            problems.append(f"{CONFIG}: rule {key} no longer applies to {pattern}, as an error with the same options")
+    problems += [f"{CONFIG}: an override relaxing {key} for {pattern} now comes after the one that turns it on for "
+                 f"{on_pattern}, so it wins there" for pattern, key, on_pattern in
+                 sorted(relaxed_after_on(head_entries) - relaxed_after_on(base_entries))]
     return problems
 
 
@@ -292,7 +330,7 @@ def parse_jsonc(text):
         if in_string:
             out.append(char)
             if char == "\\":
-                out.append(text[i + 1])
+                out.append(text[i + 1:i + 2])
                 i += 1
             elif char == '"':
                 in_string = False
@@ -304,7 +342,10 @@ def parse_jsonc(text):
             i = len(text) if i < 0 else i
             continue
         elif text.startswith("/*", i):
-            i = text.index("*/", i) + 2
+            end = text.find("*/", i)
+            if end < 0:
+                raise ValueError("a /* comment is never closed")
+            i = end + 2
             continue
         else:
             out.append(char)
@@ -372,7 +413,12 @@ def main(argv=None):
     base_config = text_at(root, args.base_ref, CONFIG)
     if base_config is not None:
         head_config = (root / CONFIG).read_text() if (root / CONFIG).exists() else "{}"
-        problems += config_loosenings(parse_jsonc(base_config), parse_jsonc(head_config))
+        try:
+            base_settings, head_settings = parse_jsonc(base_config), parse_jsonc(head_config)
+        except ValueError as bad:  # json.JSONDecodeError too
+            print(f"✘ {CONFIG} is not valid JSON with comments, here or at {args.base_ref}: {bad}", file=sys.stderr)
+            return 1
+        problems += config_loosenings(base_settings, head_settings)
     problems += tree_loosenings(root)
     if (root / RESIDENCE).exists():
         problems += residence_loosenings(read_at(root, args.base_ref, RESIDENCE) or {},
