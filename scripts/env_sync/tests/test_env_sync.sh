@@ -343,6 +343,18 @@ check "LOW MEMORY: with too little free memory on the laptop no copy is started 
   [[ "$(hb)" == *"B2 PENDING (the laptop has only 1500 MB"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ]'
 echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup z)" > "$PW/pull_record"
 
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"
+cat > "$PW/bin/env_sync_peek" <<'EOF'
+#!/usr/bin/env bash
+cp "$POLLER_HEARTBEAT" "$PW_DIR/hb_during.txt"; echo "checkpoint not due: x"
+EOF
+chmod +x "$PW/bin/env_sync_peek"
+PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" POLLER_SSH="$PW/bin/ssh" \
+  POLLER_ENV_SYNC="$PW/bin/env_sync_peek" POLLER_DOCKER="$PW/bin/docker" ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" \
+  ENV_SYNC_RELAY_ROOT="$PW/relay" POLLER_FREE_MB=8000 bash "$SRC/poller_run.sh" > /dev/null 2>&1
+check "EVERY run writes the heartbeat FIRST: while a step runs it says RUNNING since <start>, then the result replaces it" '
+  grep -q "^result:  *RUNNING since 20[0-9-]* [0-9:]* " "$PW/hb_during.txt" && grep -q "^active slice:  *T-1" "$PW/hb_during.txt" && [ "$(hb)" = "B1 SKIP not due" ]'
+
 preset; date '+%F %T' > "$PW/state/paused"; prun
 check "PAUSE: the off switch -> heartbeat PAUSED, nothing asked, nothing copied" '[[ "$(hb)" == PAUSED* ]] && [ "$(calls .)" = 0 ]'
 rm -f "$PW/state/paused"

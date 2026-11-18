@@ -83,6 +83,12 @@ if [ -f "$LOG" ]; then cut_off=$(date -d '30 days ago' +%F); awk -v c="$cut_off"
 read -r SLICE NAME _ < "$ST/active.txt" 2>/dev/null || true
 if [ -z "${SLICE:-}" ] || [ -z "${NAME:-}" ]; then finish "IDLE (no slice followed)"; fi
 ACTIVE="$SLICE (session $NAME)"
+# EVERY run writes the heartbeat, and writes it FIRST: a stale heartbeat must only ever mean "the job did not run" (the
+# laptop asleep or off, the user logged off, the task removed). A long step (a database copy takes 10-15 minutes) shows as
+# RUNNING with its start time until the run's result replaces it. (CKP-3 AC3, 2026-11-18: a run that started at 16:09 showed
+# nothing until 16:18.)
+RUN_START=$(now)
+heartbeat "RUNNING since $RUN_START - asking the desktop" "$ACTIVE" "not asked yet"
 
 # One plain read over SSH (never `claude` over SSH): does the desktop answer, the status file's first line, its newest DBCOPY-POINT.
 PS="\$s='$D_BENCH/envsync/sessions/$NAME.status.md'; 'ssh=ok'; if (Test-Path -LiteralPath \$s) { 'F=' + (Get-Content -LiteralPath \$s -TotalCount 1); 'P=' + (Get-Content -LiteralPath \$s | Select-String -Pattern '^DBCOPY-POINT' | Select-Object -First 1 | ForEach-Object { \$_.Line }) }"
@@ -141,12 +147,17 @@ if [ -n "$POINT" ]; then
   fi
   if [ "$pt_epoch" -gt "$rec_epoch" ] && [ -z "$B2_WAIT" ]; then
     say "B2 due: $POINT (the last copy: ${rec:-none})"
+    heartbeat "RUNNING since $RUN_START - $RESULT; B2 database copy started $(now) (10-15 minutes; this line is replaced by the result)" "$ACTIVE" y
     turn_before=$(head -1 "$TURN_FILE" 2>/dev/null)
     engine_was=up; "$DOCKER" info > /dev/null 2>&1 || engine_was=down
     if [ "$engine_was" = down ]; then
       say "B2: Docker Desktop is off (laptop standby) - starting it for the copy"
       if [ -n "${POLLER_ENGINE_START:-}" ]; then "$POLLER_ENGINE_START"          # tests: a stub, never the real Docker Desktop
-      else cmd.exe //c start "" "$(cygpath -w "$DOCKER_DESKTOP_EXE" 2>/dev/null || echo "$DOCKER_DESKTOP_EXE")" > /dev/null 2>&1; fi
+      else
+        # Docker's own CLI first (it waits until the engine runs); the program itself if that is not there or fails.
+        timeout 240 "$DOCKER" desktop start > /dev/null 2>&1 ||
+          cmd.exe //c start "" "$(cygpath -w "$DOCKER_DESKTOP_EXE" 2>/dev/null || echo "$DOCKER_DESKTOP_EXE")" > /dev/null 2>&1
+      fi
       for _ in $(seq 1 "${POLLER_ENGINE_WAIT:-60}"); do "$DOCKER" info > /dev/null 2>&1 && break; sleep 5; done
       # A Docker Desktop that has only just answered still drops large requests (AC5, 2026-11-18: a 277 MB docker cp
       # got "502 Bad Gateway" 3 minutes after the start): let it settle before the copy.
@@ -171,7 +182,7 @@ if [ -n "$POINT" ]; then
       case " $running_before " in *" $c "*) ;; *) [ "$("$DOCKER" inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && "$DOCKER" stop "$c" > /dev/null 2>&1;; esac
     done
     case "$turn_before" in free*) case "$(head -1 "$TURN_FILE" 2>/dev/null)" in "main $SLICE "*) echo "free $(now)" > "$TURN_FILE";; esac;; esac
-    if [ "$engine_was" = down ]; then "$DOCKER" desktop stop > /dev/null 2>&1; say "B2: Docker Desktop stopped again (it was off before)"; fi
+    if [ "$engine_was" = down ]; then timeout 120 "$DOCKER" desktop stop > /dev/null 2>&1; say "B2: Docker Desktop stopped again (it was off before)"; fi
   fi
 fi
 
