@@ -12,7 +12,7 @@
 export type ActionItemType = "DN_PENDING" | "DC_PENDING" | "DPR_PENDING";
 
 export interface ActionItemRow {
-  /** Docname: a random hash (#1658); rows made before it keep PAI- names. Opaque: never parse or sort it. */
+  /** PAI- docname. */
   name: string;
   /** Projects docname — present on rows from BOTH endpoints (Surface A groups by this). */
   project: string;
