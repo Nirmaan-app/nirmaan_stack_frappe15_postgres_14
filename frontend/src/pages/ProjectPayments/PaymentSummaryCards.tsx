@@ -206,6 +206,7 @@ import React, { useMemo, useEffect, useCallback, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { TailSpin } from "react-loader-spinner";
 import { useFrappeGetCall, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { PAYMENT_SUMMARY_API, PAYMENT_SUMMARY_SWR_KEY } from "./config/paymentSummaryKey";
 import { Info, Wallet, Clock, CheckCircle2, AlertCircle, CreditCard } from "lucide-react";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
@@ -734,9 +735,9 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
         error,
         mutate: refetchPaymentSummary
     } = useFrappeGetCall<PaymentStats>(
-        "nirmaan_stack.api.payments.get_project_payment_summary.get_payment_dashboard_stats",
+        PAYMENT_SUMMARY_API,
         undefined,
-        "payment_dashboard_stats_summary"
+        PAYMENT_SUMMARY_SWR_KEY
     );
 
     // --- EFFECT TO REFETCH ON TOTAL COUNT CHANGE (As requested) ---

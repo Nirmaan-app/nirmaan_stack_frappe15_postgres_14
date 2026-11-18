@@ -78,3 +78,22 @@ export const gstDecisionFigures = (
 		fits: leftAfter >= -GST_CAP_TOLERANCE,
 	};
 };
+
+/** A record the GST Requests table looks up behind an id on screen (a project, vendor or user), keyed by `name`. */
+export type LookupRecord = Record<string, string>;
+
+/**
+ * Every record read so far plus the latest read, keyed by name; the latest read wins. The table keeps this across
+ * reads so a change of rows (a decision, another status pill) does not drop the names it already had.
+ */
+export const mergeLookup = (
+	known: Record<string, LookupRecord>, rows: LookupRecord[] | undefined,
+): Record<string, LookupRecord> => ({ ...known, ...Object.fromEntries((rows ?? []).map((r) => [r.name, r])) });
+
+/** What a looked-up cell shows: its text once read; a placeholder while it is still being read; else the id. */
+export type LookupCell = { kind: "loading" } | { kind: "text"; text: string };
+
+export const lookupCell = (id: string, text: string | undefined, loading: boolean): LookupCell => {
+	if (text) return { kind: "text", text };
+	return loading ? { kind: "loading" } : { kind: "text", text: id };
+};
