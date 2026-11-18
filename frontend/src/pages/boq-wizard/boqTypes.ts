@@ -1588,7 +1588,7 @@ export interface PreflightResponse {
 /**
  * One classification ENGINE option (from classify.list_engines). `available` gates whether the
  * engine can be selected in the ClassifySheetDialog (v1: only Electrical is available). `discipline`
- * is the value handed to start_classify / get_classify_status / get_sheet_categories.
+ * is the value handed to start_classify / get_sheet_categories.
  */
 export interface EngineOption {
   id: string;
@@ -1604,8 +1604,8 @@ export interface EngineOption {
 export type ClassifyScope = { mode: "sheet" } | { mode: "range"; start: number; end: number };
 
 /**
- * The classify-sheet completion summary (the "boq:classify_sheet_done" payload, minus the routing
- * identity fields). Drives the post-run summary readout in SheetPricingPage.
+ * The completion summary of a Classify click's run set (`classifyRunSet.summariseRunSet`, counts filled from the
+ * resolved read). Drives the post-run summary readout in SheetPricingPage.
  */
 export interface ClassifySummary {
   total_in_range: number;
@@ -1619,10 +1619,10 @@ export interface ClassifySummary {
   /** Whether the AI voter actually ran: "ran" | "disabled" | "no_key" (null when there were no
    *  eligible rows). Lets the completion message say "AI was off" instead of a silent all-review. */
   ai_status?: string | null;
-  /** The terminal outcome: "success" | "error" (present on the boq:classify_sheet_done payload). */
+  /** The run set's outcome: "error" when any engine's background operation failed or was lost, else "success". */
   status?: string;
-  /** On an error outcome: the failure code (e.g. "classify_failed"). */
-  error_code?: string;
+  /** Every engine's outcome, in launch order, with the server's words for one that failed (#1666). */
+  engine_outcomes?: Array<{ discipline: string; ok: boolean; error?: string }>;
 }
 
 /**

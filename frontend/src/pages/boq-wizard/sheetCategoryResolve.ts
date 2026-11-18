@@ -108,38 +108,6 @@ function carriedFromNoun(cat: CarriedProvenance | undefined): string {
 }
 
 /**
- * Should a classify socket/poll event for `discipline` be accepted? Membership in the sheet's
- * ran disciplines UNION any currently launching/running ones -- so a FIRST-EVER run on a fresh
- * sheet (no ran disciplines yet) is not discarded, while events for an unrelated discipline are.
- * Replaces the old `=== CLASSIFY_DISCIPLINE` equality that discarded every non-Electrical event.
- */
-export function acceptClassifyEvent(
-  discipline: string,
-  ranDisciplines: readonly string[],
-  runningDisciplines: readonly string[],
-): boolean {
-  return ranDisciplines.includes(discipline) || runningDisciplines.includes(discipline);
-}
-
-/** Remove one terminated discipline from the running set (order-stable, dedup-safe). */
-export function removeRunningDiscipline(
-  running: readonly string[],
-  done: string,
-): string[] {
-  return running.filter((d) => d !== done);
-}
-
-/** Union of the launched disciplines into the running set (dedup, order-stable). */
-export function addRunningDisciplines(
-  running: readonly string[],
-  launched: readonly string[],
-): string[] {
-  const out = [...running];
-  for (const d of launched) if (!out.includes(d)) out.push(d);
-  return out;
-}
-
-/**
  * The picker's engine groups for a sheet: ONE catalog per ran-discipline, in the resolved read's
  * order, labelled from the engine registry (falling back to the discipline string). A ran
  * discipline with no fetched catalog yet is skipped (it appears once its catalog lands).

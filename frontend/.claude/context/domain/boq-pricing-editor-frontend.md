@@ -180,9 +180,13 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   `<col>`/`<th>` go in the scrolling-pane + single-table colgroups, NEVER the frozen/anchor pane. It is driven by a
   reference-stable `categoriesByExcelRow: Map<number, SheetCategoryRow>` (built page-side from the resolved category
   read, see the multi-engine bullet below; ONE identity line in `pricingRowPropsAreEqual`) — the row memo is untouched
-  (do NOT hand it a per-row prop that changes on keystroke). The run itself is driven from a screen-scoped socket (`boq:classify_sheet_progress`/`_done`) + `get_classify_status` poll on
-  `SheetPricingPage` (the page's FIRST socket), mirroring the BoqHub parse-run pattern. `ClassifySheetDialog.tsx` is the
-  engine/scope picker (registry-driven, modeled on CopyForwardDialog's `Set<selected>` + `Record<id,scope>`).
+  (do NOT hand it a per-row prop that changes on keystroke). **Each engine of a Classify click is its own background
+  operation (ADR 0047, #1666):** `SheetPricingPage` renders one `ClassifyEngineOperation` per available engine (the
+  shared `useBackgroundOperation` hook, slot `boq_classify:<boq>::<sheet>::<engine>`), starts each launched engine
+  through it (`start_classify` + a browser-made `op_id`, context `{discipline, scope}`), and folds every engine's view
+  into the click's run set (pure `classifyRunSet.ts`). No socket event or per-sheet status key carries a classify
+  result. `ClassifySheetDialog.tsx` is only the engine/scope picker (registry-driven, modeled on CopyForwardDialog's
+  `Set<selected>` + `Record<id,scope>`); it posts nothing.
 - **Category cell is CLICK-TO-EDIT (CL-3):** click (and Enter on the focused cell) open `CategoryVerdictPicker.tsx` (a
   Radix Popover anchored to the clicked cell via `virtualRef`), with categories GROUPED BY the engine(s) that ran
   (engine-scoped). **Open-state is PAGE-OWNED, keyed by excel_row — NEVER a
@@ -254,10 +258,8 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   `deriveVerdictState` + `isMasterSetBlank` render UNCHANGED (blank rows still blank + amber).
   `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
   (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
-  picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
-  `ClassifyStatusPoller` each -- single-engine = the old single poll; the modal completes when all
-  running disciplines terminate). Socket done/progress filters are MEMBERSHIP in
-  `(ran UNION running)`, never `=== a constant`. **The picker's `onSelect(id, discipline)` CARRIES
+  picker (`buildSheetEngineCatalogs`). The modal completes when every engine of the run set has
+  ended (`runSetDone`). **The picker's `onSelect(id, discipline)` CARRIES
   the picked group's discipline** -- the write (`set_row_category`) lands on that engine's row
   identity (upsert-on-missing mints it); "Clear" (`discipline=null`) targets the row's resolved
   human discipline. **NEVER hardcode a discipline string in this pathway** (the deleted
@@ -268,14 +270,17 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   "xx classified, yy flagged for review" message (both the `ClassifyProgressModal` line and the
   post-close toast) reports the COMBINED effective split, NOT a per-engine denominator (a
   last-engine-wins summary shows one engine's numbers for a multi-engine run).
-  When ALL running disciplines terminate, `applyClassifyDone` composes the summary from the FRESH
+  **Every engine's outcome counts (#1666):** the run set is an error when ANY engine's operation failed or was
+  lost, first or last, and `engine_outcomes` names each engine's outcome (the server's words for a failed one) on
+  the modal and the post-close strip (`engineOutcomeLines`); the old last-engine-wins summary hid an engine that
+  failed first. When every engine has ended successfully, `finishClassifyRunSet` composes the summary from the FRESH
   resolved read (the grid's source of truth, post-`mutateCategories`) via the pure
   `summariseResolvedOutcome(resolvedRows, rangeUnion)`: categorised = effective non-blank (an
   auto-accept OR a human verdict -- so a pre-existing human verdict counts as categorised),
   review = effective blank. It is scoped to the run set's `rangeUnion` (`unionScopes`): a fresh
   run set (each `onStarted`) REPLACES the union (reset semantics); multiple engines fold together
-  and **whole-sheet DOMINATES a mixed union**; a run recovered from the poll (unknown scope) or an
-  empty scope degrades to whole-sheet. Single-engine whole-sheet with no human verdicts equals the
+  and **whole-sheet DOMINATES a mixed union**; an engine operation picked up after a reload brings its
+  own scope (its context); an unknown or empty scope degrades to whole-sheet. Single-engine whole-sheet with no human verdicts equals the
   engine's own numbers by construction (pinned by test). To carry the range up, `ClassifySheetDialog`'s
   `onStarted` passes `Array<{discipline, scope}>`.
 - **AI-status on the completion surfaces (HV-11): HEALTHY PATH SILENT, FALLBACK LOUD.** The pure
@@ -283,11 +288,10 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   BOTH the modal line + the post-close toast. It returns "" when every ran discipline had AI ON
   (`ran`) or had no eligible rows (null) -- so the healthy completion text stays byte-identical
   (zero noise); when ANY discipline reports `disabled`/`no_key` it returns ONE plain line NAMING the
-  off discipline(s) (multi-engine names ONLY the off one). `SheetPricingPage` accumulates ai_status
-  PER DISCIPLINE over the run set (`aiStatusByDisciplineRef`, reset each `onStarted`, one entry per
-  engine's done) -- do NOT revert to the old single last-engine-wins `aiStatusNote` render, which
-  masked a mixed multi-engine run. The done payload's `ai_status` values are `ran | disabled |
-  no_key | null`.
+  off discipline(s) (multi-engine names ONLY the off one). `summariseRunSet` gives ai_status
+  PER DISCIPLINE over the run set (one entry per finished engine) -- do NOT revert to the old single
+  last-engine-wins `aiStatusNote` render, which masked a mixed multi-engine run. A finished engine
+  operation's `result.ai_status` is `ran | disabled | no_key | null`.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY

@@ -11,8 +11,8 @@ operation's outcome where the screen reads it (the status the polling fallback r
 - clone: N template clones at once (`create_from_template`, the active master's largest data sheet each). An
   operation is ok when its clone status is success and the new BoQ holds one Review Row per template row.
 - classify: ceil(N/2) Classify clicks at once, each on its own committed sheet with Electrical and HVAC rows, and
-  each click starts both engines (`start_classify` per engine, as `ClassifySheetDialog` does). An operation (one
-  engine) is ok when its classify status is success.
+  each click starts both engines (`start_classify` per engine with its own operation id, as the pricing page does,
+  #1666). An operation (one engine) is ok when its status record ends finished with a success result.
 - suggest: N rate suggests at once, each on its own committed sheet that passes the suggest gate (`start_suggest`,
   whole sheet, as the Suggest rates dialog does). An operation is ok when its suggest status is success for that
   sheet and, when the suggest started a historical match run (the match switch is on), that match run ends without
@@ -58,6 +58,7 @@ from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.services.series_lock import boq_series, recent_waits
 
 ENGINES = ("Electrical", "HVAC")
+ENDED = ("finished", "failed", "lost")  # a status record's end states
 PROJECT_NAME = "Background operations check"
 
 
@@ -207,22 +208,27 @@ def classify_setup(workers):
 
 
 def classify_run(ctx, run, timeout):
-    started = []
+    """Each click starts one background operation per engine (#1666); each engine is read from its own record."""
+    started = {}
     for boq, sheet in ctx["sheets"]:
         for engine in ENGINES:
-            classify.start_classify(boq=boq, sheet_name=sheet, discipline=engine, scope={"mode": "sheet"})
-            started.append((boq, sheet, engine))
+            op_id = str(uuid.uuid4())
+            classify.start_classify(boq=boq, sheet_name=sheet, discipline=engine, scope={"mode": "sheet"}, op_id=op_id)
+            frappe.db.commit()  # the request's own commit, which queues the operation
+            started[op_id] = (boq, sheet, engine)
 
-    def read(op):
-        status = classify.get_classify_status(*op)
-        if status.get("state") != "done":
+    def read(op_id):
+        status = background_ops.get_status(op_id=op_id)
+        if status["state"] not in ENDED:
             return None
-        what = f"classify {op[2]} on {op[0]} {op[1]!r}"
-        if status.get("status") != "success":
-            return {"ok": False, "detail": f"{what}: {status.get('status')} {status.get('error_code')}"}
-        if status.get("ai_status") not in ("disabled", "no_key"):
-            return {"ok": False, "detail": f"{what}: the AI voter ran ({status.get('ai_status')})"}
-        return {"ok": True, "detail": f"{what}: {status.get('eligible_classified')} rows"}
+        boq, sheet, engine = started[op_id]
+        what = f"classify {engine} on {boq} {sheet!r}"
+        result = status.get("result") or {}
+        if status["state"] != "finished" or result.get("status") != "success":
+            return {"ok": False, "detail": f"{what}: ended {status['state']} {status.get('error') or ''}".rstrip()}
+        if result.get("ai_status") not in ("disabled", "no_key"):
+            return {"ok": False, "detail": f"{what}: the AI voter ran ({result.get('ai_status')})"}
+        return {"ok": True, "detail": f"{what}: {result.get('eligible_classified')} rows"}
 
     return wait_until(set(started), read, timeout)
 
@@ -296,7 +302,6 @@ def suggest_run(ctx, run, timeout):
 
 # ── tds ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 TDS_HEAVY_ROWS = 200
-TDS_ENDED = ("finished", "failed", "lost")
 
 
 def tds_marker(tag, i):
@@ -340,7 +345,7 @@ def tds_run(ctx, run, timeout):
 
     def read(op_id):
         status = background_ops.get_status(op_id=op_id)
-        if status["state"] not in TDS_ENDED:
+        if status["state"] not in ENDED:
             return None
         i, marker, weight = started[op_id]
         what = f"TDS export {i} ({weight}, {marker})"

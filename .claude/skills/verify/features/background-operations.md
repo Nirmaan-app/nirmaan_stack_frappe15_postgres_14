@@ -28,7 +28,7 @@ and reads each operation's outcome where the screen reads it):
 - `n-worker-clone` N template clones started at once (Create BoQ from template) all finish, each BoQ with one Review
   Row per template row (#1656).
 - `n-worker-classify` ceil(N/2) Classify clicks started at once, each running both engines (Electrical and HVAC) on
-  its own sheet: every engine's run finishes (#1656).
+  its own sheet, each engine its own background operation: every engine's operation ends finished (#1656, #1666).
 - `n-worker-suggest` N rate suggests started at once, each on its own sheet: every suggest finishes with success,
   and the historical match run each one starts (when the match switch is on) ends without an error (#1657).
 - `n-worker-tds` N TDS exports by one user at once, heavy (200 rows) and light (1 row) mixed: every export ends
@@ -49,8 +49,11 @@ and reads each operation's outcome where the screen reads it):
 - `template`: sidebar `Admin Options` -> `BoQ Templates` (Admin or Estimates Executive).
 - A clone: Projects -> a project -> Create BoQ from template -> pick sheets -> Create. The screen waits on
   `boq:template_clone_done`, else polls `get_clone_status`.
-- A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The dialog calls
-  `start_classify` once per engine; the page polls `get_classify_status` per engine.
+- A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The page starts
+  each engine as its own background operation (`start_classify` with a browser-made `op_id`, one shared hook per
+  engine, slot `boq_classify:<boq>::<sheet>::<engine>`) and follows each through its status record (#1666). The
+  progress modal shows "Waiting in the queue" until an engine starts running, and its summary names every engine's
+  outcome, a failed one with the server's words.
 - A rate suggest: a committed sheet's pricing page -> Suggest rates -> whole sheet -> Start. The page waits on
   `boq:suggest_sheet_done` (then `boq:match_sheet_done`), else polls `get_suggest_status` and `get_match_status`.
 
@@ -90,7 +93,8 @@ The N-worker check, one command:
   through the same endpoints (10 runs of clone and classify, 5 of suggest, 3 of tds; `--runs` sets one count for
   all), and wait for each operation's status. The N clone creates of a run start together, each on its own thread
   and DB connection; the N TDS exports start back to back as N tabs of one screen would.
-- **What it proves.** Clone status success and the row count; classify status success per engine; suggest status
+- **What it proves.** Clone status success and the row count; each classify engine's record finished with a success
+  result; suggest status
   success for that sheet, then its match run's status without an error; each TDS export's record finished and its
   collected PDF holding its own marker (`NWC<i>X<run>`, read with pypdf) and no other tab's. A suggest whose status
   falls back to `idle` with no outcome (the spinning screen of a failed suggest before #1657) is a failure. It prints

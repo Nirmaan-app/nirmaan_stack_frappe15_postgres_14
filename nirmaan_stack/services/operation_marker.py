@@ -62,6 +62,15 @@ def enqueue_claimed(key, method, **kwargs):
         raise
 
 
+def release(key, job_id):
+    """Delete the marker at `key` when its operation ends, but only while it still names `job_id`: a duplicate that
+    ends late must not free the sheet for a run it does not own (spec #1654, story 6)."""
+    frappe.local.cache.pop(frappe.cache().make_key(key), None)  # read Redis, not this process's copy
+    marker = frappe.cache().get_value(key)
+    if marker and marker.get("job_id") == job_id:
+        _delete_if_unchanged(key, marker)
+
+
 def _delete_if_unchanged(key, marker):
     cache = frappe.cache()
     made = cache.make_key(key)
