@@ -21,6 +21,7 @@ Stdlib only.
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +69,30 @@ def threshold_loosenings(base_pkg, head_pkg):
         shown = "removed" if after is None else after
         return [f"{PACKAGE}: type-coverage --at-least fell {before} -> {shown}"]
     return []
+
+
+# Flags the `lint` script may gain: each only makes oxlint stricter. Any other added word may narrow it (a path, `-A`,
+# `--ignore-pattern`, `-c`, `|| true`), so it is refused.
+STRICTER_FLAGS = {"--deny-warnings", "--max-warnings=0", "--report-unused-disable-directives"}
+
+
+def lint_script_loosenings(base_pkg, head_pkg):
+    """The ways head's `lint` script (and the prelint/postlint hooks yarn runs around it) weakens base's."""
+    base_scripts, head_scripts = base_pkg.get("scripts", {}), head_pkg.get("scripts", {})
+    problems = [f"{PACKAGE}: a {hook} script runs around `yarn lint` and could change what it lints"
+                for hook in ("prelint", "postlint") if head_scripts.get(hook) != base_scripts.get(hook)]
+    if "lint" not in base_scripts:
+        return problems
+    if "lint" not in head_scripts:
+        return problems + [f"{PACKAGE}: the lint script was removed"]
+    before, after = shlex.split(base_scripts["lint"]), shlex.split(head_scripts["lint"])
+    dropped = [word for word in before if word not in after]
+    added = [word for word in after if word not in before and word not in STRICTER_FLAGS]
+    if dropped or added:
+        change = "; ".join(filter(None, [dropped and f"drops {' '.join(dropped)}", added and f"adds {' '.join(added)}"]))
+        problems.append(f"{PACKAGE}: the lint script {change} ({base_scripts['lint']!r} -> {head_scripts['lint']!r}); "
+                        f"it may only add {', '.join(sorted(STRICTER_FLAGS))}")
+    return problems
 
 
 def from_eslint(eslint_supp, name):
@@ -315,6 +340,7 @@ def main(argv=None):
     head_pkg = json.loads((root / PACKAGE).read_text())
     try:
         problems += threshold_loosenings(base_pkg, head_pkg)
+        problems += lint_script_loosenings(base_pkg, head_pkg)
     except ValueError as bad:  # a malformed --at-least
         print(f"✘ {bad}", file=sys.stderr)
         return 1
@@ -327,7 +353,8 @@ def main(argv=None):
         print(f"✘ This change loosens the frontend ratchet against {args.base_ref} (ADR-0049):", file=sys.stderr)
         for problem in problems:
             print(f"    {problem}", file=sys.stderr)
-        print("    Fix the new violations instead of suppressing them, and never lower --at-least.", file=sys.stderr)
+        print("    Fix the new violations instead of suppressing them, never lower --at-least, and keep the lint settings"
+              " at least as strict as the base's.", file=sys.stderr)
         return 1
     print(f"✓ frontend ratchet: nothing loosened against {args.base_ref}")
     return 0

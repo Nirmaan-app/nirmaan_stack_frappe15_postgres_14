@@ -353,6 +353,27 @@ class LintSettings(unittest.TestCase):
         (self.repo / "frontend/src/pages/.gitignore").write_text("orders/\n")
         self.refused("frontend/src/pages/orders/list.tsx", "gitignore")
 
+    def test_a_narrowed_lint_script_is_refused(self):
+        for script, named in [("oxlint --type-aware src/pages", "drops src"),
+                              ("oxlint src", "drops --type-aware"),
+                              ("oxlint --type-aware -A no-explicit-any src", "adds -A"),
+                              ("oxlint --type-aware --ignore-pattern=src/pages src", "adds --ignore-pattern=src/pages"),
+                              ("oxlint --type-aware src || true", "adds ||"),
+                              ("oxlint --type-aware --disable-nested-config -c loose.json src", "-c loose.json")]:
+            with self.subTest(script):
+                self.package({**LINT_PACKAGE, "scripts": {**LINT_PACKAGE["scripts"], "lint": script}})
+                self.refused("lint script", named)
+
+    def test_a_removed_lint_script_or_a_new_prelint_is_refused(self):
+        self.package({"scripts": {"type-coverage": LINT_PACKAGE["scripts"]["type-coverage"]}})
+        self.refused("lint script was removed")
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "prelint": "cp loose.json .oxlintrc.json"}})
+        self.refused("prelint")
+
+    def test_a_lint_script_that_denies_warnings_too_passes(self):
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --deny-warnings src"}})
+        self.passes()
+
     def test_a_folder_moved_to_the_typed_path_passes(self):
         self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]',
                          '"files": ["src/pages/orders/**/*.{ts,tsx}", "src/pages/vendors/**/*.{ts,tsx}"]')
