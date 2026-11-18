@@ -148,7 +148,10 @@ if a.part == "all":
         check("1 line before 1 Apr 2026 left out" in text and f"Walk 1711 early {STAMP}" not in text,
               "1707-1: Review says '1 line before 1 Apr 2026 left out' and does not list the early line")
         check("shop-requested" not in text.lower(), "1708-1: Review shows no 'shop-requested payments' box")
-        heading = "2 wallet refunds will be booked as minus expenses where their spends are booked"
+        heading = (
+            "2 wallet refunds will be booked as minus expenses: each where its spend is booked, or else where its "
+            "remark says"
+        )
         check(heading in text, f"1709-1: Review lists the refunds apart: {heading!r}")
         box = dialog.get_by_text(heading, exact=True).locator("xpath=..")
         refunds = box.inner_text() if box.count() else ""

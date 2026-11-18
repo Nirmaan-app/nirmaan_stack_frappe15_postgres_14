@@ -499,12 +499,14 @@ describe("the wallet refunds on Review (#1709, ADR-0015 Amendment D)", () => {
         ...over,
     });
 
-    it("heads them, saying each is booked as a minus where its spend is", () => {
+    // #1715: since #1720 decision 3 a refund whose spend has no Expense is placed from its own remark.
+    it("heads them, saying each is booked as a minus where its spend is, or else where its remark says", () => {
         expect(refundsHeading([refund()])).toBe(
-            "1 wallet refund will be booked as a minus expense where its spend is booked"
+            "1 wallet refund will be booked as a minus expense: where its spend is booked, or else where its remark says"
         );
         expect(refundsHeading([refund(), refund()])).toBe(
-            "2 wallet refunds will be booked as minus expenses where their spends are booked"
+            "2 wallet refunds will be booked as minus expenses: each where its spend is booked, or else where its " +
+                "remark says"
         );
         expect(refundsHeading([])).toBeNull();
         expect(refundsHeading(undefined)).toBeNull();

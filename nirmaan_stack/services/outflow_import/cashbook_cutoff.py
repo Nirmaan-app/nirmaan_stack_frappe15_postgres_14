@@ -18,7 +18,7 @@ from datetime import date
 # is read from there rather than written a second time. Importing the patch runs only its module top.
 from nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses import FROM_DATE as _FROM_DATE
 
-__all__ = ["CASHBOOK_FROM_DATE", "is_before_cutoff", "is_undated", "before_cutoff_note", "only_before_cutoff_message"]
+__all__ = ["CASHBOOK_FROM_DATE", "is_before_cutoff", "is_undated", "kept_period", "before_cutoff_note", "only_before_cutoff_message"]
 
 CASHBOOK_FROM_DATE = date.fromisoformat(_FROM_DATE)
 _WHEN = f"{CASHBOOK_FROM_DATE.day} {CASHBOOK_FROM_DATE:%b %Y}"
@@ -32,6 +32,13 @@ def is_before_cutoff(raw) -> bool:
 
 def is_undated(raw) -> bool:
     return getattr(raw, "added_on_date", None) is None
+
+
+def kept_period(rows) -> tuple[date | None, date | None]:
+    """The import period: the first and last date of the lines kept (#1715, owner decision 1). A line left out by date
+    does not count toward it, so a file whose kept lines start on 1 Apr 2026 shows a period starting 1 Apr 2026."""
+    dates = [raw.added_on_date for raw in rows if not is_before_cutoff(raw)]
+    return (min(dates), max(dates)) if dates else (None, None)
 
 
 def before_cutoff_note(count: int, undated: int = 0) -> str:

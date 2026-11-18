@@ -38,7 +38,7 @@ past imports by source and month.
   A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
   `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
 - `bit-cashbook-refund-expense` an unpaired wallet refund (#1709, ADR-0015 Amendment D) is listed apart on Review
-  (`N wallet refunds will be booked as minus expenses where their spends are booked`, each with `reduces <spend Txn
+  (`N wallet refunds will be booked as minus expenses: each where its spend is booked, or else where its remark says`, each with `reduces <spend Txn
   Id> (<its Expense> | no Expense yet | created by this import)`, its ledger, project and type); the header
   (`N expense records`, ₹) counts the spends only. The job books it as a Paid Expense of minus its Credit on the
   spend's Expense's ledger, project and type, else where its remark places it (a project it names, else a Non Project

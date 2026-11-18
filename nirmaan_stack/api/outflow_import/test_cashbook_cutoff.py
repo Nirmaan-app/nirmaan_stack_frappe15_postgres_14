@@ -83,3 +83,14 @@ class TestTheUploadLeavesOutEarlierLines(FrappeTestCase):
             self._post(cb.confirm_cashbook_import, only_march)
         self.assertEqual(str(caught.exception), message)
         self.assertEqual(_counts(), before)
+
+    # #1715, owner decision 1 (2026-11-19): the import period starts and ends at kept lines. The mixed file's lines
+    # run 31 Mar to 4 Aug 2026; its kept lines run 2 Aug to 4 Aug.
+    def test_the_preview_shows_the_period_of_the_kept_lines(self):
+        mixed = self._post(cb.preview_cashbook_statement, self.mixed)
+        self.assertEqual((mixed["period_from"], mixed["period_to"]), ("2026-08-02", "2026-08-04"))
+
+    def test_the_import_stores_the_period_of_the_kept_lines(self):
+        batch = self._stage(self.mixed)
+        period = frappe.db.get_value("Outflow Import Batch", batch, ["period_from", "period_to"])
+        self.assertEqual(tuple(str(day) for day in period), ("2026-08-02", "2026-08-04"))

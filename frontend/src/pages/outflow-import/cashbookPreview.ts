@@ -112,7 +112,7 @@ export interface CashbookPreviewResult {
     records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
-    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
+    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked, else where their remarks say. */
     refunds?: CashbookRefundLine[];
     /** #1720: the Wallet Credits, booked at minus their Credit where their remarks place them. */
     credits?: CashbookMoneyInLine[];

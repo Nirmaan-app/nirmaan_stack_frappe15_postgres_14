@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, PlannedRow
-from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, kept_period
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -110,12 +110,13 @@ def preview_payload(
     """
     groups = group_plan(plan)
     invoices = invoice_counts(plan)
+    period_from, period_to = kept_period(parsed.rows)
     return {
         "preview": True,
         "source": CASHBOOK_SOURCE,
         "original_filename": filename,
-        "period_from": str(parsed.period_from) if parsed.period_from else None,
-        "period_to": str(parsed.period_to) if parsed.period_to else None,
+        "period_from": str(period_from) if period_from else None,
+        "period_to": str(period_to) if period_to else None,
         "total_rows": len(parsed.rows),
         "creating": len(plan.creating),
         # The spends among them: the count Review's headline shows beside `total_value`, which sums the same rows.
