@@ -398,6 +398,23 @@ class JsonCalls(unittest.TestCase):
         self.assertEqual(rc, 1, out.getvalue())
         self.assertIn("J1 could not count .json() calls: node could not run", out.getvalue())
 
+    def test_in_the_commit_hook_j1_warns_and_passes_when_node_is_missing(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--hook", "--only", "J1"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("⚠ J1 skipped: node could not run", out.getvalue())
+        self.assertIn("CI counts .json() calls on every pull request", out.getvalue())
+
+    def test_in_the_commit_hook_j1_still_refuses_a_new_call(self):
+        out = io.StringIO()
+        frozen = json.loads((Path(__file__).resolve().parent.parent / "frontend/json-call-suppressions.json")
+                            .read_text())
+        counts = {path: rules["no-json-call"]["count"] for path, rules in frozen.items()} | {"src/new.ts": 1}
+        with mock.patch("residence_check.json_call_counts", return_value=counts), redirect_stdout(out):
+            rc = main(["--hook", "--check", "--only", "J1"])
+        self.assertEqual(rc, 1, out.getvalue())
+
     def test_a_raised_baseline_entry_does_not_let_a_new_call_pass(self):
         with tempfile.TemporaryDirectory() as d:
             baseline = Path(d) / "baseline.json"

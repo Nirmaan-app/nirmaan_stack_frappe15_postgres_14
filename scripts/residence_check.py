@@ -470,6 +470,11 @@ class JsonCallParserError(RuntimeError):
     """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
 
 
+# Set by --hook: in a commit hook J1 warns and passes when its parser cannot run (a worktree with no
+# frontend/node_modules, a box with no node); CI and every other run still fail.
+J1_MAY_SKIP = False
+
+
 def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
     """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
 
@@ -526,6 +531,9 @@ def json_calls_unfrozen() -> list[str]:
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
     except JsonCallParserError as e:
+        if J1_MAY_SKIP:
+            print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
+            return []
         return [f"J1 could not count .json() calls: {e}"]
     frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
     frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
@@ -865,7 +873,11 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
                              f"'ci' names the checks CI runs ({','.join(CI_SUBSET)}).")
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
+    parser.add_argument("--hook", action="store_true",
+                        help="Run from a commit hook: J1 warns and passes when node or TypeScript cannot run.")
     args = parser.parse_args(argv)
+    global J1_MAY_SKIP
+    J1_MAY_SKIP = args.hook
     if args.init and args.only:
         print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
               file=sys.stderr)

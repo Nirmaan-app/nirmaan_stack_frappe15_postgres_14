@@ -105,7 +105,7 @@ describe(".githooks/checks.sh", () => {
   //
   // `fail` makes one stage of the staged copy fail: "ls-files" (lists nothing), "checkout-index" (copies, then fails)
   // or "tar" (the host's tar packs only the frontend folder's own entry, then fails).
-  function stagedRepo({ nativeRuns, docker, fail }) {
+  function stagedRepo({ nativeRuns, docker, fail, containerLacksOxlint }) {
     const root = mkdtempSync(join(tmpdir(), "checks-"));
     dirs.push(root);
     const log = join(root, "oxlint.log");
@@ -129,7 +129,7 @@ describe(".githooks/checks.sh", () => {
           `case "$1" in\n` +
           `  inspect) case "$*" in *Running*) echo true ;; *) printf '/elsewhere|/x\\n${root}|${root}\\n' ;; esac ;;\n` +
           `  exec) shift; dir=.; while :; do case "$1" in -i) shift ;; -w) dir="$2"; shift 2 ;; *) break ;; esac; done\n` +
-          `        shift; cd "$dir" && exec "$@" ;;\n` +
+          `        shift; ${containerLacksOxlint ? '[ "$1" = test ] && exit 1; ' : ""}cd "$dir" && exec "$@" ;;\n` +
           `esac\n`,
       );
     }
@@ -209,6 +209,15 @@ describe(".githooks/checks.sh", () => {
     const result = run({ NIRMAAN_LINT_CONTAINER: "test-container" });
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/could not be packed/);
+    expect(result.logged).not.toMatch(/args:/);
+  });
+
+  it("skips oxlint with a warning, not a refusal, where the container has no oxlint installed", () => {
+    const { run } = stagedRepo({ nativeRuns: false, docker: true, containerLacksOxlint: true });
+    const result = run({ NIRMAAN_LINT_CONTAINER: "nirmaan-test" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toMatch(/oxlint was skipped/);
+    expect(result.stderr).toMatch(/has no oxlint installed/);
     expect(result.logged).not.toMatch(/args:/);
   });
 

@@ -95,8 +95,10 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   `no-restricted-syntax`, and its JS plugins are alpha, outside semver. Its 22 old calls are frozen per file in
   `frontend/json-call-suppressions.json`, and any file off its frozen count fails, so a new call fails even where
   another file loses one. J1 counts with TypeScript's own parser (`frontend/scripts/json_calls.mjs`, run by node
-  from `frontend/node_modules`), so it needs node and an installed frontend; without them it fails, never passes.
-  CI runs J1 with the other residence checks, after `yarn install`.
+  from `frontend/node_modules`), so it needs node and an installed frontend; without them it fails, never passes,
+  except in the commit hooks (`residence_check.py --hook`), where it warns and passes, as oxlint is skipped there:
+  a worktree with no `frontend/node_modules`, or a box with no node, can still commit. CI runs J1 with the other
+  residence checks, after `yarn install`, and fails there.
 - oxlint honours the existing `eslint-disable` comments, under ESLint's rule names.
 - ESLint's frozen "rule not found" entry for `jsx-a11y/no-autofocus` (a disable comment for a plugin never loaded)
   has no oxlint counterpart and is gone.

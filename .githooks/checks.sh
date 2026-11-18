@@ -25,7 +25,7 @@ hook="${1:-pre-commit}"
 failed=0
 
 if [ -f scripts/residence_check.py ]; then
-    out=$(python3 scripts/residence_check.py 2>&1)
+    out=$(python3 scripts/residence_check.py --hook 2>&1)
     rc=$?
     if [ $rc -eq 127 ] || ! command -v python3 >/dev/null 2>&1; then
         echo "✘ $hook rejected: python3 was not found, so scripts/residence_check.py could not run." >&2
@@ -35,7 +35,11 @@ if [ -f scripts/residence_check.py ]; then
         echo "✘ $hook rejected: scripts/residence_check.py counts a new violation." >&2
         printf '%s\n' "$out" | grep -v '^✓' >&2
         failed=1
-    elif printf '%s' "$out" | grep -q '^Tightened baseline'; then
+    else
+        # A check that could not run here (J1 with no node) says so and passes; CI runs it on every pull request.
+        printf '%s\n' "$out" | grep '^⚠' | sed "s/^⚠ /⚠ $hook: /" >&2
+    fi
+    if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q '^Tightened baseline'; then
         # A count that fell rewrites the baseline after the change's files were staged.
         echo "⚠ $hook: a count fell, so scripts/residence_baseline.json was tightened -- commit it too." >&2
     fi
@@ -62,7 +66,8 @@ lint_runner() {
         echo here
     elif command -v docker >/dev/null 2>&1 \
         && [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" = true ] \
-        && [ -n "$(container_path "$(pwd -P)")" ]; then
+        && [ -n "$(container_path "$(pwd -P)")" ] \
+        && docker exec "$container" test -x "$(container_path "$(pwd -P)")/frontend/node_modules/.bin/oxlint"; then
         echo container
     fi
 }
@@ -135,7 +140,8 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         fi
     elif [ -d frontend/node_modules ]; then
         echo "⚠ $hook: oxlint does not run here (its native binary does not load, and container $container is not" >&2
-        echo "    running or does not mount this checkout), so oxlint was skipped. CI lints every pull request." >&2
+        echo "    running, does not mount this checkout, or has no oxlint installed: run 'yarn install' in frontend/" >&2
+        echo "    inside it), so oxlint was skipped. CI lints every pull request." >&2
     else
         echo "⚠ $hook: frontend/node_modules is missing, so oxlint was skipped (run 'yarn install' in frontend/)." >&2
     fi
