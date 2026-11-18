@@ -9,6 +9,7 @@ import {
     CashbookPreviewGroup,
     CashbookPreviewResult,
     DuplicateNotice,
+    cutoffNotice,
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
@@ -55,6 +56,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const [showSkipped, setShowSkipped] = useState(false);
     const sections = ledgerSections(preview.groups);
     const notice = duplicateNotice(preview);
+    const cutoff = cutoffNotice(preview);
     const invoices = invoiceCountsText(preview);
     const pairs = preview.pairs ?? [];
     const openLines = preview.open_lines ?? [];
@@ -93,6 +95,9 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
             </div>
 
             {notice && <RepeatNotice notice={notice} />}
+
+            {/* #1707: the lines dated before 1 Apr 2026, left out and not saved. */}
+            {cutoff && <RepeatNotice notice={cutoff} />}
 
 
             {/* #1591: what becomes of the bills, said before Create. */}

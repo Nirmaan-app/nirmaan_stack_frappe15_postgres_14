@@ -86,6 +86,7 @@ from nirmaan_stack.services.outflow_import.candidates import (
     prior_import_sightings,
 )
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, only_before_cutoff_message
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
@@ -220,6 +221,8 @@ def confirm_cashbook_import():
         # #1623: Cashbook's own moves, staged as Internal Transfer lines.
         "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,
+        # #1707: the lines dated before 1 Apr 2026, left out and not saved.
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff),
         # #1593: the existing Expenses the job will give a bill.
         "late_bills": len(late),
         # #1596: the earlier lines this import re-opened in place.
@@ -884,9 +887,15 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: 
     what the preview promised is what the confirm enforces. A repeat bringing a late bill (`late`, #1593) is work,
     and so is one giving a ₹0 Internal Transfer record its money (`fills`, owner decision 2, #1619): a file of
     nothing but repeats is accepted when some of them bring either.
+
+    #1707: a line before 1 Apr 2026 is not one of the file's transfers here (it is left out and only counted), and a
+    file of nothing else is refused with its own sentence.
     """
+    if plan.before_cutoff == len(parsed.rows) and not late and not fills:
+        message = only_before_cutoff_message(plan.before_cutoff, filename)
+        return DuplicateVerdict(total=0, duplicates=0, new=0, refuse=True, warn=False, message=message)
     return assess_duplicates(
-        total=len(parsed.rows),
+        total=len(parsed.rows) - plan.before_cutoff,
         duplicates=plan.split.repeats_not_saved,
         earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
@@ -933,6 +942,8 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
             "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
             "repeats_not_saved": plan.split.repeats_not_saved,
+            # #1707: the same, for the lines dated before 1 Apr 2026.
+            "lines_before_cutoff": plan.before_cutoff,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",

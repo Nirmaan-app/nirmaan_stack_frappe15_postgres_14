@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "OFI-.YY.-.#####",
- "creation": "2026-08-06 00:00:00.000000",
+ "creation": "2026-08-06 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -21,6 +20,7 @@
   "skipped_rows",
   "error_rows",
   "repeats_not_saved",
+  "lines_before_cutoff",
   "amounts_section",
   "gross_amount",
   "charges_amount",
@@ -205,12 +205,18 @@
    "fieldtype": "JSON",
    "label": "Cashbook Bill Work",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook only (#1707): lines of the uploaded statement dated before 1 Apr 2026, the date the business tracks wallet spends from. They were left out and NOT saved. Written once at upload and never recomputed from rows, because the rows it counts do not exist.",
+   "fieldname": "lines_before_cutoff",
+   "fieldtype": "Int",
+   "label": "Before Cutoff, Not Saved",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
- "istable": 0,
  "links": [],
- "modified": "2026-11-02 19:09:53.597001",
+ "modified": "2026-11-18 09:32:30.363857",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Batch",

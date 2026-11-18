@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, PlannedRow
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -129,6 +130,11 @@ def preview_payload(
         "refused": verdict.refuse,
         "warn": verdict.warn,
         "duplicate_of_batch": verdict.earliest_batch,
+        # #1707: the lines dated before 1 Apr 2026, left out and not saved; a file of only those is refused with
+        # `before_cutoff_message` (then also `duplicate_message`, which the repeat notice does not show at 0 repeats).
+        "before_cutoff": plan.before_cutoff,
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff),
+        "before_cutoff_message": verdict.message if verdict.refuse and plan.before_cutoff == len(parsed.rows) else "",
         "warnings": list(parsed.warnings),
         # #1591: the spends that will create an Expense, by their bills -- 1 file (the invoice as it is),
         # 2 or more (merged into one PDF), none (the Expense waits for an invoice).

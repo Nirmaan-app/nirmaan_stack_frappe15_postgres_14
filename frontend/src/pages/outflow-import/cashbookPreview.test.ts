@@ -17,6 +17,7 @@ import {
     canConfirm,
     confirmLabel,
     createLabel,
+    cutoffNotice,
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
@@ -455,5 +456,27 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
         expect(confirmLabel({ ...onlyReopen, reopened: [reopened(), reopened()] })).toBe("Re-open 2 lines");
         expect(confirmLabel({ ...onlyReopen, creating: 3 })).toBe("Create 3 records");
         expect(canConfirm({ ...onlyReopen, refused: true })).toBe(false);
+    });
+});
+
+describe("cutoffNotice (#1707)", () => {
+    it("says how many lines before 1 Apr 2026 were left out, as the server words it", () => {
+        expect(cutoffNotice({ before_cutoff_note: "14 lines before 1 Apr 2026 left out" })).toEqual({
+            tone: "info",
+            text: "14 lines before 1 Apr 2026 left out",
+        });
+    });
+
+    it("is a refusal when the file holds nothing else", () => {
+        const message =
+            "Not imported. All 2 lines in 'march.xlsx' are dated before 1 Apr 2026, and the Cashbook import leaves those out. Nothing was created.";
+        expect(
+            cutoffNotice({ before_cutoff_note: "2 lines before 1 Apr 2026 left out", before_cutoff_message: message }),
+        ).toEqual({ tone: "refused", text: message });
+    });
+
+    it("says nothing when no line was left out, or the server predates it", () => {
+        expect(cutoffNotice({ before_cutoff_note: "" })).toBeNull();
+        expect(cutoffNotice({})).toBeNull();
     });
 });

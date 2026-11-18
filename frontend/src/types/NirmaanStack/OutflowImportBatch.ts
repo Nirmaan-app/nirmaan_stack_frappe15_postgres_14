@@ -477,6 +477,10 @@ export interface OutflowImportOption {
      * leave. Optional: an older server does not send it.
      */
     repeats_not_saved?: number;
+    /** #1707: a Cashbook import's lines dated before 1 Apr 2026, left out and not saved. */
+    lines_before_cutoff?: number;
+    /** #1707: the server's sentence for them ("14 lines before 1 Apr 2026 left out"), blank when there are none. */
+    before_cutoff_note?: string;
     /**
      * Money that actually left the account. Bank-refused transfers were never in it, and since
      * #1287 neither are money-IN lines — this is the statement's withdrawals, not its net movement.

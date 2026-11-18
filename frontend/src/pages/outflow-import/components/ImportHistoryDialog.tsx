@@ -421,6 +421,10 @@ const HistoryRow = ({
                     {repeats && (
                         <div className="truncate text-xs text-muted-foreground">{repeats}</div>
                     )}
+                    {/* #1707: a Cashbook import's lines before 1 Apr 2026, left out (the server's sentence). */}
+                    {option.before_cutoff_note && (
+                        <div className="truncate text-xs text-muted-foreground">{option.before_cutoff_note}</div>
+                    )}
                     {/* A Porter import's progress, phase by phase, as its dialog's bar shows it (#1556). */}
                     {isPorterImport(option.source) && option.progress && (
                         <PorterProgressChips progress={option.progress} />
