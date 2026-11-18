@@ -29,8 +29,9 @@ and reads each operation's outcome where the screen reads it):
   Row per template row (#1656).
 - `n-worker-classify` ceil(N/2) Classify clicks started at once, each running both engines (Electrical and HVAC) on
   its own sheet, each engine its own background operation: every engine's operation ends finished (#1656, #1666).
-- `n-worker-suggest` N rate suggests started at once, each on its own sheet: every suggest finishes with success,
-  and the historical match run each one starts (when the match switch is on) ends without an error (#1657).
+- `n-worker-suggest` N rate suggests started at once, each on its own sheet, each its own background operation:
+  every suggest's record ends finished with success, and the match operation each one's result names (when the match
+  switch is on) ends finished for that same run (#1657, #1667).
 - `n-worker-tds` N TDS exports by one user at once, heavy (200 rows) and light (1 row) mixed: every export ends
   finished and the PDF each tab collects holds its own rows and no other tab's (#1662). Before #1662 the heavy tab
   took the light tab's PDF.
@@ -54,8 +55,11 @@ and reads each operation's outcome where the screen reads it):
   engine, slot `boq_classify:<boq>::<sheet>::<engine>`) and follows each through its status record (#1666). The
   progress modal shows "Waiting in the queue" until an engine starts running, and its summary names every engine's
   outcome, a failed one with the server's words.
-- A rate suggest: a committed sheet's pricing page -> Suggest rates -> whole sheet -> Start. The page waits on
-  `boq:suggest_sheet_done` (then `boq:match_sheet_done`), else polls `get_suggest_status` and `get_match_status`.
+- A rate suggest: a committed sheet's pricing page -> Suggest rates -> whole sheet -> Start. The page starts the
+  suggest as a background operation (`start_suggest` with a browser-made `op_id`, slot `boq_rate_suggest:<boq>::<sheet>`)
+  and follows its status record; the modal shows "Waiting in the queue" until it runs. A complete suggest's result
+  names the match operation it queued (`match.op_id`, made by the server); the page then follows that one (slot
+  `boq_rate_match:<boq>::<sheet>`), whose phase in the modal reads "waiting in the queue" until it runs (#1667).
 
 ## Driving it with drive.py
 
@@ -94,10 +98,9 @@ The N-worker check, one command:
   all), and wait for each operation's status. The N clone creates of a run start together, each on its own thread
   and DB connection; the N TDS exports start back to back as N tabs of one screen would.
 - **What it proves.** Clone status success and the row count; each classify engine's record finished with a success
-  result; suggest status
-  success for that sheet, then its match run's status without an error; each TDS export's record finished and its
-  collected PDF holding its own marker (`NWC<i>X<run>`, read with pypdf) and no other tab's. A suggest whose status
-  falls back to `idle` with no outcome (the spinning screen of a failed suggest before #1657) is a failure. It prints
+  result; each suggest's record finished with success for that sheet, then the record of the match operation its
+  result names finished for that run; each TDS export's record finished and its
+  collected PDF holding its own marker (`NWC<i>X<run>`, read with pypdf) and no other tab's. It prints
   a line per run, `FAILED <operation>: <status>` for each failed one, the peak memory per worker, the most DB
   connections (the workers, the flows script's own one and, for a moment, one per clone create) and the longest
   wait on the BoQ series lock (from the waits `series_lock` records in the cache, `recent_waits`), and exits 1 on any

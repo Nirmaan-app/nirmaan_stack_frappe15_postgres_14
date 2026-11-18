@@ -764,8 +764,18 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   in this run ..."); nothing selected + no live run ("Suggest rates for the whole sheet (N rows)?", "Run all N rows", NO
   OVERWRITES line, still destructive-styled); nothing selected + live run (today's re-extract text + "M of these rows already
   have suggestions from an earlier run; they will be read again."). The action counts ONLY the ticked rows
-  (`suggestReadRows`); a refused press shows the server's own text (`serverRefusalText` -> `halt_reason`); a first
+  (`suggestReadRows`); a refused press shows the server's own text (the start fails the suggest operation in the
+  server's words -> `halt_reason`); a first
   selected run ends "N rows read. M rows on this sheet have not been read yet." (`first_selected_run`).
+- **A Suggest press and the match it queues are each their own background operation (ADR 0047, #1667).** The page
+  follows the suggest with the shared `useBackgroundOperation` hook (slot `boq_rate_suggest:<boq>::<sheet>`,
+  `start_suggest` + a browser-made `op_id`) and the match with a second one (slot `boq_rate_match:<boq>::<sheet>`),
+  which `followStarted`s the match id the finished suggest's result names (`match.op_id`: the server starts the match,
+  so it makes the id). `rate-helper/suggestOperation.ts` (pure) turns each view into what `RateSuggestProgressModal`
+  shows: "Waiting in the queue" for either until it runs, progress from the record's `detail`, the result's run
+  adopted once, a failed or lost operation in the server's words. No socket event or per-sheet status key carries a
+  suggest or match result, so an older or duplicate run never replaces the one shown. The switch and the paces come
+  from `get_match_settings`.
 - **Matching a stated value to a dropdown option must never discard meaning the pricer reads (layers, compositions); option matching runs only on values the pricer would read the same way** (12d-6, owner-locked: `computeItemList` skips `matchStatedToOption` for any value `readLayers` accepts -- the panel used to hand the pricer the option "19" for a model-read "Double layer of 19 mm" and price one layer).
 - **A pipe row's figure is two ROUNDUPs with the accessories share read from a per-family Pricing Input
   (owner "option b, yes", 2026-10-10, slice 12e-2).** The Piping block's working reads, in order, the family's

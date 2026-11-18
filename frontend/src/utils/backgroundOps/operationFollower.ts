@@ -162,6 +162,13 @@ export class OperationFollower {
     if (this.opId === opId) await this.read();
   }
 
+  /** Follow an operation the server started, by the id another operation's result names (the rate match a finished
+   *  rate suggest queued, #1667). Nothing is posted: the record already exists. Kept for a reload like a start. */
+  followStarted(opId: string, context?: unknown): void {
+    this.follow(opId, context);
+    void this.read();
+  }
+
   /** Pick up the operation this tab was following before a reload, if any. */
   resume(): void {
     const stored = parseStored(this.edge.storage.get());

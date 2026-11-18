@@ -224,12 +224,18 @@ import {
 import {
   RateSuggestProgressModal,
   confirmEstimateLine,
-  serverRefusalText,
   suggestReadRows,
   type MatchPaces,
-  type MatchPhaseState,
   type SuggestModalSummary,
 } from "./rate-helper/RateSuggestProgressModal";
+import {
+  START_SUGGEST_METHOD,
+  matchHandoffOf,
+  matchPhaseOf,
+  matchSlot,
+  suggestSlot,
+  suggestViewOf,
+} from "./rate-helper/suggestOperation";
 // Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
 // fetcher, the config map, the items fetch) moved OUT of this page into ONE shared module so the
 // Calculator tab mounts the same helper on the same data. A move, not a redesign -- same methods,
@@ -358,7 +364,7 @@ function ClassifyEngineOperation({
   return null;
 }
 
-// RM-3: the suggest-run status shape (get_suggest_status), mirroring the classify poll.
+// RM-3: a suggest run's row results.
 interface SuggestRunResultRow {
   excel_row: number;
   description?: string;
@@ -366,10 +372,8 @@ interface SuggestRunResultRow {
   /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
   items?: Array<{ attributes: Record<string, { value: string | number | null; confidence?: number }> }>;
 }
-interface SuggestStatusResponse {
-  state: "running" | "done" | "idle";
-  done?: number;
-  total?: number;
+/** The finished suggest operation's result (`rate_master._suggest_worker`, #1667): the run's outcome. */
+interface SuggestRunResult {
   status?: string;
   ai_status?: string;
   run_id?: string;
@@ -381,15 +385,15 @@ interface SuggestStatusResponse {
   halt_reason?: string | null;
   attempted_count?: number;
   population_count?: number;
-  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
-   *  it to report what RAN rather than the population. Already published by the worker. */
+  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). */
   scoped_row_count?: number | null;
   /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). */
   first_selected_run?: boolean;
-  /** Rows THIS pass attempted (the worker publishes it; the modal's halted-scoped split needs it). */
+  /** Rows THIS pass attempted (the modal's halted-scoped split needs it). */
   pass_attempted_count?: number;
-  /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
-  match?: { queued: boolean; run?: string; reason?: string } | null;
+  /** SR-1's reply keys, now in the result (#1667): the accepted selection and the run a resume continued. */
+  only_rows?: number[] | null;
+  resumed_run_id?: string | null;
 }
 
 /** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
@@ -400,75 +404,6 @@ interface PartialSuggestRun {
   status: string;
   halt_reason?: string | null;
   attempted_count?: number;
-}
-
-/** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
- * gates the 3s refresh; a non-running instance fetches once on mount (recovery). Renders no DOM. */
-function SuggestStatusPoller({
-  boq,
-  sheetName,
-  running,
-  onStatus,
-}: {
-  boq: string;
-  sheetName: string;
-  running: boolean;
-  onStatus: (msg: SuggestStatusResponse) => void;
-}) {
-  const { data } = useFrappeGetCall<{ message: SuggestStatusResponse }>(
-    "nirmaan_stack.api.boq.rate_master.get_suggest_status",
-    { boq, sheet_name: sheetName },
-    `boq-suggest-status::${boq}::${sheetName}`,
-    { refreshInterval: running ? 3000 : 0 },
-  );
-  const msg = data?.message;
-  useEffect(() => {
-    if (msg) onStatus(msg);
-  }, [msg, onStatus]);
-  return null;
-}
-
-/** DEV2-B4: the match phase's status (get_match_status). Switch OFF -> {match_enabled: false} and nothing else. */
-interface MatchStatusResponse {
-  match_enabled: boolean;
-  paces?: MatchPaces;
-  state?: "running" | "done" | "idle";
-  phase?: string;
-  done?: number;
-  total?: number;
-  seconds?: number;
-  estimate_left_s?: number;
-  run?: string;
-  status?: string;
-  halt_reason?: string | null;
-  rows_done?: number;
-  rows_total?: number;
-}
-
-/** DEV2-B4: poll the match phase for one sheet (as SuggestStatusPoller): once on mount (which tells the page whether
- *  matching is ON, and its paces), every 3 s while a match runs. Renders no DOM. */
-function MatchStatusPoller({
-  boq,
-  sheetName,
-  running,
-  onStatus,
-}: {
-  boq: string;
-  sheetName: string;
-  running: boolean;
-  onStatus: (msg: MatchStatusResponse) => void;
-}) {
-  const { data } = useFrappeGetCall<{ message: MatchStatusResponse }>(
-    "nirmaan_stack.api.boq.rate_match.get_match_status",
-    { boq, sheet_name: sheetName },
-    `boq-match-status::${boq}::${sheetName}`,
-    { refreshInterval: running ? 3000 : 0 },
-  );
-  const msg = data?.message;
-  useEffect(() => {
-    if (msg) onStatus(msg);
-  }, [msg, onStatus]);
-  return null;
 }
 
 /** DEV2-B5 S4 (G14 (a)): the `?row=` value as an Excel row, or null (absent, not a whole number, or below 1). Pure. */
@@ -732,9 +667,6 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.rate_master.get_suggestion_events",
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     rmEnabled ? undefined : null,
-  );
-  const { call: startSuggestCall } = useFrappePostCall(
-    "nirmaan_stack.api.boq.rate_master.start_suggest",
   );
   const { call: recordSuggestEventCall } = useFrappePostCall(
     "nirmaan_stack.api.boq.rate_master.record_rate_suggestion_event",
@@ -1273,17 +1205,28 @@ const SheetPricingPage = () => {
   // session's Uses), applied when the badge map is (re)built so a rebuild never loses a check.
   const [suggestRun, setSuggestRun] = useState<{ runId: string; committedVersion: number; results: SuggestRunResultRow[] } | null>(null);
   const [suggestModalOpen, setSuggestModalOpen] = useState(false);
-  const [suggestRunning, setSuggestRunning] = useState(false);
-  const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
   // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
   // attempted_count) stay declared in ONE place rather than drifting between page and modal.
   const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
-  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_status; OFF -> all inert)
-  const [matchEnabled, setMatchEnabled] = useState(false);
-  const [matchPaces, setMatchPaces] = useState<MatchPaces | null>(null);
-  const [matchRunning, setMatchRunning] = useState(false);
-  const [matchPhase, setMatchPhase] = useState<MatchPhaseState | null>(null);
-  const matchRunRef = useRef<string | null>(null);
+  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_settings; OFF -> all inert)
+  const { data: matchSettingsData } = useFrappeGetCall<{ message: { match_enabled: boolean; paces?: MatchPaces } }>(
+    "nirmaan_stack.api.boq.rate_match.get_match_settings",
+    undefined,
+    RATE_HELPER_ENABLED ? "boq-match-settings" : null,
+  );
+  const matchEnabled = !!matchSettingsData?.message?.match_enabled;
+  const matchPaces = matchSettingsData?.message?.paces ?? null;
+  // #1667: the suggest and the match it queues are each a background operation the page follows through its own
+  // status record (one slot per sheet each), so no other run's outcome can reach this screen. The match's id comes in
+  // the finished suggest's result (the server starts it); a match waiting in the queue shows as queued.
+  const mutateMatchResultsRef = useRef<(() => Promise<unknown>) | null>(null);
+  const matchOp = useBackgroundOperation({
+    storageKey: matchSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: () => void mutateMatchResultsRef.current?.(),
+    onFailed: () => void mutateMatchResultsRef.current?.(),
+  });
+  const matchPhase = useMemo(() => matchPhaseOf(matchOp.view), [matchOp.view]);
+  const matchRunning = matchPhase?.state === "queued" || matchPhase?.state === "running";
   // DEV2-B4: the sheet's stored matches (the active match run), fetched only while matching is ON and refetched when a
   // match run ends. DEV2-B5: they feed the "Previously priced" card (the closure below); with matching OFF the fetch is
   // off and the card is the static stub, as before.
@@ -1292,6 +1235,51 @@ const SheetPricingPage = () => {
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     rmEnabled && matchEnabled ? undefined : null,
   );
+  mutateMatchResultsRef.current = mutateMatchResults;
+  // A match the finished suggest could not start (another match holds the sheet): its reason, shown as failed.
+  const [matchNotStarted, setMatchNotStarted] = useState<string | null | undefined>(undefined);
+  // The finished suggest operation's result (#1667): handled once, for the operation this sheet's slot follows.
+  const onSuggestFinished = useCallback(
+    (raw: unknown) => {
+      const msg = (raw ?? {}) as SuggestRunResult;
+      // SR-1 K3/K4: pass the WHOLE result through. A field-by-field copy dropped first_selected_run (AC5 C2) and
+      // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
+      // modal reads named keys only; the extra keys (committed_version, match, only_rows) are harmless there.
+      setSuggestSummary({ ...msg });
+      // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
+      // complete run was already there (it never superseded it server-side either), so the
+      // badges + "Use this value" keep reflecting a trustworthy, whole run.
+      if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
+        usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
+        setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
+      }
+      // DEV2-B4: a COMPLETE run with matching ON hands over to the match operation it queued (the result names it;
+      // without the key -- switch OFF -- nothing changes). A match that did not start shows its reason.
+      const handoff = matchHandoffOf(msg);
+      if (handoff && "opId" in handoff) {
+        matchOp.followStarted(handoff.opId, { run: handoff.run });
+      } else if (handoff) {
+        setMatchNotStarted(handoff.reason);
+      }
+      // Refetch either way: a partial still needs the resume affordance to appear.
+      void mutateActiveRun();
+      void mutateSuggestEvents();
+    },
+    [mutateActiveRun, mutateSuggestEvents, matchOp.followStarted],
+  );
+  const suggestOp = useBackgroundOperation({
+    storageKey: suggestSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: onSuggestFinished,
+    onFailed: () => {
+      void mutateActiveRun(); // a failed run keeps its checkpoints and stays resumable
+    },
+  });
+  const suggestView = useMemo(() => suggestViewOf(suggestOp.view), [suggestOp.view]);
+  const suggestRunning = suggestView.running;
+  const shownMatchPhase = matchNotStarted !== undefined
+    ? { state: "failed" as const, done: 0, total: 0, elapsedS: 0, leftS: null, reason: matchNotStarted }
+    : matchPhase;
+
   // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
   // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
   // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
@@ -1304,8 +1292,6 @@ const SheetPricingPage = () => {
   // the ticks it depends on.
   const [showOnlyTicked, setShowOnlyTicked] = useState(false);
   const onToggleTicked = useCallback(() => setShowOnlyTicked((v) => !v), []);
-  const suggestRunningRef = useRef(false);
-  suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
   // Idempotent run-adoption: the last adopted run key (run_id::cv, or null). Guards the persistence
   // effect from re-creating a NEW suggestRun object on every SWR reference churn (which loops).
@@ -1469,6 +1455,10 @@ const SheetPricingPage = () => {
     // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
     // active run (version-keyed) and its Use events after the fetches land.
     setSuggestRun(null);
+    // #1667: the suggest and match operations are per-sheet slots (the new sheet's pick up its own); the last
+    // outcome shown belongs to the sheet it ran on.
+    setSuggestSummary(null);
+    setMatchNotStarted(undefined);
     // SELECTED-ROW runs: ticks are per-sheet AND session-only (they clear on reload because they
     // live in component state and are never persisted).
     setSelectedRows(EMPTY_SELECTION);
@@ -2952,7 +2942,7 @@ const SheetPricingPage = () => {
     return makePreviouslyPricedHelper({
       run: matchRunForVersion,
       running: matchRunning,
-      failedReason: matchPhase?.state === "failed" ? (matchPhase.reason ?? "the match run stopped") : null,
+      failedReason: shownMatchPhase?.state === "failed" ? (shownMatchPhase.reason ?? "the match run stopped") : null,
       boq: boqId,
       sheetName,
       unitByExcelRow,
@@ -2973,7 +2963,7 @@ const SheetPricingPage = () => {
         },
       },
     });
-  }, [matchEnabled, boqId, sheetName, matchRunForVersion, matchRunning, matchPhase, unitByExcelRow, locked, role, currentUser,
+  }, [matchEnabled, boqId, sheetName, matchRunForVersion, matchRunning, shownMatchPhase, unitByExcelRow, locked, role, currentUser,
       matchDetailCall, markNotAMatchCall, undoNotAMatchCall, mutateMatchResults]);
   const helperList = useMemo(() => buildHelperList(pricingSheetHelper, previouslyPricedHelper), [pricingSheetHelper, previouslyPricedHelper]);
   // SLICE 2 (J5, owner P-a / P-d): BEFORE a run, the panel shows the "Pricing sheet" decline card
@@ -3057,71 +3047,6 @@ const SheetPricingPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList, suggestEventsKey]);
 
-  // The suggest status handler (poll + socket funnel here). done WINS; on success adopt the run.
-  const onSuggestStatus = useCallback(
-    (msg: SuggestStatusResponse) => {
-      if (msg.state === "running") {
-        if (typeof msg.done === "number" && typeof msg.total === "number") {
-          setSuggestProgress({ done: msg.done, total: msg.total });
-        }
-        return;
-      }
-      if (msg.state === "done") {
-        setSuggestRunning(false);
-        // SR-1 K3/K4: pass the WHOLE done payload through. A field-by-field copy dropped first_selected_run (AC5 C2) and
-        // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
-        // modal reads named keys only; the extra keys (state, committed_version, match) are harmless there.
-        setSuggestSummary({ ...msg });
-        // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
-        // complete run was already there (it never superseded it server-side either), so the
-        // badges + "Use this value" keep reflecting a trustworthy, whole run.
-        if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
-          usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
-          setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
-        }
-        // DEV2-B4: a COMPLETE run with matching ON hands over to the matching phase (the payload says whether a
-        // match run was queued; without the key -- switch OFF -- nothing changes).
-        if (msg.status === "success" && msg.match) {
-          if (msg.match.queued && msg.match.run) {
-            matchRunRef.current = msg.match.run;
-            setMatchPhase({ state: "running", done: 0, total: 0, elapsedS: 0, leftS: null });
-            setMatchRunning(true);
-          } else {
-            setMatchPhase({ state: "failed", done: 0, total: 0, elapsedS: 0, leftS: null, reason: msg.match.reason ?? null });
-          }
-        }
-        // Refetch either way: a partial still needs the resume affordance to appear.
-        void mutateActiveRun();
-        void mutateSuggestEvents();
-      }
-    },
-    [mutateActiveRun, mutateSuggestEvents],
-  );
-
-  // DEV2-B4: the match status handler (poll). Learns the switch and the paces; drives the phase of THIS run only.
-  const onMatchStatus = useCallback(
-    (msg: MatchStatusResponse) => {
-      setMatchEnabled(!!msg.match_enabled);
-      if (!msg.match_enabled) return;
-      if (msg.paces) setMatchPaces(msg.paces);
-      const mine = matchRunRef.current;
-      if (!mine || msg.run !== mine) return;
-      if (msg.state === "running") {
-        setMatchPhase({ state: "running", done: msg.done ?? 0, total: msg.total ?? 0, elapsedS: msg.seconds ?? 0,
-          leftS: typeof msg.estimate_left_s === "number" ? msg.estimate_left_s : null });
-      } else if (msg.state === "done") {
-        matchRunRef.current = null;
-        setMatchRunning(false);
-        setMatchPhase(msg.status === "success"
-          ? { state: "done", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null }
-          : { state: "failed", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null,
-            reason: msg.halt_reason ?? null });
-        void mutateMatchResults();
-      }
-    },
-    [mutateMatchResults],
-  );
-
   // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
   // The SERVER's run-eligible rows. Reference-stable per fetch (a Set built from the payload), so
   // handing it to the memoized grid does not churn it.
@@ -3194,26 +3119,18 @@ const SheetPricingPage = () => {
   const runSuggestRates = useCallback(async (resumeRunId?: string, onlyRows?: number[]) => {
     setHelperPanel(null);
     setSuggestSummary(null);
-    setSuggestProgress(null);
-    matchRunRef.current = null;
-    setMatchRunning(false);
-    setMatchPhase(null);
-    setSuggestRunning(true);
+    setMatchNotStarted(undefined);
+    matchOp.reset();
     setSuggestModalOpen(true);
-    try {
-      await startSuggestCall({
-        boq: boqId,
-        sheet_name: sheetName,
-        ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
-        ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
-      });
-    } catch (err) {
-      setSuggestRunning(false);
-      // SR-1 C9: show the server's OWN refusal (e.g. "Rows not eligible ... reload and try again") instead of the
-      // generic line -- every refusal used to be invisible. null -> the modal keeps its generic text.
-      setSuggestSummary({ status: "error", halt_reason: serverRefusalText(err) });
-    }
-  }, [startSuggestCall, boqId, sheetName]);
+    // #1667: started as this sheet's suggest operation. A refusal (SR-1 C9: "Rows not eligible ... reload and try
+    // again") ends it failed in the server's own words, which the modal shows.
+    await suggestOp.start(START_SUGGEST_METHOD, {
+      boq: boqId,
+      sheet_name: sheetName,
+      ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
+      ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
+    });
+  }, [suggestOp.start, matchOp.reset, boqId, sheetName]);
 
   // The confirmed press. NOTHING is sent until the user accepts the dialog -- this is the ONLY
   // path from the "Suggest rates" button to an AI call.
@@ -4726,32 +4643,22 @@ const SheetPricingPage = () => {
         aiStatusByDiscipline={classifyAiStatusByDiscipline}
         onClose={() => setClassifyModalOpen(false)}
       />
-      {/* RM-3: the suggest-run modal + status poller (recovery on mount; 3s poll while running). */}
-      {RATE_HELPER_ENABLED && boqId && sheetName && (
-        <SuggestStatusPoller
-          boq={boqId}
-          sheetName={sheetName}
-          running={suggestRunning}
-          onStatus={onSuggestStatus}
-        />
-      )}
-      {RATE_HELPER_ENABLED && boqId && sheetName && (
-        <MatchStatusPoller boq={boqId} sheetName={sheetName} running={matchRunning} onStatus={onMatchStatus} />
-      )}
+      {/* RM-3: the suggest-run modal, fed by the suggest and match operations the page follows (#1667). */}
       {RATE_HELPER_ENABLED && (
         <RateSuggestProgressModal
           open={suggestModalOpen}
           running={suggestRunning}
           sheetName={(sheetName ?? "").trim()}
-          progress={suggestProgress}
-          summary={suggestSummary}
+          progress={suggestView.progress}
+          waitingInQueue={suggestView.waitingInQueue}
+          summary={suggestView.failure ?? suggestSummary}
           onClose={() => {
             setSuggestModalOpen(false);
-            setSuggestProgress(null);
-            setMatchPhase(null);
+            setMatchNotStarted(undefined);
+            matchOp.reset();
           }}
           onResume={partialSuggestRun ? resumeSuggestRun : undefined}
-          match={matchEnabled ? matchPhase : null}
+          match={matchEnabled ? shownMatchPhase : null}
         />
       )}
       {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the

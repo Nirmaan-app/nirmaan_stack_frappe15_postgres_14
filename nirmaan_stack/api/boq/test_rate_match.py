@@ -4,16 +4,16 @@
 rate_master._suggest_worker). Mocks only: no model call, no job is really enqueued, the database and the cache are
 reached only through patched seams (nothing is written).
 
-  the trigger      a COMPLETE Suggest run with the switch ON -> exactly one match job, its run doc, marker  /
+  the trigger      a COMPLETE Suggest run with the switch ON -> exactly one match operation, its run doc, marker  /
                    switch OFF -> None, nothing read but the switch, nothing enqueued  /  a live match run on the
                    sheet -> none started (one run per sheet)
   the worker hook  _suggest_worker: complete -> the trigger is called once with the pass's scope and the payload
                    carries "match"  /  partial (halted) -> never called  /  switch OFF -> the payload is EXACTLY the
                    pre-B4 payload (no "match" key)  /  a trigger that raises never fails the Suggest run
-  the job          success -> the done payload in the status cache + "boq:match_sheet_done"  /  a failure -> the
-                   run marked failed with the reason; the Suggest run is never written
+  the job          success -> the outcome returned as the operation's result  /  a failure -> the run marked failed
+                   and the reason raised (the operation ends failed in it); the Suggest run is never written
   the clocks       job timeout < stale threshold < marker TTL; the stale threshold clears rq's kill grace
-  the endpoints    login only; switch OFF -> {"match_enabled": False} only  /  running / done / idle; the results
+  the endpoints    login only; switch OFF -> {"match_enabled": False} only, ON -> the paces; the results
                    are the ACTIVE run's, in the stored (display) order
   the 06:00 entry  hooks cron "0 6 * * *" names daily_pool_rebuild; it enqueues pool.rebuild_pool on long with its own
                    timeout (a Cron job runs on default at 300 s)  /  the */5 list carries the match healer
@@ -31,9 +31,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_match as RM
 from nirmaan_stack.api.boq import rate_master
+from nirmaan_stack.services import background_ops, operation_marker
 from nirmaan_stack.services.test_operation_marker import (
     held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, started_job,
-    wait_past_one_second_ttl,
 )
 
 
@@ -64,7 +64,7 @@ class TestClocks(FrappeTestCase):
 
     def test_the_three_move_together_in_order(self):
         self.assertLess(RM._MATCH_JOB_TIMEOUT_SEC, RM._STALE_MATCH_SECONDS)
-        self.assertLess(RM._STALE_MATCH_SECONDS, RM._M_MARKER_TTL_SEC)
+        self.assertLess(RM._STALE_MATCH_SECONDS, operation_marker.CLAIM_TTL_SEC)
         self.assertGreaterEqual(RM._STALE_MATCH_SECONDS, RM._MATCH_JOB_TIMEOUT_SEC + RM._RQ_KILL_GRACE_SEC)
 
     def test_the_paces_are_the_measured_p90s(self):
@@ -179,23 +179,23 @@ class TestTrigger(FrappeTestCase):
         enq.assert_not_called()
         gv.assert_not_called()
 
-    def test_switch_on_enqueues_exactly_one_job_with_its_own_marker(self):
+    def test_switch_on_starts_exactly_one_operation_with_its_own_marker(self):
         doc = MagicMock()
         doc.name = "BRMR-9"
-        with patch.object(RM, "match_enabled", return_value=True), patch.object(frappe, "enqueue") as enq, \
+        with patch.object(RM, "match_enabled", return_value=True), \
+                patch.object(RM.background_ops, "start") as start, \
                 patch.object(frappe.db, "get_value", return_value={"name": "BRSR-1", "committed_version": 4}), \
                 patch.object(frappe, "get_doc", return_value=doc) as gd:
-            out = RM.start_after_suggest("B", "S", "run1", only_rows=[5, 3], user="u@x")
-        self.assertEqual(out, {"queued": True, "run": "BRMR-9"})
-        self.assertEqual(enq.call_count, 1)
-        args, kw = enq.call_args
-        self.assertEqual(args[0], RM.WORKER)
-        self.assertEqual((kw["queue"], kw["timeout"], kw["run_name"], kw["only_rows"]), ("long", RM._MATCH_JOB_TIMEOUT_SEC, "BRMR-9", [5, 3]))
+            out = RM.start_after_suggest("B", "S", "run1", only_rows=[5, 3])
+        self.assertEqual(start.call_count, 1)
+        args, kw = start.call_args
+        self.assertEqual(args, (RM.OPERATION_KIND, RM.WORKER))
+        self.assertEqual(out, {"queued": True, "run": "BRMR-9", "op_id": kw["op_id"]})
+        self.assertEqual((kw["timeout"], kw["run_name"], kw["only_rows"]), (RM._MATCH_JOB_TIMEOUT_SEC, "BRMR-9", [5, 3]))
         made = gd.call_args[0][0]
         self.assertEqual((made["status"], made["active"], made["suggest_run"], made["commit_version"]), ("queued", 0, "BRSR-1", 4))
-        self.assertEqual(made["job_id"], kw["job_id"])
-        m = self.cache.d[RM._marker_key("B", "S")]
-        self.assertEqual((m["job_id"], m["run"]), (kw["job_id"], "BRMR-9"))
+        self.assertEqual(made["job_id"], kw["op_id"])
+        self.assertEqual(self.cache.d[RM._marker_key("B", "S")]["job_id"], kw["op_id"])
 
     def test_one_run_per_sheet_a_live_match_starts_none(self):
         self.cache.set_value(RM._marker_key("B", "S"), {"job_id": "j", "enqueued_at": frappe.utils.now()})
@@ -215,7 +215,7 @@ class TestTrigger(FrappeTestCase):
 class TestAlreadyRunning(FrappeTestCase):
     """#1660: the match marker is claimed (set only when absent) before the match is queued; a match waiting in the
     queue is never judged stale; one whose worker never starts is still healed. The real cache and rq; the Suggest
-    run lookup, the run doc and the commits are patched."""
+    run lookup and the run doc are patched (the commits write nothing of this test's)."""
 
     def setUp(self):
         frappe.utils.now()          # warm the system settings before frappe.db is patched
@@ -230,7 +230,7 @@ class TestAlreadyRunning(FrappeTestCase):
         self.p = [patch.object(RM, "match_enabled", return_value=True),
                   patch.object(frappe.db, "get_value", return_value={"name": "srun", "committed_version": 4}),
                   patch.object(frappe, "get_doc", side_effect=new_doc),
-                  patch.object(frappe.db, "commit"), patch.object(frappe.db, "rollback"),
+                  patch.object(frappe.db, "rollback"),
                   patch.object(frappe, "log_error")]
         for p in self.p:
             p.start()
@@ -239,16 +239,15 @@ class TestAlreadyRunning(FrappeTestCase):
         for p in reversed(self.p):
             p.stop()
         frappe.cache().delete_value(RM._marker_key(self.boq, self.sheet))
-        frappe.cache().delete_value(RM._status_key(self.boq, self.sheet))
         new_request()
 
     def _start(self):
         new_request()
-        return RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+        return RM.start_after_suggest(self.boq, self.sheet, "run1")
 
-    def _state(self):
+    def _state(self, started):
         new_request()
-        return RM.get_match_status(self.boq, self.sheet)["state"]
+        return background_ops.status(started["op_id"])["state"]
 
     def test_a_second_start_that_also_read_no_marker_is_refused(self):
         second = []
@@ -264,25 +263,18 @@ class TestAlreadyRunning(FrappeTestCase):
             return seen
 
         with held_in_queue() as jobs, patch.object(RM, "_get_marker", side_effect=first_reads_then_second_runs):
-            first = RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+            first = RM.start_after_suggest(self.boq, self.sheet, "run1")
         self.assertTrue(second[0]["queued"])
         self.assertFalse(first["queued"])
         self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
 
     def test_a_match_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
         with held_in_queue() as jobs, patch.object(RM, "_STALE_MATCH_SECONDS", 0):
-            self.assertTrue(self._start()["queued"])
+            first = self._start()
+            self.assertTrue(first["queued"])
             with later(60):
-                self.assertEqual(self._state(), "running")
+                self.assertEqual(self._state(first), "queued")
                 self.assertFalse(self._start()["queued"])
-        self.assertEqual(len(jobs), 1)
-
-    def test_a_match_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
-        with held_in_queue() as jobs, patch.object(RM, "_M_MARKER_TTL_SEC", 1):
-            self.assertTrue(self._start()["queued"])
-            wait_past_one_second_ttl()
-            self.assertEqual(self._state(), "running")
-            self.assertFalse(self._start()["queued"])
         self.assertEqual(len(jobs), 1)
 
     def test_two_starts_that_both_heal_one_stale_marker_queue_once(self):
@@ -300,7 +292,7 @@ class TestAlreadyRunning(FrappeTestCase):
             return seen
 
         with held_in_queue() as jobs, patch.object(RM, "_get_marker", side_effect=b_reads_then_a_runs):
-            second = RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+            second = RM.start_after_suggest(self.boq, self.sheet, "run1")
         self.assertTrue(first[0]["queued"])
         self.assertFalse(second["queued"])
         self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
@@ -311,13 +303,14 @@ class TestAlreadyRunning(FrappeTestCase):
         with never_queued():
             self.assertTrue(self._start()["queued"])
             with later(RM._STALE_MATCH_SECONDS + 1):
-                self.assertEqual(self._state(), "idle")
                 self.assertTrue(self._start()["queued"])
 
-    def test_a_failed_queue_call_leaves_no_marker(self):
+    def test_a_failed_queue_call_fails_the_operation_and_frees_the_sheet_after_the_grace(self):
         with queue_call_fails():
-            self.assertEqual(self._start(), {"queued": False, "reason": "matching could not be started"})
-        self.assertEqual(self._state(), "idle")
+            first = self._start()
+        self.assertEqual(self._state(first), "failed")
+        with never_queued(), later(operation_marker.ENQUEUE_GRACE_SEC + 1):
+            self.assertTrue(self._start()["queued"])
 
 
 def _env(complete=True):
@@ -332,7 +325,6 @@ class TestSuggestWorkerHook(FrappeTestCase):
 
     def _run(self, env, trigger_return=None, trigger_raises=False):
         cache = _Cache()
-        published = []
         calls = []
 
         def trig(*a, **k):
@@ -347,35 +339,35 @@ class TestSuggestWorkerHook(FrappeTestCase):
                 patch.object(rate_master.extraction, "run_extraction", return_value=env), \
                 patch.object(rate_master, "_finalise_run"), patch.object(rate_master, "_write_run_progress"), \
                 patch.object(frappe.db, "commit"), patch.object(frappe, "log_error"), \
-                patch.object(frappe, "publish_realtime", side_effect=lambda ev, p, **k: published.append((ev, p))), \
                 patch("nirmaan_stack.api.boq.rate_match.start_after_suggest", side_effect=trig):
-            rate_master._suggest_worker(boq="B", sheet_name="S", user="u@x")
-        return calls, published[-1], cache
+            result = rate_master._suggest_worker(boq="B", sheet_name="S")
+        return calls, result, cache
 
     def test_complete_calls_the_trigger_once_and_the_payload_carries_it(self):
-        calls, (ev, payload), _c = self._run(_env(True), trigger_return={"queued": True, "run": "BRMR-1"})
+        match = {"queued": True, "run": "BRMR-1", "op_id": "aaaaaaaa-0000-4000-8000-000000000001"}
+        calls, payload, _c = self._run(_env(True), trigger_return=match)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][:3], ("B", "S", "run1"))
-        self.assertEqual(ev, "boq:suggest_sheet_done")
-        self.assertEqual(payload["match"], {"queued": True, "run": "BRMR-1"})
+        self.assertEqual(payload["match"], match)
         self.assertEqual(payload["status"], "success")
 
     def test_a_halted_run_starts_no_match(self):
-        calls, (_ev, payload), _c = self._run(_env(False), trigger_return={"queued": True, "run": "X"})
+        calls, payload, _c = self._run(_env(False), trigger_return={"queued": True, "run": "X"})
         self.assertEqual(calls, [])
         self.assertEqual(payload["status"], "partial")
         self.assertNotIn("match", payload)
 
     def test_switch_off_leaves_the_payload_exactly_as_before(self):
-        calls, (_ev, payload), _c = self._run(_env(True), trigger_return=None)
+        calls, payload, _c = self._run(_env(True), trigger_return=None)
         self.assertEqual(len(calls), 1)
         self.assertEqual(sorted(payload), sorted(["status", "boq", "sheet_name", "committed_version", "run_id", "ai_status",
                                                  "run_status", "results", "attempted_count", "population_count",
                                                  "halt_reason", "scoped_row_count", "pass_attempted_count",
-                                                 "first_selected_run"]))  # SR-1 C10: additive, informational
+                                                 "first_selected_run",  # SR-1 C10: additive, informational
+                                                 "only_rows", "resumed_run_id"]))  # SR-1's reply keys (#1667)
 
     def test_a_trigger_that_raises_never_fails_the_suggest_run(self):
-        calls, (_ev, payload), _c = self._run(_env(True), trigger_raises=True)
+        calls, payload, _c = self._run(_env(True), trigger_raises=True)
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["run_status"], "complete")
         self.assertNotIn("match", payload)
@@ -383,16 +375,13 @@ class TestSuggestWorkerHook(FrappeTestCase):
 
 class TestMatchWorker(FrappeTestCase):
 
-    def test_success_records_the_done_payload_and_publishes(self):
-        cache, pub = _Cache(), []
-        with patch.object(frappe, "cache", return_value=cache), \
+    def test_success_returns_the_outcome_as_the_operations_result(self):
+        with patch.object(frappe, "cache", return_value=_Cache()), \
                 patch("nirmaan_stack.services.boq_rate_match.match_run.run_match",
-                      return_value={"status": "complete", "halt_reason": None, "rows_total": 3, "rows_done": 3}), \
-                patch.object(frappe, "publish_realtime", side_effect=lambda ev, p, **k: pub.append((ev, p))):
+                      return_value={"status": "complete", "halt_reason": None, "rows_total": 3, "rows_done": 3}):
             out = RM._match_worker(run_name="BRMR-1", boq="B", sheet_name="S", suggest_run_id="run1")
         self.assertEqual((out["status"], out["run"], out["suggest_run_id"]), ("success", "BRMR-1", "run1"))
-        self.assertEqual(cache.d[RM._status_key("B", "S")]["status"], "success")
-        self.assertEqual(pub[-1][0], "boq:match_sheet_done")
+        self.assertEqual((out["rows_done"], out["rows_total"]), (3, 3))
 
     def test_a_failure_marks_the_match_run_failed_and_never_writes_the_suggest_run(self):
         from nirmaan_stack.services.boq_rate_match import match_run as MR
@@ -401,9 +390,9 @@ class TestMatchWorker(FrappeTestCase):
                 patch("nirmaan_stack.services.boq_rate_match.match_run.run_match", side_effect=MR.MatchRefused("switched off")), \
                 patch.object(frappe.db, "set_value", side_effect=lambda *a, **k: writes.append(a)), \
                 patch.object(frappe.db, "commit"), patch.object(frappe.db, "rollback"), patch.object(frappe, "log_error"), \
-                patch.object(frappe, "publish_realtime"):
-            out = RM._match_worker(run_name="BRMR-1", boq="B", sheet_name="S", suggest_run_id="run1")
-        self.assertEqual((out["status"], out["halt_reason"]), ("error", "switched off"))
+                self.assertRaises(frappe.ValidationError) as raised:
+            RM._match_worker(run_name="BRMR-1", boq="B", sheet_name="S", suggest_run_id="run1")
+        self.assertEqual(str(raised.exception), "switched off")
         self.assertEqual(writes, [(RM.MATCH_DOCTYPE, "BRMR-1", {"status": "failed", "halt_reason": "switched off"})])
 
 
@@ -420,26 +409,17 @@ class TestEndpoints(FrappeTestCase):
     def test_login_is_required(self):
         with patch.object(frappe.local, "session", frappe._dict(user="Guest")):
             with self.assertRaises(frappe.PermissionError):
-                RM.get_match_status("B", "S")
+                RM.get_match_settings()
             with self.assertRaises(frappe.PermissionError):
                 RM.get_match_results("B", "S")
 
     def test_switch_off_says_so_and_nothing_else(self):
         with patch.object(RM, "match_enabled", return_value=False):
-            self.assertEqual(RM.get_match_status("B", "S"), {"match_enabled": False})
+            self.assertEqual(RM.get_match_settings(), {"match_enabled": False})
 
-    def test_running_done_and_idle(self):
+    def test_switch_on_serves_the_paces(self):
         with patch.object(RM, "match_enabled", return_value=True):
-            self.assertEqual(RM.get_match_status("B", "S")["state"], "idle")
-            self.cache.set_value(RM._marker_key("B", "S"), {"job_id": "j", "enqueued_at": frappe.utils.now(), "phase": "judge",
-                                                            "done": 4, "total": 10, "run": "BRMR-1", "suggest_run_id": "r"})
-            with patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
-                st = RM.get_match_status("B", "S")
-            self.assertEqual((st["state"], st["phase"], st["done"], st["total"], st["suggest_run_id"]), ("running", "judge", 4, 10, "r"))
-            self.assertIn("estimate_left_s", st)
-            self.assertEqual(st["paces"], RM.PACES)
-            self.cache.set_value(RM._status_key("B", "S"), {"status": "success", "run": "BRMR-1"})
-            self.assertEqual(RM.get_match_status("B", "S")["state"], "done")
+            self.assertEqual(RM.get_match_settings(), {"match_enabled": True, "paces": RM.PACES})
 
     def test_results_are_the_active_runs_rows_as_stored(self):
         rows = [{"excel_row": 3, "matches": [{"key": "g", "colour": "green"}, {"key": "a", "colour": "amber"}]}]

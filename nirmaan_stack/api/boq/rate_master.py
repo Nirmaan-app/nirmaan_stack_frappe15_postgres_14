@@ -187,11 +187,12 @@ def get_rate_category_config(discipline=None, category_id=None):
 # ══════════════════════════════════════════════════════════════════════════════════════
 # RM-3: the suggest-run skeleton (CLONED from api/boq/wizard/classify.py) + run read +
 # telemetry write. The extraction itself lives in services/boq_rate_master/extraction.py;
-# this file is the thin orchestration (enqueue -> worker -> Redis marker/terminal -> realtime),
-# the active-run read, and the fire-and-forget Use-telemetry insert.
+# this file is the thin orchestration (start the background operation -> its work returns the
+# run's outcome as the operation's result; ADR 0047, #1667), the active-run read, and the
+# fire-and-forget Use-telemetry insert.
 # ══════════════════════════════════════════════════════════════════════════════════════
 
-from nirmaan_stack.services import operation_marker  # noqa: E402
+from nirmaan_stack.services import background_ops, operation_marker  # noqa: E402
 
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
@@ -204,8 +205,8 @@ RUN_DOCTYPE = "BoQ Rate Suggestion Run"
 EVENT_DOCTYPE = "BoQ Rate Suggestion Event"
 _BOQ_SHEET = "BoQ Sheet"
 
-_S_STATUS_PREFIX = "boq_suggest_status"
 _S_MARKER_PREFIX = "boq_suggest_marker"
+OPERATION_KIND = "boq_rate_suggest"
 
 # ── The suggest run's THREE clocks, and why they are DERIVED from one another ────────
 #
@@ -222,24 +223,17 @@ _S_MARKER_PREFIX = "boq_suggest_marker"
 #     timeout it declares a LIVE run dead and lets a SECOND worker start on the same sheet --
 #     two runs, double the AI spend. It must clear the job timeout AND rq's 60s kill grace. It
 #     counts from the job's start of running, never from its queueing (#1660).
-#   * _S_MARKER_TTL_SEC is the Redis key holding the progress bar. If it expires mid-run the
-#     bar goes blank while the work is still going.
+#   * The marker's TTL is operation_marker.CLAIM_TTL_SEC (a day): it must outlast the queue wait
+#     and the run, or a second start slips in while the first still runs. The progress bar no
+#     longer lives in the marker: it is the operation's own record (#1667).
 # Raising the timeout alone is what WAKES the stale-guard bug, which is why it is derived here
 # rather than left as an independent literal.
 _SUGGEST_JOB_TIMEOUT_SEC = 3600
 _RQ_KILL_GRACE_SEC = 60  # rq's monitor_work_horse kills at job.timeout + 60
 _STALE_SUGGEST_SECONDS = _SUGGEST_JOB_TIMEOUT_SEC + _RQ_KILL_GRACE_SEC + 240
-_S_MARKER_TTL_SEC = _SUGGEST_JOB_TIMEOUT_SEC * 2
-# The terminal payload's TTL starts AFTER the run ends -- it is how long the poll can still
-# read the result -- so it is NOT part of the ordering above and stays at one hour.
-_S_STATUS_TTL_SEC = 3600
 
 
-# ── Redis key + marker helpers (per (boq, sheet_name)) ──────────────────────────────
-def _s_status_key(boq, sheet_name):
-    return f"{_S_STATUS_PREFIX}::{boq}::{sheet_name}"
-
-
+# ── The "already running?" marker (per (boq, sheet_name)) ───────────────────────────
 def _s_marker_key(boq, sheet_name):
     return f"{_S_MARKER_PREFIX}::{boq}::{sheet_name}"
 
@@ -254,19 +248,6 @@ def _s_set_marker(boq, sheet_name, job_id, user):
 
 def _s_get_marker(boq, sheet_name):
     return frappe.cache().get_value(_s_marker_key(boq, sheet_name))
-
-
-def _s_clear_marker(boq, sheet_name):
-    frappe.cache().delete_value(_s_marker_key(boq, sheet_name))
-
-
-def _s_update_marker_progress(boq, sheet_name, done, total):
-    marker = _s_get_marker(boq, sheet_name)
-    if not marker:
-        return
-    marker["done"] = done
-    marker["total"] = total
-    frappe.cache().set_value(_s_marker_key(boq, sheet_name), marker, expires_in_sec=_S_MARKER_TTL_SEC)
 
 
 def _s_maybe_self_heal(boq, sheet_name, marker):
@@ -466,9 +447,16 @@ def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
 
 # ── Run skeleton ────────────────────────────────────────────────────────────────────
 @frappe.whitelist(methods=["POST"])
-def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None):
-    """Enqueue a background rate-suggestion (attribute extraction) run for one committed sheet.
-    Returns immediately. Re-checks the D8 gate server-side. URL:
+def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None, op_id=None):
+    """Start a rate-suggestion (attribute extraction) run for one committed sheet as a background
+    operation (ADR 0047, #1667). Returns at once with the operation's status record; the screen
+    follows it with `api/background_ops.get_status(op_id)`. `op_id` is the browser-made id (a
+    lowercase UUID); the same user repeating it gets the existing record and nothing is queued
+    again. The finished record's `result` is the run's outcome (`_suggest_worker`), carrying SR-1's
+    reply keys `only_rows`, `scoped_row_count` and `resumed_run_id`; a run that stops unexpectedly
+    ends the operation failed, in the run's own words. Refused while this sheet already has a
+    suggest queued or running (the per-sheet marker, claimed before the operation is queued,
+    #1660). Re-checks the D8 gate server-side. URL:
     /api/method/nirmaan_stack.api.boq.rate_master.start_suggest
 
     SR-1 resume: pass `resume_run_id` to CONTINUE an existing partial run instead of starting a new
@@ -485,6 +473,9 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     silently narrowed) if it names a row the run does not accept.
     """
     _require_login()
+    earlier = background_ops.started_before(op_id)
+    if earlier:
+        return earlier
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
     if not frappe.db.exists("BOQs", boq):
@@ -509,42 +500,30 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     if resume_run_id:
         _validate_resume_target(boq, sheet_name, cv, resume_run_id)
 
-    # Claim the marker BEFORE the enqueue (#1660): set only when absent, so of two starts that both read "no marker"
-    # only one queues; and the worker always finds its own job id in it.
-    raw_job_id = frappe.generate_hash(length=32)
-    user = frappe.session.user
+    # Claim the marker BEFORE the operation is queued (#1660): set only when absent, so of two starts that both read
+    # "no marker" only one queues. The marker names the operation id, which is also its raw rq job id
+    # (background_ops.start queues the wrapper with job_id=op_id) and a fresh run's run_id.
     marker = _s_get_marker(boq, sheet_name)
     if (marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running") or not _s_set_marker(
-        boq, sheet_name, raw_job_id, user
+        boq, sheet_name, op_id, frappe.session.user
     ):
         frappe.throw(
             "A suggestion run is already in progress for this sheet. Wait for it to finish.",
             title="Suggest in progress",
         )
-    frappe.cache().delete_value(_s_status_key(boq, sheet_name))
-    operation_marker.enqueue_claimed(
-        _s_marker_key(boq, sheet_name),
+    # Queued once this request commits (the work reads only committed rows). A start whose queue call fails ends its
+    # operation failed; its marker then names a job rq never had, which the next start heals after
+    # operation_marker.ENQUEUE_GRACE_SEC.
+    return background_ops.start(
+        OPERATION_KIND,
         "nirmaan_stack.api.boq.rate_master._suggest_worker",
-        queue="long",
+        op_id=op_id,
         timeout=_SUGGEST_JOB_TIMEOUT_SEC,
-        job_id=raw_job_id,
-        user=user,
         boq=boq,
         sheet_name=sheet_name,
         resume_run_id=resume_run_id,
         only_rows=only,
     )
-    return {
-        "status": "queued",
-        "job_id": raw_job_id,
-        "resumed_run_id": resume_run_id or None,
-        # Echo the ACCEPTED selection so the caller can prove the server agreed with its ticks.
-        "only_rows": only,
-        "scoped_row_count": len(only) if only is not None else None,
-        # SLICE 12e-5b key, ALWAYS EMPTY since SR-1 retired the auto-add; kept for one release (additive, readers
-        # tolerate empty) so a cached older page does not break
-        "never_read_added": [],
-    }
 
 
 def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
@@ -815,36 +794,36 @@ def _mark_run_failed(run_name, halt_reason):
     )
 
 
-def _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id, user):
+def _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id):
     """DEV2-B4: hand a COMPLETE run to historical matching (api/boq/rate_match.start_after_suggest). None when the
     switch is OFF. NEVER raises and never touches this run: any failure is logged and Suggest carries on as before."""
     try:
         from nirmaan_stack.api.boq import rate_match
         return rate_match.start_after_suggest(
             boq, sheet_name, run_id, only_rows=sorted(scope) if scope is not None else None,
-            resume_run_id=resume_run_id, user=user,
+            resume_run_id=resume_run_id,
         )
     except Exception:  # noqa: BLE001
         frappe.log_error(title="BoQ match trigger failed", message=frappe.get_traceback())
         return None
 
 
-def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, only_rows=None):
-    """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
-    terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
-    records a terminal error payload and clears the marker (never left stuck)."""
-    job_id = None
-    marker = _s_get_marker(boq, sheet_name)
-    if marker:
-        job_id = marker.get("job_id")
+def _suggest_worker(boq=None, sheet_name=None, resume_run_id=None, only_rows=None):
+    """The suggest operation's work (runs as its owner, under `background_ops.run`; #1667): run
+    extraction, WRITE the Suggestion Run doc (prior active -> active=0) at terminal SUCCESS, commit,
+    queue the match after a COMPLETE run, and return the run's outcome as the operation's result.
+    On an unexpected failure the run is marked failed (its checkpoints kept) and the work raises
+    with that reason, so the operation ends failed in those words. The per-sheet marker is released
+    either way, but only while it still names this operation: a duplicate ending late frees nothing."""
+    # A FRESH run's run_id is this operation's id. Read from the operation itself, never from the
+    # per-sheet marker, which a later start may have claimed since.
+    job_id = getattr(frappe.local, "background_op_id", None)
+    user = frappe.session.user
 
     def _progress(done, total):
-        _s_update_marker_progress(boq, sheet_name, done, total)
-        frappe.publish_realtime(
-            "boq:suggest_sheet_progress",
-            {"boq": boq, "sheet_name": sheet_name, "done": done, "total": total},
-            **({"user": user} if user else {}),
-        )
+        # Into this operation's own record (the screen's bar reads `detail`).
+        percent = round(done * 100 / total) if total else 0
+        background_ops.set_progress(percent, f"{done} of {total} rows", detail={"done": done, "total": total})
 
     run_name = None
     run_id = None
@@ -936,7 +915,7 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
                 ),
             )
 
-        frappe.db.commit()  # commit BEFORE publish (CODING_STANDARDS.md rule)
+        frappe.db.commit()  # the operation reads "finished" only after this commit
         payload = {
             "status": "success" if complete else "partial",
             "boq": boq,
@@ -960,19 +939,23 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             # SLICE SR-1 C10: a FRESH selected run that carried nothing = a FIRST selected run, so the editor says "N rows
             # read. M rows on this sheet have not been read yet." instead of "re-extracted". ADDITIVE; informational.
             "first_selected_run": bool(scope is not None and not resume_run_id and not prior_results),
+            # SR-1's reply keys (#1667): what start_suggest used to echo, now in the operation's result. The ACCEPTED
+            # selection (so the caller can prove the server agreed with its ticks) and the run a resume continued.
+            "only_rows": sorted(int(x) for x in only_rows) if only_rows else None,
+            "resumed_run_id": resume_run_id or None,
         }
         # DEV2-B4 SEQUENCE (owner G1): historical matching follows a COMPLETE run -- after the commit above, outside
-        # this run's transaction, before the done payload. Switch OFF -> None and the payload is untouched.
+        # this run's transaction, as its own background operation. Switch OFF -> None and the payload is untouched.
         if complete:
-            match = _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id, user)
+            match = _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id)
             if match is not None:
                 payload["match"] = match
     except Exception:
         # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write, the
-        # failed mark and the done message below would all fail with it (#1657). The rollback discards only
+        # failed mark below would fail with it (#1657). The rollback discards only
         # the uncommitted work since the last checkpoint; every checkpoint was committed as it was taken, so
         # the run keeps its rows, is marked failed, and stays resumable. A rollback that fails (dead connection)
-        # must not skip the log and the done message.
+        # must not skip the log and the failed outcome.
         try:
             frappe.db.rollback()
         except Exception:  # noqa: BLE001
@@ -982,43 +965,12 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         if run_name:
             _mark_run_failed(run_name, halt_reason)
             frappe.db.commit()
-        payload = {
-            "status": "error",
-            "boq": boq,
-            "sheet_name": sheet_name,
-            "error_code": "suggest_failed",
-            "run_id": run_id,
-            "run_status": "failed",
-            "halt_reason": halt_reason,
-        }
-    frappe.cache().set_value(_s_status_key(boq, sheet_name), payload, expires_in_sec=_S_STATUS_TTL_SEC)
-    _s_clear_marker(boq, sheet_name)
-    frappe.publish_realtime(
-        "boq:suggest_sheet_done", payload, **({"user": user} if user else {})
-    )
-
-
-@frappe.whitelist()
-def get_suggest_status(boq=None, sheet_name=None):
-    """Polling fallback for a suggest run, keyed by (boq, sheet_name). Same payload shape as the
-    boq:suggest_sheet_done socket event. States: done | running(+done/total) | idle."""
-    _require_login()
-    if not boq:
-        frappe.throw("boq is required.", title="Missing field: boq")
-    if not sheet_name:
-        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-
-    term = frappe.cache().get_value(_s_status_key(boq, sheet_name))
-    if term:
-        return {"state": "done", **term}
-    marker = _s_get_marker(boq, sheet_name)
-    if marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running":
-        out = {"state": "running"}
-        if isinstance(marker.get("done"), int) and isinstance(marker.get("total"), int):
-            out["done"] = marker["done"]
-            out["total"] = marker["total"]
-        return out
-    return {"state": "idle"}
+        # The operation ends failed in the run's own words (background_ops.run reads a ValidationError's text).
+        raise frappe.ValidationError(halt_reason) from None
+    finally:
+        if job_id:
+            operation_marker.release(_s_marker_key(boq, sheet_name), job_id)
+    return payload
 
 
 def _partial_is_superseded(boq, sheet_name, committed_version, created_at, partial=None):
