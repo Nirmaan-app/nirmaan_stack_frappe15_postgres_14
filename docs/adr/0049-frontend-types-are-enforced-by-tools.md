@@ -107,9 +107,10 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
 - The same check (`scripts/frontend_ratchet_check.py`, CI step "Frontend ratchet not loosened") also refuses a pull
   request that loosens the lint settings, which `yarn lint` reads from the PR's own tree (#1702). It compares them
   with the base commit's and names each loosening: a pattern added to `ignorePatterns`; an ADR-0049 rule, plugin or
-  category removed or set to `"warn"` or `"off"` (oxlint exits 0 on warnings), or a ban list given fewer entries; an
-  override that relaxes a rule for a pattern base did not relax, or a rule base's overrides turn on (the typed path)
-  no longer on for one of its patterns; a nested `.oxlintrc.json`, `.oxlintrc.jsonc` or `oxlint.config.*`, an
+  category removed or set to `"warn"` or `"off"` (oxlint exits 0 on warnings), also under another name oxlint reads
+  as the same rule (`@typescript-eslint/x`, `eslint/x`, a bare `x`), or a ban list given fewer entries; an override
+  that relaxes a rule for a pattern base did not relax, or moved after the override that turns the rule on (the
+  later one wins), or a rule base's overrides turn on (the typed path) no longer on for one of its patterns; a nested `.oxlintrc.json`, `.oxlintrc.jsonc` or `oxlint.config.*`, an
   `.eslintignore`, or a `.gitignore` that hides a tracked file under `frontend/src/` (oxlint reads all three on its
   own); the `lint` script with a word dropped or added (only `--deny-warnings`, `--max-warnings=0` and
   `--report-unused-disable-directives` may be added), or a new `prelint`/`postlint`; a top-level config key it does
