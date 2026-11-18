@@ -47,6 +47,7 @@ class GitRepo:
     """A temporary git repo (self.repo) and the script run on it with --base-ref base. Mixed into a TestCase."""
 
     def git(self, *args):
+        """Run `git <args>` in the repo; raise when it fails."""
         subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
 
     def commit(self, message):
@@ -55,6 +56,7 @@ class GitRepo:
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message)
 
     def run_script(self):
+        """Run frontend_ratchet_check.py on the repo against commit `base`; the CompletedProcess."""
         return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
                               capture_output=True, text=True)
 

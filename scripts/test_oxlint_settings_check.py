@@ -103,6 +103,9 @@ class OxlintSettings(LintRepo, unittest.TestCase):
             ("no-restricted-properties", {"object": "Codec", "property": "decode"},
              {"object": "Codec", "property": "encode"}),
             ("no-restricted-globals", {"globals": ["kitGlobal"], "checkGlobalObject": True}, {"globals": ["kitGlobal"]}),
+            # With an importNamePattern, an absent importNames bans only what the pattern matches (oxlint 1 -> 0).
+            ("no-restricted-imports", {"patterns": [{"group": ["kit-lib/*"], "importNames": ["x"], "importNamePattern": "^z"}]},
+             {"patterns": [{"group": ["kit-lib/*"], "importNamePattern": "^z"}]}),
         ]:
             with self.subTest(rule=rule, head=head):
                 self.setUp()
@@ -127,6 +130,7 @@ class OxlintSettings(LintRepo, unittest.TestCase):
              {"object": "Codec", "allowProperties": ["encode"], "message": "new words"}),
             ("no-restricted-globals", {"globals": ["kitGlobal"]},
              {"globals": ["kitGlobal", "otherGlobal"], "globalObjects": ["self"], "checkGlobalObject": True}),
+            ("no-restricted-globals", {"globals": ["kitGlobal"], "checkGlobalObject": False}, {"globals": ["kitGlobal"]}),
         ]:
             with self.subTest(rule=rule, head=head):
                 self.setUp()

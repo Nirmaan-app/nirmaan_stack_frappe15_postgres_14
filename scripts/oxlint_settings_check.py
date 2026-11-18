@@ -64,24 +64,26 @@ def options_kept(name, base_setting, head_setting):
     table = OPTION_KEYS.get(name, {})
 
     def kept(before, after):
-        """An entry (an options object, a ban-list item) with no key of its own: equal, each key by the table."""
+        """True when <after> bans at least what <before> did, for a value not under an option key (an options
+        object, a list item): objects key by key, by the table; anything else equal."""
         if isinstance(before, dict) and isinstance(after, dict):
-            return all(key_kept(key, before.get(key, MISSING), after.get(key, MISSING))
+            # An absent importNames bans every name, unless an importNamePattern limits the ban to what it matches.
+            every_name = "importNamePattern" not in before and "importNamePattern" not in after
+            return all(key_kept(key, before.get(key, MISSING), after.get(key, MISSING), every_name)
                        for key in set(before) | set(after))
         if isinstance(before, list) and isinstance(after, list):
             return len(before) == len(after) and all(map(kept, before, after))
         return before == after
 
-    def key_kept(key, before, after):
+    def key_kept(key, before, after, every_name):
         meaning = FREE if key == "message" else table.get(key, EXACT)
         if meaning == FREE:
             return True
-        if meaning == TRUE_LOOSENS:
-            return before == after or after in (False, MISSING)
-        if meaning == FALSE_LOOSENS:
-            return before == after or after is True
+        if meaning in (TRUE_LOOSENS, FALSE_LOOSENS):  # absent is false
+            before, after = (False if value is MISSING else value for value in (before, after))
+            return before == after or after is (meaning == FALSE_LOOSENS)
         if meaning in (BANS, ALLOWS):
-            absent = EVERY_NAME if key == "importNames" else []
+            absent = EVERY_NAME if key == "importNames" and every_name else []
             before, after = (absent if value is MISSING else value for value in (before, after))
             if meaning == ALLOWS and isinstance(before, list) and isinstance(after, list):
                 return all(any(kept(b, a) for b in before) for a in after)
