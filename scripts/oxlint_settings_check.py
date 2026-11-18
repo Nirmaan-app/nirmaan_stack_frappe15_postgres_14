@@ -11,8 +11,28 @@ CONFIG = "frontend/.oxlintrc.json"
 
 SEVERITY = {"error": "error", "deny": "error", 2: "error", "warn": "warn", 1: "warn", "off": "off", "allow": "off", 0: "off"}
 RANK = {"off": 0, "warn": 1, "error": 2}
-# The rules whose options are ban lists: an entry may be added (a tightening), never dropped.
-BAN_LISTS = {"no-restricted-imports", "no-restricted-properties", "no-restricted-globals"}
+
+# What a change to each option key of a ban rule means, per oxlint 1.94 (measured, #1702). A key not listed for its
+# rule, and every option of every other rule, must stay equal; `message` (text for the reader) may always change.
+BANS = "a longer list bans more"  # an entry may be added, none dropped; absent is []
+ALLOWS = "a longer list bans less"  # an entry may be dropped, none added; absent is []
+TRUE_LOOSENS = "true bans less"  # may go to false or be removed, never to true
+FALSE_LOOSENS = "false bans less"  # may go to true, never from it (absent is false)
+EXACT = "any change bans less"
+FREE = "changes no finding"
+OPTION_KEYS = {
+    "no-restricted-imports": {
+        "paths": BANS, "patterns": BANS, "group": BANS, "importNames": BANS, "allowImportNames": ALLOWS,
+        "allowTypeImports": TRUE_LOOSENS, "caseSensitive": TRUE_LOOSENS,
+        "name": EXACT, "regex": EXACT, "importNamePattern": EXACT, "allowImportNamePattern": EXACT,
+    },
+    "no-restricted-properties": {"allowObjects": ALLOWS, "allowProperties": ALLOWS, "object": EXACT, "property": EXACT},
+    "no-restricted-globals": {"globals": BANS, "globalObjects": BANS, "checkGlobalObject": FALSE_LOOSENS},
+}
+# The rules whose options list is itself a ban list: an entry may be added (a tightening), never dropped.
+BAN_LISTS = set(OPTION_KEYS)
+MISSING = object()  # an option key one side does not set
+EVERY_NAME = object()  # what an absent `importNames` bans: the whole module, every name in it
 # The top-level keys compared below, and the ones that change no finding of an ADR-0049 rule. Any other key (e.g.
 # `extends`, which pulls in another config) is refused when it changes: this check cannot tell what it loosens.
 COMPARED = {"plugins", "categories", "ignorePatterns", "rules", "overrides"}
@@ -35,27 +55,50 @@ def rule_name(key):
 
 
 def options_kept(name, base_setting, head_setting):
-    """True when head's options for rule <name> refuse at least what base's did (equal; ban lists may grow).
+    """True when head's options for rule <name> refuse at least what base's did, each key judged by OPTION_KEYS.
 
-    A ban's `message` is text for the reader, not a limit: it may change. A new `!` entry in a ban list, or a new
-    entry that holds one, is no growth: oxlint reads it as "but not these", so ["x/*", "!x/**"] bans nothing. Nor is
-    a `!` entry moved after a plain entry it preceded: the last match wins, so it lifts that entry's ban.
+    A new `!` entry in a ban list, or a new entry that holds one, is no growth: oxlint reads it as "but not these",
+    so ["x/*", "!x/**"] bans nothing. Nor is a `!` entry moved after a plain entry it preceded: the last match wins,
+    so it lifts that entry's ban.
     """
-    grow = name in BAN_LISTS
+    table = OPTION_KEYS.get(name, {})
 
     def kept(before, after):
+        """An entry (an options object, a ban-list item) with no key of its own: equal, each key by the table."""
         if isinstance(before, dict) and isinstance(after, dict):
-            keys = set(before) - {"message"}
-            return keys == set(after) - {"message"} and all(kept(before[k], after[k]) for k in keys)
+            return all(key_kept(key, before.get(key, MISSING), after.get(key, MISSING))
+                       for key in set(before) | set(after))
         if isinstance(before, list) and isinstance(after, list):
-            if grow:
-                new = [a for a in after if not any(kept(b, a) for b in before)]
-                return (all(any(kept(b, a) for a in after) for b in before)
-                        and not any(map(negates, new)) and not negations_overtaken(after, before))
             return len(before) == len(after) and all(map(kept, before, after))
         return before == after
 
-    return kept(options(base_setting), options(head_setting))
+    def key_kept(key, before, after):
+        meaning = FREE if key == "message" else table.get(key, EXACT)
+        if meaning == FREE:
+            return True
+        if meaning == TRUE_LOOSENS:
+            return before == after or after in (False, MISSING)
+        if meaning == FALSE_LOOSENS:
+            return before == after or after is True
+        if meaning in (BANS, ALLOWS):
+            absent = EVERY_NAME if key == "importNames" else []
+            before, after = (absent if value is MISSING else value for value in (before, after))
+            if meaning == ALLOWS and isinstance(before, list) and isinstance(after, list):
+                return all(any(kept(b, a) for b in before) for a in after)
+            if meaning == BANS and after is EVERY_NAME:
+                return True
+            if meaning == BANS and isinstance(before, list) and isinstance(after, list):
+                return grown(before, after)
+        return before is not MISSING and after is not MISSING and kept(before, after)
+
+    def grown(before, after):
+        """A ban list: each of base's entries kept, no new `!` entry, no `!` entry moved after one it preceded."""
+        new = [a for a in after if not any(kept(b, a) for b in before)]
+        return (all(any(kept(b, a) for a in after) for b in before)
+                and not any(map(negates, new)) and not negations_overtaken(after, before))
+
+    base_options, head_options = options(base_setting), options(head_setting)
+    return grown(base_options, head_options) if name in BAN_LISTS else kept(base_options, head_options)
 
 
 def negates(value):

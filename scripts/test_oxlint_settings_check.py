@@ -64,6 +64,75 @@ class OxlintSettings(LintRepo, unittest.TestCase):
         self.edit_config('"group": ["sdk-lib/*", "!sdk-lib/types"]', '"group": ["sdk-lib/*", "!sdk-lib/types", "old-lib/*"]')
         self.passes()
 
+    def ban_options(self, rule, base_options, head_options):
+        """Commit rule <rule> as ["error", *base_options], in place of CONFIG_TEXT's no-restricted-imports, then put
+        ["error", *head_options] in the working tree."""
+        self.edit_config('"no-restricted-imports": ["error", {"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' '
+                         '// not this"}]}],', f'"{rule}": {json.dumps(["error", *base_options])},')
+        self.commit(f"{rule} as base has it")
+        self.edit_config(json.dumps(["error", *base_options]), json.dumps(["error", *head_options]))
+
+    def test_an_allow_list_grown_is_refused(self):
+        # Each option is judged by what its key means: a longer allow-list bans less.
+        for rule, base, head in [
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "allowImportNames": ["a"]}]},
+             {"paths": [{"name": "kit-lib", "allowImportNames": ["a", "useKitDoc"]}]}),
+            ("no-restricted-imports", {"patterns": [{"group": ["kit-lib/*"], "allowImportNames": ["a"]}]},
+             {"patterns": [{"group": ["kit-lib/*"], "allowImportNames": ["a", "useKitDoc"]}]}),
+            ("no-restricted-properties", {"object": "Codec", "allowProperties": ["encode"]},
+             {"object": "Codec", "allowProperties": ["encode", "decode"]}),
+            ("no-restricted-properties", {"property": "decode", "allowObjects": ["Codec"]},
+             {"property": "decode", "allowObjects": ["Codec", "Other"]}),
+        ]:
+            with self.subTest(rule=rule, head=head):
+                self.setUp()
+                self.ban_options(rule, [base], [head])
+                self.refused(rule, "options")
+
+    def test_an_option_that_bans_less_when_set_is_refused(self):
+        for rule, base, head in [
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib"}]},
+             {"paths": [{"name": "kit-lib", "allowTypeImports": True}]}),
+            ("no-restricted-imports", {"patterns": [{"group": ["kit-lib/*"]}]},
+             {"patterns": [{"group": ["kit-lib/*"], "caseSensitive": True}]}),
+            # A path with no importNames bans every name; a list then bans only those.
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib"}]},
+             {"paths": [{"name": "kit-lib", "importNames": ["useKitDoc"]}]}),
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib"}]}, {"paths": [{"name": "kit-lib2"}]}),
+            ("no-restricted-imports", {"patterns": [{"regex": "kit-lib/.*"}]}, {"patterns": [{"regex": "kit-lib/a"}]}),
+            ("no-restricted-properties", {"object": "Codec", "property": "decode"},
+             {"object": "Codec", "property": "encode"}),
+            ("no-restricted-globals", {"globals": ["kitGlobal"], "checkGlobalObject": True}, {"globals": ["kitGlobal"]}),
+        ]:
+            with self.subTest(rule=rule, head=head):
+                self.setUp()
+                self.ban_options(rule, [base], [head])
+                self.refused(rule, "options")
+
+    def test_an_allow_list_shrunk_or_removed_or_a_loosening_option_dropped_passes(self):
+        for rule, base, head in [
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "allowImportNames": ["a", "b"]}]},
+             {"paths": [{"name": "kit-lib", "allowImportNames": ["a"]}]}),
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "allowImportNames": ["a"]}]},
+             {"paths": [{"name": "kit-lib"}]}),
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "allowTypeImports": True}]},
+             {"paths": [{"name": "kit-lib"}]}),
+            ("no-restricted-imports", {"patterns": [{"group": ["kit-lib/*"], "caseSensitive": True}]},
+             {"patterns": [{"group": ["kit-lib/*"], "caseSensitive": False}]}),
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "importNames": ["a"]}]},
+             {"paths": [{"name": "kit-lib", "importNames": ["a", "useKitDoc"]}]}),
+            ("no-restricted-imports", {"paths": [{"name": "kit-lib", "importNames": ["a"]}]},
+             {"paths": [{"name": "kit-lib"}]}),
+            ("no-restricted-properties", {"object": "Codec", "allowProperties": ["encode", "decode"]},
+             {"object": "Codec", "allowProperties": ["encode"], "message": "new words"}),
+            ("no-restricted-globals", {"globals": ["kitGlobal"]},
+             {"globals": ["kitGlobal", "otherGlobal"], "globalObjects": ["self"], "checkGlobalObject": True}),
+        ]:
+            with self.subTest(rule=rule, head=head):
+                self.setUp()
+                self.ban_options(rule, [base], [head])
+                self.passes()
+
     def test_an_ignored_folder_with_its_suppressions_pruned_is_refused(self):
         self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/components/ui/**", "src/orders.tsx"]')
         (self.repo / OXLINT).write_text("{}")
