@@ -718,6 +718,11 @@ scheduler_events = {
 		"0 8 * * *": [
 			"nirmaan_stack.tasks.reminders.send_due_reminders"
 		],
+		# Every 6 h -- sweeps the leftover .bin files of the old bulk-download token folder. Nothing writes
+		# there since #1664; removing this sweep and the folder is the owner's call.
+		"0 */6 * * *": [
+			"nirmaan_stack.tasks.cleanup_temp_downloads.cleanup_temp_downloads"
+		],
 		# Every 5 min -- BoQ Claude review health check: a run with no heartbeat (or whose job is
 		# gone) is marked Failed and its "AI pass running" flag cleared. Light: no AI, no library.
 		"*/5 * * * *": [
