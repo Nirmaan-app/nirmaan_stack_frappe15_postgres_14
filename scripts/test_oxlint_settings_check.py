@@ -41,6 +41,22 @@ class OxlintSettings(LintRepo, unittest.TestCase):
         self.edit_config('"group": ["sdk-lib/*"]', '"group": ["sdk-lib/*", "!sdk-lib/**"]')
         self.refused("no-restricted-imports", "options")
 
+    def test_a_negated_entry_in_a_new_ban_group_is_refused(self):
+        # oxlint lets a `!` in one group lift another group's ban.
+        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
+                         '{"patterns": [{"group": ["sdk-lib/*"]}]}')
+        self.commit("ban sdk-lib's subpaths")
+        self.edit_config('[{"group": ["sdk-lib/*"]}]', '[{"group": ["sdk-lib/*"]}, {"group": ["!sdk-lib/a"]}]')
+        self.refused("no-restricted-imports", "options")
+
+    def test_a_negated_ban_entry_moved_after_the_entry_it_undoes_is_refused(self):
+        # The last entry that matches wins: ["!sdk-lib/a", "sdk-lib/*"] bans sdk-lib/a, the reverse does not.
+        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
+                         '{"patterns": [{"group": ["!sdk-lib/a", "sdk-lib/*"]}]}')
+        self.commit("ban all of sdk-lib's subpaths")
+        self.edit_config('"group": ["!sdk-lib/a", "sdk-lib/*"]', '"group": ["sdk-lib/*", "!sdk-lib/a"]')
+        self.refused("no-restricted-imports", "options")
+
     def test_a_negated_ban_entry_already_in_base_with_a_new_ban_entry_passes(self):
         self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
                          '{"patterns": [{"group": ["sdk-lib/*", "!sdk-lib/types"]}]}')

@@ -37,8 +37,9 @@ def rule_name(key):
 def options_kept(name, base_setting, head_setting):
     """True when head's options for rule <name> refuse at least what base's did (equal; ban lists may grow).
 
-    A ban's `message` is text for the reader, not a limit: it may change. A new `!` entry in a ban list is no growth:
-    oxlint reads it as "but not these", so ["x/*", "!x/**"] bans nothing.
+    A ban's `message` is text for the reader, not a limit: it may change. A new `!` entry in a ban list, or a new
+    entry that holds one, is no growth: oxlint reads it as "but not these", so ["x/*", "!x/**"] bans nothing. Nor is
+    a `!` entry moved after a plain entry it preceded: the last match wins, so it lifts that entry's ban.
     """
     grow = name in BAN_LISTS
 
@@ -50,11 +51,21 @@ def options_kept(name, base_setting, head_setting):
             if grow:
                 new = [a for a in after if not any(kept(b, a) for b in before)]
                 return (all(any(kept(b, a) for a in after) for b in before)
-                        and not any(isinstance(a, str) and a.startswith("!") for a in new))
+                        and not any(map(negates, new)) and not negations_overtaken(after, before))
             return len(before) == len(after) and all(map(kept, before, after))
         return before == after
 
     return kept(options(base_setting), options(head_setting))
+
+
+def negates(value):
+    """True when <value> is or holds a `!` string: a ban-list entry oxlint reads as "but not these", which can lift a
+    ban anywhere in the rule's options (one group's `!` lifts another group's ban)."""
+    if isinstance(value, str):
+        return value.startswith("!")
+    if isinstance(value, dict):
+        value = list(value.values())
+    return isinstance(value, list) and any(map(negates, value))
 
 
 def options(setting):
@@ -102,21 +113,27 @@ def config_loosenings(base, head):
     return problems
 
 
+def negations_overtaken(before, after):
+    """(`!` entry, plain entry) pairs, both in each list, where the `!` entry follows the plain one in <before> and
+    precedes it in <after>. In a list read last-match-wins, the plain entry then wins for what both match."""
+    def last_index(entries):
+        return {entry: index for index, entry in enumerate(entries) if isinstance(entry, str)}
+
+    before_at, after_at = last_index(before), last_index(after)
+    kept = [entry for entry in before_at if entry in after_at]
+    return [(negated, plain) for negated in kept if negated.startswith("!") for plain in kept
+            if not plain.startswith("!")
+            and before_at[plain] < before_at[negated] and after_at[plain] > after_at[negated]]
+
+
 def ignore_order_loosenings(base_ignores, head_ignores):
     """A sentence per `!` pattern of ignorePatterns that head moved before an ignore pattern it followed in base.
 
     The last pattern that matches a file wins, so the `!` pattern no longer brings back the files both match. Moving
     it after one lints more and passes. Patterns are compared as written, not by the files they match.
     """
-    def last_index(patterns):
-        return {pattern: index for index, pattern in enumerate(patterns)}
-
-    base_at, head_at = last_index(base_ignores), last_index(head_ignores)
-    kept = [pattern for pattern in base_at if pattern in head_at]
     return [f"{CONFIG}: ignorePatterns moves {negated} before {ignored}, so {ignored} wins for the files both match "
-            f"(they are no longer linted)"
-            for negated in kept if negated.startswith("!") for ignored in kept if not ignored.startswith("!")
-            and base_at[ignored] < base_at[negated] and head_at[ignored] > head_at[negated]]
+            f"(they are no longer linted)" for negated, ignored in negations_overtaken(base_ignores, head_ignores)]
 
 
 class OverrideEntry(NamedTuple):
