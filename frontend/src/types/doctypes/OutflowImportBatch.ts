@@ -52,4 +52,6 @@ export interface OutflowImportBatchDocType {
 	close_reason?: string | null
 	/** Cashbook Bill Work : JSON */
 	cashbook_bill_work?: unknown | null
+	/** Before Cutoff, Not Saved : Int */
+	lines_before_cutoff?: number
 }

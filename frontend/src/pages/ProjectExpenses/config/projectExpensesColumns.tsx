@@ -233,8 +233,14 @@ export const getProjectExpenseColumns = ({
         className="justify-center"
       />
     ),
+    // A wallet refund (#1709) is a negative Project Expense: green, as a Non-Project refund is.
     cell: ({ row }) => (
-      <div className="font-medium pr-2">
+      <div
+        className={cn(
+          "font-medium pr-2",
+          Number(row.original.amount) < 0 && "text-green-600 dark:text-green-400"
+        )}
+      >
         {formatToRoundedIndianRupee(row.original.amount)}
       </div>
     ),

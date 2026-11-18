@@ -743,3 +743,52 @@ class TestReconciliationPendingSplit(unittest.TestCase):
         self.assertAlmostEqual(
             stats["total_reconciliation_pending_cheque_amount"], sum(float(r.amount or 0) for r in rows), places=2,
         )
+
+
+class TestARefundExpenseLowersAmountsButIsNoPayment(unittest.TestCase):
+    """#1709 (ADR-0015 Amendment D, ADR-0039 Amendment D as amended): a negative Expense -- a wallet refund on either
+    ledger, a card refund -- lowers every amount it falls in, and is counted in none of the payment counts."""
+
+    created: list = []
+
+    @classmethod
+    def tearDownClass(cls):
+        # Raw deletes: the test's own rows, with their Version rows.
+        for doctype, name in cls.created:
+            frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
+            frappe.db.delete(doctype, {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _refund(self, doctype, amount, **extra):
+        flag = "project" if doctype == "Project Expenses" else "non_project"
+        doc = frappe.get_doc(
+            {
+                "doctype": doctype,
+                "type": frappe.db.get_value("Expense Type", {flag: 1}, "name"),
+                "status": "Paid",
+                "amount": amount,
+                "payment_date": add_days(today(), -1),
+                "description": "Wallet refund (dashboard test)",
+                **extra,
+            }
+        )
+        doc.insert(ignore_permissions=True)
+        self.created.append((doctype, doc.name))
+
+    def test_a_project_and_a_non_project_refund(self):
+        project = frappe.db.get_value(
+            "Projects", {"tendering_status": "Won", "status": ["!=", "CEO Hold"]}, "name", order_by="creation asc"
+        )
+        before = get_payment_dashboard_stats()
+        self._refund("Project Expenses", -300, projects=project)
+        self._refund("Non Project Expenses", -200)
+        after = get_payment_dashboard_stats()
+        for count, amount, drop in (
+            ("total_project_outflow_30_days_count", "total_project_outflow_30_days_amount", 300),
+            ("total_non_project_expense_30_days_count", "total_non_project_expense_30_days_amount", 200),
+            ("payment_done_7_days", "payment_done_7_days_amount", 500),
+        ):
+            with self.subTest(figure=amount):
+                self.assertEqual(after[count], before[count])
+                self.assertAlmostEqual(after[amount], before[amount] - drop, places=2)

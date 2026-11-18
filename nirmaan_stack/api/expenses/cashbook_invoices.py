@@ -17,7 +17,7 @@ writes re-read the Expense `FOR UPDATE` and save through the document layer.
 
 import frappe
 
-from nirmaan_stack.services.card_invoices import CashbookExpenseFacts
+from nirmaan_stack.services.card_invoices import CASHBOOK_SPEND_SQL, CashbookExpenseFacts, is_cashbook_spend
 from nirmaan_stack.services.expense_bills.approval import last_rejection_sql
 from nirmaan_stack.services.expense_invoices import (
     require_profile,
@@ -42,7 +42,7 @@ _QUEUE_SQL = """
     LEFT JOIN "tabOutflow Row Match" m
       ON m.target_doctype = %(doctype)s AND m.target_name = e.name AND m.import_batch = e.cashbook_batch
     LEFT JOIN "tabOutflow Import Row" r ON r.name = m.import_row
-    WHERE COALESCE(e.cashbook_batch, '') != ''
+    WHERE {cashbook_spend}
       AND COALESCE(e.invoice_attachment, '') = ''
       AND COALESCE(e.no_invoice_by, '') = ''
 """
@@ -59,7 +59,9 @@ def _queue_rows(doctype: str) -> list[dict]:
     else:
         parts = {"project": "NULL", "project_name": "NULL", "payment_by": "NULL", "project_join": ""}
     parts["last_bill_rejected"] = last_rejection_sql("e", "%(doctype)s")
-    return frappe.db.sql(_QUEUE_SQL.format(doctype=doctype, **parts), {"doctype": doctype}, as_dict=True)
+    return frappe.db.sql(
+        _QUEUE_SQL.format(doctype=doctype, cashbook_spend=CASHBOOK_SPEND_SQL, **parts), {"doctype": doctype}, as_dict=True
+    )
 
 
 @frappe.whitelist()
@@ -94,7 +96,8 @@ def _locked_facts(expense: str, doctype: str):
     doc = frappe.get_doc(doctype, expense, for_update=True)
     facts = CashbookExpenseFacts(
         name=doc.name,
-        has_cashbook_marker=bool(doc.get("cashbook_batch")),
+        # A Wallet refund expense carries the marker too, and needs no bill (#1709).
+        has_cashbook_marker=is_cashbook_spend(doc.get("cashbook_batch"), doc.amount),
         invoice_attachment=doc.invoice_attachment,
         no_invoice_by=doc.no_invoice_by,
     )

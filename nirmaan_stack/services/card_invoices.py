@@ -63,6 +63,18 @@ def is_card_spend(credit_card_statement: str | None, amount) -> bool:
     return bool(credit_card_statement) and float(amount or 0) > 0
 
 
+#: What makes an Expense a WALLET SPEND, in SQL over either ledger's alias `e` (`is_cashbook_spend`).
+CASHBOOK_SPEND_SQL = "COALESCE(e.cashbook_batch, '') != '' AND e.amount > 0"
+
+
+def is_cashbook_spend(cashbook_batch: str | None, amount) -> bool:
+    """A wallet spend: an Expense the Cashbook import made (`cashbook_batch` set) above zero. A *Wallet refund
+    expense* (#1709, ADR-0015 Amendment D) carries the marker too, at minus its amount: it needs no bill, so it is
+    kept out of the Cashbook invoice queue and is no Expense bill's spend, as a card refund is (#1673).
+    `CASHBOOK_SPEND_SQL` is the same rule in SQL."""
+    return bool(cashbook_batch) and float(amount or 0) > 0
+
+
 REASON_REQUIRED = "Type the reason this spend has no invoice."
 FILE_REQUIRED = "Attach the invoice file."
 FUTURE_INVOICE_DATE = "Invoice date cannot be in the future."

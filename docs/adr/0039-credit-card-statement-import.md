@@ -176,9 +176,13 @@ with no project stays a *Non Project Inflow*.
 4. Create writes it as a *Paid* Non-Project Expense of minus the credit's amount, with no approval, no link to any
    one spend, the description "Card refund from {merchant}, {holder}'s card", payment_ref as decision 6, and the
    Credit Card Statement link.
-5. It needs no bill: it is kept out of the Credit Card invoice queue, Bill check and All Invoices.
+5. It needs no bill: it is kept out of the Credit Card invoice queue, Bill check and All Invoices. *Amended
+   2026-11-18 (#1709, owner): the Approve Payments → Payment Done tab offers no Upload / Edit Inv button on it
+   either, nor on any refund row (amount below zero), card or wallet (ADR-0015 Amendment D).*
 6. It lowers every total that sums Non-Project Expenses (the Non-Project Expenses page, the payments dashboard's
-   non-project figures, the card spends by type).
+   non-project figures, the card spends by type). *Amended 2026-11-18 (#1709, owner): the payments dashboard
+   counts only amounts above zero, so the refund lowers its amounts but is no longer counted as a payment (it was
+   +1). The Approve Payments queue and the Non-Project Expenses summary card still count it as a row.*
 7. Unreconciling its expense reopens it on Review, and the next Create writes it again, as for a spend.
 8. A one-time patch moves every card credit still open on the main table back to its own import as an Unpaired
    card refund. A card credit already decided on the main table stays as it was decided.

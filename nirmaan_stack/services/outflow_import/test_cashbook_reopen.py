@@ -16,6 +16,7 @@ from datetime import date
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import (
+    ACTION_CREATE,
     ACTION_OPEN,
     ACTION_SKIP,
     SKIP_NOT_A_SPEND,
@@ -57,23 +58,26 @@ def _plan(rows, already=None, wrong_skips=()):
 
 
 class TestWronglySkippedLinesComeBack(unittest.TestCase):
-    def test_a_collect_payment_is_reopened_open_and_highlighted_not_dropped_as_a_repeat(self):
+    def test_a_collect_payment_is_reopened_to_be_created_not_dropped_as_a_repeat(self):
+        # #1708: a Collect payment is a wallet spend, so the line it re-opens is created by the job.
         rows = [_row(transfer_id="OBO-CP", amount="480", kind=COLLECT)]
         plan = _plan(rows, _old_sightings(("OBO-CP", "480", "SUCCESS")), [_old("ROW-1", "OBO-CP", "480")])
 
         [line] = plan.rows
-        self.assertEqual((line.action, line.reason), (ACTION_OPEN, "Shop-requested payment, check it."))
+        self.assertEqual((line.action, line.reason), (ACTION_CREATE, ""))
+        self.assertEqual(line.ledger, "Non Project Expenses")
         self.assertEqual(line.reopens.line, "ROW-1")
         self.assertEqual(plan.split.repeats_not_saved, 0)
         self.assertEqual(plan.reopening, (line,))
 
-    def test_a_refund_staged_earlier_with_amount_0_is_reopened_for_its_credit(self):
+    def test_a_refund_staged_earlier_with_amount_0_is_reopened_to_be_created_for_its_credit(self):
+        """CHANGED AT #1709: an unpaired refund is a Wallet refund expense, created by its own import's job."""
         rows = [_row(transfer_id="REF-OBO-GONE", amount="0", credit="640", kind=REFUND, status="REFUNDED")]
         plan = _plan(rows, _old_sightings(("REF-OBO-GONE", "0", "REFUNDED")), [_old("ROW-2", "REF-OBO-GONE", "0")])
 
         [line] = plan.rows
-        self.assertEqual((line.action, line.amount, line.direction), (ACTION_OPEN, Decimal("640"), "Credit"))
-        self.assertIn("its spend OBO-GONE is not on this statement", line.reason)
+        self.assertEqual((line.action, line.amount, line.direction), (ACTION_CREATE, Decimal("640"), "Credit"))
+        self.assertEqual((line.refunds, line.refund_of, line.ledger), (True, "OBO-GONE", "Non Project Expenses"))
         self.assertEqual(line.reopens.line, "ROW-2")
 
     def test_a_wallet_credit_is_reopened_open(self):
@@ -102,8 +106,9 @@ class TestWronglySkippedLinesComeBack(unittest.TestCase):
         self.assertEqual((spend.reopens.line, refund.reopens.line), ("ROW-4", "ROW-5"))
         self.assertEqual(plan.pairs, ((refund, spend),))
 
-    def test_a_refund_whose_spend_was_recorded_earlier_reopens_open(self):
-        """The spend is an exact repeat (its Expense exists), so the refund cannot pair and stays to be decided."""
+    def test_a_refund_whose_spend_was_recorded_earlier_reopens_to_be_created(self):
+        """The spend is an exact repeat (its Expense exists), so the refund cannot pair. CHANGED AT #1709: it is a
+        Wallet refund expense (where it goes: `test_cashbook_refund_expense`)."""
         rows = [
             _row(number=1, transfer_id="OBO-SP", amount="2600"),
             _row(number=2, transfer_id="REF-OBO-SP", amount="0", credit="2600", kind=CREDIT_ADJ, status="REFUNDED"),
@@ -115,7 +120,7 @@ class TestWronglySkippedLinesComeBack(unittest.TestCase):
         )
 
         [refund] = plan.rows
-        self.assertEqual((refund.transfer_id, refund.action), ("REF-OBO-SP", ACTION_OPEN))
+        self.assertEqual((refund.transfer_id, refund.action, refund.refunds), ("REF-OBO-SP", ACTION_CREATE, True))
         self.assertEqual(refund.reopens.line, "ROW-6")
         self.assertEqual(plan.split.repeats_not_saved, 1)
 

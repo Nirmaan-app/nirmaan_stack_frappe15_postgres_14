@@ -44,7 +44,7 @@ from nirmaan_stack.services.expense_bills.bill_list import EXPENSE_DOCTYPES, lat
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
-    required_tier,
+    shown_tier,
 )
 
 MAX_PAGE_LENGTH = 500
@@ -199,6 +199,9 @@ def _payments_select():
             COALESCE(p."document_type", '')::text AS document_type,
             NULL::date                      AS reconciled_on,
             COALESCE(p."auto_approved", 0)  AS auto_approved,
+            -- No import creates a payment (#1710). ⚠️ POSITIONAL: right after `auto_approved` in
+            -- `_expense_select` too.
+            0                               AS imported,
             -- How many live bank lines settle this payment -- it offers the same
             -- Bank lines card an expense does. The same live-slip join as the
             -- expense ledgers; a part-reconciled split family's members are given the
@@ -306,6 +309,10 @@ def _expense_select(table, source, project_col):
         if source == SOURCE_NON_PROJECT
         else f"'{source}'"
     )
+    # The import markers (#1710): a Cashbook spend's `cashbook_batch` on both ledgers, a card spend's
+    # `credit_card_statement` on Non-Project only (a Project Expense has no such field).
+    markers = ['"cashbook_batch"', *(['"credit_card_statement"'] if source == SOURCE_NON_PROJECT else [])]
+    imported_expr = f"""CASE WHEN {" OR ".join(f"COALESCE(e.{m}, '') <> ''" for m in markers)} THEN 1 ELSE 0 END"""
     return f"""
         SELECT
             e."name"                        AS name,
@@ -338,6 +345,9 @@ def _expense_select(table, source, project_col):
             ''::text                        AS document_type,
             NULL::date                      AS reconciled_on,
             COALESCE(e."auto_approved", 0)  AS auto_approved,
+            -- 1 when an import created this Expense (#1710): it carries its import's marker, so its Tier reads
+            -- SYSTEM (`approval_tiers.shown_tier`).
+            {imported_expr}                 AS imported,
             -- How many live bank lines settle this expense (ADR-0027 R5, #1303).
             -- It decides ONLY whether the Against cell offers the Bank lines card:
             -- an expense no line has reached shows no trigger, so nobody opens a
@@ -673,7 +683,11 @@ def get_approval_queue(
         # then made a Rs 40,000 expense read `L1` -- "your approval finishes this" --
         # while the approval it triggered forwarded it to the CEO. Keeping the
         # per-source lookup means a future split cannot reopen that gap.
-        r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
+        #
+        # An Expense an import created reads SYSTEM at any amount (#1710): it was born Paid through no gate.
+        r["tier"] = shown_tier(
+            flt(r.get("amount")), _l2_line_for(r.get("source")), imported=bool(cint(r.pop("imported", 0)))
+        )
         r["amount"] = flt(r.get("amount"))
         # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541), from the union.
         r["requested_amount"] = flt(r.get("requested_amount"), 2)
@@ -748,7 +762,7 @@ def get_approval_queue_counts():
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in
 # Python from the amount, not stored, so there is nothing in SQL to group by --
-# and a closed 3-value set needs no server round trip anyway.
+# and a closed 4-value set (the three amount tiers and SYSTEM, #1710) needs no server round trip anyway.
 FACETABLE = {
     "source", "source_type", "status", "vendor", "project", "doctype", "expense_type", "raised_by", "payment_source",
 }

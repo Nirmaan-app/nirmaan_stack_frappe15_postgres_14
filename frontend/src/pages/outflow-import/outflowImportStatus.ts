@@ -266,57 +266,18 @@ export const cashbookPendingLineRefusal = (batch: string | null | undefined): st
 export const isCashbookLineItsJobOwns = (row: { row_status: string; source?: string | null }): boolean =>
     (row.source ?? "").trim() === CASHBOOK_SOURCE && row.row_status === ROW_PENDING_MATCH;
 
-/** A Cashbook line's statement Type for a Collect payment. Mirrors `cashbook_refunds.COLLECT_ROW_KIND`. */
-export const COLLECT_ROW_KIND = "Collect Payment";
-
-/** What Link, Allocate and Split say on a Collect payment. Mirrors `cashbook_collect.COLLECT_PAYMENT_CHOICES_REFUSAL`. */
-export const COLLECT_PAYMENT_CHOICES_REFUSAL =
-    "A Collect payment is decided by Create expense or Skip by hand. It can't be linked to a record, allocated or split.";
-
-/** What Skip says on a Collect payment to anyone but an Admin or an Accountant Lead. Mirrors
- * `cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`. */
-export const COLLECT_PAYMENT_SKIP_REFUSAL = "Only an Admin or an Accountant Lead can skip a Collect payment by hand.";
-
-/** Why Confirm is greyed on an open Collect payment (code review R6): its two choices, never a link. */
-export const COLLECT_PAYMENT_PICK = "Pick Create expense, or Skip by hand.";
-
-/** Why "Link N to one expense" is off with an open Collect payment ticked (code review R5). */
-export const collectPaymentsLinkNote = (count: number): string =>
-    "A Collect payment is decided by Create expense or Skip by hand, never linked. " +
-    `Untick the ${count} Collect ${count === 1 ? "payment" : "payments"} to link the rest.`;
-
-/** An OPEN Collect payment: one whose two choices are still to make. */
-export const isOpenCollectPaymentLine = (row: {
-    row_status: string;
-    source?: string | null;
-    row_kind?: string | null;
-}): boolean => isCollectPaymentLine(row) && isOpen(row.row_status);
-
-/**
- * Is this line a Collect payment: a Cashbook line whose stored statement Type says so? Mirrors
- * `cashbook_collect.is_collect_payment_line`. Such a line offers exactly two choices on the main table, Create
- * expense and Skip by hand (spec #1585 "Open Cashbook lines").
- */
-export const isCollectPaymentLine = (row: { source?: string | null; row_kind?: string | null }): boolean =>
-    (row.source ?? "").trim() === CASHBOOK_SOURCE && (row.row_kind ?? "").trim() === COLLECT_ROW_KIND;
-
 /**
  * May the "Nothing to link?" Skip box show on this line? Mirrors the server's
  * `skip_origin.manual_skip_refusal`: an OPEN line -- bar a Cashbook line still `Pending match run`,
- * which its own job is about to write (#1314). The server re-checks all of it.
- *
- * `mayUndo` is `canUndoOutflow`'s answer for the viewer. It decides ONE line kind only: an open Collect payment,
- * whose Skip by hand is an Admin's or Accountant Lead's (spec #1585 story 39, `review.skip_row`). Every other line
- * keeps ADR-0022 Amendment E (owner 2026-09-24): Skip is open to everyone in the module, Accountant included.
+ * which its own job is about to write (#1314). The server re-checks all of it. Every module user may skip
+ * (ADR-0022 Amendment E, owner 2026-09-24), on every line kind (#1708 dropped the Collect payment exception).
  */
 export const canSkipByHand = (
-    row: { row_status: string; source?: string | null; row_kind?: string | null } | null | undefined,
-    mayUndo: boolean,
+    row: { row_status: string; source?: string | null } | null | undefined,
 ): boolean =>
-    Boolean(row) &&
-    isOpen(row!.row_status) &&
-    !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH) &&
-    (mayUndo || !isCollectPaymentLine(row!));
+    row != null &&
+    isOpen(row.row_status) &&
+    !(NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) && row.row_status === ROW_PENDING_MATCH);
 
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the

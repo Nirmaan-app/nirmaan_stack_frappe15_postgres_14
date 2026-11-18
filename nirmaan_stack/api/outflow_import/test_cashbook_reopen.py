@@ -29,13 +29,11 @@ from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY
-from nirmaan_stack.services.outflow_import.bill_download import BillRefused
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.stored_files import store_file
 
 ROW_DOCTYPE = "Outflow Import Row"
 OWN_BALANCES = "Moves money between our own balances, not a spend"
-HIGHLIGHT = "Shop-requested payment, check it."
 
 COLLECT_WITH_LINK, COLLECT_NO_LINK = "OBO9000000000001CPLINK", "OBO9000000000002CPNONE"
 COLLECT_FULL, REFUND_FULL = "OBO9000000000003CPFULL", "REF-OBO9000000000003CPFULL"
@@ -46,7 +44,7 @@ SPENDS_OF_THE_OLD_BATCH = 10  # the fixture's Wallet Spends, all created by the 
 
 _FIELDS = [
     "name", "import_batch", "transfer_id", "amount", "direction", "row_status", "skip_kind", "skip_origin",
-    "skip_reason", "outcome_note", "row_kind", "suggested_doctype", "stored_bill",
+    "skip_reason", "outcome_note", "row_kind", "suggested_doctype", "suggested_name",
 ]
 
 
@@ -177,12 +175,11 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
     def test_each_collect_payment_refund_and_wallet_credit_comes_back_under_the_new_rules_on_its_own_line(self):
         new = self._upload()["batch"]
 
+        # #1708: a Collect payment is a wallet spend, so its own import's job creates it.
         for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
             line = self._only_line(txn)
             self.assertEqual(
-                (line.import_batch, line.row_status, line.outcome_note, line.row_kind),
-                (self.old, "Mismatched", HIGHLIGHT, "Collect Payment"),
-                txn,
+                (line.import_batch, line.row_status, line.row_kind), (self.old, "Settled", "Collect Payment"), txn
             )
             self.assertFalse(line.skip_reason or line.skip_kind or line.skip_origin, txn)
 
@@ -195,15 +192,21 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
             )
         self.assertIn(COLLECT_FULL + self.suffix, self._only_line(REFUND_FULL).skip_reason)
 
-        for txn, amount in ((PART_REFUND, 11248.0), (ADJUSTMENT, 2600.0), (EARLIER_REFUND, 640.0), (WALLET_CREDIT, 9000.0)):
+        # #1709: an unpaired refund is a Wallet refund expense, created by its own import's job; the wallet credit
+        # stays open.
+        for txn, amount, status in (
+            (PART_REFUND, 11248.0, "Settled"),
+            (ADJUSTMENT, 2600.0, "Settled"),
+            (EARLIER_REFUND, 640.0, "Settled"),
+            (WALLET_CREDIT, 9000.0, "Mismatched"),
+        ):
             line = self._only_line(txn)
             self.assertEqual(
                 (line.import_batch, line.row_status, line.amount, line.direction),
-                (self.old, "Mismatched", amount, "Credit"),
+                (self.old, status, amount, "Credit"),
                 txn,
             )
         self.assertTrue(self._only_line(WALLET_CREDIT).outcome_note.startswith("Wallet credit:"))
-        self.assertIn("not recorded from this statement", self._only_line(ADJUSTMENT).outcome_note)
 
         self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": new}), 0)
 
@@ -223,24 +226,42 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
         changed = {field for field, *_ in frappe.parse_json(version.data)["changed"]}
         self.assertTrue({"row_status", "amount", "skip_reason"} <= changed, changed)
 
-    def test_reopening_creates_no_expense(self):
+    def test_reopening_creates_the_collect_payments_and_refunds_expenses_in_their_own_import(self):
+        """CHANGED AT #1709: the 3 unpaired refunds are Wallet refund expenses too."""
         before = self._expense_matches()
         self.assertEqual(before, SPENDS_OF_THE_OLD_BATCH)
 
         self._upload()
 
-        self.assertEqual(self._expense_matches(), before)
-        for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK, COLLECT_FULL):
-            for doctype in ("Project Expenses", "Non Project Expenses"):
-                self.assertFalse(frappe.db.exists(doctype, {"payment_ref": txn + self.suffix}), txn)
+        self.assertEqual(self._expense_matches(), before + 2 + 3)
+        for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
+            line = self._only_line(txn)
+            self.assertEqual(frappe.db.get_value(line.suggested_doctype, line.suggested_name, "cashbook_batch"), self.old)
+        for doctype in ("Project Expenses", "Non Project Expenses"):
+            self.assertFalse(frappe.db.exists(doctype, {"payment_ref": COLLECT_FULL + self.suffix}))
 
-    def test_a_reopened_collect_payment_has_its_bill_copied_onto_its_line(self):
+    def test_a_reopened_collect_payments_bill_becomes_its_expenses_invoice(self):
         self._upload()
-        self.assertTrue(self._only_line(COLLECT_WITH_LINK).stored_bill)
+        line = self._only_line(COLLECT_WITH_LINK)
+        self.assertTrue(frappe.db.get_value(line.suggested_doctype, line.suggested_name, "invoice_attachment"))
+
+    def test_the_comment_says_its_import_creates_its_expense(self):
+        new = self._upload()["batch"]
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": ROW_DOCTYPE, "reference_name": self._only_line(COLLECT_NO_LINK).name,
+                     "comment_type": "Comment"},
+            pluck="content",
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertIn(f"Re-opened by the Cashbook import {new}", comments[0])
+        self.assertIn("Its import creates its expense now.", comments[0])
 
     def test_the_earlier_import_counts_its_reopened_lines_as_open(self):
         self._upload()
-        self.assertEqual(cb.get_cashbook_status(self.old)["open"], 6)
+        status = cb.get_cashbook_status(self.old)
+        # CHANGED AT #1709: the 3 unpaired refunds are created too; only the wallet credit stays open.
+        self.assertEqual((status["open"], status["pending"], status["created"]), (1, 0, SPENDS_OF_THE_OLD_BATCH + 2 + 3))
 
     def test_a_second_upload_of_the_same_statement_reopens_nothing_more(self):
         self._upload()
@@ -336,46 +357,6 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
         self.assertTrue(frappe.db.exists("Outflow Import Batch", new))
 
 
-class TestTheReopeningImportOwnsTheBillCopy(ReopenCase):
-    """Code review R1: a re-opened Collect payment stays in its earlier import, but the copy of its bill is the work
-    of the import that re-opened it. Only that import may say it stopped with the bill still to copy, offer Resume,
-    and list the bill when it could not be copied."""
-
-    def _upload_killed_before_the_collect_bills(self) -> str:
-        class _Killed(BaseException):
-            pass
-
-        with patch.object(cb, "store_collect_bills", side_effect=_Killed), self.assertRaises(_Killed):
-            self._upload()
-        frappe.db.rollback()
-        new = frappe.get_all(
-            "Outflow Import Batch", filters={"source": "Cashbook"}, order_by="creation desc", limit=1, pluck="name"
-        )[0]
-        self.batches.append(new)
-        return new
-
-    def test_only_the_reopening_import_waits_for_the_bill(self):
-        new = self._upload_killed_before_the_collect_bills()
-        self.assertFalse(self._only_line(COLLECT_WITH_LINK).stored_bill)
-
-        old = cb.get_cashbook_status(self.old)
-        self.assertEqual((old["bills_waiting"], old["stopped"]), (0, False))
-        mine = cb.get_cashbook_status(new)
-        self.assertEqual((mine["bills_waiting"], mine["stopped"]), (1, True))
-
-    def test_only_the_reopening_import_lists_the_bill_it_could_not_copy(self):
-        refused = _fake_bills({(COLLECT_WITH_LINK, "1.jpeg"): BillRefused("the server answered 403")})
-        with self._clock(), patch.object(bills, "fetch_bill", refused), patch.object(
-            cb, "_enqueue_worker", side_effect=lambda batch, actor, **kw: cb._cashbook_worker(batch, actor, **kw)
-        ):
-            new = _post(cb.confirm_cashbook_import, self.content, "statement.xlsx")["batch"]
-        self.batches.append(new)
-
-        txn = COLLECT_WITH_LINK + self.suffix
-        self.assertNotIn(txn, {line["transfer_id"] for line in cb.get_cashbook_status(self.old)["bills_not_copied"]})
-        self.assertIn(txn, {line["transfer_id"] for line in cb.get_cashbook_status(new)["bills_not_copied"]})
-
-
 class TestReviewListsTheLinesToBeReopened(ReopenCase):
     def test_review_lists_each_line_with_the_import_that_holds_it(self):
         preview = self._preview()
@@ -388,6 +369,7 @@ class TestReviewListsTheLinesToBeReopened(ReopenCase):
         )
         self.assertEqual({line["earlier_batch"] for line in listed.values()}, {self.old})
         self.assertEqual(listed[COLLECT_FULL]["becomes"], "paired")
+        self.assertEqual(listed[COLLECT_NO_LINK]["becomes"], "created")
         self.assertEqual(listed[WALLET_CREDIT]["becomes"], "open")
         self.assertEqual(listed[WALLET_CREDIT]["amount"], 9000.0)
         self.assertFalse(preview["refused"])

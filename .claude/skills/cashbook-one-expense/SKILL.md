@@ -17,6 +17,12 @@ Two checks, and you need both:
 | Model (FizzBee) | the DESIGN: no order of steps books a Txn Id twice | `scripts/formal/cashbook_one_expense/` |
 | Race test | the CODE takes the lock the design needs | `nirmaan_stack/api/outflow_import/test_cashbook_one_expense_race.py` |
 
+> ⚠️ **The model is behind the code since #1708 (spec #1711).** A Collect payment is now staged `Pending match run`
+> and created by the job like a Wallet Spend (no open Collect line, no Link refusal, no stored bill), and a re-opened
+> Collect payment goes to `Pending match run`. `CashbookOneExpense.fizz` (`COLLECT`: staged Open, Link refused) and
+> the configs `phase1_open` / `phase1_reopen` still describe the code before #1708. The table below names the code
+> as it is now; the model needs a real change before its `phase1_open` / `phase1_reopen` results are trusted.
+
 ## Does your change touch it?
 
 Rerun both checks when a change touches any of these (the coverage record):
@@ -24,13 +30,13 @@ Rerun both checks when a change touches any of these (the coverage record):
 | File | What the check covers |
 |---|---|
 | `nirmaan_stack/api/outflow_import/cashbook.py` | `confirm_cashbook_import`, `resume_cashbook_import`, `_enqueue_worker`, `_cashbook_worker`, `_lock_pending_line`, `_write_one`, `_write_failed`, `_mark_if_still_pending`, `_plan_claiming_reopens`, `_build_plan`, `_already_imported`, `_already_booked`, `_booked_index`, `_stage` |
-| `nirmaan_stack/api/outflow_import/cashbook_lines.py` | `lock_line_if` (the row lock `_lock_pending_line` and the re-open claim take), `line_values` (which status a staged line gets: `Pending match run` for a spend, open `Mismatched` for a Collect payment) |
-| `nirmaan_stack/api/outflow_import/cashbook_reopen.py` | `wrong_skips`, `claim_reopens`, `reopen_lines` -- #1596 re-opens an earlier own-balances skip in place, never to `Pending match run` |
-| `nirmaan_stack/api/outflow_import/cashbook_bills.py` | `copy_created_line_bills`, `attach_late_bills`, `store_collect_bills` / `_set_stored_bill` -- checked, not modelled: they write an Expense's invoice and a line's `stored_bill` / `bill_problem`, never an Expense, a `payment_ref` or a `row_status` |
-| `nirmaan_stack/api/outflow_import/expenses.py` | `create_expense`, `_refuse_as_already_imported`, `already_imported_sentence`, `refuse_link_of_a_held_txn_id`, `settle_row` / `_settle_and_commit`, `_load_settleable_row`, `guard_not_an_own_import_line`, `guard_collect_payment_choice`, `_guard_money_not_recorded` |
+| `nirmaan_stack/api/outflow_import/cashbook_lines.py` | `lock_line_if` (the row lock `_lock_pending_line` and the re-open claim take), `line_values` (which status a staged line gets: `Pending match run` for a spend, a Collect payment included since #1708; open `Mismatched` for a wallet credit) |
+| `nirmaan_stack/api/outflow_import/cashbook_reopen.py` | `wrong_skips`, `claim_reopens`, `reopen_lines` -- #1596 re-opens an earlier own-balances skip in place; since #1708 a re-opened Collect payment goes to `Pending match run` (its own import's job creates it), any other line never does |
+| `nirmaan_stack/api/outflow_import/cashbook_bills.py` | `copy_created_line_bills`, `attach_late_bills` -- checked, not modelled: they write an Expense's invoice and a line's `bill_problem`, never an Expense, a `payment_ref` or a `row_status` |
+| `nirmaan_stack/api/outflow_import/expenses.py` | `create_expense`, `_refuse_as_already_imported`, `already_imported_sentence`, `refuse_link_of_a_held_txn_id`, `settle_row` / `_settle_and_commit`, `_load_settleable_row`, `guard_not_an_own_import_line`, `_guard_money_not_recorded` |
 | `nirmaan_stack/api/outflow_import/link_lines.py` | `link_rows_to_expense`, `_load_linkable_row` -- the second hand-Link path |
 | `nirmaan_stack/services/outflow_import/row_settlement.py` | `record_settlement`, `line_source` -- the hand Create / Link match row and its `source`, which C's index reads |
-| `nirmaan_stack/services/outflow_import/cashbook.py` | `plan_statement`, `_decide` (a Collect payment opens, never creates) |
+| `nirmaan_stack/services/outflow_import/cashbook.py` | `plan_statement`, `_decide` (a Collect payment creates like a Wallet Spend, #1708) |
 | `nirmaan_stack/services/outflow_import/cashbook_reopen.py` | `claim_wrong_skips`, `earlier_sightings` (a re-opening line is not a repeat) |
 | `nirmaan_stack/services/outflow_import/skip_origin.py` | `own_import_refusal` -- phase 1 gate B: a Cashbook line is refused by hand while `Pending match run` |
 | `nirmaan_stack/services/outflow_import/sources.py` | `CASHBOOK_SOURCE`, `CREATE_GATED_SOURCES`, `line_waits_for_its_own_create` |
@@ -159,15 +165,14 @@ Line numbers are at the sync commit. A line's status in the model: `Pending` (`P
 | `Job.LockLine` | phase 1 A, `cashbook.py:466` `_lock_pending_line`: 40001 or not `Pending match run` -> `None`, `_write_one` returns `False`, rollback | the `FOR UPDATE` returning (after any wait) |
 | `Job.WriteOne` | `cashbook.py:488` `_write_one` (match insert `:548`, `source` 'Cashbook', `created_by_import` 1) + the commit at `:378`; phase 1 C: the match insert refused by the index. Then `cashbook_bills.copy_created_line_bills` (`:379`) in transactions of its own: no step, it writes only the Expense's invoice and the line's `bill_problem` | one transaction |
 | `Job.MarkError` | phase 1: `cashbook.py:393` `_write_failed` -> `:434` `_mark_if_still_pending` (index refusal -> "Already imported" skip, else Error; the log commits first, on its own) | one statement + commit |
-| `Job.Crash` | worker killed; Postgres rolls back. (After its lines the job copies late and Collect bills, `attach_late_bills` / `store_collect_bills`: no step, see below) | -- |
+| `Job.Crash` | worker killed; Postgres rolls back. (After its lines the job copies late bills, `attach_late_bills`: no step, see below) | -- |
 | `Confirm.Plan` | `cashbook.py:166` `_plan_claiming_reopens` (`:642`) -> `_build_plan` (`:671`) -> `_already_imported` `:695` (every stored line of the Txn Id), `_already_booked` `:718`, `cashbook_reopen.wrong_skips` (`:46`); `services/outflow_import/cashbook.py` `plan_statement` / `claim_wrong_skips`: a Collect payment on an own-balances skip re-opens it | reads one snapshot |
-| `Confirm.StageAndEnqueue` | `save_file` `cashbook.py:182`, the re-open claim again `:185` (`cashbook_reopen.claim_reopens` `:105`, row locks to the commit), `_stage` `:898` (`cashbook_lines.line_values`: a spend `Pending match run`, a Collect payment `Mismatched`; `cashbook_reopen.reopen_lines` `:76` writes the claimed line), commit `:208`, `_enqueue_worker` `:317` | one transaction after `save_file`'s commit |
+| `Confirm.StageAndEnqueue` | `save_file` `cashbook.py:182`, the re-open claim again `:185` (`cashbook_reopen.claim_reopens` `:105`, row locks to the commit), `_stage` `:898` (`cashbook_lines.line_values`: a spend or Collect payment `Pending match run`, a wallet credit `Mismatched`; `cashbook_reopen.reopen_lines` `:76` writes the claimed line), commit `:208`, `_enqueue_worker` `:317` | one transaction after `save_file`'s commit |
 | `Person.OpenLine` | `expenses.py:1174` `_load_settleable_row` / `link_lines.py:184` `_load_linkable_row` (gate B: `guard_not_an_own_import_line` `expenses.py:1217` -> `skip_origin.own_import_refusal`) + `expenses.py:1297` `_guard_money_not_recorded` | reads one snapshot |
-| `Person.CreateOrLink` | Create: `create_expense` `expenses.py:1057` -> `row_settlement.record_settlement` (`:41`, `source` from `line_source` `:107`; `created_by_import` 1); refused -> `_refuse_as_already_imported` `expenses.py:1127`. Link: `settle_row` `expenses.py:298` / `link_lines.link_rows_to_expense` `:65` (writes `payment_ref`; match row `created_by_import` 0, `source` 'Cashbook'); refused -> `refuse_link_of_a_held_txn_id` `expenses.py:223` (`AlreadyImportedError` naming the holder). A Collect line refuses Link (`guard_collect_payment_choice` `expenses.py:1239`) | one transaction |
+| `Person.CreateOrLink` | Create: `create_expense` `expenses.py:1057` -> `row_settlement.record_settlement` (`:41`, `source` from `line_source` `:107`; `created_by_import` 1); refused -> `_refuse_as_already_imported` `expenses.py:1127`. Link: `settle_row` `expenses.py:298` / `link_lines.link_rows_to_expense` `:65` (writes `payment_ref`; match row `created_by_import` 0, `source` 'Cashbook'); refused -> `refuse_link_of_a_held_txn_id` `expenses.py:223` (`AlreadyImportedError` naming the holder). (Before #1708 a Collect line refused Link; that guard is gone.) | one transaction |
 
 Checked and not modelled, because each can only refuse or delay a write, never add an Expense:
-`cashbook_bills._set_stored_bill` UPDATEs an open Collect line's `stored_bill` under its row lock, so a
-person whose snapshot predates it loses the race (rule 2) and tries again; `_attach_invoice` saves an
+`_attach_invoice` saves an
 Expense's `invoice_attachment` only. When confirm re-opens, it plans again after `save_file`; that later read
 can only see more lines and expenses, so it stages no Txn Id the model's `Plan` did not.
 

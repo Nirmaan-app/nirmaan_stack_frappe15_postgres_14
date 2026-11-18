@@ -7,7 +7,7 @@
 // placement FINDABLE in about ten seconds. Every ordering decision below serves that and nothing
 // else -- see `sortGroups`.
 
-import type { CollectPaymentLine } from "./cashbookCollect";
+
 
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
@@ -58,6 +58,16 @@ export interface CashbookInternalTransferLine {
     reason: string;
 }
 
+/** #1709: an unpaired wallet refund, created at minus its Credit where its spend is booked (`cashbookRefunds.ts`). */
+export interface CashbookRefundLine extends CashbookSkippedRow {
+    refund_of: string;
+    reduces: string;
+    spend_on_statement: boolean;
+    ledger: string;
+    project_name: string;
+    expense_type: string;
+}
+
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
 export interface CashbookRefundPair {
     refund: CashbookSkippedRow;
@@ -72,6 +82,8 @@ export interface CashbookPreviewResult {
     period_to: string | null;
     total_rows: number;
     creating: number;
+    /** #1709 code review: the spends among `creating` (the wallet refunds left out), the count `total_value` sums. */
+    spending: number;
     skipping: number;
     total_value: number;
     warnings: string[];
@@ -89,8 +101,6 @@ export interface CashbookPreviewResult {
     duplicate_of_batch: string | null;
     /** #1591: the spends to create, by their bills. Absent from a server that predates it. */
     invoices?: InvoiceCounts;
-    /** #1595: the Collect payments left open for a person to decide. Absent from a server that predates it. */
-    collect_payments?: CollectPaymentLine[];
     /**
      * #1623, owner decision 7 (#1619): Cashbook's own moves, listed under their own "Internal transfers" heading,
      * each with the money it moved and its From and To as `reason`. Not in `skipped`. Absent from an older server.
@@ -100,22 +110,31 @@ export interface CashbookPreviewResult {
     records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
-    /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */
+    /** #1594: the lines that stay open on the main table (wallet credits; an unpaired refund since #1709 is below). */
     open_lines?: CashbookSkippedRow[];
+    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
+    refunds?: CashbookRefundLine[];
     opening?: number;
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];
     /** #1596: lines an earlier import skipped as own balances that this statement re-opens in place. */
     reopened?: CashbookReopenedLine[];
+    /** #1707: how many lines are dated before 1 Apr 2026: left out, not saved. */
+    before_cutoff?: number;
+    /** #1707: the server's sentence for them ("14 lines before 1 Apr 2026 left out"), blank when there are none. */
+    before_cutoff_note?: string;
+    /** #1707: set only when the file holds nothing but such lines: why it is refused. */
+    before_cutoff_message?: string;
 }
 
 /**
  * #1596: a line an earlier import skipped as "own balances" that this statement re-opens in place, in the import
- * that holds it. It is also listed under what it becomes (a Collect payment, an open line, a pair).
+ * that holds it. It is also listed under what it becomes (a spend to create, an open line, a pair). A Collect payment
+ * becomes "created" (#1708): its own import's job creates its Expense.
  */
 export interface CashbookReopenedLine extends CashbookSkippedRow {
     earlier_batch: string;
-    becomes: "open" | "paired";
+    becomes: "created" | "open" | "paired";
 }
 
 /** #1593: a repeat line bringing a bill for an existing Expense that still waits for one. */
@@ -158,6 +177,8 @@ export interface CashbookConfirmResult {
     reopened?: number;
     /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
     records_filled?: number;
+    /** #1707: the server's sentence for the lines before 1 Apr 2026 left out, blank when there are none. */
+    before_cutoff_note?: string;
 }
 
 export interface CashbookStatus {
@@ -166,8 +187,7 @@ export interface CashbookStatus {
     failed: number;
     skipped: number;
     pending: number;
-    /** Bills the job has still to copy: open Collect payments' and late bills (code review S1, S2). Absent from a
-     * server that predates it. */
+    /** Late bills the job has still to copy (code review S1, S2). Absent from a server that predates it. */
     bills_waiting?: number;
     /** The batch's job is queued or running (the queue's answer, not the pending count; #1589). */
     running: boolean;
@@ -272,6 +292,18 @@ export const duplicateNotice = (preview: {
 };
 
 /**
+ * What the preview says about the lines dated before 1 Apr 2026 (#1707), or `null` when none were left out. The
+ * server's sentences: a refusal when the file holds nothing else, else the count. The date is the server's alone.
+ */
+export const cutoffNotice = (preview: {
+    before_cutoff_note?: string;
+    before_cutoff_message?: string;
+}): DuplicateNotice | null => {
+    if (preview.before_cutoff_message) return { tone: "refused", text: preview.before_cutoff_message };
+    return preview.before_cutoff_note ? { tone: "info", text: preview.before_cutoff_note } : null;
+};
+
+/**
  * Whether Create is offered (#1593, #1596): the file creates something, brings a bill for an existing Expense, or
  * re-opens an earlier wrong skip, and was not refused. A refusal is said by name so the button never depends on the
  * facts staying in step.
@@ -356,7 +388,14 @@ export const stoppedText = (status: CashbookStatus | null | undefined): string |
     return `Stopped: ${parts.join(", ")}`;
 };
 
-const count = (n: number): string => n.toLocaleString("en-IN");
+/** A count with Indian digit grouping, as Review prints it: "1,305". The one count formatter of these sentences. */
+export const formatCount = (n: number): string => n.toLocaleString("en-IN");
+
+/** Review's headline, "115 expense records": the spends only, as `total_value` sums them; refunds are apart (#1709). */
+export const spendsHeadline = (preview: { spending: number }): string => {
+    const n = preview.spending;
+    return `${formatCount(n)} expense ${n === 1 ? "record" : "records"}`;
+};
 
 /**
  * What Review says about the bills before Create (#1591), or null when there is nothing to say:
@@ -367,19 +406,21 @@ export const invoiceCountsText = (preview: {
     invoices?: InvoiceCounts;
 }): string | null => {
     const invoices = preview.invoices;
-    if (!invoices || preview.creating <= 0) return null;
-    const spends = `${count(preview.creating)} ${preview.creating === 1 ? "spend" : "spends"}`;
+    // The spends only: `creating` also counts the wallet refunds, which need no bill (#1709).
+    const n = invoices ? invoices.one_file + invoices.merged + invoices.waiting : 0;
+    if (!invoices || preview.creating <= 0 || n <= 0) return null;
+    const spends = `${formatCount(n)} ${n === 1 ? "spend" : "spends"}`;
     return (
-        `${spends}: ${count(invoices.one_file)} with 1 file, ` +
-        `${count(invoices.merged)} with 2–4 files (merged), ` +
-        `${count(invoices.waiting)} will wait for an invoice`
+        `${spends}: ${formatCount(invoices.one_file)} with 1 file, ` +
+        `${formatCount(invoices.merged)} with 2–4 files (merged), ` +
+        `${formatCount(invoices.waiting)} will wait for an invoice`
     );
 };
 
-/** One bill not copied as the import summary lists it: the Txn Id and its Expense, or an open Collect payment's line,
- * which has none (#1595). The server's reason follows it. */
+/** One bill not copied as the import summary lists it: the Txn Id and its Expense (none only on a Collect payment
+ * line left open before #1708). The server's reason follows it. */
 export const billNotCopiedLabel = (line: BillNotCopied): string =>
-    `${line.transfer_id} (${line.expense ? line.expense : "open Collect payment"})`;
+    `${line.transfer_id} (${line.expense ? line.expense : "no Expense"})`;
 
 /**
  * The heading over the spends whose bills the job could not copy (#1591), or null while it runs or when
@@ -388,31 +429,9 @@ export const billNotCopiedLabel = (line: BillNotCopied): string =>
 export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined): string | null => {
     const lines = status?.bills_not_copied ?? [];
     if (!status || status.running || lines.length === 0) return null;
-    // Code review R6: an open Collect payment's line has no Expense (`expense` blank); it stays open to decide.
-    const collect = lines.filter((line) => !line.expense).length;
-    if (collect === 0) {
-        return lines.length === 1
-            ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
-            : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
-    }
-    if (collect === lines.length) {
-        return lines.length === 1
-            ? "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
-            : `${count(lines.length)} Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:`;
-    }
-    return `${count(lines.length)} bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:`;
-};
-
-/**
- * The heading over the Paired wallet refunds on Review (#1594), or null when there are none:
- * "2 paired wallet refunds: each refund gives back a whole spend, so neither line is recorded".
- */
-export const pairsHeading = (pairs: readonly CashbookRefundPair[] | undefined): string | null => {
-    const n = pairs?.length ?? 0;
-    if (n === 0) return null;
-    return n === 1
-        ? "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
-        : `${count(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
+    return lines.length === 1
+        ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
+        : `${formatCount(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
 };
 
 /**
@@ -424,14 +443,8 @@ export const openLinesHeading = (lines: readonly CashbookSkippedRow[] | undefine
     if (n === 0) return null;
     return n === 1
         ? "1 line will stay open for someone to decide on the transactions screen"
-        : `${count(n)} lines will stay open for someone to decide on the transactions screen`;
+        : `${formatCount(n)} lines will stay open for someone to decide on the transactions screen`;
 };
-
-/** How a pair's spend reads beside its refund: "Collect Payment OBO…3 · Testshop Collect Three". */
-export const pairSpendLabel = (pair: CashbookRefundPair): string =>
-    [`${pair.spend.row_kind || "Spend"} ${pair.spend.transfer_id}`, pair.spend.beneficiary_name || pair.spend.remarks]
-        .filter(Boolean)
-        .join(" · ");
 
 /**
  * The heading over the existing Expenses that get a late bill (#1593), or null when there are none. The line
@@ -442,7 +455,7 @@ export const lateBillsHeading = (lines: readonly CashbookLateBill[] | undefined)
     if (n === 0) return null;
     return n === 1
         ? "1 existing Expense will get its bill. Its line is already imported and is not saved again"
-        : `${count(n)} existing Expenses will get their bills. Their lines are already imported and are not saved again`;
+        : `${formatCount(n)} existing Expenses will get their bills. Their lines are already imported and are not saved again`;
 };
 
 /** How one late bill reads: "NPE-0042 · OBO… · Pay to merchant" (the bill count when there is no remark). */
@@ -454,7 +467,7 @@ export const lateBillLabel = (line: CashbookLateBill): string =>
 /** The progress screen's line about the late bills (#1593), or null when there were none. */
 export const lateBillsDoneText = (n: number, running: boolean): string | null => {
     if (n <= 0) return null;
-    const expenses = `${count(n)} existing ${n === 1 ? "Expense" : "Expenses"}`;
+    const expenses = `${formatCount(n)} existing ${n === 1 ? "Expense" : "Expenses"}`;
     if (running) return `Adding bills to ${expenses}…`;
     return `${n === 1 ? "Bill" : "Bills"} added to ${expenses}, unless someone had already attached an invoice or marked it No invoice.`;
 };
@@ -468,13 +481,19 @@ export const reopenedHeading = (lines: readonly CashbookReopenedLine[] | undefin
     if (n === 0) return null;
     return n === 1
         ? "1 line an earlier import skipped as own balances will be re-opened under the new rules"
-        : `${count(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
+        : `${formatCount(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
 };
 
 /** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · stays open". */
+const REOPENED_BECOMES: Record<CashbookReopenedLine["becomes"], string> = {
+    created: "its expense is created",
+    open: "stays open",
+    paired: "paired wallet refund",
+};
+
 export const reopenedLabel = (line: CashbookReopenedLine): string =>
     [
         `${line.row_kind || "Line"} ${line.transfer_id}`,
         `in ${line.earlier_batch}`,
-        line.becomes === "paired" ? "paired wallet refund" : "stays open",
+        REOPENED_BECOMES[line.becomes],
     ].join(" · ");

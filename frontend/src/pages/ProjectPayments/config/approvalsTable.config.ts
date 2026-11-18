@@ -144,7 +144,8 @@ export interface ApprovalQueueRow {
   /** What no bank line has covered yet (`amount - linked_amount`, measured server-side); for a
    *  part-reconciled split family, its Reconciliation Pending balance. */
   remaining_amount: number;
-  tier: "auto" | "l1" | "l1_l2";
+  /** The amount's tier, or "system" for an Expense an import created (#1710): it went through no gate. */
+  tier: "auto" | "l1" | "l1_l2" | "system";
   /**
    * Kept under their PAYMENT names deliberately. The bulk-approve engine and the
    * action dialogs read exactly five fields off a row — amount, name,
@@ -400,6 +401,7 @@ export const TIER_LABEL: Record<ApprovalQueueRow["tier"], string> = {
   auto: "AUTO",
   l1: "L1",
   l1_l2: "L1+L2",
+  system: "SYSTEM",
 };
 
 /**

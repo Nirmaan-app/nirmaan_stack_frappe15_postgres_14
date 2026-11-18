@@ -17,6 +17,7 @@ import {
     canConfirm,
     confirmLabel,
     createLabel,
+    cutoffNotice,
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
@@ -25,8 +26,6 @@ import {
     lateBillsHeading,
     ledgerSections,
     openLinesHeading,
-    pairSpendLabel,
-    pairsHeading,
     progressFraction,
     progressText,
     reopenedHeading,
@@ -34,9 +33,12 @@ import {
     showsResume,
     stoppedText,
     sortGroups,
+    spendsHeadline,
     typeHint,
     typeLabel,
 } from "./cashbookPreview";
+import type { CashbookRefundLine } from "./cashbookPreview";
+import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "./cashbookRefunds";
 
 const group = (
     ledger: string,
@@ -296,11 +298,9 @@ describe("the invoice counts before Create (#1591)", () => {
 });
 
 describe("each bill not copied, as the import summary lists it (#1591, code review S3)", () => {
-    it("names the spend and its Expense, or says the line is an open Collect payment", () => {
+    it("names the spend and its Expense, or says a line from before #1708 has none", () => {
         expect(billNotCopiedLabel({ transfer_id: "OBO1", expense: "PE-1", reason: "x" })).toBe("OBO1 (PE-1)");
-        expect(billNotCopiedLabel({ transfer_id: "OBO2", expense: null, reason: "x" })).toBe(
-            "OBO2 (open Collect payment)"
-        );
+        expect(billNotCopiedLabel({ transfer_id: "OBO2", expense: null, reason: "x" })).toBe("OBO2 (no Expense)");
     });
 });
 
@@ -322,18 +322,6 @@ describe("the bills the job could not copy (#1591)", () => {
         );
     });
 
-    it("says an open Collect payment stays open to decide, not that an Expense waits (code review R6)", () => {
-        const collect = { transfer_id: "OBO2", expense: null, reason: "Bill not copied: the server answered 403." };
-        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect] }))).toBe(
-            "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
-        );
-        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect, collect] }))).toBe(
-            "2 Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:"
-        );
-        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [line, collect] }))).toBe(
-            "2 bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:"
-        );
-    });
 });
 
 
@@ -456,6 +444,10 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
         expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO3", becomes: "paired" }))).toBe(
             "Collect Payment OBO3 · in OFI-26-00237 · paired wallet refund"
         );
+        // #1708: a Collect payment is a wallet spend, created by the import that holds it.
+        expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO2", becomes: "created" }))).toBe(
+            "Collect Payment OBO2 · in OFI-26-00237 · its expense is created"
+        );
     });
 
     it("offers the confirm for a file whose only work is re-opening, named for what it does", () => {
@@ -465,5 +457,89 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
         expect(confirmLabel({ ...onlyReopen, reopened: [reopened(), reopened()] })).toBe("Re-open 2 lines");
         expect(confirmLabel({ ...onlyReopen, creating: 3 })).toBe("Create 3 records");
         expect(canConfirm({ ...onlyReopen, refused: true })).toBe(false);
+    });
+});
+
+describe("cutoffNotice (#1707)", () => {
+    it("says how many lines before 1 Apr 2026 were left out, as the server words it", () => {
+        expect(cutoffNotice({ before_cutoff_note: "14 lines before 1 Apr 2026 left out" })).toEqual({
+            tone: "info",
+            text: "14 lines before 1 Apr 2026 left out",
+        });
+    });
+
+    it("is a refusal when the file holds nothing else", () => {
+        const message =
+            "Not imported. All 2 lines in 'march.xlsx' are dated before 1 Apr 2026, and the Cashbook import leaves those out. Nothing was created.";
+        expect(
+            cutoffNotice({ before_cutoff_note: "2 lines before 1 Apr 2026 left out", before_cutoff_message: message }),
+        ).toEqual({ tone: "refused", text: message });
+    });
+
+    it("says nothing when no line was left out, or the server predates it", () => {
+        expect(cutoffNotice({ before_cutoff_note: "" })).toBeNull();
+        expect(cutoffNotice({})).toBeNull();
+    });
+});
+
+describe("Review's headline counts what its total sums (#1709 code review)", () => {
+    it("counts the spends only, as `total_value` sums them; the refunds are listed apart", () => {
+        expect(spendsHeadline({ spending: 2 })).toBe("2 expense records");
+        expect(spendsHeadline({ spending: 1 })).toBe("1 expense record");
+        expect(spendsHeadline({ spending: 1305 })).toBe("1,305 expense records");
+    });
+});
+
+describe("the wallet refunds on Review (#1709, ADR-0015 Amendment D)", () => {
+    const refund = (over: Partial<CashbookRefundLine> = {}): CashbookRefundLine => ({
+        row_number: 2,
+        transfer_id: "REF-OBO1781597449301W2WH9D",
+        amount: 11248,
+        remarks: "Credit Adj",
+        reason: "",
+        row_kind: "Credit Adjustment",
+        refund_of: "OBO1781597449301W2WH9D",
+        reduces: "9surl50t7h",
+        spend_on_statement: false,
+        ledger: NON_PROJECT_LEDGER,
+        project_name: "",
+        expense_type: "Petty Cash",
+        ...over,
+    });
+
+    it("heads them, saying each is booked as a minus where its spend is", () => {
+        expect(refundsHeading([refund()])).toBe(
+            "1 wallet refund will be booked as a minus expense where its spend is booked"
+        );
+        expect(refundsHeading([refund(), refund()])).toBe(
+            "2 wallet refunds will be booked as minus expenses where their spends are booked"
+        );
+        expect(refundsHeading([])).toBeNull();
+        expect(refundsHeading(undefined)).toBeNull();
+    });
+
+    it("names the spend each one reduces and where it is booked", () => {
+        expect(refundLabel(refund())).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (9surl50t7h) · Non Project Expenses · Petty Cash"
+        );
+        expect(
+            refundLabel(
+                refund({ reduces: "", spend_on_statement: true, ledger: PROJECT_LEDGER, project_name: "Telus GIFT City" })
+            )
+        ).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (created by this import) · Project Expenses · Telus GIFT City · Petty Cash"
+        );
+        expect(refundLabel(refund({ reduces: "" }))).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (no Expense yet) · Non Project Expenses · Petty Cash"
+        );
+        expect(refundLabel(refund({ refund_of: "", reduces: "", transfer_id: "CRADJ-7" }))).toBe(
+            "Credit Adjustment CRADJ-7 · names no spend · Non Project Expenses · Petty Cash"
+        );
+    });
+
+    it("the bill counts speak of spends only: a refund needs no bill", () => {
+        expect(invoiceCountsText({ creating: 4, invoices: { one_file: 1, merged: 0, waiting: 2 } })).toBe(
+            "3 spends: 1 with 1 file, 0 with 2–4 files (merged), 2 will wait for an invoice"
+        );
     });
 });

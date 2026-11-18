@@ -19,8 +19,6 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     ACTION_OPEN,
     ACTION_SKIP,
-    OPEN_UNPAIRED_REFUND_NOT_HERE,
-    OPEN_UNPAIRED_REFUND_PART,
     OPEN_WALLET_CREDIT,
     SKIP_NOT_A_SPEND,
     SKIP_NOT_SUCCESSFUL,
@@ -84,34 +82,31 @@ class TestTheFixturesRefundPairs(unittest.TestCase):
 
 
 class TestTheFixturesOpenLines(unittest.TestCase):
+    """CHANGED AT #1709: an unpaired refund is a Wallet refund expense, no longer an open line
+    (`test_cashbook_refund_expense` says where it goes)."""
+
     def setUp(self):
         self.plan = _fixture_plan()
 
-    def test_the_part_refund_is_an_open_line_and_its_spend_still_creates(self):
+    def test_the_part_refund_is_a_refund_expense_and_its_spend_still_creates(self):
         refund = _by_id(self.plan, "REF-" + PART_SPEND)
-        self.assertEqual((refund.action, refund.skip_kind), (ACTION_OPEN, None))
+        self.assertEqual((refund.action, refund.refunds, refund.refund_of), (ACTION_CREATE, True, PART_SPEND))
         self.assertEqual((refund.amount, refund.direction), (Decimal("11248"), DIRECTION_CREDIT))
-        self.assertEqual(
-            refund.reason,
-            OPEN_UNPAIRED_REFUND_PART.format(refund="₹11,248", spend_amount="₹17,446", spend=PART_SPEND),
-        )
         self.assertEqual(_by_id(self.plan, PART_SPEND).action, ACTION_CREATE)
 
-    def test_a_refund_whose_spend_is_not_on_the_statement_is_an_open_line(self):
+    def test_a_refund_whose_spend_is_not_on_the_statement_is_a_refund_expense(self):
         refund = _by_id(self.plan, EARLIER_REFUND)
-        self.assertEqual((refund.action, refund.amount), (ACTION_OPEN, Decimal("640")))
-        self.assertEqual(refund.reason, OPEN_UNPAIRED_REFUND_NOT_HERE.format(spend="OBO9000000000008EARLYR"))
+        self.assertEqual((refund.action, refund.refunds, refund.amount), (ACTION_CREATE, True, Decimal("640")))
 
     def test_the_wallet_credit_is_an_open_line_with_its_credit_amount(self):
         credit = _by_id(self.plan, WALLET_CREDIT)
         self.assertEqual((credit.action, credit.skip_kind, credit.reason), (ACTION_OPEN, None, OPEN_WALLET_CREDIT))
         self.assertEqual((credit.amount, credit.direction), (Decimal("9000"), DIRECTION_CREDIT))
 
-    def test_the_open_lines_are_the_two_unpaired_refunds_and_the_wallet_credit(self):
-        # The unpaired Collect payments are open lines too (#1595, `test_cashbook_collect`); here only money in.
+    def test_the_only_open_line_is_the_wallet_credit(self):
+        self.assertEqual([r.transfer_id for r in self.plan.opening], [WALLET_CREDIT])
         self.assertEqual(
-            [r.transfer_id for r in self.plan.opening if r.row_kind != "Collect Payment"],
-            ["REF-" + PART_SPEND, WALLET_CREDIT, EARLIER_REFUND],
+            [r.transfer_id for r in self.plan.refunding], ["REF-" + PART_SPEND, EARLIER_REFUND]
         )
         self.assertFalse(set(self.plan.opening) & set(self.plan.skipping))
 
@@ -124,10 +119,14 @@ class TestTheFixturesOpenLines(unittest.TestCase):
                 self.assertEqual((line.action, line.skip_kind), ("internal", None))
                 self.assertNotIn(line, self.plan.opening)
 
-    def test_an_unpaired_collect_payment_is_an_open_line(self):
-        """#1595: open and highlighted, while the one refunded in full is paired (above)."""
+    def test_an_unpaired_collect_payment_is_created_like_a_spend(self):
+        """#1708: created by the job, while the one refunded in full is paired (above)."""
         line = _by_id(self.plan, "OBO9000000000002CPNONE")
-        self.assertEqual((line.action, line.reason), (ACTION_OPEN, "Shop-requested payment, check it."))
+        self.assertEqual((line.action, line.reason), ("create", ""))
+
+
+# An unpaired refund: a Wallet refund expense since #1709, created where its spend is booked.
+UNPAIRED = ACTION_CREATE
 
 
 class TestThePairingRule(unittest.TestCase):
@@ -139,7 +138,7 @@ class TestThePairingRule(unittest.TestCase):
 
     def test_a_refund_of_a_different_amount_does_not_pair(self):
         plan = _plan([self._spend(amount="500"), self._refund(credit="499.99")])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, ACTION_OPEN])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, UNPAIRED])
 
     def test_paise_must_agree_exactly(self):
         plan = _plan([self._spend(amount="1825.40"), self._refund(credit="1825.40", kind="Credit Adjustment")])
@@ -148,23 +147,24 @@ class TestThePairingRule(unittest.TestCase):
     def test_one_spend_pairs_with_one_refund_only(self):
         second = self._refund(number=3, added_on=date(2026, 8, 2))  # a different date: not a repeat of the first
         plan = _plan([self._spend(), self._refund(number=2), second])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_SKIP, ACTION_OPEN])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_SKIP, UNPAIRED])
 
-    def test_a_spend_already_imported_earlier_leaves_its_refund_open(self):
+    def test_a_spend_already_imported_earlier_leaves_its_refund_unpaired(self):
         """The spend is on the file but is an exact repeat: its Expense already exists, so skipping the refund
         would leave that Expense standing for money that came back."""
         already = _sightings(("OBO1", "500", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
         plan = _plan([self._spend(), self._refund()], already=already)
-        self.assertEqual([(r.transfer_id, r.action) for r in plan.rows], [("REF-OBO1", ACTION_OPEN)])
+        self.assertEqual([(r.transfer_id, r.action) for r in plan.rows], [("REF-OBO1", UNPAIRED)])
 
     def test_a_spend_that_failed_does_not_pair(self):
         plan = _plan([self._spend(status="FAILED"), self._refund()])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_OPEN])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, UNPAIRED])
         self.assertEqual(plan.rows[0].reason, SKIP_NOT_SUCCESSFUL)
 
     def test_a_refund_names_its_spend_only_through_ref(self):
         plan = _plan([self._spend(), _row(2, "OBO1-R", "0", kind="Refund to Wallet", status="REFUNDED", credit="500")])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, ACTION_OPEN])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, UNPAIRED])
+        self.assertTrue(plan.rows[1].refunds)
 
     def test_a_wallet_credit_never_pairs(self):
         plan = _plan([self._spend(), _row(2, "REF-OBO1", "0", kind="Wallet Credit", credit="500")])
@@ -174,7 +174,7 @@ class TestThePairingRule(unittest.TestCase):
         row = _plan([self._refund(credit="0")]).rows[0]
         self.assertEqual(row.action, ACTION_SKIP)
 
-    def test_an_open_refund_is_kept_out_of_the_creating_total(self):
+    def test_a_refund_expense_is_kept_out_of_the_spend_total(self):
         plan = _plan([self._spend(amount="500"), self._refund(credit="200")])
         self.assertEqual(plan.total_value, Decimal("500"))
 

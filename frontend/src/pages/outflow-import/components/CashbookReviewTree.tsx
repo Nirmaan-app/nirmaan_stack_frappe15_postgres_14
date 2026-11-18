@@ -9,6 +9,7 @@ import {
     CashbookPreviewGroup,
     CashbookPreviewResult,
     DuplicateNotice,
+    cutoffNotice,
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
@@ -16,16 +17,14 @@ import {
     lateBillsHeading,
     ledgerSections,
     openLinesHeading,
-    pairSpendLabel,
-    pairsHeading,
     reopenedHeading,
     reopenedLabel,
+    spendsHeadline,
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
-import { collectPaymentsOf } from "../cashbookCollect";
+import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "../cashbookRefunds";
 import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
-import { CollectPaymentsReview } from "./CollectPaymentsReview";
 
 /**
  * What a Cashbook statement will create, grouped by where the money is going.
@@ -57,6 +56,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const [showSkipped, setShowSkipped] = useState(false);
     const sections = ledgerSections(preview.groups);
     const notice = duplicateNotice(preview);
+    const cutoff = cutoffNotice(preview);
     const invoices = invoiceCountsText(preview);
     const pairs = preview.pairs ?? [];
     const openLines = preview.open_lines ?? [];
@@ -69,6 +69,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const lateTitle = lateBillsHeading(lateBills);
     const reopened = preview.reopened ?? [];
     const reopenedTitle = reopenedHeading(reopened);
+    const refunds = preview.refunds ?? [];
+    const refundsTitle = refundsHeading(refunds);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -81,7 +83,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
         <div className="space-y-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
                 <p className="text-sm font-medium">
-                    {preview.creating} expense {preview.creating === 1 ? "record" : "records"}
+                    {spendsHeadline(preview)}
                     {preview.period_from && preview.period_to ? (
                         <span className="font-normal text-muted-foreground">
                             {" "}
@@ -96,8 +98,9 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
 
             {notice && <RepeatNotice notice={notice} />}
 
-            {/* #1595: Collect payments are highlighted, never recorded by the import. */}
-            <CollectPaymentsReview lines={collectPaymentsOf(preview)} />
+            {/* #1707: the lines dated before 1 Apr 2026, left out and not saved. */}
+            {cutoff && <RepeatNotice notice={cutoff} />}
+
 
             {/* #1591: what becomes of the bills, said before Create. */}
             {invoices && <p className="text-sm text-muted-foreground">{invoices}</p>}
@@ -136,6 +139,27 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                     </div>
                 ))}
             </div>
+
+            {/* #1709: each unpaired wallet refund, booked at minus its Credit where its spend is booked, with the spend
+                it reduces. Not in the groups or the total above, which are the spends. */}
+            {refundsTitle && (
+                <div className="rounded-md border">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{refundsTitle}</p>
+                    <div className="border-t">
+                        {refunds.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
+                                    {formatToRoundedIndianRupee(-line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{refundLabel(line)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* #1594: money that came in. Lines that stay open are shown, never folded away: each is a
                 decision someone still has to make. */}

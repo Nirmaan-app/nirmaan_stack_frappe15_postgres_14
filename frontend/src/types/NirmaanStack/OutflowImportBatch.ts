@@ -1,4 +1,3 @@
-import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 /**
  * Bulk Import Outflow -- the uploaded bank statement batch.
  *
@@ -356,17 +355,9 @@ export interface OutflowImportRow {
     source?: string;
     /**
      * Cashbook Statement only: the line's Type as the statement printed it ("Wallet Spend", "Collect Payment",
-     * ...), stored at staging (#1595). An open Collect payment offers only Create expense and Skip by hand
-     * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
+     * ...), stored at staging (#1595). Blank on every other source and on older Cashbook lines.
      */
     row_kind?: string | null;
-    /**
-     * An open Collect payment's bill, copied at import (#1595), and its Bill check kept on the line (#1642:
-     * Checking / Matched / Mismatched / Not read / Not checked). The decide screen says "Invoice already available"
-     * and what Create will lead to (`cashbookCollect.collectBillOutcome`). Blank on every other line.
-     */
-    stored_bill?: string | null;
-    bill_check?: BillCheck | null;
     /**
      * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
      * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped
@@ -486,6 +477,10 @@ export interface OutflowImportOption {
      * leave. Optional: an older server does not send it.
      */
     repeats_not_saved?: number;
+    /** #1707: a Cashbook import's lines dated before 1 Apr 2026, left out and not saved. */
+    lines_before_cutoff?: number;
+    /** #1707: the server's sentence for them ("14 lines before 1 Apr 2026 left out"), blank when there are none. */
+    before_cutoff_note?: string;
     /**
      * Money that actually left the account. Bank-refused transfers were never in it, and since
      * #1287 neither are money-IN lines — this is the statement's withdrawals, not its net movement.

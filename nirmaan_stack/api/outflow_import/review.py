@@ -53,13 +53,8 @@ from nirmaan_stack.api.outflow_import.internal_transfers import (
     internal_transfer_fields,
 )
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
-from nirmaan_stack.api.outflow_import.permissions import (
-    has_outflow_undo_access,
-    require_outflow_access,
-)
+from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
-from nirmaan_stack.services.expense_bills.bill_list import stopped_sql
-from nirmaan_stack.services.expense_bills.reading import stopped_before
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -122,10 +117,7 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
-from nirmaan_stack.services.outflow_import.cashbook_collect import (
-    COLLECT_PAYMENT_SKIP_REFUSAL,
-    is_collect_payment_line,
-)
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note
 from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
@@ -1460,9 +1452,6 @@ def skip_row(row: str, reason: str):
       * EVERYONE IN THE MODULE (`require_outflow_access`) -- Accountant, Accountant Lead, Admin. It was
         Admin + Accountant Lead only until owner ruling 2026-09-24 (ADR-0022 Amendment E) opened Skip and
         Unskip to a plain Accountant; Unreconcile and Reverse stay on `require_outflow_undo_access`.
-        ONE EXCEPTION: an open Collect payment (spec #1585 story 39) is skipped by an Admin or an Accountant
-        Lead only (`has_outflow_undo_access`), because skipping it closes on record a payment that left the
-        company.
       * OPEN LINES ONLY (`skip_origin.manual_skip_refusal`) -- Cashbook too since #1314, bar a line its
         own job has not written yet. The old endpoint accepted
         an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
@@ -1487,7 +1476,7 @@ def skip_row(row: str, reason: str):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
-            ["name", "import_batch", "row_status", "direction", "source", "row_kind", "match_basis"],
+            ["name", "import_batch", "row_status", "direction", "match_basis"],
             as_dict=True,
             for_update=True,
         )
@@ -1504,8 +1493,6 @@ def skip_row(row: str, reason: str):
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
-        if is_collect_payment_line(current.source, current.row_kind) and not has_outflow_undo_access(actor):
-            frappe.throw(COLLECT_PAYMENT_SKIP_REFUSAL, frappe.PermissionError, title="Not permitted")
 
         doc = frappe.get_doc(ROW_DOCTYPE, row)
         doc.update(
@@ -2990,19 +2977,11 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
-               -- Cashbook Statement only: the line's Type (#1595). An open Collect payment offers Create expense
-               -- and Skip by hand only (spec #1585), and the screen tells it apart by this.
+               -- Cashbook Statement only: the line's Type as the statement printed it (#1595).
                r.row_kind,
                -- Cashbook Statement only: a Paired wallet refund's other line, by Txn Id (#1602). The Skipped
                -- popup shows "Paired with <it>" under the tag.
                r.cashbook_refund_partner,
-               -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
-               -- "Invoice already available" and what Create will lead to. A line left Checking by a reading
-               -- that stopped (`expense_bills.bill_list.stopped_sql`; the cutoff is the FIRST parameter of this
-               -- query) has no result for Create to carry, so it ships none, as a line stored before #1642
-               -- does: the dialog then says "Will be read on Create", which is what Create does.
-               r.stored_bill,
-               CASE WHEN {stopped_sql("r", "%s")} THEN NULL ELSE r.bill_check END AS bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
@@ -3044,7 +3023,7 @@ def get_outflow_rows(
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
         """,
-        (stopped_before(), *all_params, limit, offset),
+        (*all_params, limit, offset),
         as_dict=True,
     )
 
@@ -4109,7 +4088,8 @@ def list_imports(limit=60, sources=None, month=None):
     imports = frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-               b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
+               b.total_rows, b.repeats_not_saved, b.lines_before_cutoff, b.gross_amount, b.uploaded_at,
+               b.uploaded_by,
                COUNT(r.name) FILTER (
                    WHERE UPPER(COALESCE(r.status_raw, '')) = %s
                      AND TRIM(COALESCE(r.direction, '')) = %s
@@ -4118,8 +4098,8 @@ def list_imports(limit=60, sources=None, month=None):
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
         {where_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-                 b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
-                 b.creation
+                 b.total_rows, b.repeats_not_saved, b.lines_before_cutoff, b.gross_amount, b.uploaded_at,
+                 b.uploaded_by, b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         {limit_clause}
         """,
@@ -4155,6 +4135,8 @@ def list_imports(limit=60, sources=None, month=None):
     for row in imports:
         if row["name"] in holders:
             row["card_holder"] = holders[row["name"]]
+        # #1707: a Cashbook import's lines before 1 Apr 2026, left out; blank on every other import.
+        row["before_cutoff_note"] = before_cutoff_note(row.get("lines_before_cutoff") or 0)
     return imports
 
 

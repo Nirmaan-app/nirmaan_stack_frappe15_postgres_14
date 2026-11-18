@@ -76,12 +76,17 @@ export const canUploadPaidInvoices = (role?: string | null): boolean =>
 
 /**
  * The Upload / Edit Inv button on a row: a Paid expense (either ledger; Project Expenses since 2026-10-07),
- * for `PAID_INVOICE_PROFILES`. A PO / WO payment never: its invoices are Vendor Invoices.
+ * for `PAID_INVOICE_PROFILES`. A PO / WO payment never: its invoices are Vendor Invoices. A refund never
+ * (amount below zero: a card refund or a wallet refund needs no bill; #1709, owner 2026-11-18).
  */
-export const canUploadInvoiceRow = (row: QueueRowLike, role: string | null | undefined): boolean =>
+export const canUploadInvoiceRow = (
+  row: QueueRowLike & Partial<Pick<ApprovalQueueRow, "amount">>,
+  role: string | null | undefined,
+): boolean =>
   canUploadPaidInvoices(role) &&
   EXPENSE_DOCTYPES.includes(row.doctype) &&
-  isPaidExpense(row.status);
+  isPaidExpense(row.status) &&
+  !(Number(row.amount) < 0);
 
 /** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
 export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>
