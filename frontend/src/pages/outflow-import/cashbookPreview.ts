@@ -68,6 +68,13 @@ export interface CashbookRefundLine extends CashbookSkippedRow {
     expense_type: string;
 }
 
+/** #1720: a Wallet Credit, created at minus its Credit where its remark places it (`cashbookCredits.ts`). */
+export interface CashbookCreditLine extends CashbookSkippedRow {
+    ledger: string;
+    project_name: string;
+    expense_type: string;
+}
+
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
 export interface CashbookRefundPair {
     refund: CashbookSkippedRow;
@@ -82,7 +89,7 @@ export interface CashbookPreviewResult {
     period_to: string | null;
     total_rows: number;
     creating: number;
-    /** #1709 code review: the spends among `creating` (the wallet refunds left out), the count `total_value` sums. */
+    /** #1709 code review: the spends among `creating` (wallet refunds and credits left out), the count `total_value` sums. */
     spending: number;
     skipping: number;
     total_value: number;
@@ -110,10 +117,12 @@ export interface CashbookPreviewResult {
     records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
-    /** #1594: the lines that stay open on the main table (wallet credits; an unpaired refund since #1709 is below). */
+    /** #1594: the lines that stay open on the main table; none since #1720 (refunds and credits are below). */
     open_lines?: CashbookSkippedRow[];
     /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
     refunds?: CashbookRefundLine[];
+    /** #1720: the Wallet Credits, booked at minus their Credit where their remarks place them. */
+    credits?: CashbookCreditLine[];
     opening?: number;
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];

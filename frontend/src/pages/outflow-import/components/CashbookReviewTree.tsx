@@ -24,6 +24,7 @@ import {
     typeLabel,
 } from "../cashbookPreview";
 import { pairSpendLabel, pairsHeading, refundLabel, refundsHeading } from "../cashbookRefunds";
+import { creditLabel, creditsHeading } from "../cashbookCredits";
 import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
 
 /**
@@ -71,6 +72,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const reopenedTitle = reopenedHeading(reopened);
     const refunds = preview.refunds ?? [];
     const refundsTitle = refundsHeading(refunds);
+    const credits = preview.credits ?? [];
+    const creditsTitle = creditsHeading(credits);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -155,6 +158,27 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                                     {formatToRoundedIndianRupee(-line.amount)}
                                 </span>
                                 <span className="min-w-0 flex-1 truncate">{refundLabel(line)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1720: each Wallet Credit, booked at minus its Credit where its remark places it. Not in the groups or the
+                total above, which are the spends. */}
+            {creditsTitle && (
+                <div className="rounded-md border">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{creditsTitle}</p>
+                    <div className="border-t">
+                        {credits.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
+                                    {formatToRoundedIndianRupee(-line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{creditLabel(line)}</span>
                             </div>
                         ))}
                     </div>
