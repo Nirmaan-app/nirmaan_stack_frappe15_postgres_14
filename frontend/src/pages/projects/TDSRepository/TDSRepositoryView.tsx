@@ -4,7 +4,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ArrowLeft, Download, Loader2, Plus } from 'lucide-react';
-import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
 import { useNirmaanUserNames, useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
@@ -14,6 +13,8 @@ import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, T
 import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel, projectHistoryTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
 import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
 import { useCounts } from '@/hooks/useCounts';
+import { collectResultFile, useBackgroundOperation } from '@/hooks/useBackgroundOperation';
+import { parseResultFile, type OpView } from '@/utils/backgroundOps/operationFollower';
 
 const ROW_DOCTYPE = "Project TDS Item List";
 
@@ -38,19 +39,13 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     // The request form replaces the tab row and tables while open; both stay mounted.
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
-    const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
-    const [exportProgress, setExportProgress] = useState(0);
-    const [exportProgressMessage, setExportProgressMessage] = useState("");
-    const [isConvertingToA4, setIsConvertingToA4] = useState(false);
+    // The finished PDF is being fetched; the export's own state is the operation's (`exportOp.view`).
+    const [isDelivering, setIsDelivering] = useState(false);
     const [pdfReadyBlobUrl, setPdfReadyBlobUrl] = useState<string | null>(null);
     const [pdfReadyFilename, setPdfReadyFilename] = useState<string>("");
     const [pdfReadySizeBytes, setPdfReadySizeBytes] = useState<number>(0);
     const [isPdfReadyOpen, setIsPdfReadyOpen] = useState(false);
-    const { socket } = React.useContext(FrappeContext) as FrappeConfig;
-
-    // Remove the useEffect listener as we'll manage it in the handler like Bulk Download
-
 
     // Fetch TDS history data directly for export
     const { data: historyData, mutate: mutateHistoryItems } = useTdsHistoryItems(projectId);
@@ -201,9 +196,6 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         }
     };
 
-    // Export handler — enqueues a backend worker, then awaits Socket.IO events
-    // (tds_export_progress / tds_export_ready / tds_export_failed) to drive the
-    // progress UI and trigger the final download.
     const triggerBrowserDownload = (url: string, filename: string) => {
         const link = document.createElement("a");
         link.href = url;
@@ -230,6 +222,65 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         handlePdfReadyClose();
     };
 
+    /* The export is a background operation (ADR 0047): this tab follows its own operation's status record, so
+       two tabs never swap PDFs, a dropped socket still ends in the download, and a reload picks it up again. */
+    const deliverPdf = async (result: unknown, context: unknown, opId: string) => {
+        const previewOnly = typeof context === "object" && context !== null && "previewOnly" in context
+            && context.previewOnly === true;
+        const failedItems = typeof result === "object" && result !== null && "failed_items" in result
+            && Array.isArray(result.failed_items) ? result.failed_items.map(String) : [];
+        const dateStr = format(new Date(), "dd-MMM-yyyy");
+        const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_");
+        const finalName = parseResultFile(result)?.filename || `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
+        setIsDelivering(true);
+        try {
+            const blob = await collectResultFile(opId);
+            const objectUrl = window.URL.createObjectURL(blob);
+            setIsExportDialogOpen(false);
+            const warning = failedItems.length ? `Some attachments failed: ${failedItems.join(", ")}` : null;
+            if (previewOnly) {
+                // Revoke any previous preview blob before replacing it, so back-to-back exports don't leak it.
+                setPdfReadyBlobUrl((prev) => {
+                    if (prev) window.URL.revokeObjectURL(prev);
+                    return objectUrl;
+                });
+                setPdfReadyFilename(finalName);
+                setPdfReadySizeBytes(blob.size);
+                setIsPdfReadyOpen(true);
+                toast(warning
+                    ? { title: "Ready with warnings", description: warning }
+                    : { title: "PDF ready", description: "Preview or download your TDS report." });
+            } else {
+                triggerBrowserDownload(objectUrl, finalName);
+                window.URL.revokeObjectURL(objectUrl);
+                toast(warning
+                    ? { title: "Exported with warnings", description: warning }
+                    : { title: "Success", description: "Report downloaded successfully." });
+            }
+        } catch (error) {
+            console.error("Download failed", error);
+            toast({
+                title: "Error",
+                description: error instanceof Error ? error.message : "Failed to download report.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDelivering(false);
+        }
+    };
+
+    const exportOp = useBackgroundOperation({
+        storageKey: `tds_export:${projectId}`,
+        onFinished: deliverPdf,
+        onFailed: (ended) => toast({
+            title: ended.phase === "lost" ? "Export stopped" : "Export failed",
+            description: ended.error,
+            variant: "destructive",
+        }),
+    });
+    const isExporting = isDelivering || ["starting", "queued", "running"].includes(exportOp.view.phase);
+    const { percent: exportProgress, message: exportProgressMessage } = exportProgressOf(exportOp.view, isDelivering);
+
     const handleExportWithItems = async (selectedItems: TdsExportItem[], { previewOnly }: TdsExportOptions) => {
         if (!selectedItems || selectedItems.length === 0) {
             toast({
@@ -239,151 +290,23 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             });
             return;
         }
-
-        if (!socket) {
-            toast({
-                title: "Connection not ready",
-                description: "Live connection unavailable. Please retry in a moment.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        setIsExporting(true);
-        setExportProgress(0);
-        setExportProgressMessage("Queueing export...");
-
-        const cleanup = () => {
-            socket.off("tds_export_progress");
-            socket.off("tds_export_ready");
-            socket.off("tds_export_failed");
+        const settings = {
+            client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null, enabled: data.client.enabled },
+            projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null, enabled: data.projectManager.enabled },
+            architect: { name: data.architect.name, logo: typeof data.architect.logo === 'string' ? data.architect.logo : null, enabled: data.architect.enabled },
+            consultant: { name: data.consultant.name, logo: typeof data.consultant.logo === 'string' ? data.consultant.logo : null, enabled: data.consultant.enabled },
+            gcContractor: { name: data.gcContractor.name, logo: typeof data.gcContractor.logo === 'string' ? data.gcContractor.logo : null, enabled: data.gcContractor.enabled },
+            mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null, enabled: data.mepContractor.enabled },
         };
-
-        // Progress from the worker (via merge_pdfs_interleaved)
-        socket.on("tds_export_progress", (d: any) => {
-            if (d.progress !== undefined) setExportProgress(d.progress);
-            if (d.message) setExportProgressMessage(d.message);
-            if (d.status === "converting") setIsConvertingToA4(true);
-            if (d.status === "completed") setIsConvertingToA4(false);
-        });
-
-        // Completion — fetch the temp file by token and trigger download
-        socket.on("tds_export_ready", async ({ token, filename, failed_items }: any) => {
-            try {
-                const dateStr = format(new Date(), "dd-MMM-yyyy");
-                const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_");
-                const fallbackName = `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
-                const finalName = filename || fallbackName;
-
-                const url =
-                    `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file` +
-                    `?token=${encodeURIComponent(token)}&filename=${encodeURIComponent(finalName)}`;
-
-                const resp = await fetch(url, {
-                    method: "GET",
-                    headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" },
-                });
-                if (!resp.ok) throw new Error("Failed to fetch generated PDF");
-                const blob = await resp.blob();
-
-                const objectUrl = window.URL.createObjectURL(blob);
-                setIsExportDialogOpen(false);
-
-                if (previewOnly) {
-                    // Revoke any previous preview blob before replacing it, so
-                    // back-to-back exports don't leak the earlier object URL.
-                    setPdfReadyBlobUrl((prev) => {
-                        if (prev) window.URL.revokeObjectURL(prev);
-                        return objectUrl;
-                    });
-                    setPdfReadyFilename(finalName);
-                    setPdfReadySizeBytes(blob.size);
-                    setIsPdfReadyOpen(true);
-                    if (failed_items && failed_items.length) {
-                        toast({
-                            title: "Ready with warnings",
-                            description: `Some attachments failed: ${failed_items.join(", ")}`,
-                        });
-                    } else {
-                        toast({ title: "PDF ready", description: "Preview or download your TDS report." });
-                    }
-                } else {
-                    triggerBrowserDownload(objectUrl, finalName);
-                    window.URL.revokeObjectURL(objectUrl);
-                    if (failed_items && failed_items.length) {
-                        toast({
-                            title: "Exported with warnings",
-                            description: `Some attachments failed: ${failed_items.join(", ")}`,
-                        });
-                    } else {
-                        toast({ title: "Success", description: "Report downloaded successfully." });
-                    }
-                }
-            } catch (error: any) {
-                console.error("Download failed", error);
-                toast({
-                    title: "Error",
-                    description: error.message || "Failed to download report.",
-                    variant: "destructive",
-                });
-            } finally {
-                setIsExporting(false);
-                setIsConvertingToA4(false);
-                cleanup();
-            }
-        });
-
-        socket.on("tds_export_failed", ({ message }: any) => {
-            toast({
-                title: "Export failed",
-                description: message || "Please retry.",
-                variant: "destructive",
-            });
-            setIsExporting(false);
-            setIsConvertingToA4(false);
-            cleanup();
-        });
-
-        try {
-            // Same settings payload as before
-            const settings = {
-                client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null, enabled: data.client.enabled },
-                projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null, enabled: data.projectManager.enabled },
-                architect: { name: data.architect.name, logo: typeof data.architect.logo === 'string' ? data.architect.logo : null, enabled: data.architect.enabled },
-                consultant: { name: data.consultant.name, logo: typeof data.consultant.logo === 'string' ? data.consultant.logo : null, enabled: data.consultant.enabled },
-                gcContractor: { name: data.gcContractor.name, logo: typeof data.gcContractor.logo === 'string' ? data.gcContractor.logo : null, enabled: data.gcContractor.enabled },
-                mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null, enabled: data.mepContractor.enabled },
-            };
-
-            const resp = await fetch('/api/method/nirmaan_stack.api.tds.tds_report.export_tds_report', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Frappe-CSRF-Token': (window as any).csrf_token || ''
-                },
-                body: JSON.stringify({
-                    settings_json: JSON.stringify(settings),
-                    items_json: JSON.stringify(selectedItems),
-                    project_name: projectName,
-                }),
-            });
-
-            if (!resp.ok) throw new Error("Failed to queue export");
-            toast({
-                title: "Export queued",
-                description: "We'll download the PDF automatically when it's ready.",
-            });
-        } catch (error: any) {
-            console.error("Enqueue failed", error);
-            toast({
-                title: "Error",
-                description: error.message || "Failed to queue export.",
-                variant: "destructive",
-            });
-            setIsExporting(false);
-            setIsConvertingToA4(false);
-            cleanup();
-        }
+        await exportOp.start(
+            "nirmaan_stack.api.tds.tds_report.start_tds_export",
+            {
+                settings_json: JSON.stringify(settings),
+                items_json: JSON.stringify(selectedItems),
+                project_name: projectName,
+            },
+            { previewOnly: !!previewOnly },
+        );
     };
 
     return (
@@ -554,7 +477,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             />
 
             {/* Progress Dialog */}
-            <Dialog open={isExporting} onOpenChange={(open) => !isExporting && setIsExporting(open)}>
+            <Dialog open={isExporting}>
                 <DialogContent
                     className="sm:max-w-md w-[28rem] max-w-[28rem] [&>button]:hidden"
                     onPointerDownOutside={(e) => e.preventDefault()}
@@ -581,19 +504,20 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                         >
                             {exportProgress}% - {exportProgressMessage}
                         </p>
-                        {/* Reserve a fixed slot for the A4 indicator so the dialog stays the
-                            same height whether it's visible or not. */}
-                        <div className="h-5 flex items-center justify-center">
-                            {isConvertingToA4 && (
-                                <div className="flex items-center text-xs text-red-600 font-medium animate-pulse">
-                                    <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                                    Converting attachment to A4...
-                                </div>
-                            )}
-                        </div>
                     </div>
                 </DialogContent>
             </Dialog>
         </div>
     );
 };
+
+/** What the progress dialog says for the export's state: queued apart from running, then the record's progress. */
+function exportProgressOf(view: OpView, isDelivering: boolean): { percent: number; message: string } {
+    if (isDelivering) return { percent: 100, message: "Downloading the PDF..." };
+    switch (view.phase) {
+        case "starting": return { percent: 0, message: "Starting export..." };
+        case "queued": return { percent: 0, message: "Waiting in the queue for a free worker..." };
+        case "running": return { percent: view.progress?.percent ?? 0, message: view.progress?.message ?? "Running..." };
+        default: return { percent: 0, message: "" };
+    }
+}

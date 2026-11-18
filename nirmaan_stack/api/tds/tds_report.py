@@ -4,11 +4,49 @@ import uuid
 from frappe.utils.pdf import get_pdf
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import merge_pdfs_interleaved
 from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
+from nirmaan_stack.services import background_ops
+
+
+#: Time limit of one export, counted from when it starts running.
+EXPORT_TIMEOUT_SECONDS = 600
+
+
+@frappe.whitelist(methods=["POST"])
+def start_tds_export(op_id: str, settings_json: str, items_json: str, project_name: str = "TDS_Report"):
+    """Start a TDS PDF export from the TDS Repository as a background operation (ADR 0047) and return its record.
+
+    The browser makes `op_id`. The screen follows the export with `api/background_ops.get_status` and collects
+    the PDF with `collect_result`; only the user who started it can do either.
+    """
+    return background_ops.start(
+        "tds_export",
+        "nirmaan_stack.api.tds.tds_report.tds_export_op",
+        op_id=op_id,
+        timeout=EXPORT_TIMEOUT_SECONDS,
+        settings_json=settings_json,
+        items_json=items_json,
+        project_name=project_name,
+    )
+
+
+def tds_export_op(settings_json, items_json, project_name):
+    """The work of `start_tds_export`: the TDS report PDF, kept privately for the operation's owner."""
+    merged_pdf, failed_items = build_tds_report_pdf(
+        settings_json, items_json, on_progress=background_ops.set_progress
+    )
+    background_ops.write_result_file(merged_pdf, _export_filename(project_name))
+    return {"failed_items": failed_items or []}
+
+
+def _export_filename(project_name):
+    clean_name = frappe.scrub(project_name).replace("_", " ").title().replace(" ", "_")
+    return f"TDS_Report_{clean_name}_{frappe.utils.nowdate()}.pdf"
 
 
 @frappe.whitelist()
 def export_tds_report(settings_json: str, items_json: str, project_name: str = "TDS_Report"):
-    """Enqueue a TDS PDF export and return immediately.
+    """Enqueue a TDS PDF export and return immediately. The Handover export's path (`useHodTdsExport`) until it
+    moves to `start_tds_export` (#1663); the TDS Repository uses `start_tds_export`.
 
     The worker publishes:
       * `tds_export_progress` — per-item progress (via merge_pdfs_interleaved).
@@ -120,13 +158,14 @@ def _enrich_derived_cells(items):
             it["tds_member_names"] = ""
 
 
-def build_tds_report_pdf(settings, items, progress_event: str = None) -> tuple:
+def build_tds_report_pdf(settings, items, progress_event: str = None, on_progress=None) -> tuple:
     """THE TDS report: the "Project TDS Report" print format over `settings` + `items`, with each
     item's attached data sheet merged in after its row. Returns (pdf_bytes, failed_items).
 
     Split out of `run_tds_export_job` so the Handover Documents binder can put the SAME document in
     (`api/hod/tds_pack.py`) instead of stapling the loose data sheets together -- one renderer, so the
-    two can never drift. `progress_event` is the export screen's; the binder passes none.
+    two can never drift. `progress_event` is the Handover export screen's realtime event and `on_progress` a
+    background operation's progress (`merge_pdfs_interleaved`); the binder passes neither.
     """
     settings = json.loads(settings) if isinstance(settings, str) else settings
     items = json.loads(items) if isinstance(items, str) else items
@@ -147,7 +186,7 @@ def build_tds_report_pdf(settings, items, progress_event: str = None) -> tuple:
     template = frappe.render_template(print_format.html, {"frappe": frappe, "json": json})
     base_pdf = get_pdf(template)
 
-    return merge_pdfs_interleaved(base_pdf, items, progress_event=progress_event)
+    return merge_pdfs_interleaved(base_pdf, items, progress_event=progress_event, on_progress=on_progress)
 
 
 def run_tds_export_job(user, settings_json, items_json, project_name):
@@ -165,8 +204,7 @@ def run_tds_export_job(user, settings_json, items_json, project_name):
         with open(get_temp_path(token), "wb") as f:
             f.write(merged_pdf)
 
-        clean_name = frappe.scrub(project_name).replace("_", " ").title().replace(" ", "_")
-        filename = f"TDS_Report_{clean_name}_{frappe.utils.nowdate()}.pdf"
+        filename = _export_filename(project_name)
 
         frappe.publish_realtime(
             "tds_export_ready",
