@@ -49,7 +49,10 @@ past imports by source and month.
   lines reads `Not imported. All N lines in '<file>' are dated before 1 Apr 2026 …` with `Create 0 records` disabled.
 - `bit-cashbook-1711` the stories above, with a Collect payment's pairing and its Skip by hand once open, are walked
   by `BIN/walk_cashbook_refunds.py` (seed `BIN/cashbook_refunds_seed.py`, DB read `BIN/cashbook_refunds_db.py`), as
-  an Accountant and an Accountant Lead.
+  an Accountant and an Accountant Lead. Its step 12 (`--part tier-export` alone) exports Project Payment & Expense
+  -> Payment Done / Reconciliation Done and holds the CSV's Tier to the DB: SYSTEM on every Expense an import made
+  (#1710; the screen shows no Tier column since 7c9bcdf81, only the export), AUTO / L1 / L1+L2 on the rest
+  (`BIN/approval_tier_export_db.py`).
 
 ## How to get to it (user POV)
 
