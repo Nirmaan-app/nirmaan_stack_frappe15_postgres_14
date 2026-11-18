@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 import type { GSTPaymentRequestRow, GstRequestStatus } from "@/types/NirmaanStack/GSTPaymentRequest";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { GST_REQUEST_CHIP, lookupCell, mergeLookup, type LookupRecord } from "@/utils/gstPaymentRequests";
+import {
+	GST_REQUEST_CHIP, gstRequestColumnsFor, gstRequestHasActions, lookupCell, mergeLookup, type LookupRecord,
+} from "@/utils/gstPaymentRequests";
 import { urlStateManager } from "@/utils/urlStateManager";
 
 import { VendorDetailPopover } from "../components/DetailPopovers";
@@ -28,9 +30,11 @@ const STATUS_PARAM = "gst_status";
 
 /** A request as the table reads it: the doctype's own fields. */
 type GstRequestDoc = Pick<GSTPaymentRequestRow,
-	"name" | "work_order" | "project" | "vendor" | "amount" | "status" | "owner" | "creation" | "review_comment" | "project_payment">;
+	"name" | "work_order" | "project" | "vendor" | "amount" | "status" | "owner" | "creation" | "review_comment" | "project_payment"
+	| "reviewed_by" | "reviewed_on">;
 
-const FETCH_FIELDS = ["name", "work_order", "project", "vendor", "amount", "status", "owner", "creation", "review_comment", "project_payment"];
+const FETCH_FIELDS = ["name", "work_order", "project", "vendor", "amount", "status", "owner", "creation", "review_comment", "project_payment",
+	"reviewed_by", "reviewed_on"];
 
 const SEARCHABLE_FIELDS: SearchFieldOption[] = [
 	{ value: "work_order", label: "Work Order", placeholder: "Search by Work Order", default: true },
@@ -80,6 +84,9 @@ const useLookup = (doctype: string, fields: string[], ids: string[]) => {
 /** A cell's text while its record has not been read yet: a placeholder, never the raw id or "No GSTIN". */
 const Loading = () => <span className="inline-block h-3 w-24 animate-pulse rounded bg-muted align-middle" aria-label="Loading" />;
 
+/** An empty cell on the "All" pill (no button, not decided yet): a quiet dash, so it does not look broken. */
+const Nothing = () => <span className="text-muted-foreground">—</span>;
+
 /** A looked-up cell (`lookupCell`): its name, a placeholder while it is read, or the id when there is no record. */
 const LookupText = ({ id, text, loading }: { id: string; text?: string; loading: boolean }) => {
 	const cell = lookupCell(id, text, loading);
@@ -103,7 +110,10 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 
 	const { records: projectRows, loading: projectsLoading } = useLookup("Projects", ["project_name"], useMemo(() => rowsForNames.map((r) => r.project), [rowsForNames]));
 	const { records: vendorRows, loading: vendorsLoading } = useLookup("Vendors", ["vendor_name", "vendor_gst"], useMemo(() => rowsForNames.map((r) => r.vendor), [rowsForNames]));
-	const { records: userRows, loading: usersLoading } = useLookup("Nirmaan Users", ["full_name"], useMemo(() => rowsForNames.map((r) => r.owner), [rowsForNames]));
+	// Raisers and reviewers in one read: both are users.
+	const { records: userRows, loading: usersLoading } = useLookup("Nirmaan Users", ["full_name"],
+		useMemo(() => rowsForNames.flatMap((r) => [r.owner, r.reviewed_by ?? ""]), [rowsForNames]));
+	const shown = gstRequestColumnsFor(status);
 	const projects = useMemo(() => Object.fromEntries(Object.entries(projectRows).map(([k, v]) => [k, v.project_name])), [projectRows]);
 	const vendors = useMemo(() => Object.fromEntries(Object.entries(vendorRows).map(([k, v]) => [k, v.vendor_name])), [vendorRows]);
 	const gstins = useMemo(() => Object.fromEntries(Object.entries(vendorRows).map(([k, v]) => [k, (v.vendor_gst || "").trim()])), [vendorRows]);
@@ -114,9 +124,30 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 	// it, and are not rebuilt when only the filter or page changes.
 	const refetchRef = useRef<() => void>(() => {});
 
+	// Who approved or rejected it, and when; not on Pending, where nobody has yet (`gstRequestColumnsFor`).
+	const reviewedColumn = useMemo<ColumnDef<GstRequestDoc>>(() => ({
+		accessorKey: "reviewed_on",
+		header: ({ column }) => <DataTableColumnHeader column={column} title="Reviewed" />,
+		cell: ({ row }) => {
+			const { reviewed_by: by, reviewed_on: on } = row.original;
+			if (!by) return <Nothing />;
+			return (
+				<div className="min-w-0">
+					<LookupText id={by} text={users[by]} loading={usersLoading} />
+					{on && <span className="block whitespace-nowrap text-[11px] text-muted-foreground">{formatDate(on)}</span>}
+				</div>
+			);
+		},
+		size: 155,
+		meta: {
+			exportHeaderName: "Reviewed",
+			exportValue: (r: GstRequestDoc) => (r.reviewed_by ? `${users[r.reviewed_by] || r.reviewed_by}${r.reviewed_on ? `, ${formatDate(r.reviewed_on)}` : ""}` : ""),
+		},
+	}), [users, usersLoading]);
+
 	// The data table stretches every column by its share of any spare width, so no one column is sized much
 	// larger than the others: a wide screen then spreads the spare evenly instead of leaving one big gap.
-	const columns = useMemo<ColumnDef<GstRequestDoc>[]>(() => [
+	const columns =useMemo<ColumnDef<GstRequestDoc>[]>(() => [
 		{
 			accessorKey: "work_order",
 			header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />,
@@ -125,7 +156,7 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 					{row.original.work_order}
 				</Link>
 			),
-			size: 145,
+			size: 140,
 			enableColumnFilter: true,
 			meta: { ...facetMeta({ field: "work_order", title: "Work Order" }), exportHeaderName: "Work Order", exportValue: (r: GstRequestDoc) => r.work_order },
 		},
@@ -162,7 +193,7 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			accessorKey: "amount",
 			header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" />,
 			cell: ({ row }) => <span className="font-semibold tabular-nums">{formatToIndianRupee(row.original.amount)}</span>,
-			size: 120,
+			size: 110,
 			meta: { exportHeaderName: "GST Amount", exportValue: (r: GstRequestDoc) => r.amount },
 		},
 		{
@@ -177,7 +208,7 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			accessorKey: "creation",
 			header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
 			cell: ({ row }) => <span className="whitespace-nowrap">{formatDate(row.original.creation)}</span>,
-			size: 120,
+			size: 105,
 			meta: { exportHeaderName: "Created", exportValue: (r: GstRequestDoc) => formatDate(r.creation) },
 		},
 		{
@@ -213,10 +244,12 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			size: 100,
 			meta: { exportHeaderName: "Status", exportValue: (r: GstRequestDoc) => r.status },
 		},
-		...(canDecide ? [{
+		...(shown.reviewed ? [reviewedColumn] : []),
+		// Only where a row can have a button: none on Approved or Paid, which go only with their payment.
+		...(canDecide && shown.actions ? [{
 			id: "actions",
 			header: () => <span>Actions</span>,
-			cell: ({ row }: { row: { original: GstRequestDoc } }) => (
+			cell: ({ row }: { row: { original: GstRequestDoc } }) => !gstRequestHasActions(row.original.status) ? <Nothing /> : (
 				<div className="flex items-center gap-0.5">
 					{row.original.status === "Pending" && <>
 						<Button size="icon" variant="ghost" className="h-6 w-6 text-green-700 hover:bg-green-50 hover:text-green-800 dark:text-green-400"
@@ -238,7 +271,7 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			enableSorting: false,
 		} as ColumnDef<GstRequestDoc>] : []),
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	], [canDecide, projects, vendors, gstins, users, projectsLoading, vendorsLoading, usersLoading, onDecided]);
+	], [canDecide, shown.actions, shown.reviewed, reviewedColumn, projects, vendors, gstins, users, projectsLoading, vendorsLoading, usersLoading, onDecided]);
 
 	const {
 		table, data, totalCount, isLoading, error, refetch,
