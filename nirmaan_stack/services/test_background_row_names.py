@@ -42,14 +42,16 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
-    def assert_overlapping_inserts_both_commit(self, doctype, fields):
+    def assert_overlapping_inserts_both_commit(self, doctype, fields, on_boq=True):
         """Insert one `doctype` row on each of two overlapping transactions; assert both commit.
 
-        `fields(n)` gives the n-th row's own fields (beside `boq` and `sheet_name`)."""
+        `fields(n)` gives the n-th row's own fields, beside `boq` and `sheet_name` when `on_boq` (a doctype
+        that does not hang off a BoQ passes `on_boq=False` and gives all its fields)."""
         made = []
+        base = {"boq": self.boq, "sheet_name": SHEET} if on_boq else {}
 
         def insert(n):
-            doc = frappe.get_doc({"doctype": doctype, "boq": self.boq, "sheet_name": SHEET, **fields(n)})
+            doc = frappe.get_doc({"doctype": doctype, **base, **fields(n)})
             doc.insert(ignore_permissions=True)
             frappe.db.commit()
             made.append(doc.name)
@@ -92,4 +94,20 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
     def test_two_overlapping_rate_match_run_inserts_both_commit(self):
         self.assert_overlapping_inserts_both_commit(
             "BoQ Rate Match Run", lambda n: {"commit_version": 0, "status": "queued", "active": 0}
+        )
+
+    def test_two_overlapping_cell_pricing_inserts_both_commit(self):
+        self.assert_overlapping_inserts_both_commit(
+            "BoQ Cell Pricing",
+            lambda n: {"excel_row": n, "col_letter": "F", "committed_version": 1, "pricing_version": 1,
+                       "is_current": 1, "rate": 100},
+        )
+
+    def test_two_overlapping_action_item_inserts_both_commit(self):
+        self.assert_overlapping_inserts_both_commit(
+            "Project Action Item",
+            lambda n: {"project": self.project.name, "action_type": "DN_PENDING", "reference_doctype": "Projects",
+                       "reference_name": self.project.name, "status": "Open",
+                       "dedup_key": f"row-names-clash-{frappe.generate_hash(length=10)}-{n}"},
+            on_boq=False,
         )

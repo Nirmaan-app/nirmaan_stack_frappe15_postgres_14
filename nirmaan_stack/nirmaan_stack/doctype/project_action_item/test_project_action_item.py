@@ -26,7 +26,7 @@ class TestProjectActionItem(FrappeTestCase):
     controller is a bare stub (no lifecycle hooks).
 
     These tests prove the two foundational schema guarantees Phase 1 depends on:
-      1. the PAI- autoname prefix, and
+      1. random names (no PAI- series: overlapping reconciles never clash on it, #1658), and
       2. the UNIQUE index on dedup_key (the idempotency key that lets the
          reconciler run concurrently without DuplicateError escaping).
 
@@ -83,15 +83,15 @@ class TestProjectActionItem(FrappeTestCase):
         return item
 
     # ------------------------------------------------------------------ #
-    # 1. Creation + PAI- autoname prefix                                 #
+    # 1. Creation + random name (no PAI- series, #1658)                  #
     # ------------------------------------------------------------------ #
 
-    def test_create_and_autoname_prefix(self):
+    def test_create_and_random_name(self):
         item = self._make_item()
         self.assertIsNotNone(item.name)
-        self.assertTrue(
+        self.assertFalse(
             item.name.startswith("PAI-"),
-            f"autoname should start with 'PAI-', got {item.name!r}",
+            f"a new item should get a random name, not one from the PAI- series, got {item.name!r}",
         )
         self.assertEqual(item.project, self.project_name)
         self.assertEqual(item.action_type, "DN_PENDING")

@@ -25,7 +25,7 @@ class BoQCellPricing(Document):
 	with is_current=1 per (boq, sheet_name, excel_row, col_letter, committed_version).
 
 	This controller is intentionally a bare stub (no compute, no cross-doc writes) per
-	the project convention; autoname is the JSON series BPRC-.YY.-.#####.
+	the project convention; autoname is `hash` (#1658; rows made before it keep BPRC- names).
 	"""
 
 	pass
