@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cutoff
 from nirmaan_stack.services.outflow_import.cashbook_placement import (
     FALLBACK_EXPENSE_TYPE,
     placement as _placement,
@@ -68,11 +69,7 @@ from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     row_kind as _row_kind,
     unpaired_reason,
 )
-from nirmaan_stack.services.outflow_import.cashbook_reopen import (
-    EarlierWrongSkip,
-    claim_wrong_skips,
-    earlier_sightings,
-)
+from nirmaan_stack.services.outflow_import.cashbook_reopen import EarlierWrongSkip, claim_wrong_skips, earlier_sightings
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
     CashbookMove,
@@ -228,6 +225,7 @@ class CashbookPlan:
     `rows` (same order), `split.repeats_not_saved` the exact repeats left out."""
     pairs: tuple[tuple[PlannedRow, PlannedRow], ...] = ()
     """Each *Paired wallet refund* as `(refund, spend)`, in the refunds' file order (#1594). Both are in `rows`."""
+    before_cutoff: int = 0  # #1707: the lines dated before 1 Apr 2026 (`cashbook_cutoff`); in nothing above, not staged
 
     @property
     def creating(self) -> tuple[PlannedRow, ...]:
@@ -311,8 +309,9 @@ def plan_statement(
     """
     already = dict(already_imported or {})
     booked = dict(already_booked or {})
+    every_row = list(rows)  # ⚠️ #1707: THE DATE FIRST, AND ONLY HERE. A line before the cutoff is only counted.
     # Read twice: by the repeat walk, and by `unpaired_reason` (is a refund's spend on this statement?).
-    rows = list(rows)
+    rows = [raw for raw in every_row if not is_before_cutoff(raw)]
     acted_on = (ACTION_OPEN, ACTION_CREATE)
     claims = claim_wrong_skips(
         rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] in acted_on
@@ -371,6 +370,7 @@ def plan_statement(
         rows=tuple(planned),
         split=split,
         pairs=tuple((planned[r], planned[sp]) for r, sp in pairs),
+        before_cutoff=len(every_row) - len(rows),
     )
 
 

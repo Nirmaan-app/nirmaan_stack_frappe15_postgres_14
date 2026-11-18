@@ -117,6 +117,7 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note
 from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
@@ -4087,7 +4088,8 @@ def list_imports(limit=60, sources=None, month=None):
     imports = frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-               b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
+               b.total_rows, b.repeats_not_saved, b.lines_before_cutoff, b.gross_amount, b.uploaded_at,
+               b.uploaded_by,
                COUNT(r.name) FILTER (
                    WHERE UPPER(COALESCE(r.status_raw, '')) = %s
                      AND TRIM(COALESCE(r.direction, '')) = %s
@@ -4096,8 +4098,8 @@ def list_imports(limit=60, sources=None, month=None):
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
         {where_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-                 b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
-                 b.creation
+                 b.total_rows, b.repeats_not_saved, b.lines_before_cutoff, b.gross_amount, b.uploaded_at,
+                 b.uploaded_by, b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         {limit_clause}
         """,
@@ -4133,6 +4135,8 @@ def list_imports(limit=60, sources=None, month=None):
     for row in imports:
         if row["name"] in holders:
             row["card_holder"] = holders[row["name"]]
+        # #1707: a Cashbook import's lines before 1 Apr 2026, left out; blank on every other import.
+        row["before_cutoff_note"] = before_cutoff_note(row.get("lines_before_cutoff") or 0)
     return imports
 
 

@@ -1405,6 +1405,7 @@ export const ImportStatementDialog = ({
                         <CashbookProgress
                             creating={cashbookBatch.creating}
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
+                            beforeCutoffNote={cashbookBatch.before_cutoff_note}
                             lateBills={cashbookBatch.late_bills ?? 0}
                             recordsFilled={cashbookBatch.records_filled ?? 0}
                             status={cashbookStatus}
@@ -1895,6 +1896,7 @@ function extractServerMessage(payload: string): string | null {
 const CashbookProgress = ({
     creating,
     repeatsNotSaved,
+    beforeCutoffNote,
     lateBills,
     recordsFilled,
     status,
@@ -1903,6 +1905,8 @@ const CashbookProgress = ({
 }: {
     creating: number;
     repeatsNotSaved: number | undefined;
+    /** #1707: the server's sentence for the lines before 1 Apr 2026 left out; blank or absent when none. */
+    beforeCutoffNote?: string;
     /** #1593: how many existing Expenses the job gives a bill. */
     lateBills: number;
     /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
@@ -1944,6 +1948,7 @@ const CashbookProgress = ({
             </div>
             {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
+            {beforeCutoffNote && <p className="text-xs text-muted-foreground">{beforeCutoffNote}</p>}
             {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
             {filledText && <p className="text-xs text-muted-foreground">{filledText}</p>}
             {/* #1591: each spend whose bills were not copied, with the server's reason. */}

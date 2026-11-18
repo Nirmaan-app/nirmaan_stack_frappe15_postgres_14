@@ -104,6 +104,12 @@ export interface CashbookPreviewResult {
     late_bills?: CashbookLateBill[];
     /** #1596: lines an earlier import skipped as own balances that this statement re-opens in place. */
     reopened?: CashbookReopenedLine[];
+    /** #1707: how many lines are dated before 1 Apr 2026: left out, not saved. */
+    before_cutoff?: number;
+    /** #1707: the server's sentence for them ("14 lines before 1 Apr 2026 left out"), blank when there are none. */
+    before_cutoff_note?: string;
+    /** #1707: set only when the file holds nothing but such lines: why it is refused. */
+    before_cutoff_message?: string;
 }
 
 /**
@@ -156,6 +162,8 @@ export interface CashbookConfirmResult {
     reopened?: number;
     /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
     records_filled?: number;
+    /** #1707: the server's sentence for the lines before 1 Apr 2026 left out, blank when there are none. */
+    before_cutoff_note?: string;
 }
 
 export interface CashbookStatus {
@@ -266,6 +274,18 @@ export const duplicateNotice = (preview: {
     const text = preview.duplicate_message || `${count} already imported — will not be saved`;
     if (preview.refused) return { tone: "refused", text };
     return { tone: preview.warn ? "warn" : "info", text };
+};
+
+/**
+ * What the preview says about the lines dated before 1 Apr 2026 (#1707), or `null` when none were left out. The
+ * server's sentences: a refusal when the file holds nothing else, else the count. The date is the server's alone.
+ */
+export const cutoffNotice = (preview: {
+    before_cutoff_note?: string;
+    before_cutoff_message?: string;
+}): DuplicateNotice | null => {
+    if (preview.before_cutoff_message) return { tone: "refused", text: preview.before_cutoff_message };
+    return preview.before_cutoff_note ? { tone: "info", text: preview.before_cutoff_note } : null;
 };
 
 /**
