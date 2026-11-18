@@ -55,7 +55,7 @@
     "rule": "R1"
   },
   "s1_oversized_files": {
-    "count": 319,
+    "count": 318,
     "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
     "rule": "S1"
   },

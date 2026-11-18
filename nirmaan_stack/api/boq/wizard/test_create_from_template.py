@@ -26,16 +26,19 @@ Run via the bench runner (NOT raw unittest -- see root CLAUDE.md § Commands):
 import json
 import re
 import time
-from unittest.mock import MagicMock, patch
+import uuid
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils.background_jobs import execute_job
+
+from nirmaan_stack.api.background_ops import get_status
 
 from nirmaan_stack.api.boq.wizard import create_from_template as cft
 from nirmaan_stack.api.boq.wizard.create_from_template import (
     _clone_worker,
     create_from_template,
-    get_clone_status,
     get_master_template,
 )
 from nirmaan_stack.services.boq_parser.config import SheetConfig
@@ -263,7 +266,7 @@ class TestCloneWorker(FrappeTestCase):
     def _run_clone(self, sheet_names, boq_name=None):
         boq_name = boq_name or f"CLONE_{frappe.generate_hash(length=5)}"
         shell = _make_target_shell(self.project.name, boq_name, self.master)
-        _clone_worker(shell, self.master, sheet_names, "Administrator")
+        _clone_worker(shell, self.master, sheet_names)
         return shell
 
     def _rows(self, boq, sheet):
@@ -284,7 +287,7 @@ class TestCloneWorker(FrappeTestCase):
     def _run_clone_multi(self, sheet_names, areas, boq_name=None):
         boq_name = boq_name or f"CLONE_{frappe.generate_hash(length=5)}"
         shell = _make_target_shell(self.project.name, boq_name, self.master)
-        _clone_worker(shell, self.master, sheet_names, "Administrator", areas=areas)
+        _clone_worker(shell, self.master, sheet_names, areas=areas)
         return shell
 
     def _sheet_config(self, boq, sheet):
@@ -479,7 +482,7 @@ class TestCloneWorker(FrappeTestCase):
         shell = self._run_clone([_SHEET_A])
         first = len(self._rows(shell, _SHEET_A))
         # Re-run the worker on the same target -- must not duplicate.
-        _clone_worker(shell, self.master, [_SHEET_A], "Administrator")
+        _clone_worker(shell, self.master, [_SHEET_A])
         second = len(self._rows(shell, _SHEET_A))
         self.assertEqual(first, second)
         drafts = frappe.get_all(
@@ -489,8 +492,127 @@ class TestCloneWorker(FrappeTestCase):
         )
         self.assertEqual(len(drafts), 1)
 
-    def test_get_clone_status_pending_for_unknown_job(self):
-        self.assertEqual(get_clone_status("no-such-job")["state"], "pending")
+
+# ---------------------------------------------------------------------------
+# The clone as a background operation (#1669, ADR 0047)
+# ---------------------------------------------------------------------------
+
+_STRANGER = "boq-clone-stranger@example.com"
+
+
+def _start_clone(**kwargs):
+    """`create_from_template` as the screen calls it, with a browser-made operation id and the queue faked.
+    Returns `(op_id, reply, queued)`: `queued` is the list of what reached the queue once the start committed."""
+    op_id = kwargs.pop("op_id", None) or str(uuid.uuid4())
+    queued = []
+    with patch("frappe.utils.background_jobs.get_queue") as get_queue:
+        get_queue.return_value.enqueue_call.side_effect = lambda func, **kw: queued.append(kw)
+        get_queue.return_value.count = 0
+        reply = create_from_template(op_id=op_id, **kwargs)
+        frappe.db.commit()
+    return op_id, reply, queued
+
+
+def _work_kwargs(queued):
+    """What the one queued clone will run with (the wrapper's `work_kwargs`)."""
+    assert len(queued) == 1, queued
+    return queued[0]["kwargs"]["kwargs"]["work_kwargs"]
+
+
+def _work_off(queued):
+    """Run each queued wrapper here, as a worker would (a worker starts as no particular user)."""
+    original = frappe.session.user
+    for job in queued:
+        frappe.set_user("Guest")
+        execute_job(**{**job["kwargs"], "is_async": False})
+    frappe.set_user(original)
+
+
+class TestCloneOperation(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project_fixture()
+        cls.work_header = _make_work_header()
+        cls.master = _build_master_template(cls.work_header)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        _cleanup_boqs(cls.project.name)
+        _cleanup_master(cls.master)
+        frappe.delete_doc("Work Headers", cls.work_header, force=True, ignore_permissions=True)
+        frappe.delete_doc("Projects", cls.project.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_a_clone_is_followed_by_its_status_record_to_the_new_boq(self):
+        op_id, reply, queued = _start_clone(project=self.project.name, boq_name="OpClone", sheet_names=[_SHEET_A])
+        self.assertEqual(reply["state"], "queued")
+        self.assertEqual(get_status(op_id=op_id)["kind"], "boq_template_clone")
+        self.assertEqual(len(queued), 1)
+
+        _work_off(queued)
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        self.assertEqual(status["result"], {"status": "success", "boq_name": reply["boq_id"]})
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 3)
+
+    def test_only_the_user_who_started_a_clone_reads_its_status(self):
+        op_id, _, queued = _start_clone(project=self.project.name, boq_name="OwnClone", sheet_names=[_SHEET_B])
+        _work_off(queued)
+        frappe.set_user(_STRANGER)
+        with self.assertRaises(frappe.PermissionError):
+            get_status(op_id=op_id)
+
+    def test_the_same_operation_id_again_creates_no_second_boq(self):
+        op_id, first, queued = _start_clone(project=self.project.name, boq_name="RepeatClone", sheet_names=[_SHEET_A])
+        before = frappe.db.count("BOQs", {"project": self.project.name})
+
+        _, again, queued_again = _start_clone(
+            op_id=op_id, project=self.project.name, boq_name="RepeatClone", sheet_names=[_SHEET_A]
+        )
+
+        self.assertEqual(frappe.db.count("BOQs", {"project": self.project.name}), before)
+        self.assertEqual(queued_again, [])
+        self.assertEqual(again["op_id"], first["op_id"])
+
+    def test_a_sheet_removed_from_the_master_meanwhile_ends_in_template_changed(self):
+        op_id, reply, queued = _start_clone(project=self.project.name, boq_name="ChangedClone", sheet_names=[_SHEET_B])
+        frappe.db.set_value("BoQ Template Sheet", {"parent": self.master, "sheet_name": _SHEET_B}, "sheet_name", "Gone")
+        frappe.db.commit()
+        try:
+            _work_off(queued)
+        finally:
+            frappe.db.set_value("BoQ Template Sheet", {"parent": self.master, "sheet_name": "Gone"}, "sheet_name", _SHEET_B)
+            frappe.db.commit()
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        self.assertEqual(
+            status["result"], {"status": "error", "error_code": "template_changed", "boq_name": reply["boq_id"]}
+        )
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 0)
+
+    def test_a_clone_that_breaks_ends_failed_and_writes_no_rows(self):
+        began = frappe.utils.now()
+        self.addCleanup(lambda: (
+            frappe.db.delete("Error Log", {"method": "Background operation boq_template_clone failed",
+                                           "creation": (">=", began)}),
+            frappe.db.commit(),
+        ))
+        op_id, reply, queued = _start_clone(project=self.project.name, boq_name="BrokenClone", sheet_names=[_SHEET_A])
+        with patch.object(cft, "_copy_template_row", side_effect=RuntimeError("boom")):
+            _work_off(queued)
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "failed")
+        self.assertNotIn("boom", status["error"])
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -625,26 +747,21 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
         frappe.db.commit()
         super().tearDownClass()
 
-    def test_create_endpoint_creates_shell_and_enqueues(self):
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            job = MagicMock()
-            job.id = "job-abc-123"
-            mock_enq.return_value = job
-            res = create_from_template(
-                project=self.project.name,
-                boq_name=None,  # exercise the {project_name}_BOQ default
-                sheet_names=[_SHEET_A],
-            )
-        self.assertEqual(res["job_id"], "job-abc-123")
+    def test_create_endpoint_creates_shell_and_starts_the_clone(self):
+        _, res, queued = _start_clone(
+            project=self.project.name,
+            boq_name=None,  # exercise the {project_name}_BOQ default
+            sheet_names=[_SHEET_A],
+        )
+        self.assertEqual(res["state"], "queued")
         shell = frappe.get_doc("BOQs", res["boq_id"])
         self.assertEqual(shell.origin, "template")
         self.assertEqual(shell.source_template, self.master)
         self.assertEqual(shell.is_template_source, 0)
         self.assertEqual(shell.wizard_state, "Parsed")
         self.assertEqual(shell.boq_name, f"{self.project.project_name}_BOQ")
-        # enqueue was called with the worker + the new boq id + the master.
-        self.assertTrue(mock_enq.called)
-        _, kwargs = mock_enq.call_args
+        # The clone was queued with the new boq id + the master.
+        kwargs = _work_kwargs(queued)
         self.assertEqual(kwargs.get("new_boq"), res["boq_id"])
         self.assertEqual(kwargs.get("template"), self.master)
         self.assertEqual(kwargs.get("sheet_names"), [_SHEET_A])
@@ -662,10 +779,9 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             other.insert(ignore_permissions=True)
             frappe.db.commit()
         with self.secondary_connection():
-            with patch.object(cft.frappe, "enqueue") as mock_enq:
-                mock_enq.return_value = MagicMock(id="j-overlap")
+            with patch.object(cft.frappe, "enqueue"):
                 try:
-                    res = create_from_template(self.project.name, "OverlapBoQ", [_SHEET_A])
+                    res = create_from_template(self.project.name, "OverlapBoQ", [_SHEET_A], op_id=str(uuid.uuid4()))
                 except Exception as e:
                     self.fail(f"the overlapping create did not commit: {type(e).__name__}: {e}")
         frappe.db.rollback()
@@ -688,7 +804,9 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
                     with patch.object(cft, "_BOQ_LOCK_WAIT_SEC", 1), \
                             patch.object(cft.frappe, "enqueue") as mock_enq, \
                             self.assertRaisesRegex(frappe.ValidationError, "Another BoQ is being created right now"):
-                        create_from_template(self.project.name, "WaitedTooLongBoQ", [_SHEET_A])
+                        create_from_template(
+                            self.project.name, "WaitedTooLongBoQ", [_SHEET_A], op_id=str(uuid.uuid4())
+                        )
                 finally:
                     frappe.db.sql("RESET statement_timeout")
                 self.assertLess(time.monotonic() - began, 5)
@@ -700,26 +818,22 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
                 held.__exit__(None, None, None)
 
     def test_create_accepts_json_string_sheet_names(self):
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j1")
-            res = create_from_template(
-                project=self.project.name,
-                boq_name="ExplicitName",
-                sheet_names=json.dumps([_SHEET_A, _SHEET_B]),
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name,
+            boq_name="ExplicitName",
+            sheet_names=json.dumps([_SHEET_A, _SHEET_B]),
+        )
         self.assertEqual(frappe.db.get_value("BOQs", res["boq_id"], "boq_name"), "ExplicitName")
 
     def test_create_persists_tax_treatment_and_notes(self):
         # A2: the create-from-template form carries GST Treatment (-> tax_treatment) + Notes.
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-tax")
-            res = create_from_template(
-                project=self.project.name,
-                boq_name="TaxedBoQ",
-                sheet_names=[_SHEET_A],
-                tax_treatment="Post-tax",
-                notes="from the tender pack",
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name,
+            boq_name="TaxedBoQ",
+            sheet_names=[_SHEET_A],
+            tax_treatment="Post-tax",
+            notes="from the tender pack",
+        )
         shell = frappe.get_doc("BOQs", res["boq_id"])
         self.assertEqual(shell.tax_treatment, "Post-tax")
         self.assertEqual(shell.notes, "from the tender pack")
@@ -727,14 +841,12 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
     def test_create_invalid_tax_treatment_defaults_pre_tax(self):
         # A2: tax_treatment is a Select -- an invalid value must be whitelisted to a safe default,
         # never passed through to 500 on insert.
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-bad-tax")
-            res = create_from_template(
-                project=self.project.name,
-                boq_name="BadTaxBoQ",
-                sheet_names=[_SHEET_A],
-                tax_treatment="Gibberish",
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name,
+            boq_name="BadTaxBoQ",
+            sheet_names=[_SHEET_A],
+            tax_treatment="Gibberish",
+        )
         self.assertEqual(
             frappe.db.get_value("BOQs", res["boq_id"], "tax_treatment"), "Pre-tax"
         )
@@ -742,45 +854,36 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
     def test_create_three_arg_caller_still_works(self):
         # A2 additive-kwargs proof: the pre-A2 3-arg signature must be unaffected; unspecified
         # tax_treatment falls back to the safe default.
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-3arg")
-            res = create_from_template(self.project.name, "ThreeArgBoQ", [_SHEET_A])
+        _, res, _ = _start_clone(project=self.project.name, boq_name="ThreeArgBoQ", sheet_names=[_SHEET_A])
         shell = frappe.get_doc("BOQs", res["boq_id"])
         self.assertEqual(shell.boq_name, "ThreeArgBoQ")
         self.assertEqual(shell.tax_treatment, "Pre-tax")
 
     def test_create_multi_area_writes_shell_area_dimensions(self):
         # A2 multi-area: BOQs.area_dimensions (JSON string) is written + areas reach the worker.
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-ma")
-            res = create_from_template(
-                project=self.project.name,
-                boq_name="MultiAreaBoQ",
-                sheet_names=[_SHEET_A],
-                areas=["Tower A", "Tower B"],
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name,
+            boq_name="MultiAreaBoQ",
+            sheet_names=[_SHEET_A],
+            areas=["Tower A", "Tower B"],
+        )
         raw = frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")
         self.assertEqual(json.loads(raw), ["Tower A", "Tower B"])
-        _, kwargs = mock_enq.call_args
-        self.assertEqual(kwargs.get("areas"), ["Tower A", "Tower B"])
+        self.assertEqual(_work_kwargs(queued).get("areas"), ["Tower A", "Tower B"])
 
     def test_create_single_area_leaves_shell_area_dimensions_blank(self):
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-sa")
-            res = create_from_template(
-                project=self.project.name, boq_name="SingleAreaBoQ",
-                sheet_names=[_SHEET_A], areas=[],
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name, boq_name="SingleAreaBoQ",
+            sheet_names=[_SHEET_A], areas=[],
+        )
         self.assertFalse(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions"))
 
     def test_create_multi_area_accepts_json_string(self):
         # areas arrives from the FE as a JSON string (like sheet_names).
-        with patch.object(cft.frappe, "enqueue") as mock_enq:
-            mock_enq.return_value = MagicMock(id="j-ma-json")
-            res = create_from_template(
-                project=self.project.name, boq_name="MultiAreaJsonBoQ",
-                sheet_names=json.dumps([_SHEET_A]), areas=json.dumps(["A1", "A2"]),
-            )
+        _, res, queued = _start_clone(
+            project=self.project.name, boq_name="MultiAreaJsonBoQ",
+            sheet_names=json.dumps([_SHEET_A]), areas=json.dumps(["A1", "A2"]),
+        )
         self.assertEqual(
             json.loads(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")),
             ["A1", "A2"],
@@ -791,34 +894,38 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
         frappe.db.commit()
         try:
             with patch.object(cft.frappe, "enqueue"):
-                with self.assertRaises(frappe.ValidationError):
+                with self.assertRaisesRegex(frappe.ValidationError, "No active master template"):
                     create_from_template(
                         project=self.project.name,
                         sheet_names=[_SHEET_A],
+                        op_id=str(uuid.uuid4()),
                     )
         finally:
             frappe.db.set_value("BoQ Template", self.master, "is_active", 1)
             frappe.db.commit()
 
     def test_rejects_empty_sheet_names(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "non-empty list"):
             create_from_template(
                 project=self.project.name,
                 sheet_names=[],
+                op_id=str(uuid.uuid4()),
             )
 
     def test_rejects_unknown_sheet(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "not part of the master template"):
             create_from_template(
                 project=self.project.name,
                 sheet_names=["Nonexistent Sheet"],
+                op_id=str(uuid.uuid4()),
             )
 
     def test_rejects_unknown_project(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "not found"):
             create_from_template(
                 project="NO-SUCH-PROJECT",
                 sheet_names=[_SHEET_A],
+                op_id=str(uuid.uuid4()),
             )
 
     def test_get_master_template_returns_active_with_sheets(self):

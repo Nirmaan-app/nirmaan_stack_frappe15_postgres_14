@@ -47,8 +47,16 @@ and reads each operation's outcome where the screen reads it):
 - `bulk`: sidebar `Projects` -> the project -> `Bulk Download` (a Procurement Executive on the project).
 - `boq`: sidebar `Upload BoQ` -> pick a project -> Continue -> drop a workbook (an Estimates Executive).
 - `template`: sidebar `Admin Options` -> `BoQ Templates` (Admin or Estimates Executive).
-- A clone: Projects -> a project -> Create BoQ from template -> pick sheets -> Create. The screen waits on
-  `boq:template_clone_done`, else polls `get_clone_status`.
+- A clone: sidebar `Upload BoQ` -> pick a project -> Create from Template -> pick sheets -> Create BoQ (an
+  Estimates Executive). `create_from_template` starts the operation `boq_template_clone` (#1669); the screen follows
+  its status record with the shared hook: "Waiting in the queue…", then "Building your BoQ…", then the BoQ's hub, or
+  the error card with the server's words (a failed or lost clone) or the template-changed sentence.
+- A snag PDF: sidebar `Projects` -> the project -> `Snag List` tab -> `Download` (or `Download All`) -> the dialog's
+  Download (a Project Manager on the project). `start_snag_pdf` starts the operation `snag_pdf` (#1669); the
+  "Generating PDF..." toast says "Waiting for the server to start on it..." while queued, then "Building the PDF..."
+  or "Built i of n sections...", then the file saves and a Success toast shows (or an Error toast with the server's
+  words). Only the user who started it reads its status or collects its file; a second start while one is queued
+  or running is refused ("A snag PDF is already being prepared for you").
 - A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The dialog calls
   `start_classify` once per engine; the page polls `get_classify_status` per engine.
 - A rate suggest: a committed sheet's pricing page -> Suggest rates -> whole sheet -> Start. The page waits on

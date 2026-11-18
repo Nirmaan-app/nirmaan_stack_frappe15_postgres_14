@@ -18,11 +18,15 @@ import contextlib
 import io
 import os
 import tempfile
+import uuid
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils.background_jobs import execute_job
 
+from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.snags import bulk_download, import_wizard, print_photos, tracking
+from nirmaan_stack.services import background_ops
 
 
 def _erase_delete_trail(doctype, names):
@@ -2299,65 +2303,83 @@ class TestSnagApi(FrappeTestCase):
                     print_photos._download(sign)
             self.assertEqual(len(signed), print_photos.FETCH_ATTEMPTS)
 
-    # -- the PDF is built in a background job (review #8) --------------------------
+    # -- the PDF is built in a background operation (review #8; #1669, ADR 0047) ---------
 
-    def _forget_pdf_requests(self, *request_ids):
-        """Drop the caller's lock and these requests' status, whatever a test left behind -- a
-        stuck lock would block this user's real downloads on the live site for half an hour."""
+    def _forget_pdf_operations(self, *op_ids):
+        """Drop the caller's one-at-a-time slot and these operations' records and files, whatever a test left
+        behind."""
         cache = frappe.cache()
-        cache.delete(cache.make_key(bulk_download._lock_name(frappe.session.user)))
-        for request_id in request_ids:
-            cache.delete(cache.make_key(bulk_download._status_name(request_id)))
+        cache.delete(cache.make_key(bulk_download._slot_name(frappe.session.user)))
+        for op_id in op_ids:
+            cache.delete(background_ops._key(op_id))
             with contextlib.suppress(OSError):
-                os.remove(bulk_download._pdf_path(request_id))
+                os.remove(background_ops.result_file_path(op_id))
 
     def _queue_pdf(self, **request):
-        """`enqueue_snag_pdf` as the screen calls it, with the queue mocked out. Returns the
-        request id and the job's kwargs, for the test to run (or not) itself."""
+        """`start_snag_pdf` as the screen calls it (a browser-made operation id), with the queue faked and the
+        request's own commit made. Returns the operation id and what reached the queue, for the test to work off
+        (or not) itself."""
         from unittest import mock
 
         self.addCleanup(setattr, frappe.local, "form_dict", frappe._dict())
         frappe.local.form_dict = frappe._dict()
-        with mock.patch.object(bulk_download.frappe, "enqueue") as enqueue:
-            request_id = bulk_download.enqueue_snag_pdf(project=self.project, **request)["request_id"]
-        self.addCleanup(self._forget_pdf_requests, request_id)
-        job = dict(enqueue.call_args.kwargs)
-        self.assertEqual(job.pop("queue"), "long")
-        self.assertNotIn("job_id", job)  # `frappe.enqueue` would swallow it
-        job.pop("timeout")
-        return request_id, job
+        op_id = str(uuid.uuid4())
+        self.addCleanup(self._forget_pdf_operations, op_id)
+        queued = []
+        with mock.patch("frappe.utils.background_jobs.get_queue") as get_queue:
+            get_queue.return_value.enqueue_call.side_effect = lambda func, **kw: queued.append(kw)
+            get_queue.return_value.count = 0
+            started = bulk_download.start_snag_pdf(op_id=op_id, project=self.project, **request)
+            frappe.db.commit()
+        self.assertEqual(started["state"], "queued")
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(get_queue.call_args.args[0], "long")
+        return op_id, queued
+
+    def _work_off(self, queued):
+        """Run the queued wrapper here, as a worker would (a worker starts as no particular user)."""
+        user = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            execute_job(**{**queued[0]["kwargs"], "is_async": False})
+        finally:
+            frappe.set_user(user)
 
     def _run_pdf(self, **request):
-        """Queue a request and run its job HERE. Returns `(request_id, status)`."""
-        request_id, job = self._queue_pdf(**request)
-        bulk_download.run_snag_pdf_job(**job)
-        return request_id, bulk_download.get_snag_pdf_status(request_id=request_id)
+        """Start a download and run its operation HERE. Returns `(op_id, status)`."""
+        op_id, queued = self._queue_pdf(**request)
+        self._work_off(queued)
+        return op_id, get_status(op_id=op_id)
+
+    def _collect(self, op_id):
+        frappe.local.response = frappe._dict()
+        collect_result(op_id=op_id)
+        return frappe.local.response
 
     def test_the_single_download_builds_a_pdf_that_keeps_its_jump_links(self):
-        """Queued, built by the job, collected ONCE -- with the photo <-> row jump links intact
+        """Started, built by its operation, collected by its owner -- with the photo <-> row jump links intact
         (Frappe's own `download_pdf` refuses the generator that keeps them)."""
         from pypdf import PdfReader
 
         snag = self._a_snag("SingleDownload", "Single download batch")
         self._details(snag, attachment=self._photo(snag))
 
-        request_id, status = self._run_pdf(kind="tab")
-        self.assertEqual(status, {"state": "ready", "done": 1, "total": 1, "message": None})
+        op_id, status = self._run_pdf(kind="tab")
+        self.assertEqual(status["kind"], "snag_pdf")
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        self.assertEqual(status["progress"]["detail"], {"done": 1, "total": 1})
 
-        bulk_download.fetch_snag_pdf(request_id=request_id)
-        pdf = frappe.local.response.filecontent
-        self.assertEqual(frappe.local.response.type, "download")
+        response = self._collect(op_id)
+        pdf = response.filecontent
+        self.assertEqual(response.type, "download")
         self.assertTrue(pdf.startswith(b"%PDF"))
         targets = PdfReader(io.BytesIO(pdf)).trailer["/Root"].get_object()["/Dests"].get_object()
         names = {str(name)[1:] for name in targets}
         # Thumbnail -> photo, and photo -> row: both targets survived the render.
         self.assertIn(f"snag-photo-{snag}", names)
         self.assertIn(f"snag-row-{snag}", names)
-
-        # Handed over once: the file and its status are gone.
-        self.assertFalse(os.path.exists(bulk_download._pdf_path(request_id)))
-        with self.assertRaises(frappe.ValidationError):
-            bulk_download.fetch_snag_pdf(request_id=request_id)
+        # Kept privately, never in a folder the web server serves.
+        self.assertNotIn(os.sep + "public" + os.sep, background_ops.result_file_path(op_id))
 
         # A tab's mode is the RENDER's (`master`), not the file's.
         with self.assertRaises(frappe.ValidationError):
@@ -2378,77 +2400,87 @@ class TestSnagApi(FrappeTestCase):
         writer.write(page)
 
         seen = []
-        real_save = bulk_download._save_status
+        real_set_progress = background_ops.set_progress
 
-        def recording_save(request_id, record):
-            seen.append((record["state"], record["done"], record["total"]))
-            real_save(request_id, record)
+        def recording_set_progress(percent, message=None, detail=None):
+            seen.append(detail["done"])
+            real_set_progress(percent, message, detail)
 
         with mock.patch.object(bulk_download, "_render", return_value=page.getvalue()), mock.patch.object(
-            bulk_download, "_save_status", side_effect=recording_save
+            bulk_download.background_ops, "set_progress", side_effect=recording_set_progress
         ):
-            request_id, status = self._run_pdf(kind="all", mode="full")
+            op_id, status = self._run_pdf(kind="all", mode="full")
 
         total = 1 + len(batches)
-        self.assertEqual(status["state"], "ready")
-        self.assertEqual((status["done"], status["total"]), (total, total))
-        self.assertEqual(
-            [done for state, done, _ in seen if state == "running" and done], list(range(1, total + 1))
-        )
-        bulk_download.fetch_snag_pdf(request_id=request_id)
-        self.assertEqual(len(PdfReader(io.BytesIO(frappe.local.response.filecontent)).pages), total)
-        self.assertTrue(frappe.local.response.filename.startswith("Snag_List_ALL_"))
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        self.assertEqual(status["progress"]["detail"], {"done": total, "total": total})
+        self.assertEqual([done for done in seen if done], list(range(1, total + 1)))
+        response = self._collect(op_id)
+        self.assertEqual(len(PdfReader(io.BytesIO(response.filecontent)).pages), total)
+        self.assertTrue(response.filename.startswith("Snag_List_ALL_"))
 
-    def test_the_downloads_refuse_a_role_denied_the_snag_list_before_queueing(self):
-        """Refused at once, as the user clicks -- and no lock is taken for a refusal."""
+    def test_the_downloads_refuse_a_role_denied_the_snag_list_before_starting(self):
+        """Refused at once, as the user clicks -- no operation is started and the user's slot stays free."""
         import nirmaan_stack.api.snags as snag_pkg
         from unittest import mock
 
         original = snag_pkg._user_role
         frappe.session.user = "snag-accountant@example.com"
         try:
-            with mock.patch.object(bulk_download.frappe, "enqueue") as enqueue:
+            with mock.patch.object(bulk_download.background_ops, "start") as start:
                 for role in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                     snag_pkg._user_role = lambda role=role: role
                     for kind in ("tab", "all"):
                         with self.assertRaises(frappe.PermissionError):
-                            bulk_download.enqueue_snag_pdf(kind=kind, project=self.project)
-            enqueue.assert_not_called()
+                            bulk_download.start_snag_pdf(op_id=str(uuid.uuid4()), kind=kind, project=self.project)
+            start.assert_not_called()
             cache = frappe.cache()
-            self.assertFalse(cache.get(cache.make_key(bulk_download._lock_name(frappe.session.user))))
+            self.assertFalse(cache.get(cache.make_key(bulk_download._slot_name(frappe.session.user))))
         finally:
             snag_pkg._user_role = original
             frappe.session.user = "Administrator"
 
-    def test_one_snag_pdf_per_user_at_a_time_and_the_job_frees_the_user(self):
+    def test_one_snag_pdf_per_user_at_a_time_and_an_ended_one_frees_the_user(self):
         from unittest import mock
 
-        _, job = self._queue_pdf(kind="tab")
+        first, queued = self._queue_pdf(kind="tab")
         with self.assertRaisesRegex(frappe.ValidationError, "already being prepared"):
             self._queue_pdf(kind="tab", mode="master")  # the first is still queued
+        frappe.db.rollback()
 
-        # The job frees the user however it ends -- here, by failing.
+        # However the first ends -- here, by failing -- the user may start another.
         with mock.patch.object(bulk_download, "_build_tab_pdf", side_effect=frappe.ValidationError("Nope")):
-            bulk_download.run_snag_pdf_job(**job)
+            self._work_off(queued)
+        self.assertEqual(get_status(op_id=first)["state"], "failed")
         self._queue_pdf(kind="tab")  # accepted again
 
-        # A request the queue would not take frees the user at once, too.
-        cache = frappe.cache()
-        cache.delete(cache.make_key(bulk_download._lock_name(frappe.session.user)))
-        with mock.patch.object(bulk_download.frappe, "enqueue", side_effect=RuntimeError("redis down")):
-            with self.assertRaises(RuntimeError):
-                bulk_download.enqueue_snag_pdf(kind="tab", project=self.project)
-        self.assertFalse(cache.get(cache.make_key(bulk_download._lock_name(frappe.session.user))))
-
-    def test_a_failed_job_says_why_and_logs_only_the_unexpected(self):
+    def test_a_start_the_queue_would_not_take_frees_the_user(self):
         from unittest import mock
 
+        began = frappe.utils.now()
+        self.addCleanup(
+            lambda: (
+                frappe.db.delete("Error Log", {"method": "Background operation snag_pdf could not be queued",
+                                               "creation": (">=", began)}),
+                frappe.db.commit(),
+            )
+        )
+        op_id = str(uuid.uuid4())
+        self.addCleanup(self._forget_pdf_operations, op_id)
+        with mock.patch("frappe.utils.background_jobs.get_queue", side_effect=RuntimeError("redis down")):
+            bulk_download.start_snag_pdf(op_id=op_id, kind="tab", project=self.project)
+            frappe.db.commit()
+        self.assertEqual(get_status(op_id=op_id)["state"], "failed")
+        self._queue_pdf(kind="tab")  # the user is not locked out
+
+    def test_a_failed_operation_says_why_and_logs_only_the_unexpected(self):
+        from unittest import mock
+
+        title = "Background operation snag_pdf failed"
         started = frappe.utils.now()
         self.addCleanup(
             lambda: (
-                frappe.db.delete(
-                    "Error Log", {"method": "Snag PDF job failed", "creation": (">=", started)}
-                ),
+                frappe.db.delete("Error Log", {"method": title, "creation": (">=", started)}),
                 frappe.db.commit(),
             )
         )
@@ -2458,34 +2490,32 @@ class TestSnagApi(FrappeTestCase):
             bulk_download, "_build_tab_pdf", side_effect=frappe.ValidationError("<b>No snags</b> match.")
         ):
             _, status = self._run_pdf(kind="tab")
-        self.assertEqual((status["state"], status["message"]), ("failed", "No snags match."))
+        self.assertEqual((status["state"], status["error"]), ("failed", "No snags match."))
 
         # Anything else: a plain message, and the traceback logged.
         with mock.patch.object(bulk_download, "_build_tab_pdf", side_effect=RuntimeError("boom")):
             _, status = self._run_pdf(kind="tab")
         self.assertEqual(status["state"], "failed")
-        self.assertNotIn("boom", status["message"])
-        self.assertEqual(
-            frappe.db.count("Error Log", {"method": "Snag PDF job failed", "creation": (">=", started)}),
-            1,
-        )
+        self.assertNotIn("boom", status["error"])
+        self.assertEqual(frappe.db.count("Error Log", {"method": title, "creation": (">=", started)}), 1)
 
-    def test_a_request_is_visible_only_to_its_requester(self):
-        request_id, _ = self._run_pdf(kind="tab", mode="master")
-        for bad in (request_id.upper(), "../../site_config", "", None):
+    def test_a_snag_pdf_and_its_finished_file_are_only_its_requesters(self):
+        op_id, status = self._run_pdf(kind="tab", mode="master")
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        for bad in (op_id.upper(), "../../site_config", "", None):
             with self.assertRaises(frappe.ValidationError, msg=bad):
-                bulk_download.get_snag_pdf_status(request_id=bad)
+                get_status(op_id=bad)
 
         frappe.session.user = "snag-stranger@example.com"
         try:
-            with self.assertRaises(frappe.ValidationError):
-                bulk_download.get_snag_pdf_status(request_id=request_id)
-            with self.assertRaises(frappe.ValidationError):
-                bulk_download.fetch_snag_pdf(request_id=request_id)
+            with self.assertRaises(frappe.PermissionError):
+                get_status(op_id=op_id)
+            with self.assertRaises(frappe.PermissionError):
+                self._collect(op_id)
         finally:
             frappe.session.user = "Administrator"
         # Still there for its owner.
-        self.assertEqual(bulk_download.get_snag_pdf_status(request_id=request_id)["state"], "ready")
+        self.assertTrue(self._collect(op_id).filecontent.startswith(b"%PDF"))
 
     # -- project scope (owner 2026-10-08) -------------------------------------------
 

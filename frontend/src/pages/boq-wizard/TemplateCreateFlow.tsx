@@ -1,18 +1,15 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeGetCall,
-  useFrappeGetDoc,
-  useFrappePostCall,
-} from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
 import { AlertTriangle, ArrowLeft, Layers, Loader2, X } from "lucide-react";
-import type {
-  MasterTemplateResponse,
-  MasterTemplateSheet,
-  TemplateCloneDonePayload,
-} from "./boqTypes";
+import type { MasterTemplateResponse, MasterTemplateSheet } from "./boqTypes";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import {
+  CLONE_METHOD,
+  cloneOutcome,
+  cloneSheetCountOf,
+  type CloneContext,
+} from "./templateCloneOperation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,17 +31,6 @@ interface ProjectDoc {
   project_name: string;
 }
 
-/**
- * Mirror of get_clone_status (the polling fallback for the socket). Shape matches the
- * realtime TemplateCloneDonePayload (status / error_code) so one outcome handler serves both.
- */
-interface CloneStatusResponse {
-  state: "pending" | "done";
-  status?: string;
-  boq_name?: string;
-  error_code?: string;
-}
-
 interface TemplateCreateFlowProps {
   projectId: string;
   /** Return to the picker (in-place mode flip; NO route change). Optional. */
@@ -59,30 +45,17 @@ interface TemplateCreateFlowProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-/** Local clone lifecycle. "building" = job enqueued, awaiting socket/poll. */
-type CloneState = "idle" | "creating" | "building" | "error";
-
-/** Friendly copy per TemplateCloneDonePayload.error_code. */
-const CLONE_ERROR_MSGS: Record<string, string> = {
-  template_changed:
-    "The master template changed while your BoQ was being built (a sheet you picked was removed). Please try again.",
-  internal: "Something went wrong while building your BoQ. Please try again.",
-};
-const CLONE_ERROR_FALLBACK =
-  "Something went wrong while building your BoQ. Please try again.";
-
 /**
  * A-T7: Create-from-Template flow (ADR-0013 A1). Rendered IN-PLACE by BoqPickerPage
  * (a mode flip -- NO new route) when the user picks a project and chooses "Create from
  * Template". Steps:
  *   1. get_master_template -> if {active:false} show an empty state; else a checkbox picker
  *      of every master sheet + an editable BoQ name (default `${project}_BOQ`).
- *   2. create_from_template({project, boq_name, sheet_names}) -> {job_id, boq_id}.
- *   3. "Building your BoQ…" -- driven by the screen-scoped "boq:template_clone_done" socket
- *      + a get_clone_status(job_id) poll (first-to-resolve-wins, mirroring BoqUploadScreen).
- *      On success navigate to the hub; on error surface error_code (incl. "template_changed").
- *
- * Socket is screen-scoped (FrappeContext), NOT registered in socketListeners.ts.
+ *   2. create_from_template({project, boq_name, sheet_names, op_id}) makes the BoQ shell and starts the
+ *      clone as a background operation (#1669, ADR 0047).
+ *   3. "Building your BoQ…" -- the shared useBackgroundOperation hook follows the operation's status record
+ *      ("Waiting in the queue…" until it starts). On success navigate to the hub; on error show why (incl. a
+ *      master sheet removed meanwhile, or the server's words for a failed or lost clone).
  */
 export function TemplateCreateFlow({
   projectId,
@@ -91,7 +64,6 @@ export function TemplateCreateFlow({
   onDirtyChange,
 }: TemplateCreateFlowProps) {
   const navigate = useNavigate();
-  const { socket } = useContext(FrappeContext) as FrappeConfig;
 
   const { data: project } = useFrappeGetDoc<ProjectDoc>("Projects", projectId);
   const projectName = project?.project_name ?? "";
@@ -164,74 +136,16 @@ export function TemplateCreateFlow({
     setSelectedSheets(new Set(activeSheets.map((s) => s.sheet_name)));
   const clearAll = () => setSelectedSheets(new Set());
 
-  // ── Clone lifecycle ───────────────────────────────────────────────────────
-  const [cloneState, setCloneState] = useState<CloneState>("idle");
-  const [errorCode, setErrorCode] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-
-  const { call: callCreate } = useFrappePostCall(
-    "nirmaan_stack.api.boq.wizard.create_from_template.create_from_template"
-  );
-
-  // Ref mirrors so the stable (empty-dep) outcome handler reads current values without a
-  // stale closure -- mirrors BoqUploadScreen / BoqHubPage.
-  const stateRef = useRef<CloneState>("idle");
-  useEffect(() => {
-    stateRef.current = cloneState;
-  }, [cloneState]);
-  // boq_id from the CREATE response is the authoritative hub target (the socket payload does
-  // NOT carry it). Held in a ref for the stable handler.
-  const boqIdRef = useRef<string | null>(null);
-
-  // Apply a clone outcome from EITHER the realtime event or the poll. Guards on
-  // stateRef === "building" so whichever resolves first wins and the other no-ops.
-  const applyCloneOutcome = useCallback(
-    (status?: string, cloneErr?: string | null) => {
-      if (stateRef.current !== "building") return;
-      if (status === "success") {
-        const dest = boqIdRef.current;
-        setCloneState("idle");
-        if (dest) navigate(`/upload-boq/hub/${dest}`);
-      } else if (status === "error") {
-        setErrorCode(cloneErr ?? "internal");
-        setCloneState("error");
-      }
+  // ── Clone lifecycle (a background operation, followed by the shared hook) ───
+  const cloneOp = useBackgroundOperation({
+    storageKey: `boq_template_clone:${projectId}`,
+    onFinished: (result, _context, opId) => {
+      const done = cloneOutcome({ phase: "finished", opId, result });
+      if (done.status === "done" && done.boqName) navigate(`/upload-boq/hub/${done.boqName}`);
     },
-    // navigate is stable; store setters are stable
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
-
-  // Fast path: realtime "boq:template_clone_done". Screen-scoped; cleaned up on unmount.
-  // Guard on payload.boq_name === our new boq id so a concurrent clone by another user (the
-  // event is broadcast to all clients) can't falsely resolve ours.
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: TemplateCloneDonePayload) => {
-      if (boqIdRef.current && payload.boq_name !== boqIdRef.current) return;
-      applyCloneOutcome(payload.status, payload.error_code ?? null);
-    };
-    socket.on("boq:template_clone_done", handler);
-    return () => {
-      socket.off("boq:template_clone_done", handler);
-    };
-  }, [socket, applyCloneOutcome]);
-
-  // Fallback path: poll get_clone_status by job id (job-scoped, so no boq guard needed). The
-  // realtime event is room-targeted + not replayed, so a client that wasn't joined when the
-  // worker finished would otherwise hang. swrKey null + refreshInterval 0 stop it once done.
-  const shouldPoll = cloneState === "building" && !!jobId;
-  const { data: pollData } = useFrappeGetCall<{ message: CloneStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.create_from_template.get_clone_status",
-    { job_id: jobId },
-    shouldPoll ? `boq-clone-status::${jobId}` : null,
-    { refreshInterval: shouldPoll ? 3000 : 0 }
-  );
-  useEffect(() => {
-    const msg = pollData?.message;
-    if (!msg || msg.state !== "done") return;
-    applyCloneOutcome(msg.status, msg.error_code ?? null);
-  }, [pollData, applyCloneOutcome]);
+  });
+  const clone = cloneOutcome(cloneOp.view);
+  const cloneSheetCount = cloneSheetCountOf(cloneOp.context) ?? selectedSheets.size;
 
   // ── Dirty-guard (ADR-0013 D2) ───────────────────────────────────────────────
   // Any entered work makes this mode "dirty" so the host's mode toggle can confirm before
@@ -246,28 +160,24 @@ export function TemplateCreateFlow({
     // silent mode-switch would discard (remount re-seeds ALL sheets). activeSheets.length > 0
     // avoids a spurious dirty flag in the one render before the seed effect runs.
     (activeSheets.length > 0 && selectedSheets.size !== activeSheets.length) ||
-    cloneState !== "idle";
+    clone.status !== "idle";
   useEffect(() => {
     // onDirtyChange is a stable setState ref from the host (or absent for standalone use).
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
 
-  const handleCreate = async () => {
-    if (
-      selectedSheets.size === 0 ||
-      !effectiveBoqName.trim() ||
-      cloneState === "creating" ||
-      cloneState === "building"
-    )
-      return;
-    setCloneState("creating");
-    setErrorCode(null);
+  const isBusy = clone.status === "creating" || clone.status === "queued" || clone.status === "building";
+
+  const handleCreate = () => {
+    if (selectedSheets.size === 0 || !effectiveBoqName.trim() || isBusy) return;
     // Preserve master sheet_order in the payload (sheet_name matched VERBATIM, #152).
     const orderedNames = activeSheets
       .filter((s) => selectedSheets.has(s.sheet_name))
       .map((s) => s.sheet_name);
-    try {
-      const res = await callCreate({
+    const context: CloneContext = { sheetCount: orderedNames.length };
+    void cloneOp.start(
+      CLONE_METHOD,
+      {
         project: projectId,
         boq_name: effectiveBoqName.trim(),
         sheet_names: orderedNames,
@@ -275,32 +185,15 @@ export function TemplateCreateFlow({
         notes: notes.trim() || undefined,
         // A2: [] == single-area (Slice-1 clone, byte-identical); N names == multi-area.
         areas: isMultiArea ? cleanAreas : [],
-      });
-      const msg = res?.message as
-        | { job_id?: string; boq_id?: string }
-        | undefined;
-      const newJobId = msg?.job_id ?? null;
-      const newBoqId = msg?.boq_id ?? null;
-      if (!newJobId || !newBoqId) {
-        setErrorCode("internal");
-        setCloneState("error");
-        return;
-      }
-      boqIdRef.current = newBoqId;
-      setJobId(newJobId);
-      setCloneState("building");
-    } catch {
-      setErrorCode("internal");
-      setCloneState("error");
-    }
+      },
+      context,
+    );
   };
 
   const handleBack = () => {
     if (onBack) onBack();
     else navigate(`/projects/${projectId}`);
   };
-
-  const isBusy = cloneState === "creating" || cloneState === "building";
 
   // ── Header (shared across states; suppressed when embedded -- host owns the one header) ──
   const header = embedded ? null : (
@@ -374,8 +267,9 @@ export function TemplateCreateFlow({
     );
   }
 
-  // ── Building state (creating POST or awaiting clone) ────────────────────────
-  if (isBusy) {
+  // ── Building state (creating POST, waiting in the queue, or cloning) ────────
+  // "done" stays here for the one render before the hub navigation.
+  if (isBusy || clone.status === "done") {
     return (
       <div className={wrapperClass}>
         {header}
@@ -384,11 +278,11 @@ export function TemplateCreateFlow({
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <div>
               <p className="text-sm font-medium text-foreground">
-                Building your BoQ…
+                {clone.status === "queued" ? "Waiting in the queue…" : "Building your BoQ…"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Cloning {selectedSheets.size}{" "}
-                {selectedSheets.size === 1 ? "sheet" : "sheets"} from{" "}
+                Cloning {cloneSheetCount}{" "}
+                {cloneSheetCount === 1 ? "sheet" : "sheets"} from{" "}
                 {template.template_name}. This usually takes a few seconds.
               </p>
             </div>
@@ -399,7 +293,7 @@ export function TemplateCreateFlow({
   }
 
   // ── Error state ─────────────────────────────────────────────────────────────
-  if (cloneState === "error") {
+  if (clone.status === "error") {
     return (
       <div className={wrapperClass}>
         {header}
@@ -407,17 +301,12 @@ export function TemplateCreateFlow({
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
             <AlertTriangle className="h-10 w-10 text-destructive" />
             <p className="max-w-md text-sm text-muted-foreground">
-              {CLONE_ERROR_MSGS[errorCode ?? ""] ?? CLONE_ERROR_FALLBACK}
+              {clone.message}
             </p>
             <div className="flex gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setCloneState("idle");
-                  setErrorCode(null);
-                  setJobId(null);
-                  boqIdRef.current = null;
-                }}
+                onClick={() => cloneOp.reset()}
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to sheets

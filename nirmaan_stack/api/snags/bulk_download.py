@@ -1,6 +1,6 @@
 """Snag List PDFs: every batch's report merged into ONE PDF (the "Download All" button), and the
-tab's own "Download". Both are BUILT IN A BACKGROUND JOB (`enqueue_snag_pdf`): a big project's
-PDF outlasted the web request. Frappe's own `download_pdf` cannot carry the jump-link generator
+tab's own "Download". Both are BUILT IN A BACKGROUND OPERATION (`start_snag_pdf`, ADR 0047): a big
+project's PDF outlasted the web request. Frappe's own `download_pdf` cannot carry the jump-link generator
 either (see `_build_tab_pdf`).
 
 THE FILE ALWAYS OPENS ON A MASTER SUMMARY. Before any batch section, the same print
@@ -59,18 +59,14 @@ The button's tooltip names the count rather than the rows going missing quietly.
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import re
-import time
 
 import frappe
-from frappe.utils import strip_html
 from frappe.www.printview import validate_print_permission
 
 from nirmaan_stack.api.snags import require_read_access
 from nirmaan_stack.api.pdf_helper.keep_links import KEEP_LINKS, LinkedPdf
+from nirmaan_stack.services import background_ops
 
 #: The one print format this merges. Same format the single Download prints, so the
 #: pages are identical to what the user already gets per tab.
@@ -145,18 +141,9 @@ KIND_TAB = "tab"
 KIND_ALL = "all"
 _KINDS = (KIND_TAB, KIND_ALL)
 
-#: How long one job may run: the `long` queue's own default. A whole project's Snag List, every
-#: photo included, fits well inside it.
+#: How long one operation may run once it starts: the `long` queue's own default. A whole project's
+#: Snag List, every photo included, fits well inside it.
 JOB_TIMEOUT_SECONDS = 25 * 60
-#: One snag PDF in flight per user. Outlives a job plus a wait in the queue, so the JOB releases
-#: it; the clock only does when a job dies.
-LOCK_TTL_SECONDS = JOB_TIMEOUT_SECONDS + 5 * 60
-#: How long a request's status, and its finished file, wait to be collected.
-KEEP_SECONDS = 2 * 60 * 60
-#: Where finished files wait. PRIVATE and unserved -- a snag PDF carries private photos, so
-#: never `public/files/temp_downloads`, which the web server hands to anyone with the URL.
-_PDF_DIR = ("private", "snag_pdf_downloads")
-_REQUEST_ID = re.compile(r"[0-9a-f]{20}")
 
 
 def _normal_mode(kind, mode):
@@ -212,7 +199,8 @@ def _project_batches(project):
 
 
 @frappe.whitelist(methods=["POST"])
-def enqueue_snag_pdf(
+def start_snag_pdf(
+    op_id=None,
     kind=None,
     project=None,
     mode=None,
@@ -223,141 +211,113 @@ def enqueue_snag_pdf(
     search=None,
     search_field=None,
 ):
-    """Queue ONE Snag List PDF and return at once with `{"request_id"}`.
+    """Start ONE Snag List PDF as the background operation `op_id` (the browser makes it) and return its status
+    record at once.
 
-    WHY A JOB: a big project's PDF -- every photo fetched, shrunk and embedded, then the
+    WHY IN THE BACKGROUND: a big project's PDF -- every photo fetched, shrunk and embedded, then the
     whole page through wkhtmltopdf -- outlasted the web request's time limit, and held a web
-    worker the whole time. The job runs the same `_render` on the `long` queue instead.
+    worker the whole time. The operation runs the same `_render` on the `long` queue instead.
 
-    The screen then asks `get_snag_pdf_status` every few seconds and, once it reads `ready`,
-    collects the file from `fetch_snag_pdf`. Polling, not realtime events: a missed or dropped
-    event would leave the screen waiting forever, and each tab asks only about its own request.
+    The screen follows the operation's status record (`api/background_ops.get_status`, ADR 0047) and, once it
+    is finished, collects the file (`api/background_ops.collect_result`). Only the user who started it may read
+    either: the PDF carries every snag photo.
 
     Filters arrive exactly as the Jinja reads them. `kind="tab"` also takes `batches` (the tab)
     and `mode="master"` (Summary only); `kind="all"` takes `mode="full"|"summary"` and owns
-    `batches` itself. ONE snag PDF in flight per user: a second request is refused while the
-    first is queued or running.
+    `batches` itself. ONE snag PDF queued or running per user (`_take_users_slot`): a second start is refused
+    while the first is.
     """
+    earlier = background_ops.started_before(op_id)
+    if earlier:
+        return earlier
     mode = _normal_mode(kind, mode)
     _check_request(kind, project, mode)
 
-    user = frappe.session.user
-    cache = frappe.cache()
-    # ATOMIC set-if-absent with a TTL -- the commission bulk download's lock, and its reason:
-    # a get_value-then-set_value on one key in one request silently fails to set.
-    lock = cache.make_key(_lock_name(user))
-    if not cache.set(lock, "1", ex=LOCK_TTL_SECONDS, nx=True):
+    record = background_ops.start(
+        "snag_pdf",
+        "nirmaan_stack.api.snags.bulk_download.snag_pdf_op",
+        op_id=op_id,
+        timeout=JOB_TIMEOUT_SECONDS,
+        document=kind,  # not `kind`: that is `start`'s own parameter, the operation's kind
+        project=project,
+        params={
+            "mode": mode,
+            "batches": batches if kind == KIND_TAB else None,
+            "statuses": statuses,
+            "areas": areas,
+            "categories": categories,
+            "search": search,
+            "search_field": search_field,
+        },
+    )
+    # After the start: the refusal rolls the request back, which ends this record failed and queues nothing.
+    if not _take_users_slot(frappe.session.user, op_id):
         frappe.throw(
             "A snag PDF is already being prepared for you. Wait for it to finish, then try again.",
             title="Download in progress",
         )
-
-    request_id = frappe.generate_hash(length=20)
-    params = {
-        "mode": mode,
-        "batches": batches if kind == KIND_TAB else None,
-        "statuses": statuses,
-        "areas": areas,
-        "categories": categories,
-        "search": search,
-        "search_field": search_field,
-    }
-    try:
-        _save_status(request_id, {"user": user, "state": "queued", "done": 0, "total": 0})
-        frappe.enqueue(
-            "nirmaan_stack.api.snags.bulk_download.run_snag_pdf_job",
-            queue="long",
-            timeout=JOB_TIMEOUT_SECONDS,
-            # NOT `job_id`: that is `frappe.enqueue`'s OWN parameter, so the job would get None.
-            request_id=request_id,
-            user=user,
-            kind=kind,
-            project=project,
-            params=params,
-        )
-    except Exception:
-        # Never queued: free the user now rather than after the whole TTL.
-        cache.delete(lock)
-        raise
-    return {"request_id": request_id}
+    return record
 
 
-@frappe.whitelist(methods=["GET"])
-def get_snag_pdf_status(request_id=None):
-    """`{state, done, total, message}` of the caller's OWN request.
+def _slot_name(user):
+    return f"snag_pdf_slot:{user}"
 
-    `state`: `queued` -> `running` -> `ready` | `failed`. `done` / `total` count renders
-    (Download All: the master summary, then one per batch). `message` explains a `failed`.
+
+def _take_users_slot(user, op_id):
+    """Make `op_id` the user's one snag PDF. True when the slot was free, already held `op_id`, or held an
+    operation that has ended (finished, failed, lost, or expired) -- so however an operation ends, its user is
+    free again, with no lock for a dead worker to leave behind. A compare-and-set on the slot: of two starts
+    racing, one takes it.
     """
-    record = _own_status(request_id)
-    return {key: record.get(key) for key in ("state", "done", "total", "message")}
-
-
-@frappe.whitelist(methods=["GET"])
-def fetch_snag_pdf(request_id=None):
-    """The finished PDF, ONCE: the file and its status are deleted as it is handed over."""
-    record = _own_status(request_id)
-    if record.get("state") != "ready":
-        frappe.throw("This PDF is not ready yet.", title="Not ready")
-    path = _pdf_path(request_id)
-    if not os.path.exists(path):
-        frappe.throw("This download has expired or was already collected.", title="Expired")
-    with open(path, "rb") as f:
-        content = f.read()
-    with contextlib.suppress(OSError):
-        os.remove(path)
     cache = frappe.cache()
-    cache.delete(cache.make_key(_status_name(request_id)))
+    key = cache.make_key(_slot_name(user))
+    taken = {}
 
-    frappe.local.response.filename = record.get("filename") or "Snag_List.pdf"
-    frappe.local.response.filecontent = content
-    frappe.local.response.type = "download"
+    def attempt(pipe):
+        taken.clear()
+        raw = pipe.get(key)
+        holder = raw.decode() if isinstance(raw, bytes) else raw
+        if holder and holder != op_id and _still_working(holder):
+            return
+        pipe.multi()
+        pipe.set(key, op_id, ex=background_ops.KEEP_SECONDS)
+        taken["ok"] = True
+
+    cache.transaction(attempt, key)
+    return bool(taken)
 
 
-def run_snag_pdf_job(request_id=None, user=None, kind=None, project=None, params=None):
-    """The background half of `enqueue_snag_pdf`: build the PDF as `user`, keep it privately,
-    and mark the request `ready` -- or `failed`, with a message the screen can show.
+def _still_working(op_id):
+    """Is the caller's operation `op_id` queued or running (a dead worker's reads as lost)?"""
+    try:
+        return background_ops.status(op_id)["state"] in (background_ops.QUEUED, background_ops.RUNNING)
+    except (frappe.ValidationError, frappe.PermissionError):
+        return False  # not an operation id this user can hold: nothing of theirs is running under it
 
-    The checks run AGAIN here, as the user: the request may have waited in the queue.
-    Whatever happens, the user's lock is released, so they are never locked out.
+
+def snag_pdf_op(document=None, project=None, params=None):
+    """The work of `start_snag_pdf` (runs as the user who started it, under `background_ops.run`): build the
+    PDF and keep it as the operation's finished file, for that user alone. `document` is the request's `kind`.
+
+    The checks run AGAIN here, as the user: the request may have waited in the queue. A refusal
+    (`frappe.throw`) fails the operation in its own words; anything else is logged and fails it with a plain
+    message (`background_ops.run`).
     """
     params = params or {}
-    record = {"user": user, "state": "running", "done": 0, "total": 0}
-    _save_status(request_id, record)
 
     def progress(done, total):
-        record.update(done=done, total=total)
-        _save_status(request_id, record)
+        background_ops.set_progress(
+            round(100 * done / total) if total else 0, None, detail={"done": done, "total": total}
+        )
 
-    try:
-        frappe.set_user(user)
-        _sweep_old_pdfs()
-        _check_request(kind, project, params.get("mode"))
-        if kind == KIND_ALL:
-            pdf, filename = _build_all_pdf(project, params, progress)
-        else:
-            progress(0, 1)
-            pdf, filename = _build_tab_pdf(project, params)
-            progress(1, 1)
-        with open(_pdf_path(request_id), "wb") as f:
-            f.write(pdf)
-        record.update(state="ready", filename=filename)
-    except (frappe.ValidationError, frappe.PermissionError) as e:
-        # A refusal the user can act on (`frappe.throw`): pass its own words on.
-        record.update(state="failed", message=strip_html(str(e)) or "The PDF could not be generated.")
-    except Exception:
-        frappe.log_error(
-            title="Snag PDF job failed",
-            message=f"project={project!r} kind={kind!r}\n\n{frappe.get_traceback()}",
-        )
-        record.update(
-            state="failed",
-            message="The PDF could not be generated. The error has been logged.",
-        )
-    finally:
-        _save_status(request_id, record)
-        cache = frappe.cache()
-        cache.delete(cache.make_key(_lock_name(user)))
+    _check_request(document, project, params.get("mode"))
+    if document == KIND_ALL:
+        pdf, filename = _build_all_pdf(project, params, progress)
+    else:
+        progress(0, 1)
+        pdf, filename = _build_tab_pdf(project, params)
+        progress(1, 1)
+    background_ops.write_result_file(pdf, filename)
 
 
 def _build_tab_pdf(project, params):
@@ -457,53 +417,6 @@ def _build_all_pdf(project, params, progress):
 
 def _supplied(params) -> dict:
     return {key: params.get(key) for key in _PASSTHROUGH_PARAMS}
-
-
-def _lock_name(user):
-    return f"snag_pdf_lock:{user}"
-
-
-def _status_name(request_id):
-    return f"snag_pdf_status:{request_id}"
-
-
-def _save_status(request_id, record):
-    """The request's whole record, rewritten each time (only its job writes after it is queued).
-    Raw redis, like the lock: nothing here should be served from a process-local cache."""
-    cache = frappe.cache()
-    cache.set(cache.make_key(_status_name(request_id)), json.dumps(record), ex=KEEP_SECONDS)
-
-
-def _own_status(request_id):
-    """The caller's own request, or a refusal: an id that is malformed, unknown, expired or
-    someone else's all read the same, so no request is confirmed to a stranger."""
-    raw = None
-    if isinstance(request_id, str) and _REQUEST_ID.fullmatch(request_id):
-        cache = frappe.cache()
-        raw = cache.get(cache.make_key(_status_name(request_id)))
-    record = json.loads(raw) if raw else None
-    if not record or record.get("user") != frappe.session.user:
-        frappe.throw("This download has expired or was already collected.", title="Expired")
-    return record
-
-
-def _pdf_path(request_id):
-    folder = frappe.get_site_path(*_PDF_DIR)
-    os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, f"{request_id}.pdf")
-
-
-def _sweep_old_pdfs():
-    """Delete finished files nobody collected within KEEP_SECONDS (a closed tab, a lost
-    connection). Runs at the start of every job, so the folder never grows without bound."""
-    folder = frappe.get_site_path(*_PDF_DIR)
-    if not os.path.isdir(folder):
-        return
-    cutoff = time.time() - KEEP_SECONDS
-    for entry in os.scandir(folder):
-        with contextlib.suppress(OSError):
-            if entry.is_file() and entry.stat().st_mtime < cutoff:
-                os.remove(entry.path)
 
 
 def _safe_label(project_label: str) -> str:

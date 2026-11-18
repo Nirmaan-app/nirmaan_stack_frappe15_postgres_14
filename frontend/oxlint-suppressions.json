@@ -3103,11 +3103,6 @@
       "count": 1
     }
   },
-  "src/pages/SnagList/download/useSnagDownload.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/SnagList/hooks/useProjectSnagSummaries.ts": {
     "no-restricted-imports": {
       "count": 1

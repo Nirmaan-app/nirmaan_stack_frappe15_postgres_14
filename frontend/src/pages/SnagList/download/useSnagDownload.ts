@@ -9,19 +9,18 @@
 // "Download All" has its own dialog (`components/SnagDownloadAllDialog`): report type
 // plus the same N/A box, resolved by the same `resolveDownloadAllStatuses`.
 //
-// BOTH ARE BUILT IN A BACKGROUND JOB (`SNAG_PDF_ENDPOINTS`): a big project's PDF outlasted
-// the web request. The job is queued, its status asked every few seconds (shown in the
-// "Generating PDF..." toast), and the finished file collected once it is ready.
+// BOTH ARE BUILT IN A BACKGROUND OPERATION (`SNAG_PDF_START`, ADR 0047): a big project's PDF outlasted
+// the web request. The shared `useBackgroundOperation` hook follows its status record (shown in the
+// "Generating PDF..." toast, queued apart from building), and the finished file is collected by operation
+// id, which only the user who started it may do. A reload picks the download up again and saves its file.
 
-import { useCallback, useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@/components/ui/use-toast";
-import { getFrappeError } from "@/utils/frappeErrors";
+import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 
-import { filenameFromResponse } from "../import/templateDownload";
-
-import { SNAG_PDF_ENDPOINTS } from "./snagDownloadConstants";
+import { SNAG_PDF_START } from "./snagDownloadConstants";
 import {
   buildSnagDownloadAllParams,
   buildSnagDownloadParams,
@@ -33,40 +32,7 @@ import {
   SnagDownloadOptions,
   SnagDownloadState,
 } from "./snagDownloadParams";
-
-/** How often the job's status is asked. */
-const POLL_MS = 2000;
-/** Longer than the server's job timeout (25 min) plus a wait in the queue. */
-const GIVE_UP_MS = 35 * 60 * 1000;
-
-/** `get_snag_pdf_status`'s answer. `done` / `total` count renders. */
-interface SnagPdfStatus {
-  state: "queued" | "running" | "ready" | "failed";
-  done: number;
-  total: number;
-  message?: string | null;
-}
-
-/**
- * Frappe answers a failed request with a JSON body, not the file. Without this check a
- * server-side error downloads as a .pdf the user cannot open, and the real message
- * never reaches them.
- */
-async function assertPdfResponse(response: Response): Promise<void> {
-  if (response.ok && !response.headers.get("content-type")?.includes("json")) {
-    return;
-  }
-  throw new Error(await serverMessage(response, `PDF download failed (${response.status}).`));
-}
-
-/** The message in a Frappe error body, or `fallback`. */
-async function serverMessage(response: Response, fallback: string): Promise<string> {
-  try {
-    return getFrappeError(await response.json()) || fallback;
-  } catch {
-    return fallback; // Body was not JSON after all.
-  }
-}
+import { snagPdfContextOf, snagPdfProgressText, type SnagPdfContext } from "./snagPdfOperation";
 
 function saveBlob(blob: Blob, filename: string): void {
   const url = window.URL.createObjectURL(blob);
@@ -79,61 +45,81 @@ function saveBlob(blob: Blob, filename: string): void {
   window.URL.revokeObjectURL(url);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** What the "Generating PDF..." toast says while the job runs. */
-function progressText(status: SnagPdfStatus): string {
-  if (status.state === "queued") return "Waiting for the server to start on it...";
-  if (status.total > 1) return `Built ${status.done} of ${status.total} sections...`;
-  return "Building the PDF...";
+/** What one of the two downloads does with its finished operation. */
+interface SnagPdfFlow {
+  /** The saved file's name: `serverName` is what the server named it (`snag_pdf_op`), when it said. */
+  filename: (context: SnagPdfContext, serverName: string | null) => string;
+  successText: (context: SnagPdfContext) => string;
+  /** Logged with a failure, so the two downloads stay told apart in the console. */
+  logLabel: string;
+  failureText: string;
 }
 
 /**
- * Queue a Snag List PDF, wait for it, and return the finished file's response.
- * Throws an Error carrying the server's own message on any failure.
+ * Start a Snag List PDF, follow it through the shared hook, and save its file. `run` resolves `true` once the
+ * file is saved and `false` on any failure (already toasted); it never rejects.
  */
-function useSnagPdfJob() {
-  const { call: enqueue } = useFrappePostCall<{ message: { request_id: string } }>(
-    SNAG_PDF_ENDPOINTS.enqueue
-  );
+function useSnagPdfOperation(storageKey: string, flow: SnagPdfFlow) {
+  const pendingRef = useRef<((saved: boolean) => void) | null>(null);
+  const toastRef = useRef<ReturnType<typeof toast> | null>(null);
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
 
-  return useCallback(
-    async (
-      params: Record<string, string>,
-      onProgress: (status: SnagPdfStatus) => void
-    ): Promise<Response> => {
-      let requestId: string;
+  const settle = (saved: boolean) => {
+    toastRef.current = null;
+    pendingRef.current?.(saved);
+    pendingRef.current = null;
+  };
+  const fail = (message: string, error?: unknown) => {
+    console.error(flowRef.current.logLabel, error ?? message);
+    // The result toast replaces the "Generating PDF..." one (one toast at a time).
+    toast({ title: "Error", description: message, variant: "destructive" });
+    settle(false);
+  };
+
+  const op = useBackgroundOperation({
+    storageKey,
+    onFinished: async (result, rawContext, opId) => {
+      const context = snagPdfContextOf(rawContext) ?? { label: "Snag_List", isSummary: false };
       try {
-        requestId = (await enqueue(params)).message.request_id;
-      } catch (e) {
-        throw new Error(getFrappeError(e));
+        const blob = await collectResultFile(opId);
+        saveBlob(blob, flowRef.current.filename(context, parseResultFile(result)?.filename ?? null));
+      } catch (error) {
+        fail(error instanceof Error ? error.message : flowRef.current.failureText, error);
+        return;
       }
-      const query = `request_id=${encodeURIComponent(requestId)}`;
-
-      const giveUpAt = Date.now() + GIVE_UP_MS;
-      for (;;) {
-        await sleep(POLL_MS);
-        const response = await fetch(`/api/method/${SNAG_PDF_ENDPOINTS.status}?${query}`);
-        if (!response.ok) {
-          throw new Error(await serverMessage(response, "Lost track of the PDF. Try again."));
-        }
-        const status: SnagPdfStatus = (await response.json()).message;
-        if (status.state === "failed") {
-          throw new Error(status.message || "The PDF could not be generated.");
-        }
-        if (status.state === "ready") break;
-        onProgress(status);
-        if (Date.now() > giveUpAt) {
-          throw new Error("The PDF is taking too long. Please try again later.");
-        }
-      }
-
-      const file = await fetch(`/api/method/${SNAG_PDF_ENDPOINTS.fetch}?${query}`);
-      await assertPdfResponse(file);
-      return file;
+      toast({ title: "Success", description: flowRef.current.successText(context), variant: "success" });
+      settle(true);
     },
-    [enqueue]
+    onFailed: (ended) => fail(ended.error),
+  });
+
+  const { view, start } = op;
+  const isDownloading = view.phase === "starting" || view.phase === "queued" || view.phase === "running";
+
+  // The toast says where the operation stands; a reload that picked one up shows it again.
+  useEffect(() => {
+    if (view.phase !== "queued" && view.phase !== "running") return;
+    const description = snagPdfProgressText(view);
+    if (toastRef.current) {
+      toastRef.current.update({ id: toastRef.current.id, title: "Generating PDF...", description });
+    } else {
+      // Stays up until the result toast replaces it: an operation can take minutes.
+      toastRef.current = toast({ title: "Generating PDF...", duration: Infinity, description });
+    }
+  }, [view]);
+
+  const run = useCallback(
+    (params: Record<string, string>, context: SnagPdfContext, startText: string): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        pendingRef.current = resolve;
+        toastRef.current = toast({ title: "Generating PDF...", duration: Infinity, description: startText });
+        void start(SNAG_PDF_START, params, context);
+      }),
+    [start]
   );
+
+  return { isDownloading, run };
 }
 
 export interface UseSnagDownloadResult {
@@ -152,8 +138,14 @@ export interface UseSnagDownloadResult {
 export function useSnagDownload(
   state: SnagDownloadState & { projectLabel?: string }
 ): UseSnagDownloadResult {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const runJob = useSnagPdfJob();
+  const { isDownloading, run } = useSnagPdfOperation(`snag_pdf:tab:${state.projectId ?? ""}`, {
+    filename: ({ label, isSummary }) =>
+      isSummary ? buildSnagSummaryPdfFilename(label, new Date()) : buildSnagPdfFilename(label, new Date()),
+    successText: ({ isSummary }) =>
+      isSummary ? "Snag summary downloaded successfully." : "Snag list downloaded successfully.",
+    logLabel: "Snag list download error:",
+    failureText: "Failed to download the snag list.",
+  });
 
   const { projectId, columnFilters, searchTerm, selectedSearchField, batch, projectLabel } =
     state;
@@ -172,57 +164,17 @@ export function useSnagDownload(
     }
 
     const isSummary = options.mode === "summary";
-
-    setIsDownloading(true);
-    try {
-      const pending = toast({
-        title: "Generating PDF...",
-        // Stays up until the result toast replaces it: a job can take minutes, and the
-        // default 5 s would hide the progress below.
-        duration: Infinity,
-        description: isSummary
-          ? "Please wait while we generate the snag summary."
-          : "Please wait while we generate the snag list.",
-      });
-
-      const response = await runJob(
-        buildSnagDownloadParams(
-          { projectId, columnFilters, searchTerm, selectedSearchField, batch },
-          options
-        ),
-        (status) =>
-          pending.update({ id: pending.id, title: "Generating PDF...", description: progressText(status) })
-      );
-
-      const label = projectLabel || projectId;
-      saveBlob(
-        await response.blob(),
-        isSummary
-          ? buildSnagSummaryPdfFilename(label, new Date())
-          : buildSnagPdfFilename(label, new Date())
-      );
-
-      toast({
-        title: "Success",
-        description: isSummary
-          ? "Snag summary downloaded successfully."
-          : "Snag list downloaded successfully.",
-        variant: "success",
-      });
-      return true;
-    } catch (error) {
-      console.error("Snag list download error:", error);
-      toast({
-        title: "Error",
-        description:
-          error instanceof Error ? error.message : "Failed to download the snag list.",
-        variant: "destructive",
-      });
-      return false;
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [projectId, columnFilters, searchTerm, selectedSearchField, batch, projectLabel, runJob]);
+    return run(
+      buildSnagDownloadParams(
+        { projectId, columnFilters, searchTerm, selectedSearchField, batch },
+        options
+      ),
+      { label: projectLabel || projectId, isSummary },
+      isSummary
+        ? "Please wait while we generate the snag summary."
+        : "Please wait while we generate the snag list."
+    );
+  }, [projectId, columnFilters, searchTerm, selectedSearchField, batch, projectLabel, run]);
 
   return { isDownloading, download };
 }
@@ -247,18 +199,30 @@ export interface UseSnagDownloadAllResult {
  *
  * Deliberately its own hook rather than a flag on `useSnagDownload`: the two produce
  * different documents (`SNAG_PDF_KIND`), and the button that fires this one is shown
- * under a different condition (more than one batch). Sharing the job/blob plumbing
+ * under a different condition (more than one batch). Each follows its own operation. Sharing the
+ * operation/blob plumbing
  * while keeping the two callers apart is what stops a later "just pass a boolean" from
  * making one control quietly do the other's job.
  *
- * The saved file is named by the SERVER (via Content-Disposition), because it is the
+ * The saved file is named by the SERVER (the operation's finished file), because it is the
  * side that knows how many batches went in — the local name is only a fallback.
  */
 export function useSnagDownloadAll(
   state: SnagDownloadState & { projectLabel?: string }
 ): UseSnagDownloadAllResult {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const runJob = useSnagPdfJob();
+  // Local names are FALLBACKS -- the server's name wins. The full file keeps its pre-dialog name; the summary
+  // mirrors `_summary_filename`.
+  const { isDownloading, run } = useSnagPdfOperation(`snag_pdf:all:${state.projectId ?? ""}`, {
+    filename: ({ label, isSummary }, serverName) =>
+      serverName ??
+      (isSummary
+        ? buildSnagSummaryPdfFilename(label, new Date())
+        : buildSnagPdfFilename(`ALL_${label}`, new Date())),
+    successText: ({ isSummary }) =>
+      isSummary ? "The snag summary was downloaded." : "Every batch was downloaded as one PDF.",
+    logLabel: "Snag list download-all error:",
+    failureText: "Failed to download the snag lists.",
+  });
 
   const { projectId, columnFilters, searchTerm, selectedSearchField, projectLabel } = state;
 
@@ -278,55 +242,18 @@ export function useSnagDownloadAll(
         return false;
       }
 
-      setIsDownloading(true);
-      try {
-        const pending = toast({
-          title: "Generating PDF...",
-          duration: Infinity, // until the result replaces it -- see `useSnagDownload`
-          description: isSummary
-            ? "Building the master summary."
-            : "Building the master summary and one report per batch, then merging them.",
-        });
-
-        const response = await runJob(
-          buildSnagDownloadAllParams(
-            { projectId, columnFilters, searchTerm, selectedSearchField },
-            options
-          ),
-          (status) =>
-            pending.update({ id: pending.id, title: "Generating PDF...", description: progressText(status) })
-        );
-
-        // Local names are FALLBACKS — the server's Content-Disposition wins. The full
-        // file keeps its pre-dialog name; the summary mirrors `_summary_filename`.
-        const label = projectLabel || projectId;
-        const fallbackName = isSummary
-          ? buildSnagSummaryPdfFilename(label, new Date())
-          : buildSnagPdfFilename(`ALL_${label}`, new Date());
-        saveBlob(await response.blob(), filenameFromResponse(response, fallbackName));
-
-        toast({
-          title: "Success",
-          description: isSummary
-            ? "The snag summary was downloaded."
-            : "Every batch was downloaded as one PDF.",
-          variant: "success",
-        });
-        return true;
-      } catch (error) {
-        console.error("Snag list download-all error:", error);
-        toast({
-          title: "Error",
-          description:
-            error instanceof Error ? error.message : "Failed to download the snag lists.",
-          variant: "destructive",
-        });
-        return false;
-      } finally {
-        setIsDownloading(false);
-      }
+      return run(
+        buildSnagDownloadAllParams(
+          { projectId, columnFilters, searchTerm, selectedSearchField },
+          options
+        ),
+        { label: projectLabel || projectId, isSummary },
+        isSummary
+          ? "Building the master summary."
+          : "Building the master summary and one report per batch, then merging them."
+      );
     },
-    [projectId, columnFilters, searchTerm, selectedSearchField, projectLabel, runJob]
+    [projectId, columnFilters, searchTerm, selectedSearchField, projectLabel, run]
   );
 
   return { isDownloading, download };

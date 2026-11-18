@@ -19,11 +19,6 @@
       "count": 1
     }
   },
-  "src/pages/SnagList/download/useSnagDownload.ts": {
-    "no-json-call": {
-      "count": 2
-    }
-  },
   "src/pages/SnagList/import/UploadStep.tsx": {
     "no-json-call": {
       "count": 1
