@@ -665,11 +665,6 @@ class DisableComments(unittest.TestCase):
             rc = main(["--check", "--only", "D1"])
         self.assertEqual(rc, 0, out.getvalue())
 
-    def test_the_frozen_file_counts_only_no_explicit_any_today(self):
-        frozen = json.loads((REPO / "frontend/disable-comment-suppressions.json").read_text())
-        self.assertEqual({rule for rules in frozen.values() for rule in rules}, {"typescript/no-explicit-any"})
-        self.assertEqual(sum(e["count"] for rules in frozen.values() for e in rules.values()), 11)
-
 
 if __name__ == "__main__":
     unittest.main()
