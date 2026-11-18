@@ -10,7 +10,7 @@
  *   follows each (slot `boq_ai_check:<boq>::<sheet>`, shared with the review screen, so the same tab picks it up
  *   there); a card's chip says the check waits in the queue until it runs.
  */
-import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { isInFlight, isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 import { CHECKING_ROWS_LABEL } from "./reviewCheckFlags";
 import type { RevisionCarryBySheet } from "./revisionCarryReport";
@@ -42,19 +42,9 @@ export interface HubParse {
  * `parse_in_progress`, which speaks only for a parse this tab does not follow (another tab or user).
  */
 export function hubParseOf(view: OpView, flagSet: boolean): HubParse {
-  switch (view.phase) {
-    case "starting":
-    case "queued":
-      return { inFlight: true, label: PARSE_QUEUED_LABEL };
-    case "running":
-      return { inFlight: true, label: PARSING_LABEL };
-    case "finished":
-    case "failed":
-    case "lost":
-      return { inFlight: false, label: null };
-    case "idle":
-      return flagSet ? { inFlight: true, label: PARSING_LABEL } : { inFlight: false, label: null };
-  }
+  if (isInFlight(view)) return { inFlight: true, label: view.phase === "running" ? PARSING_LABEL : PARSE_QUEUED_LABEL };
+  if (view.phase === "idle" && flagSet) return { inFlight: true, label: PARSING_LABEL };
+  return { inFlight: false, label: null };
 }
 
 export type ParseOutcome =

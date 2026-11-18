@@ -175,16 +175,13 @@ def _match_worker(run_name=None, boq=None, sheet_name=None, suggest_run_id=None,
     ending late frees nothing. `client` / `card_client` are seams (tests, the slice's timed runs)."""
     from nirmaan_stack.services.boq_rate_match import match_run
 
-    op_id = getattr(frappe.local, "background_op_id", None)
     started = time.monotonic()
 
     def progress(phase, done):
         total = int(frappe.db.get_value(MATCH_DOCTYPE, run_name, "rows_total") or 0)
         seconds = int(time.monotonic() - started)
-        percent = round(int(done) * 100 / total) if total else 0
-        background_ops.set_progress(percent, f"{int(done)} of {total} rows", detail={
-            "phase": phase, "done": int(done), "total": total, "seconds": seconds,
-            "estimate_left_s": estimate_left_seconds(total, seconds)})
+        background_ops.set_row_progress(
+            done, total, phase=phase, seconds=seconds, estimate_left_s=estimate_left_seconds(total, seconds))
 
     try:
         try:
@@ -202,8 +199,7 @@ def _match_worker(run_name=None, boq=None, sheet_name=None, suggest_run_id=None,
                 "halt_reason": out["halt_reason"], "rows_total": out["rows_total"], "rows_done": out["rows_done"],
                 "boq": boq, "sheet_name": sheet_name, "run": run_name, "suggest_run_id": suggest_run_id}
     finally:
-        if op_id:
-            operation_marker.release(_marker_key(boq, sheet_name), op_id)
+        operation_marker.release_own(_marker_key(boq, sheet_name))
 
 
 def suggest_estimate_minutes(rows, paces=None):

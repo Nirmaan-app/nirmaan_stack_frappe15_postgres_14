@@ -758,6 +758,9 @@ def _release_parse_state(boq_name: str, op_id: str | None) -> None:
     the flag still names `op_id` (None: a worker called outside an operation, which only ever finds no id). Never
     raises: a failed release must not hide the parse's own outcome; the next start heals the flag."""
     try:
+        # Raw SQL skips the BOQs doc_events (validate, on_update in hooks.py), as the claim in start's request does:
+        # correct here, because those hooks read none of these lifecycle columns and no field is derived from them.
+        # The guarded `where` is the point: release only while the flag still names this operation.
         released = frappe.db.sql(
             """update "tabBOQs" set parse_in_progress = 0, parse_job_id = null, parse_enqueued_at = null
             where name = %s and parse_job_id is not distinct from %s returning name""",

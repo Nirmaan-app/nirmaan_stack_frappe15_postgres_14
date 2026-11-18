@@ -299,12 +299,10 @@ def _fail_stale(run: dict, reason: str) -> None:
     from nirmaan_stack.api.boq.wizard import ai_assist
 
     fail_run(run.name, CATEGORY_STALE, f"{CATEGORY_STALE}: {reason}")
-    if other_live_run(run.boq, run.sheet_name, run.name):
-        frappe.db.commit()
-        return
-    # Clears ai_in_progress (own commit), so an open Review screen drops its "Checking rows..." chip on its next
-    # read. A dead worker's operation reads lost to its owner's screen (background_ops.status).
-    ai_assist._end_check(run.boq, run.sheet_name)
+    # Clears ai_in_progress (own commit) unless another check of the sheet is live, so an open Review screen drops
+    # its "Checking rows..." chip on its next read. A dead worker's operation reads lost to its owner's screen
+    # (background_ops.status).
+    ai_assist._end_check(run.boq, run.sheet_name, run.name)
 
 
 def _clear_orphan_flags(boq_name: str | None, sheet_name: str | None) -> tuple[int, int]:

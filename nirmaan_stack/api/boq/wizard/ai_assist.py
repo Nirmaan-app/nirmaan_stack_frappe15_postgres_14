@@ -287,7 +287,7 @@ def _apply_ai_suggestions(
 # The endpoint
 # ---------------------------------------------------------------------------
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def run_ai_pass(boq_name: str = None, sheet_name: str = None, op_id: str = None) -> dict:
     """Run (or recover the cached result of) the AI structure-suggestion pass for one sheet.
 
@@ -933,7 +933,7 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, run_name: str = None) ->
             run_name, "Done", suggestion_count=len(suggestions), ai_seconds=ai_seconds
         )
         frappe.db.commit()
-        _end_check(boq_name, sheet_name)
+        _end_check(boq_name, sheet_name, run_name)
         return {"status": "success", "count": len(suggestions), **outcome}
 
     except ai_run_log.RunSuperseded:
@@ -966,7 +966,7 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, run_name: str = None) ->
             error_log=getattr(error_log, "name", None), secrets=[api_key],
         )
         frappe.db.commit()
-        _end_check(boq_name, sheet_name)
+        _end_check(boq_name, sheet_name, run_name)
         _raise_check_failed(exc)
 
 
@@ -978,7 +978,10 @@ def _raise_check_failed(exc: Exception) -> None:
     raise frappe.ValidationError(CHECK_FAILED_MESSAGE) from exc
 
 
-def _end_check(boq_name: str, sheet_name: str) -> None:
-    """Clear the sheet's ai_in_progress flag in its own commit: a check ended (or the health check failed it)."""
-    _set_ai_in_progress(boq_name, sheet_name, 0)
+def _end_check(boq_name: str, sheet_name: str, run_name: str | None) -> None:
+    """Check `run_name` ended (or the health check failed it): clear the sheet's ai_in_progress flag in its own
+    commit, unless another check of the sheet is still queued or running -- the flag is then that check's own (a
+    manual check and an automatic one can overlap; the rule mark_superseded keeps)."""
+    if not ai_run_log.other_live_run(boq_name, sheet_name, run_name):
+        _set_ai_in_progress(boq_name, sheet_name, 0)
     frappe.db.commit()

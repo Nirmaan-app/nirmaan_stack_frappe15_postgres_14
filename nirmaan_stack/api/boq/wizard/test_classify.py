@@ -489,10 +489,21 @@ class TestClassifyEnginesAsBackgroundOperations(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        purge_docs("BoQ Sheet", {"boq": cls.boq})
-        frappe.db.commit()
-        purge_boq(cls.boq)
-        _cleanup_project(cls.project.name)
+        # Roll back first (a test that ended on a database error leaves the transaction aborted), then each scope in
+        # its own try, committed on its own, a failure reported and the other scopes still cleaned (CODING_STANDARDS
+        # § Writing tests).
+        frappe.db.rollback()
+        for label, purge in (
+            ("BoQ Sheet", lambda: purge_docs("BoQ Sheet", {"boq": cls.boq})),
+            ("BOQs", lambda: purge_boq(cls.boq)),
+            ("Projects", lambda: _cleanup_project(cls.project.name)),
+        ):
+            try:
+                purge()
+                frappe.db.commit()
+            except Exception as e:  # noqa: BLE001 -- report, keep cleaning the other scopes
+                frappe.db.rollback()
+                print(f"cleanup of {label} failed: {e}")
         super().tearDownClass()
 
     def setUp(self):

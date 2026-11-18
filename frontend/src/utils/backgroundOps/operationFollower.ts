@@ -66,8 +66,16 @@ export interface FollowerEdge {
   onFinished: (result: unknown, context: unknown, opId: string) => void | Promise<void>;
 }
 
+export type EndedView = Extract<OpView, { phase: "finished" | "failed" | "lost" }>;
+
 const STATES: readonly OpState[] = ["queued", "running", "finished", "failed", "lost"];
 const ENDED = new Set<OpView["phase"]>(["finished", "failed", "lost"]);
+const IN_FLIGHT = new Set<OpView["phase"]>(["starting", "queued", "running"]);
+
+/** The operation has ended: finished, failed or lost. */
+export const isEnded = (view: OpView): view is EndedView => ENDED.has(view.phase);
+/** The operation was started and has not ended (waiting in the queue counts). */
+export const isInFlight = (view: OpView): boolean => IN_FLIGHT.has(view.phase);
 const RANK: Record<OpView["phase"], number> = {
   idle: 0, starting: 1, queued: 2, running: 3, finished: 4, failed: 4, lost: 4,
 };
@@ -179,12 +187,12 @@ export class OperationFollower {
 
   /** A socket message said an operation changed. Only this operation's message counts. */
   readNow(opId: string): void {
-    if (opId === this.opId && !ENDED.has(this.view.phase) && !this.disposed) void this.read();
+    if (opId === this.opId && !isEnded(this.view) && !this.disposed) void this.read();
   }
 
   /** The socket connected or dropped: wait for the next read at the interval that now applies. */
   socketChanged(): void {
-    if (!this.opId || this.reading || this.disposed || ENDED.has(this.view.phase)) return;
+    if (!this.opId || this.reading || this.disposed || isEnded(this.view)) return;
     this.schedule();
   }
 
@@ -229,7 +237,7 @@ export class OperationFollower {
     } finally {
       this.reading = false;
     }
-    if (this.opId !== opId || ENDED.has(this.view.phase) || this.disposed) return;
+    if (this.opId !== opId || isEnded(this.view) || this.disposed) return;
     if (this.readAgain) {
       this.readAgain = false;
       return this.read();
@@ -246,7 +254,7 @@ export class OperationFollower {
   }
 
   private apply(status: OpStatus) {
-    if (ENDED.has(this.view.phase)) return;
+    if (isEnded(this.view)) return;
     const next = viewOf(status);
     if (RANK[next.phase] < RANK[this.view.phase]) return;
     if (next.phase === "finished" || next.phase === "failed" || next.phase === "lost") {
@@ -264,13 +272,13 @@ export class OperationFollower {
     const opId = status.op_id;
     const leftMs = (status.started_at + status.timeout - status.now) * 1000;
     this.giveUpTimer = setTimeout(() => {
-      if (this.opId === opId && !ENDED.has(this.view.phase)) {
+      if (this.opId === opId && !isEnded(this.view)) {
         this.end({ phase: "lost", opId, error: "The server did not finish this in its time limit. Please try again." });
       }
     }, Math.max(0, leftMs) + GIVE_UP_GRACE_MS);
   }
 
-  private end(view: Extract<OpView, { phase: "finished" | "failed" | "lost" }>) {
+  private end(view: EndedView) {
     this.stopTimers();
     this.edge.storage.remove();
     this.setView(view);

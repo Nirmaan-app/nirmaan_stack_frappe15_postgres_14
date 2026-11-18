@@ -38,6 +38,7 @@ import {
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
 import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { isEnded } from "@/utils/backgroundOps/operationFollower";
 import { BoqPresence } from "./BoqPresence";
 import { DownstreamBanner } from "./DownstreamBanner";
 import type {
@@ -368,10 +369,7 @@ const SheetReviewPage = () => {
   const followingCheck = checkChip !== null;
   // The id of a check this page already followed to its end: never followed again (a run record can say Running a
   // moment longer than its operation).
-  const endedCheckId =
-    checkOp.view.phase === "finished" || checkOp.view.phase === "failed" || checkOp.view.phase === "lost"
-      ? checkOp.view.opId
-      : null;
+  const endedCheckId = isEnded(checkOp.view) ? checkOp.view.opId : null;
   const { followStarted: followCheck } = checkOp;
   useEffect(() => {
     if (!checkRunning || followingCheck) return;

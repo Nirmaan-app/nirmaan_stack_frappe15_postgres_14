@@ -817,13 +817,12 @@ def _suggest_worker(boq=None, sheet_name=None, resume_run_id=None, only_rows=Non
     either way, but only while it still names this operation: a duplicate ending late frees nothing."""
     # A FRESH run's run_id is this operation's id. Read from the operation itself, never from the
     # per-sheet marker, which a later start may have claimed since.
-    job_id = getattr(frappe.local, "background_op_id", None)
+    op_id = getattr(frappe.local, "background_op_id", None)
     user = frappe.session.user
 
     def _progress(done, total):
         # Into this operation's own record (the screen's bar reads `detail`).
-        percent = round(done * 100 / total) if total else 0
-        background_ops.set_progress(percent, f"{done} of {total} rows", detail={"done": done, "total": total})
+        background_ops.set_row_progress(done, total)
 
     run_name = None
     run_id = None
@@ -834,7 +833,7 @@ def _suggest_worker(boq=None, sheet_name=None, resume_run_id=None, only_rows=Non
         # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
         # get_active_suggestion_run keeps returning the good one until this one truly completes.
         run_name, run_id, prior_results, prior_attempted, scope = _open_run_doc(
-            boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=only_rows
+            boq, sheet_name, cv, op_id, user, resume_run_id, only_rows=only_rows
         )
 
         acc_results = {int(r["excel_row"]): r for r in prior_results}
@@ -968,8 +967,7 @@ def _suggest_worker(boq=None, sheet_name=None, resume_run_id=None, only_rows=Non
         # The operation ends failed in the run's own words (background_ops.run reads a ValidationError's text).
         raise frappe.ValidationError(halt_reason) from None
     finally:
-        if job_id:
-            operation_marker.release(_s_marker_key(boq, sheet_name), job_id)
+        operation_marker.release_own(_s_marker_key(boq, sheet_name))
     return payload
 
 

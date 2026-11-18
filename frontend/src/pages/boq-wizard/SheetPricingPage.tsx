@@ -1219,14 +1219,6 @@ const SheetPricingPage = () => {
   // #1667: the suggest and the match it queues are each a background operation the page follows through its own
   // status record (one slot per sheet each), so no other run's outcome can reach this screen. The match's id comes in
   // the finished suggest's result (the server starts it); a match waiting in the queue shows as queued.
-  const mutateMatchResultsRef = useRef<(() => Promise<unknown>) | null>(null);
-  const matchOp = useBackgroundOperation({
-    storageKey: matchSlot(boqId ?? "", sheetName ?? ""),
-    onFinished: () => void mutateMatchResultsRef.current?.(),
-    onFailed: () => void mutateMatchResultsRef.current?.(),
-  });
-  const matchPhase = useMemo(() => matchPhaseOf(matchOp.view), [matchOp.view]);
-  const matchRunning = matchPhase?.state === "queued" || matchPhase?.state === "running";
   // DEV2-B4: the sheet's stored matches (the active match run), fetched only while matching is ON and refetched when a
   // match run ends. DEV2-B5: they feed the "Previously priced" card (the closure below); with matching OFF the fetch is
   // off and the card is the static stub, as before.
@@ -1235,7 +1227,13 @@ const SheetPricingPage = () => {
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     rmEnabled && matchEnabled ? undefined : null,
   );
-  mutateMatchResultsRef.current = mutateMatchResults;
+  const matchOp = useBackgroundOperation({
+    storageKey: matchSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: () => void mutateMatchResults(),
+    onFailed: () => void mutateMatchResults(),
+  });
+  const matchPhase = useMemo(() => matchPhaseOf(matchOp.view), [matchOp.view]);
+  const matchRunning = matchPhase?.state === "queued" || matchPhase?.state === "running";
   // A match the finished suggest could not start (another match holds the sheet): its reason, shown as failed.
   const [matchNotStarted, setMatchNotStarted] = useState<string | null | undefined>(undefined);
   // The finished suggest operation's result (#1667): handled once, for the operation this sheet's slot follows.

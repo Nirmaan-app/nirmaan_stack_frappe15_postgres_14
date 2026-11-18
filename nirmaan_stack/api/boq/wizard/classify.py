@@ -203,8 +203,7 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
 
     def _progress(done, total):
         # Once per 20-row AI batch, into this operation's own record (the screen's bar reads `detail`).
-        percent = round(done * 100 / total) if total else 0
-        background_ops.set_progress(percent, f"{done} of {total} rows", detail={"done": done, "total": total})
+        background_ops.set_row_progress(done, total)
 
     try:
         summary = orchestrator.classify_sheet_rows(
@@ -225,9 +224,7 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             "category_override_cleared": override_cleared,  # after **summary so it wins
         }
     finally:
-        op_id = getattr(frappe.local, "background_op_id", None)
-        if op_id:
-            operation_marker.release(_marker_key(boq, sheet_name, discipline), op_id)
+        operation_marker.release_own(_marker_key(boq, sheet_name, discipline))
 
 
 def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:

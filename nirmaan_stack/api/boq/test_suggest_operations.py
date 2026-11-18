@@ -9,6 +9,7 @@ can reach it: a duplicate or older run ends in its own record, and frees no shee
 (the extraction and the match run) are the other edges faked. Runs against the live site DB with its own made-up BoQ.
 """
 
+import datetime
 import uuid
 from contextlib import contextmanager
 from unittest import mock
@@ -160,6 +161,25 @@ class TestSuggestAndMatchAsBackgroundOperations(FrappeTestCase):
         active = rate_master.get_active_suggestion_run(boq=self.boq, sheet_name=self.sheet)["run"]
         self.assertEqual(active["run_id"], shown_status["result"]["run_id"])
         self.assertEqual(get_status(op_id=older)["result"]["run_id"], older_status["result"]["run_id"])
+
+    def test_a_second_suggest_is_refused_while_the_first_is_queued_or_running(self):
+        """Two suggests of one sheet never overlap, so a run started earlier can never finish after one started later
+        (#1667 review): while rq holds the first (queued, or running inside its time limit) the marker is not healed
+        and the second start is refused, however old the claim is."""
+        first = self._press()
+        key = rate_master._s_marker_key(self.boq, self.sheet)
+        marker = frappe.cache().get_value(key)
+        an_hour_ago = frappe.utils.add_to_date(frappe.utils.now(), hours=-1)
+        frappe.cache().set_value(key, {**marker, "enqueued_at": an_hour_ago})  # past the claim's enqueue grace
+        for state in ("queued", "started"):
+            with self.subTest(state=state):
+                job = mock.Mock(started_at=datetime.datetime.utcnow() if state == "started" else None)  # rq stamps UTC
+                job.get_status.return_value = state
+                with mock.patch("frappe.utils.background_jobs.get_job", return_value=job), \
+                        self.assertRaises(frappe.ValidationError):
+                    self._press()
+                self.assertEqual(frappe.cache().get_value(key)["job_id"], first, "the first still holds the sheet")
+        self.assertEqual(get_status(op_id=first)["state"], "queued")
 
     def test_a_failed_suggest_ends_failed_in_its_own_words_and_frees_the_sheet(self):
         def db_error(*args, **kwargs):

@@ -8,7 +8,7 @@
  *   (`match.op_id`); the page then follows that operation alone. A match waiting behind other operations shows as
  *   queued. Nothing else's outcome can reach either view: each reads only its own status record.
  */
-import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { isInFlight, isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 import type { MatchPhaseState, SuggestModalSummary } from "./RateSuggestProgressModal";
 
@@ -18,7 +18,6 @@ export const START_SUGGEST_METHOD = "nirmaan_stack.api.boq.rate_master.start_sug
 export const suggestSlot = (boq: string, sheetName: string) => `boq_rate_suggest:${boq}::${sheetName}`;
 export const matchSlot = (boq: string, sheetName: string) => `boq_rate_match:${boq}::${sheetName}`;
 
-const IN_FLIGHT = new Set<OpView["phase"]>(["starting", "queued", "running"]);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 export interface SuggestOpView {
@@ -36,7 +35,7 @@ export function suggestViewOf(view: OpView): SuggestOpView {
   const done = num(detail?.done);
   const total = num(detail?.total);
   return {
-    running: IN_FLIGHT.has(view.phase),
+    running: isInFlight(view),
     waitingInQueue: view.phase === "queued",
     progress: done !== null && total !== null ? { done, total } : null,
     failure: view.phase === "failed" || view.phase === "lost"

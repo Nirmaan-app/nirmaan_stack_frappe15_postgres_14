@@ -199,6 +199,14 @@ def set_progress(percent, message=None, detail=None):
         _read_now(record)
 
 
+def set_row_progress(done, total, **detail):
+    """`set_progress` for work that counts rows: the percent of `total` done, "<done> of <total> rows", and
+    detail {done, total, **detail} for the screen's bar."""
+    done, total = int(done), int(total or 0)
+    percent = round(done * 100 / total) if total else 0
+    set_progress(percent, f"{done} of {total} rows", detail={"done": done, "total": total, **detail})
+
+
 def _read_now(record):
     """Tell the owner's screens to read this operation's record now. The message carries only the id: a screen
     never takes a result from it, so a lost message costs only a poll's delay."""

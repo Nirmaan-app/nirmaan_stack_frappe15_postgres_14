@@ -61,6 +61,14 @@ def release(key, job_id):
         _delete_if_unchanged(key, marker)
 
 
+def release_own(key):
+    """`release` the marker at `key` for the background operation this worker runs (`frappe.local.background_op_id`;
+    nothing outside one). The `finally` of each flow's work."""
+    op_id = getattr(frappe.local, "background_op_id", None)
+    if op_id:
+        release(key, op_id)
+
+
 def _delete_if_unchanged(key, marker):
     cache = frappe.cache()
     made = cache.make_key(key)

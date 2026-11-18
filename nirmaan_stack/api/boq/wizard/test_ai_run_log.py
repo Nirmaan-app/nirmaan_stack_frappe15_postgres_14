@@ -878,6 +878,23 @@ class TestWorkerRunLog(_RunLogCase):
         self.assertEqual([r.status for r in self._runs()], ["Superseded", "Queued"])
         self.assertEqual(self._flag(), 1)
 
+    def test_a_check_that_ends_leaves_the_flag_to_another_live_check_of_the_sheet(self):
+        """A manual check and an automatic one overlap on one sheet: the first to end, done or failed, must not
+        clear the flag the other still holds (#1668 review)."""
+        for outcome in ("done", "failed"):
+            with self.subTest(outcome=outcome):
+                frappe.db.delete(_RUN_LOG, {"boq": self.boq_name})
+                frappe.db.commit()
+                manual = self._make_run()
+                self._make_run(status="Running")    # the automatic check, still busy
+                if outcome == "done":
+                    self._work(manual, MagicMock(return_value=[_SUGGESTION]))
+                else:
+                    with self.assertRaises(frappe.ValidationError), patch("frappe.log_error", return_value=None):
+                        self._work(manual, MagicMock(side_effect=RuntimeError("made-up failure")))
+                self.assertEqual(self._run(manual).status, "Done" if outcome == "done" else "Failed")
+                self.assertEqual(self._flag(), 1, "the other check is live: the flag is still its own")
+
     def test_write_back_refuses_directly_when_the_parse_time_no_longer_matches(self):
         rows = ai_assist._fetch_review_rows_for_ai(self.boq_name, _SHEET)
         with self.assertRaises(ai_run_log.RunSuperseded):
@@ -896,7 +913,7 @@ class TestWorkerRunLog(_RunLogCase):
         def service(*args, **kwargs):
             # The health check gives up on this run while its worker is still busy.
             ai_run_log.fail_run(name, ai_run_log.CATEGORY_STALE, "worker stopped or timed out")
-            ai_assist._end_check(self.boq_name, _SHEET)
+            ai_assist._end_check(self.boq_name, _SHEET, name)
             return [_SUGGESTION]
 
         self._work(name, service)

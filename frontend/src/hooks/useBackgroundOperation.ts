@@ -165,12 +165,17 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
   onFailedRef.current = onFailed;
 
   useEffect(() => {
+    // A new slot (the pricing page switching sheets keeps this hook mounted) shows only what that slot holds: idle
+    // until `resume` finds an operation stored there, never the previous slot's view.
+    setFollowed({ view: { phase: "idle" }, context: undefined });
     const follower = new OperationFollower({
       makeId: () => crypto.randomUUID(),
       readStatus: (opId) => readStatus(callRef.current, opId),
       socketUp: () => Boolean(socketRef.current?.connected),
       storage: tabSlot(storageKey),
       onView: (next, nextContext) => {
+        // A start posted for the previous slot can still fail after the switch: its view is not this slot's.
+        if (followerRef.current !== follower) return;
         setFollowed({ view: next, context: nextContext });
         if (next.phase === "failed" || next.phase === "lost") onFailedRef.current?.(next);
       },

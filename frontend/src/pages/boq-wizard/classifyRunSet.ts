@@ -11,11 +11,10 @@
  * - An engine operation picked up after a reload joins the open run set, or starts a new one, with the scope it was
  *   started with (the operation's context).
  */
-import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { isEnded, isRecord, type EndedView, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 import type { ClassifyScope, ClassifySummary } from "./boqTypes";
 
-type EndedView = Extract<OpView, { phase: "finished" | "failed" | "lost" }>;
 
 export interface EngineRun {
   discipline: string;
@@ -39,8 +38,6 @@ export interface EngineLaunch {
   discipline: string;
   scope: ClassifyScope;
 }
-
-const ENDED = new Set<OpView["phase"]>(["finished", "failed", "lost"]);
 
 const newEngine = (discipline: string, scope: ClassifyScope | null): EngineRun => ({
   discipline, scope, opId: null, phase: "starting", progress: null, outcome: null, endedSeq: 0,
@@ -99,8 +96,8 @@ export function foldEngineView(
   const progress = progressOf(view);
   if (progress) next.progress = progress;
   let ends = current!.ends;
-  if (ENDED.has(view.phase)) {
-    next.outcome = view as EndedView;
+  if (isEnded(view)) {
+    next.outcome = view;
     ends += 1;
     next.endedSeq = ends;
     if (view.phase === "finished" && next.progress) next.progress = { ...next.progress, done: next.progress.total };
