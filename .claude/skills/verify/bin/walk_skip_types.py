@@ -27,10 +27,6 @@ import subprocess
 from drive import save, session, sidebar
 
 BIN = ".claude/skills/verify/bin"
-RETIRED = (
-    "Cashfree wallet top-up", "Cashbook wallet top-up", "Porter wallet top-up", "Wallet money returned",
-    "Bank internal transfer", "Credit card bill payment", "Credit card auto-debit", "Cashbook internal movement",
-)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--task", required=True)
@@ -86,7 +82,8 @@ with session(a.task, a.lead, a.password) as (page, out):
     offered = [t.strip() for t in options.all_inner_texts()]
     (out / "01-offered.txt").write_text("\n".join(offered) + "\n")
     save(page, out, "01-skip-type-funnel")
-    check(not set(RETIRED) & set(offered) and bool(before["retired_held"]),
+    # The retired kinds as the server names them (`skip_kinds.RETIRED_SKIP_KINDS`, read by the DB helper).
+    check(len(before["retired"]) == 8 and not set(before["retired"]) & set(offered) and bool(before["retired_held"]),
           f"1628-3: the funnel offers no retired kind, though the DB holds {before['retired_held']}")
     check("Failed payment bounced back" in offered and "Card payment received" in offered,
           "1628-4: the funnel still offers Failed payment bounced back and Card payment received")
