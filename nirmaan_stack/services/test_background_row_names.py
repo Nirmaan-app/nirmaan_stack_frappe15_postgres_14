@@ -180,7 +180,7 @@ class TestBoqNumbersStayCounted(FrappeTestCase):
 
     def upload(self, project, n):
         _run_upload_worker(project_id=project, file_url=f"/private/files/boq_clash_{n}.xlsx",
-                           file_name=f"Clash fixture {n}.xlsx", user="Administrator")
+                           file_name=f"Clash fixture {n}.xlsx")
 
     def assert_overlapping_uploads_both_commit(self, first_project, second_project):
         """The second upload's transaction began before the first upload committed; both must commit."""

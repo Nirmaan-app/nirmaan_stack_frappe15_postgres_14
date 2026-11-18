@@ -92,7 +92,7 @@ The N-worker check, one command:
   and DB connection; the N TDS exports start back to back as N tabs of one screen would.
 - **What it proves.** Clone status success and the row count; classify status success per engine; suggest status
   success for that sheet, then its match run's status without an error; each TDS export's record finished and its
-  collected PDF holding its own marker (`NWC<run>X<i>`, read with pypdf) and no other tab's. A suggest whose status
+  collected PDF holding its own marker (`NWC<i>X<run>`, read with pypdf) and no other tab's. A suggest whose status
   falls back to `idle` with no outcome (the spinning screen of a failed suggest before #1657) is a failure. It prints
   a line per run, `FAILED <operation>: <status>` for each failed one, the peak memory per worker, the most DB
   connections (the workers, the flows script's own one and, for a moment, one per clone create) and the longest

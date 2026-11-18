@@ -18,7 +18,7 @@ operation's outcome where the screen reads it (the status the polling fallback r
   sheet and, when the suggest started a historical match run (the match switch is on), that match run ends without
   an error. A suggest whose status falls back to idle with no outcome (the screen would spin) is a failure.
 - tds: N TDS exports by one user back to back, as N tabs of one screen (`start_tds_export`, #1662), heavy (200 rows)
-  and light (1 row) alternating, heavy first. Every row of export i carries the marker `NWC<run>X<i>`. An operation
+  and light (1 row) alternating, heavy first. Every row of export i carries the marker `NWC<i>X<run>`. An operation
   is ok when its status record ends finished and the PDF `collect_result` hands back holds its own marker and no
   other tab's. Before #1662 the heavy tab took the light tab's PDF.
 
@@ -299,8 +299,9 @@ TDS_HEAVY_ROWS = 200
 TDS_ENDED = ("finished", "failed", "lost")
 
 
-def tds_marker(run, i):
-    return f"NWC{run}X{i}"
+def tds_marker(tag, i):
+    """`NWC<i>X<tag>`: the index first, so no tab's marker is a prefix of another's (X1 against X10)."""
+    return f"NWC{i}X{tag}"
 
 
 def tds_items(marker, rows):
