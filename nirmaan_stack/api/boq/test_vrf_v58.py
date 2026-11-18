@@ -140,7 +140,9 @@ class TestVrf3aAssetV58(FrappeTestCase):
                 if "calculator_only" in c:
                     with self.assertRaises(Exception) as cm:
                         config_validation._validate_config(c)
-                    self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+                    # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE refused as "Unknown top-level config key(s): calculator_only" -- still REFUSED, now by
+                    # `_validate_calculator_only` (the key is allowed on hvac_vav_box only)
+                    self.assertIn("calculator_only is not allowed on category 'hvac_vrf'", str(cm.exception))
                     c = dict(c); c.pop("calculator_only")
                 config_validation._validate_config(c)
             elig[name] = sorted(k[1] for k, c in cfgs.items() if extraction.config_is_eligible(c, cfgs))

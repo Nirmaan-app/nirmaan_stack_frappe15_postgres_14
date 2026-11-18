@@ -2575,6 +2575,12 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_master.test_calculator_only_vav1": {
+   "seconds": 11.8,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_master.test_capture_guard": {
    "seconds": 13.9,
    "series": [],
@@ -2643,6 +2649,12 @@
   },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_du3": {
    "seconds": 14.4,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_vav1": {
+   "seconds": 11.6,
    "series": [],
    "writes": [],
    "reads": []

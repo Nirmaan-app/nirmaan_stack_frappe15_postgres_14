@@ -18418,7 +18418,10 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         code = [l.strip() for l in re.sub(r'"""[\s\S]*?"""', "", inspect.getsource(extraction)).split("\n")
                 if "calculator_only" in l and not l.strip().startswith("#")]   # prose (docstrings) may name it; code is counted
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE two code lines (the VRF-2a clauses of `config_is_eligible`) -- back to 12d-2: none
-        self.assertEqual(code, [])
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE `code == []` (VRF-4) -- the VRF-2a
+        # shape again, on hvac_vav_box: exactly the two return lines of `config_is_eligible`; the loader still never reads the key
+        self.assertEqual(len(code), 2, code)
+        self.assertTrue(all(l.startswith("return has_runnable_pricing_rules(") and l.endswith('.get("category_id") in _CO)') for l in code), code)
         self.assertNotIn("calculator_only", inspect.getsource(loader))
 
     def test_fa7_04_INVERTED_pipelines_stays_EMPTY_and_the_category_is_eligible_through_the_list_block(self):
@@ -18444,7 +18447,10 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         # refused -- now by `_validate_calculator_only`, naming the category and the reason.
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE refused by `_validate_calculator_only` ("calculator_only is not allowed on category 'hvac_insulation'",
         # "temporary switch for VRF only") -- the key is out of the allowlist again: refused as an unknown top-level key
-        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) refused as an unknown top-level
+        # key -- the frozen v28 INSULATION config is still REFUSED, now by `_validate_calculator_only`, naming the category and the reason
+        self.assertIn("calculator_only is not allowed on category 'hvac_insulation'", str(cm.exception))
+        self.assertIn("temporary switch for VAV Box only", str(cm.exception))
         cfg.pop("calculator_only")
         config_validation._validate_config(cfg)          # the same config without the key: fine
 
@@ -18456,10 +18462,12 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         self.assertNotIn("CALCULATOR_ONLY_KEY", src)
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `_CALCULATOR_ONLY_CATEGORIES == {hvac_vrf}`, the key in `_KNOWN_CONFIG_KEYS`, `_validate_calculator_only`
         # callable and called -- all removed with the switch (12d-2's state again)
-        self.assertFalse(hasattr(config_validation, "_CALCULATOR_ONLY_CATEGORIES"))
-        self.assertNotIn("calculator_only", config_validation._KNOWN_CONFIG_KEYS)
-        self.assertFalse(hasattr(config_validation, "_validate_calculator_only"))
-        self.assertNotIn("_validate_calculator_only", inspect.getsource(config_validation._validate_config))
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) no `_CALCULATOR_ONLY_CATEGORIES`,
+        # the key out of `_KNOWN_CONFIG_KEYS`, no `_validate_calculator_only` -- back, for hvac_vav_box ONLY (FA7's CALCULATOR_ONLY_KEY stays gone)
+        self.assertEqual(config_validation._CALCULATOR_ONLY_CATEGORIES, frozenset({"hvac_vav_box"}))
+        self.assertIn("calculator_only", config_validation._KNOWN_CONFIG_KEYS)
+        self.assertTrue(callable(config_validation._validate_calculator_only))
+        self.assertIn("_validate_calculator_only(cfg)", inspect.getsource(config_validation._validate_config))
 
     def test_fa7_07_NEGATIVE_a_config_with_NOTHING_TO_PRICE_is_still_not_eligible(self):
         """What the retired admission used to refuse by name is now simply not eligible: no rules,
@@ -18587,7 +18595,9 @@ class TestVrf2aCalculatorOnlySwitch(FrappeTestCase):
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `_validate_config(self._vrf_priced())` passed -- the key is refused on hvac_vrf too now
         with self.assertRaises(Exception) as cm:
             config_validation._validate_config(self._vrf_priced())
-        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) refused as an unknown key -- still
+        # REFUSED on hvac_vrf, now by the category rule (the switch is VAV Box's alone)
+        self.assertIn("calculator_only is not allowed on category 'hvac_vrf'", str(cm.exception))
         config_validation._validate_config(self._vrf_priced(key=False))     # and the config without it, as ever
 
     def test_v2a_02_NEGATIVE_refused_on_any_other_category_naming_the_reason(self):
@@ -18600,7 +18610,9 @@ class TestVrf2aCalculatorOnlySwitch(FrappeTestCase):
                 config_validation._validate_config(cfg)
             msg = str(cm.exception)
             # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE "calculator_only is not allowed on category ..." (`_validate_calculator_only`) -- an unknown key now
-            self.assertIn("Unknown top-level config key(s): calculator_only", msg)
+            # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) an unknown key -- still refused, naming the category
+            self.assertIn("calculator_only is not allowed on category '%s'" % cat, msg)
+            self.assertIn("temporary switch for VAV Box only", msg)
 
     def test_v2a_03_NEGATIVE_an_explicit_false_or_a_non_bool_is_a_key_doing_nothing(self):
         for bad in (False, "true", 1, None):
@@ -18609,7 +18621,8 @@ class TestVrf2aCalculatorOnlySwitch(FrappeTestCase):
             with self.assertRaises(Exception) as cm:
                 config_validation._validate_config(cfg)
             # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE "calculator_only must be true when present" -- any value of the key is an unknown key now
-            self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+            # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) an unknown key -- a non-true value is refused first
+            self.assertIn("calculator_only must be true when present", str(cm.exception))
 
     def test_v2a_04_NEGATIVE_refused_without_an_item_list_pricing_block(self):
         cfg = self._v55("hvac_vrf")          # v55's VRF: data only, no list_spec
@@ -18619,7 +18632,8 @@ class TestVrf2aCalculatorOnlySwitch(FrappeTestCase):
         with self.assertRaises(Exception) as cm:
             config_validation._validate_config(cfg)
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE "calculator_only needs an item-list pricing block" -- an unknown key now
-        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE (VRF-4) an unknown key -- refused on hvac_vrf by the category rule
+        self.assertIn("calculator_only is not allowed on category 'hvac_vrf'", str(cm.exception))
 
     # ---- eligibility --------------------------------------------------------------------------------------------
 
@@ -21314,7 +21328,9 @@ class TestVrf4ModelKeys(FrappeTestCase):
         self._refused(lambda c: pr(c)["working_standby"]["bar"].__setitem__("line", "no qty"), "working_standby.bar.line must name {said}")
         self._refused(lambda c: pr(c)["working_standby"].__setitem__("extra", 1), "working_standby needs exactly attr, words and bar")
         self._refused(lambda c: pr(c)["defaults"]["brand"]["unlisted"].__setitem__("from_attr", ""), "unlisted.from_attr")
-        self._refused(lambda c: c.__setitem__("calculator_only", True), "Unknown top-level config key(s): calculator_only")
+        # INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority: BEFORE needle "Unknown top-level config key(s):
+        # calculator_only" -- still refused on hvac_vrf, by the category rule
+        self._refused(lambda c: c.__setitem__("calculator_only", True), "calculator_only is not allowed on category 'hvac_vrf'")
 
     def test_v4_04_label_attr_may_be_a_catalogue_column_but_never_an_unknown_one(self):
         """q4 removed capacity_label from the QUESTIONS; the SKUs still carry it (a top-level attribute definition), so the
