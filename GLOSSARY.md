@@ -675,13 +675,26 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 - **Background operation** — a unit of work the system carries out after the screen that started it already has its
   answer back: a TDS export, a BoQ upload's parse, a sheet's classification, a rate suggestion, a daily check. It waits
-  in a queue, runs, and ends *finished*, *failed* or *lost* (the server stopped while running it). One started from a
+  in a queue (*queued*, shown to the user as "waiting in the queue"), runs, and ends *finished*, *failed* or *lost*
+  (the server stopped while running it, dropped it from the queue, or no longer has its status record). *Lost* is
+  the server's best guess: when the operation's worker does end it after all, its finished or failed outcome replaces
+  *lost*. Nothing replaces finished or failed. One started from a
   screen belongs to the user who started it, and only that user follows it or collects its result. A **run** (such as a
   BoQ AI Run Log or a Rate Suggestion Run) is the business record; one run can span several background operations
   (suggest, then match). *Avoid*: job (a construction project), task (the Task records and Action Center tasks),
   request, batch, reading; "worker" for the operation (a worker is the server process that runs operations).
   ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
   (Owner, 2026-11-08.)
+
+- **Status record** — the record of one background operation that its owner's screen reads to follow it: its state,
+  its progress, and once it ends its result or the server's words on why it failed. Only the user who started the
+  operation may read it; it expires after a day. A live message only tells the screen to read it now. *Avoid*: job
+  status, task status. ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
+  (Spec #1654.)
+
+- **Finished file** — the file a finished background operation leaves for its owner (a TDS export, the handover
+  binder, a commission or bulk PDF download). Only that user can collect it, by the operation, for a day after it is
+  made; no link to it works for anyone else. *Avoid*: download token, temp file. (Spec #1654.)
 
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".

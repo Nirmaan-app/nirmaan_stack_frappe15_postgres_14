@@ -267,35 +267,26 @@ treatment on the REAL detected values. The sparkle/opacity condition checks BOTH
 `!confirmed && value !== ""` -- empty fields never show sparkle pre-parse. The
 1b-ii-a `useEffect` that pre-filled `boqName` from `project.project_name` is REMOVED.
 
-**Upload trigger flow (1b-ii-b):** On valid drop, `BoqDropZone` immediately POSTs to
-`/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file` via native `fetch` with
-`FormData` (fields: `project_id` from store, `file`). CSRF token from
-`(window as any).frappe?.csrf_token`. Returns `{message: {job_id}}` synchronously;
-`setUploadStatus("parsing")` + `setJobId(job_id)` on success. Upload HTTP failure
-calls `resetUpload()` (not just `setUploadStatus("idle")`) so the drop zone
-reappears for retry.
+**Upload trigger flow (#1665, ADR 0047):** On valid drop, `BoqDropZone` builds the
+`FormData` (`project_id` from store, `file`, and `source_boq` for a revision) and hands it to
+`BoqUploadScreen`, which starts it with `useBackgroundOperation` (storage key
+`boq_upload:<project>`): the hook posts the form with the browser-made `op_id` to
+`nirmaan_stack.api.boq.wizard.upload_file.upload_file` (POST), whose reply is the operation's
+status record. The upload is followed through `api/background_ops.get_status` alone; there is
+no upload socket event and no `get_upload_status` any more. A reload picks a running upload up
+again (per tab), with the file name from the operation's context.
 
-**uploadStatus lifecycle (1b-ii-b):** `idle` | `uploading` (POST in flight) |
-`parsing` (job enqueued, waiting for socket) | `done` (parse success, BOQs row
-created) | `error-E` (corrupted workbook, error_code="corrupted") | `error-F` (zero
-sheets, error_code="zero_sheets") | `error-internal` (unexpected server error).
-`BoqDropZone` renders spinner for uploading/parsing, error states for error-*, and
-file tile for idle/done. The 30s "taking longer" message is a local `setTimeout`
-in `BoqDropZone` that fires only during "parsing" -- not a timeout, parsing continues.
+**Upload status (`boqUploadOperation.uploadOutcome`):** the screen's status is derived from the
+operation's view, not held in `useBoqWizardStore`: `idle` | `uploading` (POST in flight) |
+`queued` (the parse waits in the queue: "Waiting in the queue...") | `parsing` (running) |
+`done` (finished, result `{status: "success", boq_name}`) | `error-E` / `error-F` (finished,
+result `{status: "error", error_code: "corrupted" | "zero_sheets"}`) | `error-internal`
+(failed or lost, with the server's words). `boqDocName` is the done result's `boq_name`. The
+30 s "taking longer" note in `BoqDropZone` counts from `parsing` (the operation running),
+never the queue wait. The template seed (`TemplateEditorPage`, storage key
+`boq_template_seed`, `is_template_source=1`) follows its own operation the same way.
 
-**Socket listener pattern (1b-ii-b):** `boq:wizard_parse_done` is registered
-SCREEN-SCOPED in `BoqUploadScreen.tsx` via `useContext(FrappeContext)` -- NOT added
-to `socketListeners.ts` or `SocketInitializer.tsx`. Pattern: `socket.on(event, handler)`
-in a `useEffect([socket])` cleanup, `socket.off(event, handler)` in the cleanup
-return. Handler guards on `useBoqWizardStore.getState().uploadStatus === "parsing"` to
-filter events from concurrent uploads by other users (frappe.publish_realtime
-broadcasts to ALL connected clients without user targeting). Success path sets
-`boqDocName` + `uploadStatus("done")`; error path sets the appropriate error-* status.
-`useFrappeGetDoc("BOQs", boqDocName, boqDocName ? undefined : null)` then fetches the
-doc (third arg null disables SWR until boqDocName is set per sdk gotcha). A separate
-`useEffect([boqDoc, uploadStatus])` calls `fillFromParse` when the doc arrives.
-
-**Socket listener pattern (2b-frontend-i) -- hub `boq:parse_run_done` listener:** `boq:parse_run_done` is registered SCREEN-SCOPED in `BoqHubPage.tsx` via `useContext(FrappeContext)` -- NOT added to `socketListeners.ts` or `SocketInitializer.tsx` (same screen-scoped convention as the 1b-ii-b upload listener). `socket.on(event, handler)` in `useEffect([socket])`, `socket.off` in cleanup. KEY DIFFERENCE from the 1b-ii-b upload listener: guards on `payload.boq_name === boqId` (hub always knows its BoQ; no store-state check needed) rather than a store `uploadStatus` flag. On success: calls `mutate()` + sets `parseResult({parsed, notParsed, failed})` to open the completion modal (Bucket-2 Slice 2); on error: uses `PARSE_ERROR_MSGS` module-level const to set `parseError({message, severity})`. `boq:wizard_parse_done` (upload flow, 1b-ii-b, in `BoqUploadScreen`) and `boq:parse_run_done` (parse-run flow, 2b-frontend-i, in `BoqHubPage`) are DISTINCT events for DISTINCT flows -- do NOT conflate them.
+**Socket listener pattern (2b-frontend-i) -- hub `boq:parse_run_done` listener:** `boq:parse_run_done` is registered SCREEN-SCOPED in `BoqHubPage.tsx` via `useContext(FrappeContext)` -- NOT added to `socketListeners.ts` or `SocketInitializer.tsx` (a screen-scoped listener). `socket.on(event, handler)` in `useEffect([socket])`, `socket.off` in cleanup. Guards on `payload.boq_name === boqId` (the hub always knows its BoQ). On success: calls `mutate()` + sets `parseResult({parsed, notParsed, failed})` to open the completion modal (Bucket-2 Slice 2); on error: uses `PARSE_ERROR_MSGS` module-level const to set `parseError({message, severity})`. The upload flow has no socket event of its own (it follows its background operation, #1665).
 
 **Parse completion modal pattern (Bucket-2 Slice 2, feat 21e56963):** `BoqHubPage` shows parse results in an acknowledge-only `AlertDialog` (single OK action, no Cancel). Open-state is derived from `parseResult || parseError` -- the modal opens automatically when either is set; OK action (and Escape key via `onOpenChange`) clears both. HUB-SCOPED only; never make this app-global. Per-case message convention:
 - SUCCESS: up to 3 independent sub-lines, each shown only if the list is non-empty: (1) `Parsed: {names}` -- `font-medium text-foreground`; (2) `Not parsed (skipped, hidden, or general-specs): {names}` -- `text-muted-foreground` (NEUTRAL); (3) `Failed to parse: {names}` -- `text-destructive`. If all lists empty, show "Parse complete." fallback.

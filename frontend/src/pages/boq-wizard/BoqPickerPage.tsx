@@ -93,7 +93,8 @@ const BoqPickerPage = () => {
       let currentDirty = templateDirty;
       if (projectMode === "upload") {
         const st = useBoqWizardStore.getState();
-        currentDirty = st.droppedFile !== null || st.uploadStatus !== "idle";
+        // A started upload always has its file in the store (a resumed one too).
+        currentDirty = st.droppedFile !== null;
       }
       if (currentDirty) {
         setPendingMode(target);

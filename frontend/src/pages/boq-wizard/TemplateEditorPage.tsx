@@ -1,11 +1,6 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeGetCall,
-  useFrappePostCall,
-} from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall } from "@/lib/frappe";
 import {
   ArrowDown,
   ArrowUp,
@@ -71,7 +66,9 @@ import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
 import { TemplateRowsEditor } from "./TemplateRowsEditor";
+import { UPLOAD_METHOD, uploadOutcome, type UploadOutcome } from "./boqUploadOperation";
 
 // ── Admin endpoint response types ───────────────────────────────────────────
 // get_master_template_admin is Admin+Estimates-only and NOT part of the shared
@@ -100,23 +97,6 @@ interface MasterTemplateAdminResponse {
   sheets?: MasterTemplateAdminSheet[];
 }
 
-/** boq:wizard_parse_done payload (same event the upload screen consumes). */
-interface ParseDonePayload {
-  status: string;
-  boq_name?: string;
-  error_code?: string;
-}
-
-/** get_upload_status response (polling fallback; mirrors the realtime payload). */
-interface UploadStatusResponse {
-  state: "pending" | "done";
-  status?: string;
-  boq_name?: string;
-  error_code?: string;
-}
-
-type SeedStatus = "idle" | "uploading" | "parsing" | "error";
-
 const ACCEPTED_EXTS = new Set([".xlsx", ".xlsm"]);
 
 const SEED_ERROR_MSGS: Record<string, string> = {
@@ -125,6 +105,14 @@ const SEED_ERROR_MSGS: Record<string, string> = {
   internal: "An unexpected error occurred while processing the file. Please try again.",
 };
 
+/** The words for a seed upload that ended without a seed BoQ, or null while it has not. */
+function seedErrorOf(outcome: UploadOutcome): string | null {
+  if (outcome.status === "error-E") return SEED_ERROR_MSGS.corrupted;
+  if (outcome.status === "error-F") return SEED_ERROR_MSGS.zero_sheets;
+  if (outcome.status === "error-internal") return outcome.error ?? SEED_ERROR_MSGS.internal;
+  return null;
+}
+
 /**
  * A-T8 SHELL -- the Templates-admin screen.
  *
@@ -132,17 +120,15 @@ const SEED_ERROR_MSGS: Record<string, string> = {
  * Reads get_master_template_admin: {} (no master) -> empty seed state; else the
  * provenance card + is_active toggle + sheets list + a re-seed button.
  *
- * SEEDING reuses the upload -> parse socket/poll "first-to-resolve-wins" trio from
- * BoqUploadScreen: an is_template_source=1 upload authors a PROJECT-LESS seed BoQ,
- * then boq:wizard_parse_done (fast) OR get_upload_status polling (fallback) resolves
- * it and we navigate to that seed BoQ's hub.
+ * SEEDING is the BoQ upload's background operation (#1665, ADR 0047): an is_template_source=1
+ * upload authors a PROJECT-LESS seed BoQ; this screen follows its own operation through
+ * useBackgroundOperation and navigates to that seed BoQ's hub once it is done.
  *
  * The per-row ReviewTree editor is a LATER slice -- this shell only stubs it.
  */
 export function TemplateEditorPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { socket } = useContext(FrappeContext) as FrappeConfig;
   const { user_id, role } = useUserData();
 
   // Tabbed admin body: ?tab= drives the active tab (default "details").
@@ -198,63 +184,26 @@ export function TemplateEditorPage() {
 
   // ── Seed / re-seed upload flow ─────────────────────────────────────────────
   const seedInputRef = useRef<HTMLInputElement>(null);
-  const [seedStatus, setSeedStatus] = useState<SeedStatus>("idle");
-  const [seedJobId, setSeedJobId] = useState<string | null>(null);
-  const [seedError, setSeedError] = useState<string | null>(null);
+  // A file the browser refused (wrong extension) before any upload started.
+  const [localSeedError, setLocalSeedError] = useState<string | null>(null);
 
   // 4d: re-seed warning -> drop-zone entry dialog (no direct hidden-input click).
   const [reseedWarnOpen, setReseedWarnOpen] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
 
-  // Ref mirror so the socket / poll handlers guard on the live status without a
-  // stale closure (there is no zustand store here; this replaces getState()).
-  const seedStatusRef = useRef<SeedStatus>(seedStatus);
-  useEffect(() => {
-    seedStatusRef.current = seedStatus;
-  }, [seedStatus]);
-
-  // First-to-resolve-wins: socket OR poll, whichever lands while status is "parsing".
-  const applySeedOutcome = useCallback(
-    (status?: string, boqName?: string | null, errorCode?: string | null) => {
-      if (seedStatusRef.current !== "parsing") return;
-      if (status === "success" && boqName) {
-        // Navigate to the freshly-authored seed BoQ hub (verbatim name).
-        setEntryOpen(false);
-        navigate(`/upload-boq/hub/${boqName}`);
-      } else if (status === "error") {
-        setSeedError(SEED_ERROR_MSGS[errorCode ?? "internal"] ?? SEED_ERROR_MSGS.internal);
-        setSeedStatus("error");
-      }
+  const seedOp = useBackgroundOperation({
+    storageKey: "boq_template_seed",
+    onFinished: (result, _context, opId) => {
+      const done = uploadOutcome({ phase: "finished", opId, result });
+      if (done.status !== "done" || !done.boqName) return;
+      // Navigate to the freshly-authored seed BoQ hub (verbatim name).
+      setEntryOpen(false);
+      navigate(`/upload-boq/hub/${done.boqName}`);
     },
-    [navigate]
-  );
-
-  // Fast path: realtime boq:wizard_parse_done (screen-scoped, not global).
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: ParseDonePayload) =>
-      applySeedOutcome(payload.status, payload.boq_name, payload.error_code);
-    socket.on("boq:wizard_parse_done", handler);
-    return () => {
-      socket.off("boq:wizard_parse_done", handler);
-    };
-  }, [socket, applySeedOutcome]);
-
-  // Fallback path: poll get_upload_status by job id while parsing.
-  const shouldPoll = seedStatus === "parsing" && !!seedJobId;
-  const { data: pollData } = useFrappeGetCall<{ message: UploadStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.upload_file.get_upload_status",
-    { job_id: seedJobId },
-    shouldPoll ? `boq-seed-status::${seedJobId}` : null,
-    { refreshInterval: shouldPoll ? 3000 : 0 }
-  );
-
-  useEffect(() => {
-    const msg = pollData?.message;
-    if (!msg || msg.state !== "done") return;
-    applySeedOutcome(msg.status, msg.boq_name, msg.error_code);
-  }, [pollData, applySeedOutcome]);
+  });
+  const seedOutcome = uploadOutcome(seedOp.view);
+  const seedError = localSeedError ?? seedErrorOf(seedOutcome);
 
   // ── Sheet editor: row editor + sheet-level ops (add / remove / reorder) ─────
   const isTemplateAdmin = isAuthorized;
@@ -372,39 +321,13 @@ export function TemplateEditorPage() {
     [effectiveIndex, sheetNames, reorderSheetsCall, templateName, mutateAdmin]
   );
 
-  async function triggerSeedUpload(file: File): Promise<void> {
-    setSeedStatus("uploading");
-    setSeedError(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file, file.name);
-      fd.append("is_template_source", "1");
-
-      const res = await fetch(
-        "/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file",
-        {
-          method: "POST",
-          headers: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "X-Frappe-CSRF-Token": (window as any).frappe?.csrf_token ?? "",
-          },
-          body: fd,
-        }
-      );
-
-      if (!res.ok) {
-        setSeedError("Upload failed. Please try again.");
-        setSeedStatus("error");
-        return;
-      }
-
-      const json = (await res.json()) as { message?: { job_id?: string } };
-      setSeedJobId(json?.message?.job_id ?? null);
-      setSeedStatus("parsing");
-    } catch {
-      setSeedError("Upload failed. Check your connection and try again.");
-      setSeedStatus("error");
-    }
+  function triggerSeedUpload(file: File): void {
+    setLocalSeedError(null);
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("is_template_source", "1");
+    // A refused or failed start ends the operation failed, with the server's words.
+    void seedOp.start(UPLOAD_METHOD, fd, { name: file.name, size: file.size });
   }
 
   // Shared accept path: the hidden <input> onChange AND the drop-zone onDrop both
@@ -413,11 +336,11 @@ export function TemplateEditorPage() {
     if (!file) return;
     const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
     if (!ACCEPTED_EXTS.has(ext)) {
-      setSeedError(`"${ext}" is not supported. Please upload an .xlsx or .xlsm file.`);
-      setSeedStatus("error");
+      seedOp.reset();
+      setLocalSeedError(`"${ext}" is not supported. Please upload an .xlsx or .xlsm file.`);
       return;
     }
-    void triggerSeedUpload(file);
+    triggerSeedUpload(file);
   }
 
   function onSeedFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -426,7 +349,7 @@ export function TemplateEditorPage() {
     acceptSeedFile(file);
   }
 
-  const seeding = seedStatus === "uploading" || seedStatus === "parsing";
+  const seeding = ["uploading", "queued", "parsing"].includes(seedOutcome.status);
 
   const hiddenSeedInput = (
     <input
@@ -442,10 +365,14 @@ export function TemplateEditorPage() {
     <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
       <Loader2 className="h-4 w-4 animate-spin text-primary" />
       <span className="text-foreground">
-        {seedStatus === "uploading" ? "Uploading workbook..." : "Parsing workbook..."}
+        {seedOutcome.status === "uploading"
+          ? "Uploading workbook..."
+          : seedOutcome.status === "queued"
+            ? "Waiting in the queue..."
+            : "Parsing workbook..."}
       </span>
     </div>
-  ) : seedStatus === "error" && seedError ? (
+  ) : seedError ? (
     <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
       <p className="font-medium text-destructive">Seeding failed</p>
       <p className="mt-1 text-muted-foreground">{seedError}</p>
@@ -453,9 +380,8 @@ export function TemplateEditorPage() {
         type="button"
         className="mt-2 text-sm text-primary underline-offset-4 hover:underline"
         onClick={() => {
-          setSeedStatus("idle");
-          setSeedError(null);
-          setSeedJobId(null);
+          setLocalSeedError(null);
+          seedOp.reset();
         }}
       >
         Dismiss

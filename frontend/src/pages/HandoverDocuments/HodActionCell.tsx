@@ -8,7 +8,7 @@
 //   Preview  -> the "HOD Document" print of this row, on screen. Every one of the 16 has one: a From
 //               Nirmaan document prints the page that LISTS the records it hands over.
 //               Building the REAL merged records here instead was tried on 2026-09-25 and reverted the
-//               same day: `enqueue_binder` refuses a document that is not Done, and Preview is what
+//               same day: `start_binder` refuses a document that is not Done, and Preview is what
 //               you look at BEFORE marking it Done, so it threw on every unfinished row.
 //   Download -> the same document as a file. For a From Nirmaan document that means the records
 //               themselves, built on the server (with no selection saved yet, Edit opens first).
@@ -30,7 +30,7 @@ export interface HodActionCellProps {
   meta: HodDocumentMeta;
   canEdit: boolean;
   /** Buttons are disabled. Wider than `working`: while ANY build runs, every From Nirmaan row is
-   *  blocked, because the server takes one build at a time. */
+   *  blocked, because this screen follows one build at a time. */
   busy: boolean;
   /** THIS row's own work (a save, its own download). Only this spins the button — `busy` alone used to,
    *  so every From Nirmaan row's Download spun while a build ran on ONE of them. */

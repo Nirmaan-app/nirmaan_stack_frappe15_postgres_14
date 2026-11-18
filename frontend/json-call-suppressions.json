@@ -9,11 +9,6 @@
       "count": 1
     }
   },
-  "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
-    "no-json-call": {
-      "count": 2
-    }
-  },
   "src/pages/HandoverDocuments/hodDownloads.ts": {
     "no-json-call": {
       "count": 1
@@ -35,16 +30,6 @@
     }
   },
   "src/pages/SnagList/import/templateDownload.ts": {
-    "no-json-call": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/BoqDropZone.tsx": {
-    "no-json-call": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
     "no-json-call": {
       "count": 1
     }

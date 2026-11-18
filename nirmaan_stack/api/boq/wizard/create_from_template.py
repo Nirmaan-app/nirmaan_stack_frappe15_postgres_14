@@ -92,7 +92,7 @@ def _get_active_master():
 
 
 # ---------------------------------------------------------------------------
-# Fallback status cache (mirrors upload_file._upload_status_key / get_upload_status)
+# Fallback status cache for the clone (keyed by RQ job id)
 # ---------------------------------------------------------------------------
 
 _CLONE_STATUS_CACHE_PREFIX = "boq_clone_status"
@@ -395,7 +395,7 @@ def get_clone_status(job_id=None):
     The create flow normally learns the result via the realtime boq:template_clone_done
     event, but that event is room-targeted and not replayed -- a client that missed it
     would otherwise hang on "Building your BoQ". The worker records its terminal outcome
-    via _publish_and_record(); this returns it. Mirrors upload_file.get_upload_status.
+    via _publish_and_record(); this returns it.
 
     Shapes (mirror the realtime payload so the client reuses one handler):
       {"state": "pending"}                                          -- still running / unknown

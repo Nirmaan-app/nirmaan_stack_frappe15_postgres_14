@@ -4,7 +4,7 @@
 """4 Material Data Sheet, as the binder puts it in: the project's OWN TDS report.
 
 The handover screen opens the TDS tab's "Confirm TDS Export" dialog and exports through
-`api/tds/tds_report.export_tds_report`. The binder now builds the SAME document with the SAME
+`api/tds/tds_report.start_tds_export`. The binder now builds the SAME document with the SAME
 renderer (`build_tds_report_pdf`) -- it used to staple the loose data sheets behind an HOD list page,
 so the handover pack and a download from the dialog were two different documents.
 

@@ -1,0 +1,155 @@
+// @vitest-environment jsdom
+//
+// #1665: two BoQ uploads by one user, in two tabs, each follow their own operation through the shared hook. The
+// server is faked at the hook's two edges: fetch, where the upload start posts the workbook as multipart form data
+// with the browser-made operation id, and the SDK's call API, where each operation's status record answers for
+// itself. One tab's upload fails; the
+// other's keeps running and then finishes. The socket's "read now" message for one operation reaches both tabs
+// (it is user-targeted) and must not end the other.
+//
+// jsdom has one sessionStorage, so the two tabs use two storage keys here; in a browser each tab has its own.
+import { createRoot, type Root } from "react-dom/client";
+import { act } from "react-dom/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { FrappeContext } from "@/lib/frappe";
+import { READ_NOW_EVENT, useBackgroundOperation, type BackgroundOperation } from "./useBackgroundOperation";
+
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const UPLOAD_METHOD = "nirmaan_stack.api.boq.wizard.upload_file.upload_file";
+
+type Listener = (message: unknown) => void;
+function fakeSocket() {
+  const listeners = new Map<string, Set<Listener>>();
+  return {
+    connected: true,
+    on: (event: string, fn: Listener) => {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)?.add(fn);
+    },
+    off: (event: string, fn: Listener) => listeners.get(event)?.delete(fn),
+    emit: (event: string, message: unknown) => listeners.get(event)?.forEach((fn) => fn(message)),
+  };
+}
+
+const STATUS_METHOD = "nirmaan_stack.api.background_ops.get_status";
+
+/** The server: each operation's record, and the files each start received. */
+function fakeServer() {
+  const records = new Map<string, Record<string, unknown>>();
+  const startedFiles = new Map<string, string>();
+  const fetchFake = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith(`/api/method/${UPLOAD_METHOD}`)) {
+      const body = init?.body;
+      if (!(body instanceof FormData)) return new Response("{}", { status: 417 });
+      const opId = body.get("op_id");
+      const file = body.get("file");
+      if (typeof opId !== "string" || !(file instanceof File)) return new Response("{}", { status: 417 });
+      startedFiles.set(opId, file.name);
+      records.set(opId, { op_id: opId, state: "queued", started_at: null, timeout: 600, now: 1000 });
+      return new Response(JSON.stringify({ message: records.get(opId) }), { status: 200 });
+    }
+    return new Response("{}", { status: 404 });
+  });
+  const call = {
+    get: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== STATUS_METHOD) throw { httpStatus: 404, message: "There was an error.", exception: "" };
+      const opId = typeof params?.op_id === "string" ? params.op_id : "";
+      return { message: records.get(opId) ?? null };
+    }),
+  };
+  const set = (opId: string, patch: Record<string, unknown>) =>
+    records.set(opId, { ...records.get(opId), ...patch });
+  return { fetchFake, call, startedFiles, set };
+}
+
+function Tab({ storageKey, expose, onFinished }: {
+  storageKey: string;
+  expose: (op: BackgroundOperation) => void;
+  onFinished: (result: unknown) => void;
+}) {
+  expose(useBackgroundOperation({ storageKey, onFinished }));
+  return null;
+}
+
+const upload = (name: string) => {
+  const form = new FormData();
+  form.append("project_id", "PROJ-TEST-0001");
+  form.append("file", new File(["workbook"], name), name);
+  return form;
+};
+
+const settle = () => act(async () => {
+  await vi.advanceTimersByTimeAsync(0);
+});
+
+describe("useBackgroundOperation: two BoQ uploads in two tabs", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("each tab shows its own upload's outcome: one fails, the other still runs and then finishes", async () => {
+    const server = fakeServer();
+    vi.stubGlobal("fetch", server.fetchFake);
+    const socket = fakeSocket();
+    const tabs: Record<"a" | "b", BackgroundOperation | null> = { a: null, b: null };
+    const finished = { a: vi.fn(), b: vi.fn() };
+
+    await act(async () => {
+      root.render(
+        <FrappeContext.Provider value={{ socket, call: server.call } as never}>
+          <Tab storageKey="boq_upload:tab-a" expose={(op) => { tabs.a = op; }} onFinished={finished.a} />
+          <Tab storageKey="boq_upload:tab-b" expose={(op) => { tabs.b = op; }} onFinished={finished.b} />
+        </FrappeContext.Provider>,
+      );
+    });
+
+    await act(async () => {
+      await tabs.a?.start(UPLOAD_METHOD, upload("Tower_A.xlsx"));
+      await tabs.b?.start(UPLOAD_METHOD, upload("Tower_B.xlsx"));
+    });
+    const opA = tabs.a?.view.phase === "queued" ? tabs.a.view.opId : "";
+    const opB = tabs.b?.view.phase === "queued" ? tabs.b.view.opId : "";
+    expect(opA).not.toBe("");
+    expect(opB).not.toBe("");
+    expect(opA).not.toBe(opB);
+    expect(server.startedFiles.get(opA)).toBe("Tower_A.xlsx");
+    expect(server.startedFiles.get(opB)).toBe("Tower_B.xlsx");
+
+    server.set(opA, { state: "failed", error: "The operation failed. The error has been logged." });
+    server.set(opB, { state: "running", started_at: 1000 });
+    socket.emit(READ_NOW_EVENT, { op_id: opA });
+    await settle();
+    expect(tabs.a?.view).toEqual({
+      phase: "failed", opId: opA, error: "The operation failed. The error has been logged.",
+    });
+    expect(tabs.b?.view.phase).toBe("queued");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(tabs.b?.view.phase).toBe("running");
+
+    server.set(opB, { state: "finished", result: { status: "success", boq_name: "BOQ-26-00002" } });
+    socket.emit(READ_NOW_EVENT, { op_id: opB });
+    await settle();
+    expect(tabs.b?.view.phase).toBe("finished");
+    expect(finished.b).toHaveBeenCalledWith({ status: "success", boq_name: "BOQ-26-00002" }, undefined, opB);
+    expect(finished.a).not.toHaveBeenCalled();
+    expect(tabs.a?.view.phase).toBe("failed");
+  });
+});

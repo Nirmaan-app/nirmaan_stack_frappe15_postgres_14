@@ -57,6 +57,10 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
 - [Credit Card Statement import](./card-import.md): upload, Review with its Refunds list, Create, and the refund
   as a negative Non-Project Expense, and the dialog's Review / Creating / Finished / Needs another Create (spec
   #1653). Walked end to end by `BIN/walk_card_import.py`.
+- [Background operations](./background-operations.md): TDS export, the handover binder, commission and bulk PDF
+  download, BoQ upload and template seed, each followed through its owner-only status record: queued apart from
+  running, each tab its own file or outcome, by polling alone (spec #1654). Walked by
+  `BIN/walk_background_operations.py` (`--part tds|handover|commission|bulk|boq|template`).
 - [Projects](./projects.md): the project list and a project's page.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`

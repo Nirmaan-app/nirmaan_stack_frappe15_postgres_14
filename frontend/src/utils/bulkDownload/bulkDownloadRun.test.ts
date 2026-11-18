@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { OpView } from "@/utils/backgroundOps/operationFollower";
 import {
-    applyFailed, applyProgress, applyReady, isWorking, missingCount, runDetails, runTitle, startRun, timeLeft, unitNoun,
+    applyFailed, applyProgress, applyReady, followRun, isWorking, missingCount, runDetails, runTitle, startRun, timeLeft, unitNoun,
 } from "./bulkDownloadRun";
 
 const queued = () => startRun("PO", ["All POs", "With rate"]);
@@ -36,11 +37,6 @@ describe("the window follows the job", () => {
         expect(run).toMatchObject({ done: 12, current: "PO/013", startedAt: 1_000, updatedAt: 61_000 });
     });
 
-    it("an older worker's event (no counts) still moves it on, with no total to show", () => {
-        const run = applyProgress(queued(), { progress: 50, message: "Processing PO 2 of 4..." }, 1_000);
-        expect(run).toMatchObject({ status: "preparing", total: null });
-    });
-
     it("merging shows every document done and nobody current", () => {
         const preparing = applyProgress(queued(), { done: 33, total: 34, current: "PO/034" }, 1_000);
         const run = applyProgress(preparing, { stage: "merging", done: 34, total: 34 }, 2_000);
@@ -48,7 +44,7 @@ describe("the window follows the job", () => {
     });
 
     it("a finished window ignores a late progress event", () => {
-        const ready = applyReady(queued(), { token: "t", filename: "f.pdf", included: 2, total: 2 });
+        const ready = applyReady(queued(), { filename: "f.pdf", included: 2, total: 2 });
         expect(applyProgress(ready, { done: 1, total: 2 }, 5_000)).toBe(ready);
         const failed = applyFailed(queued(), { message: "No PO items found." });
         expect(applyProgress(failed, { done: 1, total: 2 }, 5_000)).toBe(failed);
@@ -57,7 +53,7 @@ describe("the window follows the job", () => {
 
 describe("the outcome", () => {
     it("a complete file reads 'ready'", () => {
-        const run = applyReady(queued(), { token: "t", filename: "Tower_All_POs.pdf", included: 34, total: 34 });
+        const run = applyReady(queued(), { filename: "Tower_All_POs.pdf", included: 34, total: 34 });
         expect(run).toMatchObject({ status: "ready", filename: "Tower_All_POs.pdf", included: 34 });
         expect(missingCount(run)).toBe(0);
         expect(runTitle(run)).toBe("Procurement Orders ready");
@@ -65,13 +61,13 @@ describe("the outcome", () => {
     });
 
     it("a file missing documents says how many", () => {
-        const run = applyReady(queued(), { token: "t", filename: "f.pdf", included: 33, total: 34 });
+        const run = applyReady(queued(), { filename: "f.pdf", included: 33, total: 34 });
         expect(missingCount(run)).toBe(1);
         expect(runTitle(run)).toBe("Procurement Orders ready, 1 missing");
     });
 
     it("an older worker's file (no counts) is not called incomplete", () => {
-        const run = applyReady(queued(), { token: "t", filename: "f.pdf" });
+        const run = applyReady(queued(), { filename: "f.pdf" });
         expect(missingCount(run)).toBe(0);
         expect(runTitle(run)).toBe("Procurement Orders ready");
     });
@@ -106,4 +102,51 @@ it("counts files for uploaded attachments and documents for rendered ones", () =
     expect(unitNoun("Invoice", 3)).toBe("files");
     expect(unitNoun("PO", 34)).toBe("documents");
     expect(unitNoun("POPaymentVoucher", 1)).toBe("document");
+});
+
+describe("the window follows the download's background operation", () => {
+    const OP = "aaaaaaaa-0000-4000-8000-000000000001";
+    const context = { type: "PO", details: ["3 selected", "With rate"] };
+    const running = (detail: Record<string, unknown>): OpView =>
+        ({ phase: "running", opId: OP, progress: { percent: 0, message: null, detail } });
+
+    it("shows nothing while no download is followed, or one it cannot read", () => {
+        expect(followRun(queued(), { phase: "idle" }, undefined, 0)).toBeNull();
+        expect(followRun(null, { phase: "queued", opId: OP }, { type: "NotAType", details: [] }, 0)).toBeNull();
+    });
+
+    it("waits in the queue, then counts documents from the record's progress", () => {
+        let run = followRun(null, { phase: "starting", opId: OP }, context, 0);
+        expect(run).toMatchObject({ status: "queued", type: "PO", details: ["3 selected", "With rate"], total: null });
+        run = followRun(run, { phase: "queued", opId: OP }, context, 500);
+        expect(run).toMatchObject({ status: "queued" });
+        run = followRun(run, running({ done: 0, total: 3, current: "PO-1" }), context, 1_000);
+        expect(run).toMatchObject({ status: "preparing", done: 0, total: 3, current: "PO-1", startedAt: 1_000 });
+        run = followRun(run, running({ stage: "merging", done: 3, total: 3 }), context, 2_000);
+        expect(run).toMatchObject({ status: "merging", done: 3 });
+    });
+
+    it("a running operation that has reported nothing yet is working, with no total", () => {
+        const run = followRun(queued(), { phase: "running", opId: OP, progress: null }, context, 1_000);
+        expect(run).toMatchObject({ status: "preparing", total: null });
+    });
+
+    it("finishes with the file's name and how many documents made it in", () => {
+        const result = { included: 2, total: 3, file: { filename: "Vendor_Selected_POs.pdf", size_bytes: 10 } };
+        const run = followRun(queued(), { phase: "finished", opId: OP, result }, context, 3_000);
+        expect(run).toMatchObject({ status: "ready", filename: "Vendor_Selected_POs.pdf", included: 2, total: 3 });
+    });
+
+    it("failed and lost both show the server's words", () => {
+        expect(followRun(queued(), { phase: "failed", opId: OP, error: "No PO items found." }, context, 0))
+            .toMatchObject({ status: "failed", error: "No PO items found." });
+        expect(followRun(queued(), { phase: "lost", opId: OP, error: "The server stopped while running this operation." }, context, 0))
+            .toMatchObject({ status: "failed", error: "The server stopped while running this operation." });
+    });
+
+    it("a new download starts a fresh window, whatever the last one showed", () => {
+        const ready = applyReady(queued(), { filename: "f.pdf", included: 1, total: 1 });
+        const next = followRun(ready, { phase: "starting", opId: OP }, { type: "DC", details: ["All DCs"] }, 0);
+        expect(next).toMatchObject({ status: "queued", type: "DC", filename: null });
+    });
 });

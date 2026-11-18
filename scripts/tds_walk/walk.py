@@ -2419,10 +2419,12 @@ def c35(w: Walk, page, c: Checks):
         sent["items"] = json.loads(body.get("items_json") or "[]")
         route.abort()  # no PDF job: the payload is what is checked
 
-    page.route(re.compile(r".*tds_report\.export_tds_report.*"), capture)
+    # The TDS Repository starts its export as a background operation (#1662).
+    export_call = re.compile(r".*tds_report\.start_tds_export.*")
+    page.route(export_call, capture)
     d.get_by_role("button", name=re.compile("^Download PDF")).click()
     wait_for(lambda: "items" in sent, 10)
-    page.unroute(re.compile(r".*tds_report\.export_tds_report.*"))
+    page.unroute(export_call)
     payload = [i["name"] for i in sent.get("items", [])]
     c.check(payload, "the export was posted", sent)
     c.eq([n for n in payload if n in ours], expected, "the export payload runs in the list's order")
