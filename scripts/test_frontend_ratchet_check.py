@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frontend_ratchet_check import (  # noqa: E402
     JSON_CALLS,
     OXLINT,
-    from_eslint,
     suppression_loosenings,
     threshold_loosenings,
 )
+from oxlint_settings_check import CONFIG  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "frontend_ratchet_check.py"
 
@@ -43,11 +43,20 @@ def loosenings(base, head, base_pkg=None, head_pkg=None):
     return suppression_loosenings(OXLINT, base, head) + threshold_loosenings(*pkgs)
 
 
-def commit(repo, message):
-    """Commit everything in <repo>'s working tree, as a made-up author (a CI runner has no git identity)."""
-    subprocess.run(["git", "-C", str(repo), "add", "-A", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
-                    "commit", "-qm", message], check=True, capture_output=True)
+class GitRepo:
+    """A temporary git repo (self.repo) and the script run on it with --base-ref base. Mixed into a TestCase."""
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+
+    def commit(self, message):
+        """Commit everything in the working tree, as a made-up author (a CI runner has no git identity)."""
+        self.git("add", "-A", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message)
+
+    def run_script(self):
+        return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
+                              capture_output=True, text=True)
 
 
 class Suppressions(unittest.TestCase):
@@ -121,7 +130,7 @@ class Tightening(unittest.TestCase):
         self.assertEqual(loosenings(BASE, head, package(97.47), package(97.6)), [])
 
 
-class CommandLine(unittest.TestCase):
+class CommandLine(GitRepo, unittest.TestCase):
     """The script reads the base side with `git show <ref>:<path>` and the head side from the working tree."""
 
     def setUp(self):
@@ -131,21 +140,11 @@ class CommandLine(unittest.TestCase):
         self.write(BASE, package(97.47))
         self.commit("base")
 
-    def git(self, *args):
-        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
-
     def write(self, supp, pkg, json_calls=None, name=OXLINT):
         (self.repo / "frontend").mkdir(exist_ok=True)
         (self.repo / name).write_text(json.dumps(supp))
         (self.repo / JSON_CALLS).write_text(json.dumps(json_calls or JSON_BASE))
         (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
-
-    def commit(self, message):
-        commit(self.repo, message)
-
-    def run_script(self):
-        return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
-                              capture_output=True, text=True)
 
     def test_a_loosened_working_tree_exits_1_and_names_the_loosening(self):
         self.write(suppressions(orders={"typescript/no-explicit-any": 9, "no-restricted-imports": 1}),
@@ -241,7 +240,7 @@ BASELINE = {"s1_oversized_files": {"count": 3, "rule": "S1", "description": "big
             "b3_workflow_state_writers": {"count": 5, "rule": "B3", "description": "local only"}}
 
 
-class LintRepo:
+class LintRepo(GitRepo):
     """A git repo with a made-up frontend at commit `base`; the test edits the working tree and runs the script.
 
     Mixed into a unittest.TestCase (here and in test_oxlint_settings_check.py).
@@ -250,7 +249,7 @@ class LintRepo:
     def setUp(self):
         self.repo = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.repo)
-        subprocess.run(["git", "init", "-q", "-b", "base", str(self.repo)], check=True)
+        self.git("init", "-q", "-b", "base")
         (self.repo / "frontend/src/pages/orders").mkdir(parents=True)
         (self.repo / "scripts").mkdir()
         (self.repo / OXLINT).write_text(json.dumps(BASE))
@@ -260,17 +259,11 @@ class LintRepo:
         self.baseline(BASELINE)
         self.commit("base")
 
-    def git(self, *args):
-        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
-
-    def commit(self, message):
-        commit(self.repo, message)
-
-    def config(self, text, where="frontend/.oxlintrc.json"):
+    def config(self, text, where=CONFIG):
         (self.repo / where).write_text(text)
 
     def edit_config(self, old, new):
-        text = (self.repo / "frontend/.oxlintrc.json").read_text()
+        text = (self.repo / CONFIG).read_text()
         self.assertIn(old, text)
         self.config(text.replace(old, new))
 
@@ -283,10 +276,6 @@ class LintRepo:
 
     def baseline(self, data):
         (self.repo / "scripts/residence_baseline.json").write_text(json.dumps(data))
-
-    def run_script(self):
-        return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
-                              capture_output=True, text=True)
 
     def refused(self, *named):
         result = self.run_script()

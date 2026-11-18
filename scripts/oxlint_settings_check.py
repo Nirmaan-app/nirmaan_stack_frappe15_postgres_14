@@ -93,9 +93,9 @@ def options_kept(name, base_setting, head_setting):
 
     def grown(before, after):
         """A ban list: each of base's entries kept, no new `!` entry, no `!` entry moved after one it preceded."""
-        new = [a for a in after if not any(kept(b, a) for b in before)]
-        return (all(any(kept(b, a) for a in after) for b in before)
-                and not any(map(negates, new)) and not negations_overtaken(after, before))
+        keeps = [[kept(b, a) for a in after] for b in before]  # keeps[i][j]: after[j] bans what before[i] did
+        new = [a for j, a in enumerate(after) if not any(row[j] for row in keeps)]
+        return all(map(any, keeps)) and not any(map(negates, new)) and not negations_moved_later(before, after)
 
     base_options, head_options = options(base_setting), options(head_setting)
     return grown(base_options, head_options) if name in BAN_LISTS else kept(base_options, head_options)
@@ -169,6 +169,15 @@ def negations_overtaken(before, after):
             and before_at[plain] < before_at[negated] and after_at[plain] > after_at[negated]]
 
 
+def negations_moved_later(before, after):
+    """(`!` entry, plain entry) pairs where the `!` entry preceded the plain one in <before> and follows it in <after>.
+
+    The mirror of negations_overtaken, for a ban list: read last-match-wins, the `!` entry now wins for what both
+    match, so it lifts that entry's ban.
+    """
+    return negations_overtaken(before=after, after=before)
+
+
 def ignore_order_loosenings(base_ignores, head_ignores):
     """A sentence per `!` pattern of ignorePatterns that head moved before an ignore pattern it followed in base.
 
@@ -215,6 +224,15 @@ def relaxed_after_on(entries):
             if rule_name(on.key) == rule_name(off.key) and not on.relaxes and on.index < off.index}
 
 
+def no_wider_relaxation(old, new):
+    """True when OverrideEntry <new>, a relaxation in head, is no wider than <old>, one in base: the same rule and file
+    pattern, a level no lower, and as an error, options no weaker."""
+    name, level = rule_name(new.key), severity(new.setting)
+    return (old.relaxes and old.pattern == new.pattern and rule_name(old.key) == name
+            and RANK[severity(old.setting)] <= RANK[level]
+            and (level != "error" or options_kept(name, old.setting, new.setting)))
+
+
 def override_loosenings(base, head):
     """The ways head's `overrides` weaken base's, one sentence each.
 
@@ -228,12 +246,8 @@ def override_loosenings(base, head):
     head_top = rules_by_name(head)
     base_entries, head_entries = override_entries(base, rules_by_name(base)), override_entries(head, head_top)
     for entry in head_entries:
-        name, level = rule_name(entry.key), severity(entry.setting)
-        if entry.relaxes and not any(
-                old.pattern == entry.pattern and rule_name(old.key) == name and old.relaxes
-                and RANK[severity(old.setting)] <= RANK[level]
-                and (level != "error" or options_kept(name, old.setting, entry.setting))
-                for old in base_entries):
+        if entry.relaxes and not any(no_wider_relaxation(old, entry) for old in base_entries):
+            level = severity(entry.setting)
             shown = level if level != "error" else "error with weaker options"
             problems.append(f"{CONFIG}: an override sets {entry.key} to {shown} for {entry.pattern}")
     for old in base_entries:
