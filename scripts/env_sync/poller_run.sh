@@ -62,12 +62,25 @@ heartbeat() {
     echo "result:            $1"
     echo "active slice:      ${2:-none}"
     echo "desktop reachable: ${3:-not asked}"
+    echo "location:          ${LOCATION:-not checked} (office = code copies only; away = code + database)"
     echo "last good B1:      $(cat "$ST/last_b1.txt" 2>/dev/null || echo none recorded)"
     echo "last good B2:      $(last_b2 | grep . || echo none recorded) (the laptop's last proved database copy)"
     echo "off switch:        bash scripts/env_sync/env_sync.sh poller pause | resume | remove"
   } > "$HB"
 }
 finish() { say "$1"; heartbeat "$1" "${2:-}" "${3:-}"; exit 0; }
+# Where the laptop is (owner 2026-11-18 16:37 / 16:42 "ok option a": the database copies are for when he has LEFT the
+# office; in the office the poller only copies code). "office" = the laptop reaches the desktop over a DIRECT private-LAN
+# path (tailscale ping "via 192.168.x.x:port" and the like, CKP-2's network record); the Tailscale relay, a public address,
+# no answer or no Tailscale = "away". Read-only: it never changes Wi-Fi, an adapter or Tailscale.
+TAILSCALE="${POLLER_TAILSCALE:-${ENV_SYNC_TAILSCALE:-/c/Program Files/Tailscale/tailscale.exe}}"
+DESKTOP_TS="${ENV_SYNC_DESKTOP_TS:-nitesh-desktop}"
+where_am_i() {
+  local out
+  if [ -n "${POLLER_LOCATION:-}" ]; then echo "$POLLER_LOCATION"; return; fi          # rehearsals and tests only
+  out=$(timeout 20 "$TAILSCALE" ping -c 1 "$DESKTOP_TS" 2>&1 | tr -d '\r' | tail -1)
+  if grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$out"; then echo office; else echo away; fi
+}
 
 # One instance at a time (the task also ignores a new start while one runs).
 if ! mkdir "$ST/lock" 2>/dev/null; then
@@ -101,6 +114,7 @@ fi
 FIRST=$(sed -n 's/^F=//p' <<< "$OUT" | head -1)
 POINT=$(sed -n 's/^P=//p' <<< "$OUT" | head -1)
 FINAL=0; case "$FIRST" in DONE*|FAILED*) FINAL=1;; esac
+LOCATION=$(where_am_i)
 
 b1_good() { echo "$(now) $SLICE $(sed -n 's/^CHECKPOINT CODE [^:]*: //p' <<< "$1" | head -1 | sed 's#.*/##')" > "$ST/last_b1.txt"; }
 
@@ -134,7 +148,11 @@ if [ -n "$POINT" ]; then
   # each time): after a failure the SAME point is tried again only after B2_RETRY_MIN. And a copy is not started while the
   # laptop is short of memory - both AC5 failures were the laptop's Docker falling over with ~2 GB free.
   B2_WAIT=""
-  if [ "$pt_epoch" -gt "$rec_epoch" ]; then
+  # In the office: code only. No database copy from a DBCOPY-POINT and the laptop's Docker is never started for the poller
+  # (the slice-end db-pull and the "leaving" checkpoint still copy the database there). The point stays due, so the copy
+  # is made at the first run away from the office.
+  if [ "$pt_epoch" -gt "$rec_epoch" ] && [ "$LOCATION" = office ]; then B2_WAIT="B2 not in office (a database copy is due; it is made once the laptop is away, or by 'leaving' / the slice-end db-pull)"; RESULT="$RESULT + $B2_WAIT"; fi
+  if [ "$pt_epoch" -gt "$rec_epoch" ] && [ -z "$B2_WAIT" ]; then
     if [ -f "$ST/b2_failed.txt" ] && [ "$(sed -n 1p "$ST/b2_failed.txt")" = "$POINT" ]; then
       fail_age=$(( ($(date +%s) - $(stat -c %Y "$ST/b2_failed.txt")) / 60 ))
       [ "$fail_age" -lt "$B2_RETRY_MIN" ] && B2_WAIT="B2 PENDING (the copy failed $fail_age min ago; next try after $B2_RETRY_MIN min)"

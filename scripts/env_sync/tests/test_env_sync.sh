@@ -284,7 +284,7 @@ EOF
 chmod +x "$PW/bin/"*
 prun() {   # one poller run against the stubs (POLLER_ENGINE_START: the real Docker Desktop is never started by a test)
   PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
-  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_ENGINE_START="$PW/bin/engine_start" \
+  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_LOCATION="${POLLER_LOCATION-away}" POLLER_TAILSCALE="${POLLER_TAILSCALE:-}" POLLER_ENGINE_START="$PW/bin/engine_start" \
   ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
   bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
 }
@@ -351,9 +351,29 @@ EOF
 chmod +x "$PW/bin/env_sync_peek"
 PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" POLLER_SSH="$PW/bin/ssh" \
   POLLER_ENV_SYNC="$PW/bin/env_sync_peek" POLLER_DOCKER="$PW/bin/docker" ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" \
-  ENV_SYNC_RELAY_ROOT="$PW/relay" POLLER_FREE_MB=8000 bash "$SRC/poller_run.sh" > /dev/null 2>&1
+  ENV_SYNC_RELAY_ROOT="$PW/relay" POLLER_FREE_MB=8000 POLLER_LOCATION=away bash "$SRC/poller_run.sh" > /dev/null 2>&1
 check "EVERY run writes the heartbeat FIRST: while a step runs it says RUNNING since <start>, then the result replaces it" '
   grep -q "^result:  *RUNNING since 20[0-9-]* [0-9:]* " "$PW/hb_during.txt" && grep -q "^active slice:  *T-1" "$PW/hb_during.txt" && [ "$(hb)" = "B1 SKIP not due" ]'
+
+# Office vs away (owner 2026-11-18 "ok option a"). prun's default location is "away"; these runs set it, or let the
+# poller read it from a stub tailscale. No Wi-Fi, adapter or Tailscale setting is touched.
+echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup z)" > "$PW/pull_record"
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 17:30:00 a load in the office\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_173100\n' > "$PW/es_out"; POLLER_LOCATION=office prun
+check "OFFICE: code only - B1 is taken, the due database copy is NOT made, Docker is never started, and it is not a failure" '
+  [[ "$(hb)" == "B1 OK + B2 not in office"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ] && grep -q "^location:  *office" "$PW/hb.txt"'
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 17:30:00 a load in the office\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"
+echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 17:40:00, backup w)" > "$PW/b2_record"; POLLER_LOCATION=away prun
+check "AWAY: the copy that was held back in the office is made at the first run away (code + database)" '
+  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1 --yes$" "$PW/calls.log" && grep -q "^location:  *away" "$PW/hb.txt"'
+cat > "$PW/bin/tailscale" <<'EOF'
+#!/usr/bin/env bash
+cat "$PW_DIR/ts_out" 2>/dev/null
+EOF
+chmod +x "$PW/bin/tailscale"
+loc() { echo "$1" > "$PW/ts_out"; preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_LOCATION="" POLLER_TAILSCALE="$PW/bin/tailscale" prun; sed -n 's/^location: *\([a-z]*\) .*/\1/p' "$PW/hb.txt"; }
+check "LOCATION: a direct private-LAN path to the desktop is the office; the relay, a public address or no answer is away" '
+  [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 192.168.0.22:41641 in 9ms")" = office ] && [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 10.0.0.7:41641 in 3ms")" = office ] &&
+  [ "$(loc "pong from nitesh-desktop (100.84.255.77) via DERP(sin) in 120ms")" = away ] && [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 122.171.18.123:16983 in 40ms")" = away ] && [ "$(loc "no reply")" = away ]'
 
 preset; date '+%F %T' > "$PW/state/paused"; prun
 check "PAUSE: the off switch -> heartbeat PAUSED, nothing asked, nothing copied" '[[ "$(hb)" == PAUSED* ]] && [ "$(calls .)" = 0 ]'
