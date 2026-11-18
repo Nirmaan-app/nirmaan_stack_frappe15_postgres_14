@@ -83,6 +83,9 @@ TIER_L2_ABOVE_EXPENSES = 50000.0
 TIER_AUTO = "auto"
 TIER_L1 = "l1"
 TIER_L1_L2 = "l1_l2"
+# What the queue SHOWS for an Expense an import created (#1710): it is born Paid and went through no gate. A label
+# only, never a routing answer: `required_tier` does not return it, and no gate reads it (`shown_tier`).
+TIER_SYSTEM = "system"
 
 # ── The statuses this module can name ───────────────────────────────────────────────────
 # Kept as plain strings rather than imported, so the module stays free of every other import.
@@ -134,6 +137,12 @@ def required_tier(amount, l2_above: float = TIER_L2_ABOVE) -> str:
     if value <= l2_above:
         return TIER_L1
     return TIER_L1_L2
+
+
+def shown_tier(amount, l2_above: float = TIER_L2_ABOVE, *, imported: bool) -> str:
+    """The Tier a queue row shows (owner, 2026-11-18, #1710): `TIER_SYSTEM` for an Expense an import created (it
+    carries `cashbook_batch` or `credit_card_statement`), at any amount, refunds included; else `required_tier`."""
+    return TIER_SYSTEM if imported else required_tier(amount, l2_above)
 
 
 def initial_status(amount, l2_above: float = TIER_L2_ABOVE) -> str:
