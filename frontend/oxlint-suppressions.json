@@ -2737,28 +2737,12 @@
       "count": 10
     }
   },
-  "src/pages/ProjectPayments/request-payment/RequestPaymentDialog.tsx": {
-    "no-restricted-properties": {
-      "count": 3
-    },
-    "typescript/no-explicit-any": {
-      "count": 2
-    }
-  },
   "src/pages/ProjectPayments/update-payment/AccountantTabs.tsx": {
     "no-restricted-imports": {
       "count": 2
     },
     "typescript/no-explicit-any": {
       "count": 3
-    }
-  },
-  "src/pages/ProjectPayments/update-payment/DeletePaymentDialog.tsx": {
-    "no-restricted-properties": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 1
     }
   },
   "src/pages/ProjectPayments/update-payment/EditFulfilledPaymentDialog.tsx": {
@@ -2773,11 +2757,8 @@
     "no-restricted-imports": {
       "count": 1
     },
-    "no-restricted-properties": {
-      "count": 3
-    },
     "typescript/no-explicit-any": {
-      "count": 4
+      "count": 1
     }
   },
   "src/pages/Reimbursements/ReimbursementsPage.tsx": {

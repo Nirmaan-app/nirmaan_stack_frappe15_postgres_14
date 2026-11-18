@@ -15,6 +15,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { toast } from '@/components/ui/use-toast';
 import { DeletePayload, useUpdatePaymentRequest } from '../hooks/useUpdatePaymentRequests';
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { serverRefusalText } from "@/utils/frappeErrorText";
 
 interface DeletePaymentDialogProps {
     isOpen: boolean;
@@ -56,22 +57,11 @@ export const DeletePaymentDialog: React.FC<DeletePaymentDialogProps> = ({
                 const errorMsg = result?.message || "Failed to delete payment. Unexpected response.";
                 toast({ title: "Deletion Failed", description: errorMsg, variant: "destructive" });
             }
-        } catch (error: any) {
-            // This catch block handles errors thrown by the fetcher itself (e.g., network error, or if fetcher re-throws)
-            // or errors from frappe.call if not caught within the fetcher
+        } catch (error: unknown) {
+            // A network error, or the server's own refusal (`frappe.throw`): read by the one typed accessor (F2),
+            // which prefers the server's message over the SDK's generic one.
             console.error("Error during payment deletion:", error);
-            let description = "Could not delete payment.";
-            if (error.message) { // General JS error
-                description = error.message;
-            }
-            // If your useFrappePostCall within useUpdatePaymentRequest's fetcher
-            // throws an error object with _server_messages (Frappe standard for API errors)
-            else if (error._server_messages) {
-                try {
-                    const serverMessage = JSON.parse(error._server_messages);
-                    description = serverMessage[0]?.message || JSON.stringify(serverMessage[0]) || description;
-                } catch (e) { /* ignore parsing error of _server_messages */ }
-            }
+            const description = serverRefusalText(error) || "Could not delete payment.";
             toast({ title: "Error", description, variant: "destructive" });
         }
     };
