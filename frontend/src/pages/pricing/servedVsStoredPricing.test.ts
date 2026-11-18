@@ -137,6 +137,56 @@ function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
 }
 
 /**
+ * VP-1 (owner VR1-VR12, MISC 11-12, 2026-11-13): HVAC v66's 124 Valve Package SKUs, its 12 new Misc SKUs (a Misc uid v65 does not
+ * hold) and its ONE `shared_by: valve` Pricing Input, which the served fixture predates -- set aside on the stored side BEFORE
+ * `withoutVrf1` (which counts v65's 5 Misc items), as `withoutAdp5c` does; it throws unless exactly those 137 are there, so it
+ * cannot pass vacuously. Every other uid and rate stays under full force.
+ */
+const H65_UIDS = new Set(readJsonFixture<Asset>(new URL("rate_master_hvac_all_v65.json", DATA_DIR)).items.map((it) => String(it.item_uid)));
+function withoutVp1(items: RateMasterItem[]): RateMasterItem[] {
+  const isVp1 = (it: RateMasterItem) => it.kind === "hvac_valve_item"
+    || (it.kind === "hvac_misc_item" && !H65_UIDS.has(String(it.item_uid)))
+    || (it.kind === "hvac_pricing_input" && it.attributes?.item === "valve_install_only_uplift");
+  const n = (k: string) => items.filter((it) => isVp1(it) && it.kind === k).length;
+  if (n("hvac_valve_item") !== 124 || n("hvac_misc_item") !== 12 || n("hvac_pricing_input") !== 1) {
+    throw new Error("VP-1's 124 valve SKUs, 12 Misc SKUs and 1 valve input (v66) are not all in the stored asset");
+  }
+  return items.filter((it) => !isVp1(it));
+}
+
+/**
+ * DU-1 Part B (owner DR1-DR18 + QR-1 Q4 (a), 2026-11-13 / 2026-11-15): HVAC v71's 15 Ducting SKUs, its 5 Misc-tab SKUs (Paint, Fire
+ * Retardant, Air Balancing x 3) and its ONE Ducting installation-only uplift input, which the served fixture predates -- every uid v70
+ * does not hold, set aside on the stored side FIRST (before `withoutVp1`, which counts the Misc uids v65 lacks); it throws unless exactly
+ * those 21 are there, so it cannot pass vacuously. Every other uid and rate stays under full force.
+ */
+const H70_UIDS = new Set(readJsonFixture<Asset>(new URL("rate_master_hvac_all_v70.json", DATA_DIR)).items.map((it) => String(it.item_uid)));
+function withoutDu1(items: RateMasterItem[]): RateMasterItem[] {
+  const isDu1 = (it: RateMasterItem) => !H70_UIDS.has(String(it.item_uid));
+  const n = (k: string) => items.filter((it) => isDu1(it) && it.kind === k).length;
+  const newOnes = items.filter(isDu1);
+  if (n("hvac_duct_item") !== 15 || n("hvac_misc_item") !== 5 || n("hvac_pricing_input") !== 1 || newOnes.length !== 21) {
+    throw new Error("DU-1's 15 duct SKUs, 5 Misc-tab SKUs and 1 ducting input (v71) are not exactly the uids v70 lacks");
+  }
+  return items.filter((it) => !isDu1(it));
+}
+
+/**
+ * DU-3 K2 (owner 2026-11-16 16:38 "make this 90% thershold a pricing input"): HVAC v75's ONE new Pricing Input (the Ducting insulation
+ * coverage threshold), which the served fixture predates -- the uid v74 does not hold, set aside on the stored side FIRST; it throws
+ * unless exactly that one is there, so it cannot pass vacuously.
+ */
+const H74_UIDS = new Set(readJsonFixture<Asset>(new URL("rate_master_hvac_all_v74.json", DATA_DIR)).items.map((it) => String(it.item_uid)));
+function withoutDu3(items: RateMasterItem[]): RateMasterItem[] {
+  const newOnes = items.filter((it) => !H74_UIDS.has(String(it.item_uid)));
+  if (newOnes.length !== 1 || newOnes[0].kind !== "hvac_pricing_input"
+    || (newOnes[0].attributes as { item?: unknown } | undefined)?.item !== "ducting_insulation_coverage_threshold") {
+    throw new Error("DU-3's one Pricing Input (v75) is not exactly the uid v74 lacks");
+  }
+  return items.filter((it) => H74_UIDS.has(String(it.item_uid)));
+}
+
+/**
  * ELR-3a (owner R-9 / R-R1 Q1, Q2, 2026-10-28): Electrical v69's nine new Pricing Inputs (the point-wiring lengths and the six
  * conduit fills), which the served fixture predates -- set aside on the stored side by name, exactly as `withoutAdp5c` does; it
  * throws if any uid is not in the stored asset, so it cannot pass vacuously. Every other Electrical uid and rate stays under force.
@@ -199,7 +249,13 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // served.items.Electrical, storedItems(ELEC)]] -- the nine new Pricing Inputs set aside by name (`withoutElr3a`)
     // INVERTED at VRF-1 (HVAC v55; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
     // withoutAdp1(withoutAdp5c(storedHvac))], ...] -- the 158 VRF-1 items set aside on the stored side (`withoutVrf1`)
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(storedHvac)))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
+    // INVERTED at VP-1 (HVAC v66; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(withoutVrf1(storedHvac)))], ...] -- the 137 VP-1 items set aside first (`withoutVp1`)
+    // INVERTED at DU-1 Part B (HVAC v71; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(storedHvac))))], ...] -- the 21 DU-1 items set aside first (`withoutDu1`)
+    // INVERTED at DU-3 K2 (HVAC v75; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(storedHvac)))))], ...] -- the 1 DU-3 input set aside first (`withoutDu3`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(storedHvac))))))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

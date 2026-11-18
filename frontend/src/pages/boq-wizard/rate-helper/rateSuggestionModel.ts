@@ -70,6 +70,8 @@ export function buildRowContext(
   /** SLICE 12d-1a (owner R2): the sheet's priced rows, so the context can carry the row's headings.
    * OPTIONAL -- every caller that omits it gets the context it always got. */
   rows?: readonly PricedRow[],
+  /** VP-1 (N5, QR-1 Q1): the page's category of every row of the sheet, by excel row. OPTIONAL -- omitted, nothing changes. */
+  sheetCategories?: ReadonlyMap<number, SheetCategoryRow>,
 ): RateHelperRowContext {
   const cat = (category?.effective_category_id ?? "").trim();
   return {
@@ -84,6 +86,8 @@ export function buildRowContext(
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
     ...(rows ? { ownNotes: rowOwnNotes(row, rows) } : {}),
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
+    // VP-4 (T2): the parent heading's OWN note block -- read only by the Valve Package / Misc notes
+    ...(rows ? { ownHeadingNotes: rowOwnHeadingNotes(row, rows) } : {}),
     // VRF-6 (owner Q6): every heading's notes above the row -- read only by the VRF-6 reading rules
     ...(rows ? { ancestorNotes: rowAncestorNotes(row, rows) } : {}),
     // VRF-7 (B8 / A1): the chain with its excel rows, nearest first -- read only by the VRF-7 rules
@@ -93,18 +97,35 @@ export function buildRowContext(
     // VRF-4 (q2): every row's quantity, for a refnet's unit counts read from the sheet (one map per rows array)
     ...(rows ? { rowQuantities: rowQuantitiesOf(rows) } : {}),
     ...(rows ? { sheetLines: sheetLinesOf(rows) } : {}),
+    ...(sheetCategories ? { sheetCategories: sheetCategoriesOf(sheetCategories) } : {}),
   };
+}
+
+/** VP-1 (N5). PURE, memoised per map: every categorised row of the sheet -> its effective category id. */
+const SHEET_CATS_CACHE = new WeakMap<ReadonlyMap<number, SheetCategoryRow>, Readonly<Record<number, string>>>();
+export function sheetCategoriesOf(m: ReadonlyMap<number, SheetCategoryRow>): Readonly<Record<number, string>> {
+  const hit = SHEET_CATS_CACHE.get(m);
+  if (hit) return hit;
+  const out: Record<number, string> = {};
+  for (const [row, c] of m) {
+    const id = (c?.effective_category_id ?? "").trim();
+    if (id) out[row] = id;
+  }
+  SHEET_CATS_CACHE.set(m, out);
+  return out;
 }
 
 /**
  * VRF-5 (owner R1 SAFEGUARD). PURE, memoised per rows array: every LINE ITEM of the sheet as the own-row rule reads it -- its
  * excel row and its text (the description and its own row notes). A heading never quotes an item; a line item does.
  */
-const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string; preamble?: boolean }>>();
-export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string; preamble?: boolean }> {
+const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }>>();
+export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }> {
   const hit = SHEET_LINES_CACHE.get(rows);
   if (hit) return hit;
-  const out: Array<{ row: number; text: string; preamble?: boolean }> = [];
+  // DU-1 (DR7 / G-3): each line also carries its unit and its nearest heading (the duct-insulation check reads a row whose duct
+  // words sit only in its heading, and the rows' quantities in their units). Every earlier reader ignores both.
+  const out: Array<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }> = [];
   for (const r of rows) {
     const nt = (r.node_type ?? "").trim();
     // VRF-6 (F4, 00234 r55): a Preamble may be rate-editable (a quantity-bearing heading) -- flagged, and kept by the VRF-6 rule
@@ -112,7 +133,13 @@ export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: n
     const preamble = nt === "Preamble";
     if (nt !== "Line Item" && !preamble) continue;
     const rn = (r as { row_notes?: unknown }).row_notes;
-    out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | "), ...(preamble ? { preamble: true } : {}) });
+    const heads = rowHeadings(r, rows);
+    const unit = typeof r.unit === "string" && r.unit.trim() !== "" ? r.unit.trim() : undefined;
+    out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | "), ...(preamble ? { preamble: true } : {}),
+      ...(unit ? { unit } : {}), ...(heads.length ? { heading: heads[heads.length - 1] } : {}),
+      // DU-2 K1b (owner QR-4 Q1 (a), 2026-11-16): the whole heading chain, root first -- the duct-insulation check reads a row whose
+      // duct word sits in ANY heading above it ("Insulation" under "Duct insulation"), not only the nearest
+      ...(heads.length > 1 ? { headings: heads } : {}) });
   }
   SHEET_LINES_CACHE.set(rows, out);
   return out;
@@ -156,6 +183,34 @@ export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): str
   keep((p as { row_notes?: unknown }).row_notes);
   const notes = rows
     .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION && r.effective_parent_index === p.row_index)
+    .sort((a, b) => a.row_index - b.row_index);
+  for (const n of notes) keep(n.description);
+  return out;
+}
+
+/**
+ * VP-4 (T2, owner QR-1 Q2 (a): "a heading's note row counts only when no line item sits between the heading and the note").
+ * PURE. The parent heading's notes exactly as `rowHeadingNotes` builds them -- its appended notes and its own note always -- but of
+ * its child NOTE rows only those with no Line Item row between the heading and the note. On sheets whose parse filed every later
+ * section's heading as a note row of one heading (00140 r421: 60 note rows), the notes past the first line item are another
+ * section's, not this row's.
+ */
+export function rowOwnHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): string[] {
+  const parent = row.effective_parent_index;
+  if (typeof parent !== "number" || parent < 0 || parent === row.row_index) return [];
+  const p = rows.find((r) => r.row_index === parent);
+  if (!p) return [];
+  const out: string[] = [];
+  const keep = (v: unknown) => { if (typeof v === "string" && v.trim() !== "") out.push(v.trim()); };
+  const ap = (p as { append_notes_raw?: unknown }).append_notes_raw;
+  if (ap && typeof ap === "object" && !Array.isArray(ap)) for (const v of Object.values(ap as Record<string, unknown>)) keep(v);
+  keep((p as { row_notes?: unknown }).row_notes);
+  const firstItem = rows
+    .filter((r) => r.row_index > p.row_index && (r.node_type ?? "").trim() === "Line Item")
+    .reduce((m, r) => Math.min(m, r.row_index), Number.POSITIVE_INFINITY);
+  const notes = rows
+    .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION
+      && r.effective_parent_index === p.row_index && r.row_index < firstItem)
     .sort((a, b) => a.row_index - b.row_index);
   for (const n of notes) keep(n.description);
   return out;

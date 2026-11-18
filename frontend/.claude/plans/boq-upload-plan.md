@@ -51841,3 +51841,314 @@ files 4,479 / 4,479); tsc 0 new; vacuity 24 breaks red, sources sha-equal.
 - the next mint (v66) can give the VRF-10 rules their own keys and move the note texts into the config;
 - second_opinion stays OFF;
 - the push, the laptop realign / sync and the db-pull are the owner's / laptop's (PENDING-LAPTOP).
+
+## Slice VP-D0 - read-only design for the Valve Package (HVAC) (2026-11-12) - DELIVERED
+
+Desktop, HEAD 935216e76, no commit, no data write, no model call. Deliverables: `BoQ main lane\VP-D0\` (Report, Design.xlsx 20
+sheets, payloads). The valve config (13 families, 124 SKUs from the owner's ruled valve sheet) and a borrow-only Misc config (4
+families, 12 SKUs) were PROJECTED in scratch and passed the product validator; identity 136 / 136. D5 priced the 1,295 rows of
+that data on the projection with VP-R0's reading: 1,103 priced / 192 refused. It named five new pieces (N1 scope pick, N2 blank
+unit, N4 size split, N5 Piping note, N6 registry fetch-only) and wording gaps G1-G12. Owner answers: QR-1 / QR-2 all (a); ANSWER 3
+(type stated nowhere -> by size); STANDING: every category its own installation-only uplift input; QR-3 (a) the reminders job's
+writes are a standing exception. VP-1 builds from it.
+
+## Slice CATCHUP-1 - both machines to origin 23c014fd9, migrate, fresh baseline (2026-11-12) - DONE
+
+Desktop fast-forward 935216e76 -> 23c014fd9 (551 commits; Abhishek's develop merge; the tree is byte-equal to production main
+b9cab0c30), migrate (8 v3_0 patches, 6 new doctypes; one duplicate index dropped, owner QR-2 Q1 a), the reminders job stopped in dev
+(20 stopped jobs). No commit. Replay cu1end = vrf10end. New "before": Python 120 modules / 4,981 tests, vitest 180 / 7,359, tsc 0
+new. The 13:25 reminders run sent no notification.
+
+## Slice DATA-1 - dev refreshed from production's 2026-11-12 00:30 backup; our runs carried; valve preview (2026-11-12) - DONE
+
+Dev's database now holds production's nightly backup (the old dev DB kept as `_ca586342014827d9_pre_data1`). 433 dev-only Suggest
+runs and 20 VRF-5 formulas carried byte-equal; 20 older runs retired (Q2 b / Q14 b). Guards: dev_isolate VERIFY PASS, 20 stopped
+jobs, matching OFF. Replay baseline **da1end** = 26,807 rows (ac7 af5853e7 / ac7v2 e6356049). Valve preview on VP-D0's projection:
+1,494 rate-editable valve rows, 1,265 priced / 226 refused + 3 flow-switch rows held out (Q12: no SKU). Ducting facts for DU-R0.
+Lesson: production's encryption key differs -- copy dev's `__Auth` rows back after a refresh.
+
+## Slice VP-1 - the Valve Package build: HVAC v66 (valve catalogue + borrow-only Misc), N1 / N2 / N4 / N5 / N6, wording fixes (no paid run) - as built 2026-11-13
+
+Desktop, from 23c014fd9 (da1end data). Rules: boq-rate-master.md, Load-bearing invariants, "VP-1". Deliverables:
+`BoQ main lane\VP-1\` (Report, Ledger, QR-1..QR-3, Checks.xlsx, Piping_rows_heading_mentions_valves.xlsx, logs, screenshots).
+
+**Commits:** C1 618defc79 code + tests; C2 57af2335a HVAC v66 + registry lines + pin moves; C3 docs (this entry, boq-rate-master.md VP-1 section, environments.md A2).
+
+**Built:**
+- HVAC v66 = v65 + `hvac_valve_package` (124 SKUs of the ruled valve sheet, brand null) + `hvac_misc` (12 SKUs, borrow-only:
+  no top-level attribute definitions, never eligible on its own) + "Valve - installation-only uplift" 50%. Piping gains
+  `sheet_heading_notes` only; every other v65 item / config byte-identical. 722 items / 13 configs. VRF's uplift input was already
+  named "VRF - installation-only uplift" in v65 (P0 correction: no change).
+- N1 pricing-level scope pick; N2 blank unit refuses (valve and Misc); N4 size split; N5 the Piping note from the PAGE's
+  categories (QR-1 Q1); N6 registry fetch_only; the sections fix (a Misc item beside a valve was dropped by position); G2-G7, A1.
+- One fixture `frontend/src/pages/pricing/__fixtures__/valveModel.json` (from VP-D0's projection) feeds the tests and the mint.
+
+**Proofs:** identity 136 / 136; replay vp1end vs da1end 0 figure / 0 display differences (byte-identical ac7 af5853e7 / ac7v2 e6356049, 26,807 rows); parity calculator = panel 136 cases + scope options, vacuity
+proved; coverage map 36 rules covered, 0 GAP; ruleReachability valve 23 + Misc 13 rules (positive + negative), guard = generated;
+field table (no typed mandatory field without a note); D5 on live v66: 1,264 priced / 230 refused of 1,494 (DATA-1's preview
+reproduced 1,265 / 229; 55 differences, all explained: N2 25, N4 +20 priced / 9 refused, 1 per_item wording); 12b Excel: 208 rows (12a, 18 sheets) / 32 rows (12b, 5 sheets).
+
+**Tests:** before (23c014fd9): Python 32 / 1,413 OK; vitest related 116 / 5,659; tsc 0 new. After C1: Python 33 / 1,422 OK; vitest related 118 / 5,790; tsc 0 new. After C2 (v66 loaded): Python 36 / 1,555 OK (the 33 +
+test_valve_v66 + test_routing_policy + test_runner_hvac); vitest 95 files / 4,693 (registry-related + every asset / registry reader);
+tsc 0 new. Vacuity 16 frontend + 6 Python breaks red on scratch copies, controls green.
+
+**Pin moves (lesson):** asset_pin_search.py flagged 33 MUST (moved) but MISSED the series pins (`range(1, 66)` / `nums[-1] == 65`
+in test_piping_v34 and test_vrf_v55-v65) and the live-count pins (585, 11 sites); the after run found them, in three layers
+(each test's next assert surfaced only after the first moved). Cross-version pins take `_without_vp1_items` /
+`_without_vp1_configs` (test_rate_master) and `withoutVp1` (servedVsStoredPricing). The pin search runs in the container: the host
+Python cannot stat the `nirmaan_stack/public/node_modules` symlink. test_valve_v66 test_03 had a wrong expectation in my own test
+(BTU sizes); the data matched the ruled sheet.
+
+**Cert (desktop Chrome, :8080, page state only):** PASS C1 (Butterfly 150 5,708 / 1,000 / 6,708), C2 (Motorised 250 On-Off
+default 178,009 -> Modulating 202,033), C3 (Strainer 25 -> Y-Type default, smallest 50 mm, 3,141 / 1,000), C4 (Ball 40 1,470 /
+1,000), C5 (Air Vent + Ball 20 1,571 / 2,000), C6 (Misc thermometer by Misc's rules + thermowell note), C7 (400 above 300 refuses),
+C9 (PIBCV 32 28,093), C10a (installation only 0 / 1,500 + the uplift note), C11 (calculator: Valve Package listed, Misc not;
+Butterfly 140 next size up = panel; + Pressure Gauge 7,883 / 1,500 / 9,383), C12 (12a on 00012 r176 / r180, figures 2,123 / 588 /
+2,711 unchanged), C13 (12b on 00267 r29), C14 (VRF 00051 r48 27,120 / 2,520 / 29,640; A1 'Not priced' once on 00197 r315; Rate
+Master HVAC lists Valve Package, not Misc; both uplift inputs 50%; Derivation 23 rules, no XLPE / VRF-4 lines), C15 (counts,
+live v66 re-verified, dev_isolate VERIFY PASS). C2 / C4 / C5 ran on 00009 HVAC CRITICAL ROOM rows (their planned sheets have no
+Suggest run, so no Pricing sheet card). C8 / C9 note / C4 N4 line need model text (QR-3, VP-2). C10b (N2) NOT on screen: every
+no-unit valve row sits on a sheet with no run or with rate entry locked by undeclared formulas; N2 stands on tests + D5.
+
+**Finding (N5):** the 12a / 12b counts came from the dump's heading notes; the panel reads the PAGE's headings -- 00012 r122 shows
+no note (its valve words sit in Item row 118's text). 124 of the 208 / 29 of the 32 rows name valves in the heading chain itself;
+recount on the page before quoting. The note names line items only (27 on 00012; the Excel listed 33 incl. preambles).
+**Observation:** Derivation line 23 lists four panel scope options; the sheet panels showed three (the calculator four). Wording only.
+
+**Open:** VP-1 QR-1 / QR-2 / QR-3 unanswered at build (built to recommendation (a) each); VP-2 runs the paid read (first model answers on valve rows) and re-certs the four as-written lines (QR-3); the
+pre-existing residence A1 count (14 over baseline at 23c014fd9, from the develop merge); laptop sync + db-pull (laptop).
+
+## Slice VP-2 - the Valve Package paid read (all 1,493 reachable valve rows) + review pack + on-screen cert + K1 wording - as built 2026-11-13
+
+Desktop, from 3328da26b (vp1end data). Deliverables: `BoQ main lane\VP-2\` (Report, Ledger, QR-1, QR-2, run_list.tsv, Rows.xlsx,
+Piping_rows_heading_mentions_valves.xlsx, review_chunks\ (17), payload_archive\part1 + part2, cert screenshots .png).
+
+**Commits:** K1 34ae9a28d - the Valve Package Derivation scope line (line 23) names each screen's options: the panel's pick three, the
+calculator's 'BoQ scope' also 'Installation only (supply quoted on another row)' (normal install, no uplift) (+3 tests); K2 docs (this entry).
+
+**Run (owner QR-1 ANSWER 1 / 1b):** the selected-rows Suggest reached only 580 of 1,494 valve rows (it needs a completed run to carry;
+R8 adds never-read rows); the owner ruled every group read in two parts: A selected rows (580), B selected rows + R8 (128 valve + 72
+never-read Piping / Insulation / VRF first answers), C 'Override the check' + selected rows (44), D whole-sheet runs where no run existed
+(509 valve + 1,198 first answers), E amount formulas declared from each sheet's own columns (8 sheets, 19 formulas, each proven on 3 rows;
+'BMS BOQ.' left - nothing to prove on) + overrides + whole-sheet runs. Overrides set: 00029, 00298, 00009 LEED, 00012 Low side, 00071, 00104.
+PART 1 30 sheets / 824 rows / 63 calls / 1,053,210 tokens (cap 1,654,140); PART 2 34 sheets / 2,226 rows / 221 calls / 3,446,098 (cap
+5,640,016); + 21 credit check. Stub before each part: requests = declared rows, carried rows byte-identical, request sha = PAID-READY build.
+
+**Proofs:** controls - every run that existed before is byte-identical (only the 30 superseded active flags flipped), 2,199 carried rows
+equal; audit 3,050 / 3,050 payload blocks byte-equal to the logged items, every row replied, EA-7 PASS; replay vp2end: the 26,807 vp1end
+rows 0 figure / 0 display moves, the 3,050 new rows = run_list.tsv (ac7 25f27c09 / ac7v2 3e917d7b, 29,857 rows) = the new baseline.
+
+**Result (page-data pricing = the panel):** 1,133 priced / 360 refused of 1,493 valve rows; Rs 5.73 cr all revisions, Rs 4.01 cr latest;
+PIBCV 179 rows Rs 1.82 cr = 31.7%. Review finding (not fixed): 79 PIBCV / control-valve rows refused because the model lists the
+thermostat / controller / actuator panel as a second 'none of these' item (VR5) although VR12 prices every PIBCV row as the premium item
+(which includes them) - VP-3 with the owner's ruling. 12a / 12b on the PAGE's headings: 190 rows / 18 sheets and 32 / 5 (VP-1's 208 was
+the dump's notes). The replay harness differs from the page on 3 installation-only rows (00104 r52/54/56: no sheet rows in the harness).
+
+**Cert (C1-C10 PASS, 16 screenshots):** operator note, N4 size split, flow switch ('No SKU in the catalogue for WATER FLOW SWITCHES' - the
+row's own words), PIBCV note, no unit (00137 r107), valve + Misc list (00017 'Valves ' r26 19,787 / 1,100), smallest / above largest,
+12a / 12b, calculator = panel, Derivation line 23 (K1). **Lesson / standing (owner ANSWER 4, 13:06):** the de-stale's Clear site data
+made the SPA re-register Firebase and write fcm_token + push on for the logged-in user (dev_isolate verify FAIL) - after every browser cert
+run `dev_isolate --yes` then `--verify` before DONE (it also rotates every User api_secret, its standard step).
+
+**Tests:** K1 targeted vitest related 98 files / 5,165 passed (= VP-1's after counts + 3 new), tsc 0 new; vacuity 2 breaks red. No Python
+file changed (no Python suite).
+
+## Slice VP-3 - the VP-2 review rulings (D1-D8, C1-C5): reading rules, the description unit (every category), HVAC v67, one re-read of 442 valve rows, pre-pack - as built 2026-11-13
+
+Desktop, from 21e30a96d (vp2end data). Deliverables: `BoQ main lane\VP-3\` (Report, Ledger, reread_list.tsv, Rows.xlsx,
+D6_unit_moves.xlsx, PrePack.xlsx, review_chunks\ (7), payload_archive\part1, the PP1 suite logs, cert screenshots .png).
+
+**Commits:** K1 aa496e847 - `valveReviewNets` in pricingSheetHelper.ts (D1 PIBCV accessory fold, D2 dual plate, D3 portable / handed
+over = supply only, D4 a gauge's tied sizeless valve folds into the gauge, D5 the air vent's size moves to the ball valve + a stray inch
+mark, D7b BV / Bal at 40 mm and below = Ball Valve (amber), D7c strainer list / integral strainer / a with + without Set as 3 blocks;
+the row's scope answer kept over a fold), the D6 description-unit fallback for EVERY category, C3 refusal order in itemListPricing.ts
+(+36 tests); K2 c327cd0a7 - HVAC v67 (valve + Misc config only: the D1-D7c guidance, C1 'insula(?:t|i)' + Misc insulation line, C2
+air-vent line, C4 per-metre bar, C5 Set in Misc's count class; items byte-identical) + 33 pin moves + the series pins + test_valve_v67
+(5) + vp3Config (12); K1b c9029db9c - the D1 / D4 / D7c lines also when the model already reads the row the ruled way (+7 tests);
+K3 docs (this entry, boq-rate-master.md VP-3 section).
+
+**P0:** every Errors-tab row reproduced at HEAD (page harness = VP-2's page figures, 1,540 / 1,540). D6 (i): 00245 'HVAC ' and 00183
+'Fire & Safety Works' parsed the Unit column as a second description column, so neither the page nor the helper had a unit (no
+mismatch); D6 (ii): 110 rows on those 2 sheets, 67 answered -> 42 figure / state + 25 note-only moves, declared before the build.
+
+**Re-read:** 442 rows / 53 sheets (172 review + 239 control + 31 parenting; valve rows only), selected-rows path, cap 1,564,301 ->
+AUTO-GO; 55 calls, 998,229 tokens, all attempt 1. Controls hold (792 prior runs byte-identical, 4,205 carried rows equal), audit
+442 / 442 byte-equal + EA-7 PASS, hand check 20 / 20. Replay vp3end (ac7 f3d0352a / ac7v2 9240cedd, 29,857 rows) = the new baseline;
+every move declared (B4 334 + re-read 187).
+
+**Result:** review rows priced 41 -> 158; 119 of the 123 with a review figure at exactly that figure (3 stay S + I by D3's
+consistency half; 00104 r48 'Installation of pressure gauges' prices S + I: Misc carries no scope question - open); control 26 moved,
+each tied to a ruling, 1 wording-only regression (00430 r463); the 442 rows Rs 2.45 cr -> 3.29 cr.
+
+**Cert C1-C12 PASS (25 screenshots)** at :8080 after the de-stale; calculator = panel (C11); dev_isolate --yes / --verify after it.
+
+**Pre-pack:** PP1 Python full BoQ set 123 modules / 5,001 OK, vitest boq-wizard + pricing 185 / 7,552, tsc FULL 0 new (= CATCHUP-1 +
+the valve tests only). PP2 every stored row at production (23c014fd9 + v65 / v72) vs the tip: 1,526 differ, 0 UNEXPLAINED (valve
+1,493; the other 33 = declared D6 rows). PP3 v65 -> v67: 0 items lost / changed, +137 items, 2 new configs, Piping N5 notes only.
+PP4 on scratch DBs: v67 load 12 s; rollback = DB restore (48-78 s) -> v65 by content, valve config absent; a plain v65 re-load is
+REFUSED by the validator and leaves the valve config active (lesson 62). PP5: no migrate; build + restart; check rows in PrePack.xlsx.
+
+**Open:** the D3 net is literal ("handed over" in an SITC row would read supply only); Misc items carry no scope question; the DATA-1
+keep-copy backup 20261112_193210 was deleted by VP-3's own `bench backup` (Frappe deletes backups over 23 h; content kept as the
+`_pre_data1` database) - keep-copies must live outside the backups folder; ANSWER 2 echoed 48 min late (the watch lost its event).
+
+## Slice VP-4 (run as VP-4L on the laptop) - the VP-3 re-review rulings (R1-R4, W1, W2, T1-T5), HVAC v68, a 324-row re-read, the Valve Payload Library, the all-rows three-layer pack - as built 2026-11-14
+
+Laptop (the desktop was offline; owner 2026-11-14 10:22), from 1195778f1. Deliverables: `BoQ main lane\VP-4L\` (Report, Ledger,
+reread_list.tsv, AllRows.xlsx, Rows.xlsx, allrows\review_chunks (23), payload_archive\part1, hand_check, cert screenshots (47)) and
+`BoQ main lane\Valve_Payload_Library\` (permanent).
+
+**Commits:** K1 e65fae4a1 - `valveReviewNets` R1 (a sizeless ball valve tied to the strainer's drain folds into the strainer), R2
+(balancing + modulating in one valve = PIBCV), R3 (thermometer provision = Misc test plug), R4 (high rangeability control valve =
+2-Way Modulating, 20-32), W1 (a written count prices that many), W2 (the row's own size before the appended text wins); T1 NB note,
+T2 the heading's own note block + the flange `unless` key (validator), T3 / T4 / T5 wording; ac5_dump.py runs ordered (+33 tests, +3
+Python). K2 918ee43b4 - HVAC v68 (valve + Misc configs only: the R1-R4 / W1 / W2 guidance, T2 `unless`, T3 pattern) + pin moves +
+test_valve_v68. K1b 06173f010 - `scripts/valve_library.py` (build / verify / manifest / rebuild-pack), the pack harness and the
+read-only page fetch. K1c e0f27f1c0 - found at the cert: the R1 / R2 / R3 / W1 / W2 lines also when the model already reads the row
+the ruled way (+10 tests); the T2 test's cast. K3 docs (this entry, boq-rate-master.md VP-4 section).
+
+**P0:** QR-1 (a): the D0 replay hash differed from vp3end only by an unordered runs select on a restored DB (fixed: ordered); 00104 r52
+3,000 vs 2,000 was the replay harness's single-row context (stored data identical). Library premise 1,493 / 1,493 found on the laptop.
+
+**Re-read:** 324 rows / 42 sheets (valve rows only), 46 calls, 634,902 tokens (62% of the 1,023,223 cap), auto-go. Controls hold (845
+prior runs byte-identical, 3,479 carried rows equal), audit 324 / 324 byte-equal + EA-7 PASS, hand check 20 / 20. 10 figure moves vs
+VP-3 = exactly the named ruling rows (all by code); 0 by the re-read answers; 0 regressions; the 324 rows Rs 2,09,56,424 ->
+2,10,86,271. Replay vp4lend2 (after K1c; ac7 fb0ce5f0 / ac7v2 b6aba63e, 29,857 rows) = the new baseline.
+
+**Library:** 1,493 rows (VP-4L 324 / VP-3 270 / VP-2 p2 409 / p1 490), history 594, specs 3, MANIFEST 2,102 files; all 2,259 archived
+records re-cut equal (offsets are UTF-8 bytes); LIB2 PASS; LIB3 rebuild-pack on 20 random rows = the pack 20 / 20.
+
+**Pack:** all 1,493 rows panel + calculator (resolved fields): 1,477 EQUAL + 16 WORDING (both refuse), 0 FIGURE; as typed, 30 + 1 rows
+differ only because the calculator's typed-size box refuses "32 mm NB" / "Φ 40 mm" (open, UI). Chat-Claude's blind review of the pack:
+0 WRONG, 0 WRONG_REFUSAL, 16 DOUBTFUL (-> VP-5), 61 PARENTING.
+
+**Cert C1-C10 PASS (47 screenshots)** at :8080 after the de-stale (owner login on the laptop); calculator = panel on every step and on
+one row per family; dev_isolate --yes / --verify after it.
+
+**Tests:** K1 vitest related 122 / 5,885, Python 11 / 92; K2 Python 19 / 1,223, vitest 9 / 243; K1c vitest related 100 / 4,746, tsc 0
+new; vacuity K1 14 + K1c 7 breaks red. PRE-PACK (PP1-PP5) DEFERRED TO VP-5 (owner 22:41: one pre-pack at the end of VP-5); a PP1
+Python run was stopped at 22:45 by that ruling (70 modules OK, partial - not a result).
+
+**Open:** the calculator's typed-size forms ("32 mm NB", "Φ 40 mm"); Error Log 410 -> 346 = Frappe's log clean-up ran when bench started;
+the desktop's partial VP-4 session (O8) needs a catch-up decision; nothing pushed (the 4 VP-3 commits + VP-4's ride together).
+
+## Slice VP-5 (laptop) - the VP-4 all-rows review rulings (E1-E12), one installation-only rule for valves + Misc, the supply / installation pair rule, HVAC v69, a 63-row re-read, the library extended, one pre-pack for VP-3 + VP-4 + VP-5 - as built 2026-11-15
+
+Laptop (desktop offline), from 821b18017. Deliverables: `BoQ main lane\VP-5\` (Report, Ledger, QR-1 / QR-2, reread_list.tsv, AllRows.xlsx,
+Rows.xlsx, allrows\review_chunks (23), payload_archive\part1, hand_check, scratch (PP2-PP5), cert screenshots) and the
+`Valve_Payload_Library\` (extended in place).
+
+**Commits:** K1 582abdea7 - `valveReviewNets` E1 / E2 / E4 / E6 / E7 / E8 / E9 + the E3 / E10 notes; `withScopeCore` E11 (i) / (ii) / (iii)
+for valves AND Misc (gated `!spec.extras`) and the QR-2 pair rule; Misc sheet-line families read through the section config;
+`valve_library.py` row_block skips empty notes (E12) (+31 tests). K2 0e2a844d7 - HVAC v69 (valve + Misc configs only: E1-E11 guidance, the
+Misc scope question) + 33 tool pins + 26 series lines + 3 live inversions + test_valve_v69; test_valve_v68 / test_config_validation_vp4
+measured into the parallel plan. K1d c14068066 - E9 narrowed (found at B4): an air purge / release valve IS the air vent; "... with ball
+valve" keeps the heading's air vent (VP-3 C2) (+2 tests). K1e bac21fd71 - the pack shows the Scope note; the pack tools read v69. K1f
+f4c1a603a - pair rows show only the owner's pair wording (02:24) (+1 test). adb686237 - library build `--live-label`. K3 docs (this entry,
+boq-rate-master.md VP-5 section).
+
+**Rulings asked during the slice:** QR-1 "a a a" (strict refix wording; Misc pair; E12 tool-only); QR-2 "option a" (one pair rule for valves +
+Misc; my QR-1 Q2 premise had been wrong); VP5-16 "yes" (pair note alone, approved wording).
+
+**Re-read:** 63 rows / 17 sheets, 17 calls, 207,448 tokens (in 169,647 / out 37,801; central 200,976; HARD CAP 321,562), auto-go, 0 failures,
+0 second-opinion calls, no override. Stub PASS; controls hold (887 prior runs byte-identical, 1,323 carried rows equal); audit 63 / 63
+byte-equal + EA-7 PASS; hand check 20 / 20. vs VP-4: 15 figure moves, every one ruled - E2 7 refused by name, QR-2 4 supply only (00104 r47
+Misc + r51 / r53 / r55 valves, code), E6 2 priced 720 / 100, E11 (i) r48 0 / 500, E9 00365 r68 682 / 1,000; 0 regressions. The 63 rows
+Rs 36,27,792 -> 30,11,369 (mostly the E2 refusals). Replay vp5end3 (ac7 4ee1ae2b / ac7v2 b1898b33, 29,857 rows) = the new baseline.
+
+**B4 lesson:** a replay move tied by a family change alone is not tied - 7 of 8 "E9" moves were outside the ruling (fixed by K1d before any
+deliverable). The replay harness prices one row at a time, so sheet-level rules (E11 (i), the pair rule) are proven on the PAGE harness.
+
+**Library:** 1,493 rows (VP-5 63 / VP-4L 315 / VP-3 255 / VP-2 p2 386 / p1 474), history 633, specs 4, MANIFEST 2,149 files; all 2,322
+archived records re-cut equal; LIB2 PASS; LIB3 20 / 20 (5 re-read rows).
+
+**Pack:** all 1,493 rows panel + calculator: 1,472 EQUAL + 21 WORDING (the 7 E2 swing rows name the item differently, both refuse), 0
+FIGURE. Chat-Claude's blind review: CORRECT 1,246 / CORRECT_REFUSAL 180 / WRONG 0 / WRONG_REFUSAL 0 / DOUBTFUL 7 / PARENTING 60.
+
+**Pre-pack (once, VP-3 + VP-4 + VP-5):** PP1 Python 126 / 126 modules (5,016 tests, 3 lanes), vitest pages/boq-wizard + pages/pricing 187 /
+187 files (7,630 tests), tsc 0 new. PP2 production (23c014fd9 + v65 / v72) vs tip + v69: 1,526 rows differ, 0 unexplained (valve 1,255 newly
+priced + 238 refuse both; the 33 D6 rows; 19 categories unchanged). PP3 v65 -> v69 loses / changes nothing (+124 valve, +12 Misc, +1
+input). PP4 on scratch DBs: prod-equivalent = v65 by content; load v69 15.2 s; plain v65 re-load refused (lesson 62); rollback restore
+60 s = v65; scratch DBs dropped. PP5: migrate no, restart yes, yarn build yes; 50 check rows.
+
+**Cert C1-C10 PASS (34 screenshots)** at :8080 after a full de-stale (the owner logged in again at :8080; a :8000 Desk login had left a
+CSRF token that blanked every :8080 page): every E1-E11 row on screen as ruled, the pair rows with only the owner's wording;
+calculator = panel to the rupee on every priced step and on one row per valve / Misc family; E11 (ii) / (iii) have no rows in the data
+(tests only); E2 cannot be typed into the calculator (no "none of these" item). dev_isolate --yes / --verify (re-verified 90 s later)
+with the cert tab closed first. The Scope note shows its owner tag on screen ("(owner QR-2)", like VR9's) - for review.
+
+**Open:** the 7 DOUBTFUL rows (bare "Purge Valve" refused x3; "Thermowell with Valve" refused (00234 r222 + 3 same-wording rows); FCU Set
+"with & without strainer" 00357 r135-137 priced 2 ball valves + 1 strainer) - owner rulings later; the calculator's typed-size forms (from
+VP-4); vp4l_b2check scratch DB left (VP-4L's); nothing pushed (15 commits since origin's 21e30a96d + K3).
+
+## Slices DU-R0 / DU-R1 / DU-D0 / VP-DRV / FEAT-0 - read-only recon, design, Derivation audit and feature inventory (2026-11-13 .. 15) - DELIVERED
+
+DU-R0 (Ducting recon: 1,513 Ducting rows; the double-insulation question), DU-R1 (payload re-recon beside VP-2; 77 rows moved), DU-D0
+(Ducting design: the rulings DR1-DR18, QR-1 (a) + (c), G-1 Insulation cladding words vs the duct gauge; 1,368 / 145 priced by the design
+model), VP-DRV (the Valve Package Derivation tab misses 33 of 64 rules -> DU-1 Part A), FEAT-0 (the 50-feature HVAC helper inventory ->
+`_relay/DU-1/HVAC_Helper_Feature_Standard_v1_1.md`). All read-only; reports in `BoQ main lane\<slice>\` on the laptop.
+
+## Slice DU-1 (laptop) - Valve Derivation coverage + HVAC v70, the Ducting helper + HVAC v71 - as built 2026-11-15
+
+**Part A (A1 66a99e8a8, A2 c2e7641ce):** FIX-1..4 (every text_notes / material_text entry its line; scope / unit / pair lines; declared
+rule lines for code rules; borrowed sections nested), the guard `derivationCoverage` (+ latest-asset test), R2 copy icons on the row
+total (panel + calculator, every category); v70 = v69 + the Valve / Misc declared lines; replay 0 moves.
+**Part B (B1 f5533b997, B2 375f055a9, B2b 95984671c):** the Ducting helper per DU-D0 + every ruling (see boq-rate-master.md "Ducting
+(HVAC v71)"); v71 loaded three times, each after a proven backup (BRMS-26-00523 / -00581 / -00582), every replay = vp5end3 byte-equal.
+Defects found and fixed in the slice: a picked gauge never read; DR11 unreachable behind DR8; G-3 sq.ft vs sq.m and the row's own area;
+a 0% uplift read as "not set"; the section-family filter had changed Piping's request (now gated on Misc's key); four from the B4
+preview (DR4 per metre, DR3 0.83 mm, DR12 no-band gauge, DR14 insulation); the mint re-minting uids after a load.
+**B4 preview (stub, no model call):** 1,300 / 1,513 Ducting rows priced; vs DU-D0 D7 1,381 identical, 132 explained (44 D7 re-read,
+49 G-3, 38 half-up, 1 heading-only removal). **Open for DU-2:** heading-only removal; DR7 / G-3 mode and limits; the cert (C1-C9).
+
+## Slice DU-2 (laptop) - the DU-1 cert fixes, the 23:57 row rulings (HVAC v72 / v73 / v74), the paid read of the Ducting rows (partial), the Ducting Payload Library, the pack, the pre-pack - as built 2026-11-16
+
+**Code (K1 45c4dbcdb, K1b 0c9a1e469, K1c 97b59a48b):** C8 used-by counts a pricing-level scope's uplift (Valve, Ducting); `family_alias_needs`
+(a round duct per metre shows / reads only its diameter + gauge); no "BoQ says ... (your rule)" under a hand-picked kind; a typed diameter
+names the box's sizes; R-NOTE-ORDER (a non-duct's re-file sentence before any unit check, `no_sku_refuse_default`); "gause" / SWG read as
+gauges; a borrower section's `family_note` (Ducting's Misc question); R-PIR (a PIR row's thickness from its own "NN mm thick"); R-LABOUR
+(a labour-charges row = the duct's installation only); DR7 reads every heading above a separate insulation row; the Derivation wording
+chat-Claude returned (W1-W6). **Assets:** v72 (the 23:57 guidance: the ITEM decides, extras noted, paint-only rows -> their Misc item,
+re-file entries, the Misc family note), v73 / v74 display only (declared lines, reasons, Misc's unit-refusal sentence). Each load after a
+proven backup; every replay = vp5end3 on the 29,857 earlier rows. **Paid read:** STOPPED at the AI account's usage limit after 74 / 172
+sheets (684 / 1,513 rows, 1.33M tokens; QR-3 waits for the owner's "resume"); controls 0 moves; audit 684 / 684. **Library:**
+BoQ main lane\Ducting_Payload_Library (scripts/ducting_library.py re-using valve_library.py); LIB2 / LIB3 PASS. **Pack (684 rows, final
+code):** 592 priced; panel = calculator on every row a calculator can express. **Pre-pack (v74):** PP1 Python 134 / 5,069, vitest 198 /
+8,046, tsc 0 new; PP2 0 unexplained; PP3 nothing lost; PP4 rollback = v65; PP5 combined + Valve-only facts. **Open:** the rest of the
+read (98 sheets), the full pack, the cert; QR-4 (00140 / 00352 "Insulation" rows), QR-5 (round words with no type), DR7 / G-3 mode.
+
+**DU-2, completed 2026-11-16 (afternoon):** the paid read resumed on the owner's "resume" (10:07) and ran to the end on the frozen order
+under the 8.0M ACTUAL running stop, paused once by the owner (11:33-12:25): 171 / 172 sheets COMPLETE + ACTIVE (BOQ-26-00047 'Ducting
+Works' left out by ruling), 5.94M tokens, 3,483 rows sent (Ducting 1,508; 1,975 non-Ducting first answers on the D / E whole-sheet runs,
+owner's "b"). Controls: 904 earlier runs / 69,893 stored rows unchanged; replay du2end = the 30,541 earlier rows identical + 2,799 new.
+OVERLAP (owner CH-DU2-9): no row VP-2 / VP-5 read was read again; paid twice inside DU-2: 37 rows (1 re-classified row, 20 VRF rows of a
+32,000-token ceiling retry, 16 rows refused at the usage limit). **Pack (1,508 rows, v74):** 1,330 priced, Rs 47.86 crore all revisions /
+41.18 latest; panel = calculator except the known classes (G-3 sheet rule, DR14 row words, unit / re-file refusals) and 2 harness-feed
+rows; named rows 192 MATCH / 19 DIFFERS / 1 CHECK / 1 NOT READ. **Library** rebuilt on all 1,508 rows (LIB2 / LIB3 PASS). **PP2** 3,034
+differ, 0 unexplained; **PP5** 89 checks. **Cert C1-C10** done (screenshots on the Desktop); dev_isolate PASS.
+**Open for the follow-up slice (owner CH-DU2-15: one follow-up after the review):** CERT-1 - the calculator's typed gauge must go through
+readGauge like the panel ("0.63MM" -> 24G, not 22G); RULED: a bare gauge number reads as that gauge (24 -> 24G) on panel and calculator,
+which also reads 00401's "Guage: NN" answers (6 rows refused today, ~Rs 10.4 lakh); the "mmG" wording slip; the calculator has no size
+box for a rectangular duct's several-gauge text; QR-6 (stainless-steel ducts get DR11's butterfly-valve sentence); QR-4, QR-5, the DR7 /
+G-3 mode pick.
+
+## Slice DU-3 (laptop) - the one fix slice from the DU-2 review: the 90% insulation rule, the reverse pair rule, gauge reading / CERT-1, units, the labour row, round / band reading, Cases 2-8 / 12, HVAC v75 - as built 2026-11-16 / 17
+
+Run end to end on the laptop (owner CH-DU3-6: the desktop dropped; laptop is master). No model call (capture 157 all slice).
+**Commits (not pushed, on dcf907581):** K1 ce65207fc (R1 / R2 code, validator, harness, tests), K1b 1ad512a53 (K1b + K1c: R3-R8,
+Cases 2-8 / 12), K2 b3115fd9b (HVAC v75 + pin moves), K2b 9f7e03ac9 (CH-DU3-13 Derivation wording W1-W7; harness section resolution;
+library v75 + sheet notes), a5199b40c (CH-DU3-14 C1 reason), 98d7bd746 (CH-DU3-16/17: mixed shapes -> oval on removal / refixing only,
+any other row unpriced), 6a1cd7a32 (live-catalogue pins -> v75 + the du1b literal).
+**Asset v75** = v74 + ONE Pricing Input (`ducting_insulation_coverage_threshold` 0.9, rmi-465f95aa3644) + the Ducting config + the
+Valve Package `pair_note`; Misc byte-equal; the question byte-identical to v74's (no re-read). Loaded four times, each after a PROVED
+backup (C:\Users\nites\du3_db_backups): final live HVAC items f64e76f9 / configs 0116017e, Electrical v72 unchanged.
+**Re-price (library, no model call):** 1,508 rows, 1,397 priced, EXPECT 1,508 / 1,508 MATCH (stays so after every later fix);
+Rs 52.88 crore all revisions / 46.20 latest (DU-2: 47.86 / 41.18); R1 by sheet 35 covered / 19 below / 7 missing / 5 none; panel vs
+calculator EQUAL 1457 / WORDING 31 / ONE-SIDED 11 / FIGURE 9, 0 unexplained.
+**Pre-pack:** PP1 Python 136 / 136 (17 pins / literals moved in 6a1cd7a32, none price-asserting), vitest 199 / 8,138, tsc 0 new;
+PP2 3,034 moves / 0 unexplained; PP3 v65 -> v75 nothing lost; PP4 rollback proved on a v65 STAND-IN (DU-2's production backup is no
+longer on the laptop: dev dump + v65 loaded = v65 by content, deploy 13.5 s, restore 57 s); PP5 deploy facts + 115 check rows.
+Replay du3end = du3k2 byte-equal. **Cert C1-C12** PASS (41 screenshots), dev_isolate --yes / --verify PASS.
+**Open (follow-up list):** the stray ")" in the stored note "BoQ says round / spiral / oval with no duct type - priced as Spiral /
+Oval)" (owner "option a", 2026-11-17 00:15; 2 rows, wording only); the mixed-shape ruling applied generally was RE-RULED removal-only
+(CH-DU3-17) - nothing open there; the "stainless-steel VALVE row" cert step has no corpus row (unit tests hold it).

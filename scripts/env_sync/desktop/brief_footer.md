@@ -30,3 +30,16 @@ for anyone; stop only through the status file.
    - `FAILED`: something you cannot recover from. Say what happened and the state you left the tree in.
 
    Never end your turn without writing this file. A session that sits idle without one is treated as stuck.
+
+6. **Checkpoints** (so the laptop can carry on if this machine stops answering; `scripts/env_sync/README.md`):
+   - Keep `envsync/sessions/<your name>.resume.md` (next to the status file): the milestone reached, the next step
+     exactly, open questions with their files, anything half-done. Rewrite it at every milestone.
+   - The laptop copies your code and that note over SSH; you copy nothing yourself. Never start, open or configure
+     OneDrive (or any cloud drive) on this machine, and never write into a OneDrive folder.
+   - After a paid run, a catalogue load or a migrate, write `DBCOPY-POINT <time> <step>` in the status file.
+   - If your message file gets `=== CHECKPOINT ... ===`, stop at the next SAFE POINT (the README's list: never inside a
+     load, a paid run, a migrate, a database write, a cert or a running suite), rewrite the resume note, write
+     `CHECKPOINT SAFE <time> <step>` in the status file, then poll the message file every 60 seconds (in this turn) for
+     `=== CHECKPOINT TAKEN ... carry on ===` or `=== CHECKPOINT FAILED ... carry on ===`, and carry on either way.
+   - A checkpoint never stops the slice: wait at most 20 minutes. Past that, write
+     `CHECKPOINT FAILED <time> ceiling: no answer in 20 min - resumed` in the status file and carry on with the slice.

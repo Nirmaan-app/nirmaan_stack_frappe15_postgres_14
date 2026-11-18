@@ -182,7 +182,9 @@ describe("VRF-10 F4 -- a refused unit carries only the refusal; no priced extra 
     expect((v.items[0].extras?.lines ?? []).filter((l) => l.state === "priced")).toEqual([]);
     // the line stays, with no figure and the reason (its review note and the item count still name it)
     const rem = (v.items[0].extras?.lines ?? []).find((l) => l.id === "acc_remote");
-    expect([rem?.state, rem?.figures, rem?.reason]).toEqual(["blank", {}, "not priced - the unit it belongs to is not priced"]);
+    // VP-1 (A1, owner 2026-11-13 00:33): the panel leads with "Not priced -", so the reason no longer repeats it.
+    // BEFORE: "not priced - the unit it belongs to is not priced"
+    expect([rem?.state, rem?.figures, rem?.reason]).toEqual(["blank", {}, "the unit it belongs to is not priced"]);
     const old = one(r, false);
     expect(old.rowPriced).toBe(false);
     expect((old.items[0].extras?.lines ?? []).some((l) => l.state === "priced")).toBe(true);

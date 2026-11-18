@@ -318,3 +318,35 @@ describe("12d-5 (owner P1, F-C5a): the extraction-rules card is hidden on an ite
     expect(extractionRulesCardShown(undefined)).toBe(true);
   });
 });
+
+// VP-2 K1 (owner QR-1 Q1 (a), 2026-11-13 10:25): the Valve Package scope line names what EACH screen offers -- the sheet panel's
+// pick shows three options (pricingSheetHelper drops `install_only_normal`), the calculator's 'BoQ scope' also the fourth.
+describe("VP-2 K1: the Derivation scope line names each screen's own options", () => {
+  const V66 = readJsonFixture<{ category_configs: Parameters<typeof cfgOf>[0]["category_configs"]; items: NonNullable<Parameters<typeof itemListRuleOrder>[1]> }>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v66.json", import.meta.url));
+  const valve = cfgOf(V66, "hvac_valve_package");
+  const scopeLine = (cfg: unknown) => itemListRuleOrder(cfg, V66.items).find((r) => r.title === "The BoQ scope: supply + installation unless the row says otherwise");
+  it("POSITIVE: the panel's pick lists three options; the calculator's choice also offers the fourth, at the normal rate", () => {
+    const d = scopeLine(valve)?.detail ?? "";
+    expect(d).toContain("the panel's scope pick ('Supply + installation', 'Supply only', 'Installation only') re-prices the row");
+    // INVERTED at DU-1 FIX-2 (VP-DRV R40 / R41: the scope line states VP-5 E11 as built; mechanical authority): BEFORE
+    // "the calculator's 'BoQ scope' choice does the same and also offers 'Installation only (supply quoted on another row)' (the normal installation rate, no uplift)"
+    expect(d).toContain("the calculator's 'BoQ scope' choice prices as picked, and also offers 'Installation only (supply quoted on another row)' (the normal installation rate)");
+    expect(d).not.toContain("only when the sheet quotes no supply row");
+    expect(d).toContain("'Valve - installation-only uplift'");
+  });
+  it("NEGATIVE: the fourth option is never listed among the panel's options", () => {
+    const d = scopeLine(valve)?.detail ?? "";
+    const panelPart = d.slice(d.indexOf("the panel's scope pick ("), d.indexOf(") re-prices the row"));
+    expect(panelPart).not.toContain("supply quoted on another row");
+  });
+  it("NEGATIVE: a pricing-level scope without the normal-rate option keeps one list and adds no 'also offers' clause", () => {
+    const cfg = structuredClone(valve);
+    delete cfg.list_spec.pricing.scope.install_only_normal;
+    cfg.list_spec.pricing.scope.options = ["Supply + installation", "Supply only", "Installation only"];
+    const d = scopeLine(cfg)?.detail ?? "";
+    expect(d).toContain("the panel's scope pick ('Supply + installation', 'Supply only', 'Installation only') re-prices the row");
+    // INVERTED at DU-1 FIX-2: BEFORE toContain("the calculator's 'BoQ scope' choice does the same")
+    expect(d).toContain("the calculator's 'BoQ scope' choice prices as picked");
+    expect(d).not.toContain("also offers");
+  });
+});

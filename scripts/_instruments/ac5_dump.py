@@ -46,7 +46,9 @@ PAGE_KEYS = ('row_index', 'source_row_number', 'effective_parent_index', 'effect
              'row_notes', 'append_notes_raw')
 page_rows = {}
 frappe.set_user('Administrator')
-runs = frappe.db.sql('select boq, sheet_name, committed_version, run_id, status, ai_status, results from "tabBoQ Rate Suggestion Run" where active=1', as_dict=True)
+# VP-4L (2026-11-14): a fixed order (boq, sheet, run_id) - without it the output followed the table's physical order, which a
+# restored database (db-pull) rebuilds, so two machines with identical data gave different replay hashes
+runs = frappe.db.sql('select boq, sheet_name, committed_version, run_id, status, ai_status, results from "tabBoQ Rate Suggestion Run" where active=1 order by boq, sheet_name, run_id', as_dict=True)
 out = open(os.path.join(OUT, 'ac5_rows.jsonl'), 'w')
 n = 0; per_cat = collections.Counter(); skipped = collections.Counter()
 for r in runs:

@@ -45,7 +45,42 @@ import { noSkuSentence, type PlainFact } from "../../pricing/rate-master/plainEn
 // the config block (list_spec.pricing) -- mirrors the backend validator `_validate_list_pricing`
 // ---------------------------------------------------------------------------------------------------------
 
+/**
+ * DU-1 (Ducting DR2 / DR3 / DR4 / DR12; owner 2026-11-13 "agree with a+b", 19:49 "usse thhis table if BoQ is silent on Gauge. If
+ * gauge cannot be still determined leave it unpriced. give appropriate notes in all cases.", 20:42 "the description gives gauge as
+ * per size..we can determine the applicable gauge for the row using it"): a SHEET-GAUGE axis. The reader reads gauge words ("24 G",
+ * "24 SWG", "24 gauge") and sheet thicknesses ("0.63 mm") into the SHEET's own mm the SKUs carry; a gauge AND a mm -> the gauge;
+ * a standard mm reads as its gauge; several gauges -> the band for THIS row's size (DR12); no gauge at all -> the owner's size
+ * table (DR4, DATA here, never in a function) by the family, else unpriced. Only on the families it names (PIR is a panel mm).
+ * The ladder's lines name gauges (DR2: "next thicker", "thinner than the thinnest", "thicker than the thickest").
+ */
+export interface GaugeReading {
+  /** the families this axis is a sheet gauge on (any other family reads the axis as plain mm) */
+  families: string[];
+  /** gauge number -> the mm the ladder compares: the SHEET's own mm for a stocked gauge (24 -> 0.6), the standard one else */
+  mm: Record<string, number>;
+  /** a stated thickness that IS a gauge (DR3): from..to mm inclusive -> that gauge */
+  standard_mm: Array<{ from: number; to: number; gauge: string }>;
+  /** DR4: with no gauge read, the gauge from the size the row states -- per family, bands by the size's largest number */
+  by_size?: { from: string; dimension: Record<string, string>; bands: Record<string, Array<{ max: number | null; gauge: string }>> };
+  /** the wording ({said} {gauge} {mm} {top} {size} {dimension} {band} {gauges}); a family may carry its own `thicker` */
+  lines: { gauge_wins: string; standard: string; between: string; thinner: string; thicker: string; thicker_by_family?: Record<string, string>;
+    /** DU-3 (R4): the line a bare number in the gauge field reads with ("BoQ says 24 -> 24G ...") -- OPTIONAL (absent: no line) */
+    bare_number?: string;
+    /** DU-3 (R6, owner 2026-11-16 15:00 "fix"): a LABOUR row with no gauge -- the duct's installation does not vary by gauge, so the duct
+     *  type decides (the family's first stocked gauge), said in this line. OPTIONAL (absent: the rule does not run) */
+    labour_any_gauge?: string;
+    /** DU-3 (R7, owner 15:00 "fix"; BOQ-26-00336 r16): the model's gauge answer gives several gauges but the row's OWN words name exactly
+     *  one of them -> that gauge ({said} the row's words, {gauge}); OPTIONAL (absent: the band reader alone, as before) */
+    own_row?: string;
+           size_table: string; no_size: string; several_band: string; several_none: string;
+           /** DR14: on a removal / refixing row with no gauge and no size, the line saying the type decides (any stocked gauge) */
+           existing_any_gauge?: string };
+}
+
 export interface NumberReader {
+  /** DU-1: a sheet-gauge axis (see `GaugeReading`). ABSENT => the reader is byte-identical. */
+  gauge?: GaugeReading;
   /** The model's as-written text attribute(s) this SKU attribute is read from; first non-blank wins. */
   from: string[];
   /** The owner-language name used in reasons ("no torque stated"). */
@@ -90,6 +125,8 @@ export interface NumberReader {
    * line into the full read ("You typed 5/8\" -> 15.875 mm -> ..."); Piping's line comes from its other keys.
    */
   typed_entry?: "one_size";
+  /** VP-1 (G7): a typed "DN 50" on this axis is 50 mm (a DN number is mm, as an NB number is). ABSENT => a typed DN refuses. */
+  typed_dn?: true;
   /**
    * SLICE 12e-4b (owner F-1, 2026-10-13: "insulation should get the original pipe size read by BoQ and then will
    * match/ ladder independently based on insulation logic" + "option B"): on THIS axis the nearest stocked size
@@ -107,6 +144,9 @@ export interface NumberReader {
    * row's unit NEEDS it, so no other family reads it, shows it, or carries a line about it. ABSENT => as before.
    */
   typed_only?: boolean;
+  /** DU-1 (DR17 + NOTE 3): on a `typed_only` box the catalogue stocks no value of, the values its dropdown offers (the sheet's own
+   * round diameters); "Other..." types any value. Needs `panel_controls[<id>] = "dropdown_or_other"`. ABSENT => as before. */
+  offered?: number[];
   /** ADP-1 (owner H3): with nothing typed, the number is read from this model text attribute -- the size as written --
    * by `readPieceLength` (the side written as the length, else the longest side of "a x b"). Needs `typed_only`. */
   length_from?: string;
@@ -171,6 +211,21 @@ export interface CapacityUnits {
 export const UNIT_PICK_SUFFIX = "__unit";
 
 /**
+ * VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13) -- THE LINES A READING RULE OVER THE MODEL'S ITEMS LEAVES ON AN ITEM.
+ * `valveReviewNets` (pricingSheetHelper) settles a Valve Package row's model items before pricing and says why on the item it
+ * changed: `NET_LINES_ATTR` holds its working lines, one per text line, `NET_FAMILY_LINE_ATTR` the amber family line of an item whose
+ * kind the rule decided. They ride as attributes so they follow the item through every path (its own block, a borrowed
+ * section) and fall away the moment the pricer changes the item (a changed item starts from its family alone). No config
+ * declares them; no field shows them; the pricing never matches on them.
+ */
+export const NET_LINES_ATTR = "__net_lines";
+export const NET_FAMILY_LINE_ATTR = "__net_family_line";
+
+/** VP-3 (C3, owner "ok"): a refusal for a fact the row did not give ("no valve size stated", "no valve type could be told") --
+ *  the pricer can supply it; a refusal for anything else (an unstocked item, a size above the sheet) cannot be fixed on the row. */
+export const MISSING_FACT_REASON = /^no [^:]*?(?:stated|could be told)/i;
+
+/**
  * SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10) -- HOW A FAMILY ANSWER WRITTEN AS THE BoQ WRITES IT IS READ.
  *
  * The calculator's Pipe type "Other..." box (and, in 12e-4, the model's answer) may carry a spelling that is
@@ -182,7 +237,9 @@ export const UNIT_PICK_SUFFIX = "__unit";
  */
 export interface FamilyTextSpec {
   map: Array<{ from: string; to: string; rule: string }>;
-  refuse?: Array<{ from: string; refuse: string; rule: string }>;
+  /** DU-3 (Case 12, owner 2026-11-16 16:38 "option C"): an entry with `unless` (a regular expression) is skipped when the written
+   *  words also match it -- "stainless steel" refuses as butterfly valves UNLESS the words name a duct (a later entry says that) */
+  refuse?: Array<{ from: string; refuse: string; rule: string; unless?: string }>;
   /** "BoQ says {from} -> priced as {to} (owner rule)" */
   line: string;
   from_row?: { rule: string; refuse: string };
@@ -207,6 +264,9 @@ export interface ConversionOption {
   /** ADP-1 (owner H4: "a missing dimension REFUSES and names the missing one"): when no option can be chosen, this
    * option's part of the refusal names only the facts NOT stated. ABSENT => it names all of its needs, as before. */
   name_missing?: boolean;
+  /** DU-1 (owner Q4 + NOTE 3): a DIRECT unit conversion (sq.ft -> sq.m) that reads no fact -- `needs` is then exactly empty, so the
+   * option is chosen as soon as the row is in its class. ABSENT => every option names the facts it reads, as before. */
+  direct?: true;
 }
 
 export interface UnitPricing {
@@ -337,7 +397,12 @@ export interface FamilyWhenNone {
   /** unit class -> the family a silent row of that class prices as. */
   by_unit_class: Record<string, string>;
   /** Word rules, in order; the FIRST whose unit class matches and whose words appear wins. */
-  when_words?: Array<{ unit_class: string; words: string[]; family: string }>;
+  /** DU-3 (R7, owner 2026-11-16 15:00 + Case 7 15:24 + QR-5 (a)): an entry may carry its own `rule` (the line said under the
+   *  family) -- "BoQ says rectangular/round - priced as rectangular (unit sq.m)"; ABSENT => the config's `rule`, as before */
+  when_words?: Array<{ unit_class: string; words: string[]; family: string; rule?: string;
+    /** DU-3 (owner 2026-11-17 00:18 / 00:28): the entry applies ONLY on a removal / refixing row (`existing_work` in the row's own
+     *  words); on any other row whose words hit, `otherwise_refuse` leaves the row unpriced with that sentence */
+    existing_work_only?: boolean; otherwise_refuse?: string }>;
   rule: string;
 }
 
@@ -411,6 +476,31 @@ export interface UnstockedMaterials {
   words: string[];
   from_attr?: string;
   rule: string;
+  /** VP-1 (owner 2026-11-12 23:59 "the no sku note should only mention the SKU the row is about and not the others"): on a row of
+   *  SEVERAL items, an unstocked word found in the row's OWN text refuses only the item whose own copied words (`from_attr`) carry
+   *  it -- every other item is priced, or refused for its own reason. A word no item carries still refuses each item, naming the
+   *  WORD (the unstocked thing the model did not list). ABSENT => every item is checked against the whole row text, as before. */
+  per_item?: true;
+}
+
+/** VP-1 (per_item). PURE. The row's own text as ONE item of a several-item row reads it for the unstocked-word rule: where ANOTHER
+ *  item's own copied words carry an unstocked word (that item refuses the row by name), an item carrying none reads the row text
+ *  WITHOUT the unstocked words (it is priced, or refused for its own reason). Where no item carries one, the row text stands for
+ *  every item -- the unstocked thing the model did not list still stops the row. Every other case => `ownText`. */
+export function ownTextForItem(spec: ItemListPricingSpec, extracted: readonly ExtractedListItem[], index: number, ownText: string): string {
+  const um = spec.unstocked_materials;
+  if (!um?.per_item || !um.from_attr || extracted.length < 2 || !ownText) return ownText;
+  const carries = (it: ExtractedListItem) => {
+    const v = rawValue(it, um.from_attr!);
+    return v !== null && v !== "None" && wordStartHit(String(v), um.words) !== null;
+  };
+  if (carries(extracted[index]) || !extracted.some((it, j) => j !== index && carries(it))) return ownText;
+  let t = ownText;
+  for (const w of um.words) {
+    const parts = w.trim().split(/[\s-]+/).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    t = t.replace(new RegExp(parts.join("[\\s-]*"), "gi"), " ");
+  }
+  return t;
 }
 
 /**
@@ -458,6 +548,8 @@ export interface ReadNote {
   pattern: string;
   unless?: string;
   line: string;
+  /** VP-1 (G4): the Derivation tab's words for this line (what it says and why); ABSENT => the generic "stating its own figure". */
+  rule_line?: string;
 }
 
 /**
@@ -473,6 +565,9 @@ export interface TextNote {
   pattern: string;
   unit_classes?: string[];
   when?: { attr: string; equals: string };
+  /** VP-4 (T2, owner QR-1 Q2 (a)): NOT shown on an item whose raw answer for `attr` is `equals` (the model read the item as not
+   *  flanged) -- unless, with `own_words`, the row's OWN words match the pattern. ABSENT => the line shows as before. */
+  unless?: { attr: string; equals: string; own_words?: boolean };
   line: string;
   rule: string;
 }
@@ -532,6 +627,77 @@ export interface ItemListPricingSpec {
    * the RATE and never to the BoQ's quantity. ABSENT => every row is byte-identical to before this slice. */
   unit_factors?: Record<string, UnitFactor>;
   family_alias?: Record<string, string>;
+  /** DU-1 (Ducting mockup "Round per metre" as a duct type; DR1): alias families OFFERED in the kind picker beside the families, each
+   *  priced as its `family_alias` target (no SKU of its own, no rate copied). ABSENT => the picker lists the families only. */
+  family_alias_offered?: string[];
+  /** DU-2 (DU-1 cert finding a, owner 2026-11-15 23:29 "fix in DU 2"): the attributes an ALIAS family reads -- a conversion of its target
+   *  needing any other attribute is not used for the alias, and its field is not shown ("Round (GI) - per metre" reads the diameter,
+   *  never the flat-oval Width / Height its Spiral / Oval target also prices by). ABSENT => an alias reads all its target's ways. */
+  family_alias_needs?: Record<string, string[]>;
+  /** DU-2 (R-NOTE-ORDER, owner 2026-11-15 23:57): the re-file sentence for a no-SKU item no `no_sku_refusals` entry names ("{named}" =
+   *  the as-written words); ABSENT => the no-SKU sentence as before. */
+  no_sku_refuse_default?: string;
+  /** DU-1 (DR13): a no-SKU item whose as-written words (else the row's own text) name one of `words` refuses with `refuse`, the first
+   *  entry that hits ("Reads as a damper, not a duct - re-file this row under ADP"); none hits -> the no-SKU sentence as before. */
+  no_sku_refusals?: Array<{ words: string[]; refuse: string }>;
+  /**
+   * DU-1 (DR7, owner 2026-11-13 21:06 verbatim: "if duct mentions insulation, but there is no seprate row for duct insulation, then
+   * insulation should be priced withthe duct row, butif there is seprate row for duct insulationthen insulation should not be priced
+   * witthe duct row"; G-3 2026-11-15 13:15-13:18: the QUANTITY check "is in addition to the checks we are using currenly and not a
+   * replacment"; limits and the mode are settings). Per SHEET: the sheet's rows of `category` (insulation) whose own words or nearest
+   * heading say duct (and rows of this category whose words are insulation with no duct read) are its separate duct-insulation rows.
+   * None -> the Insulation line as usual. Some -> mode "doubtful_only": the quantity check runs only on a DOUBTFUL sheet (a separate
+   * row of the other kind -- acoustic vs thermal -- or under an AHU / plant-room heading); "all": always. Quantity check: separate
+   * rows' sq.m / the insulated duct rows' sq.m >= `high` -> no line; < `low` -> the line is added; between -> the insulation is
+   * unpriced; quantities missing -> a CLEAR sheet keeps DR7 (no line), a DOUBTFUL one is unpriced. Every outcome carries its line.
+   */
+  /**
+   * DU-3 (R1 the 90% rule, owner 2026-11-16 16:31 / 16:33 / 16:38; R2 Case 11 16:37 "option B"; QR-1 Q1 (a) + the unit test, Q3 (a),
+   * Q4, owner 18:06) REPLACES DR7's "any separate row -> no line", the G-3 quantity check (mode / high / low / "left for a person")
+   * and F1. Per SHEET: its separate DUCT-insulation rows (R2: an insulation row whose own words or a heading of its chain name duct,
+   * or that sits under a plain "Insulation" heading - never one in running metres (pipe), nor one whose own words / nearer heading
+   * name pipes, AHU / plant / equipment or a building surface) against the sheet's INSULATED duct quantity (sq.m):
+   * none -> the Insulation line as usual; >= the threshold (the Pricing Input `threshold_input`, read LIVE) -> no line, `covered`;
+   * below, or a quantity missing on either side -> the line IS priced, `double_count`. No row is held for a person.
+   */
+  sheet_insulation?: {
+    category: string; section: string; duct_words: string; insulation_words: string;
+    /** a heading that is plainly "Insulation" (R2: its rows count unless their own words / a nearer heading say otherwise) */
+    plain_heading_words: string;
+    /** words that make an insulation row NOT duct insulation: pipes, AHU / plant room / equipment (its own words or a nearer heading) */
+    never_words: string;
+    /** building surfaces (under deck, roof, wall, ceiling, floor ...): NOT duct insulation when named by the row's own words or by a
+     *  heading that itself speaks of insulation (QR-1 Q3 (a)) -- a "First floor" sheet heading names no insulation and does not count */
+    surface_words: string;
+    /** a heading longer than this is a scope preamble: only its duct words are read (Q3) */
+    preamble_chars: number;
+    area_units: string[];
+    /** running-metre spellings: an insulation row in these units is pipe insulation and never counts (Q1 unit test) */
+    length_units: string[];
+    /** the Pricing Input (`attributes.item`) whose `rates.factor` is the coverage threshold (0.9 = 90%) */
+    threshold_input: string;
+    lines: { covered: string; double_count: string; ratio: string; threshold_missing: string };
+  };
+  /**
+   * DU-3 (Case 8, owner 2026-11-16 15:44 "row 25 is painting of ducts. confirmed."; QR-1 Q5 (a) 18:06 "if it is same as boq 380 then it
+   * will be painting"): a duct row whose OWN words name painting (`words`), with NO gauge read, that sits after its sheet's own duct rows
+   * (same nearest heading) and whose quantity is within `tolerance` of theirs, is the PAINTING of those ducts: priced as the `section`'s
+   * `family` item alone (Misc Paint), `line` naming the rows. A row whose words name painting but fails a test keeps today's outcome with
+   * `miss_line` ({why}). ABSENT => every row as before.
+   */
+  paint_row?: { words: string; section: string; family: string; tolerance: number; line: string; miss_line: string };
+  /** DU-3 (Case 5, owner 2026-11-16 15:20 "option A"): words in the row's OWN text that leave the whole row unpriced with `line`
+   *  ("double-skin duct - not on our sheet, price by hand"). ABSENT => every row as before. */
+  row_refusals?: Array<{ pattern: string; line: string }>;
+  /** DU-3 (QR-2 Q1 (b), owner 2026-11-16 21:19 "1b"): a duct row whose insulation names TWO insulations (two insulation items, or one item
+   *  whose thickness / material words name both kinds) prices the duct + the one covering the whole duct (`keep_words`: thermal) at its
+   *  own thickness (else the default); the other (`second_words`: acoustic) is left out with `line` ({t} its thickness, "?" when none).
+   *  ABSENT => every insulation item prices as before. */
+  two_insulations?: { section: string; keep_words: string; second_words: string; line: string };
+  /** DU-3 (Case 4, owner 2026-11-16 15:19 "option A"): extra insulation asked only on PART of the length ("acoustic insulation for the
+   *  first 5 m from the AHU") is not added -- the insulation item of that kind is left out, `line` ({kind}, {span}) says so. ABSENT =>
+   *  every insulation item prices as before. */
+  partial_insulation?: { pattern: string; line: string };
   no_sku_families?: string[];
   /** SLICE 12d-1b (owner T5): the TEXT item attribute that names the material AS WRITTEN; a `no_sku_families`
    * refusal names it ("No SKU in the catalogue for XLPE - price this row by hand"). ABSENT => the R18 sentence. */
@@ -593,6 +759,14 @@ export interface ItemListPricingSpec {
   read_notes?: ReadNote[];
   /** ADP-5d (owner R9 / R13): a working line generated from the row's text. ABSENT => no line. See `TextNote`. */
   text_notes?: TextNote[];
+  /** VP-1 (N5): a display line from the row's headings AND the sheet's row categories. ABSENT => no line. See `SheetHeadingNote`. */
+  sheet_heading_notes?: SheetHeadingNote[];
+  /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
+   *  `extras?.scope ?? scope`). ABSENT => byte-identical. */
+  scope?: ScopeSpec;
+  /** VP-1 (N2, owner UNIT ruling 2026-11-11, all categories): a row with NO unit refuses ("no unit on this row") instead of being
+   *  priced in the item's own unit -- the rule VRF already has through `vrf10On`. ABSENT => the 12c-U default unit, as before. */
+  blank_unit_refuses?: boolean;
   /** ADP-5d (owner R6b): the default replaces an answer the row's stream cannot decide. ABSENT => every answer stands. */
   stream_heading_default?: StreamHeadingDefault[];
   /** ADP-5d (owner R4): an item code adds beside a named one. ABSENT => nothing is added. See `CompanionItem`. */
@@ -951,7 +1125,10 @@ export interface ScopeSpec {
   conflict?: { words: string; with_row: string; no_row: string };
   /** VRF-6 (INSTALLATION-ONLY): the uplift applies only when the sheet has no supply row of the same kind; with one, the normal
    *  install (`normal_note` + `with_row` {rows}); without, the uplift + `no_row`. ABSENT => the uplift always, as before. */
-  supply_row?: { normal_note: string; with_row: string; no_row: string };
+  /** DU-1 (G-4): `uplift` -- the supply-on-its-own-row case charges install x (1 + the category's uplift input); ABSENT => normal rate */
+  /** DU-3 (R3, owner 2026-11-16 15:16; QR-1 Q7 (a)): `pair_note` -- the supply-only sentence of the reverse pair rule, naming the row(s)
+   *  that quote this item's installation ({rows} -> "row: 87" / "rows: 87, 89, 91"); ABSENT => the VP-5 sentence, as before */
+  supply_row?: { normal_note: string; with_row: string; no_row: string; uplift?: true; pair_note?: string };
   /** VRF-6 K2 (parity): the option meaning "installation only, its supply quoted on another row" -- the normal install, no uplift;
    *  the calculator's way to say what the panel reads off the sheet (the panel shows it as the row's scope when it applies) */
   install_only_normal?: string;
@@ -975,6 +1152,23 @@ export interface ScopeSpec {
    *  only) defaulting to the helper's own scope; a pick re-prices the row by the calculator's rules, and `note` ({helper} = the
    *  helper's scope, {because} = its reason) says the user changed it. ABSENT => the panel shows the scope as a note only. */
   panel_pick?: { note: string };
+  /** VP-1 (N1, owner VR9 2026-11-11 09:09 / QR-2 Q1 (a)): on a PRICING-LEVEL `scope` (a category without `extras`), the model
+   *  attribute that carries the row's scope answer -- VRF reads its own from `extras.from_model.scope`. */
+  model_attr?: string;
+}
+
+/** VP-1 (N5, owner VR1 2026-11-12 23:59 / 11-13 00:09 / 00:33). A DISPLAY-ONLY line on every row of this category whose
+ *  headings (the row's headings and the notes of the heading directly above, as `text_notes` "headings" reads them) match
+ *  `pattern`: `with_rows` when the SHEET (the page's own row categories) has rows of `category` -- {rows} = the first `cap` of
+ *  their excel rows, then "and N more" -- else `none`. A context without the sheet's categories (the calculator, a harness that
+ *  does not build them) shows nothing. Never a figure, never a refusal. */
+export interface SheetHeadingNote {
+  pattern: string;
+  category: string;
+  with_rows: string;
+  none: string;
+  cap?: number;
+  rule: string;
 }
 
 /** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */
@@ -1475,6 +1669,12 @@ export interface ListSection {
   include_when?: { attr: string; equals: string };
   absent?: { value: string; line: string };
   mirror?: { from: string; to: string; tag: string; line: string };
+  /** DU-1 (DR5 round-duct insulation by area; owner D1 "option b": "round-duct insulation grows with duct size (by area)"): on an
+   *  owner row in one of these unit classes (a duct per metre) the section is priced in `unit` (the delegated category's per-sq.m
+   *  item, by its own rules) and each line's rate is multiplied by the item's area per row unit -- the first option whose `needs`
+   *  the item read, `formula` over those numbers (3.14 * dia_mm / 1000; 2 * (w + h) / 1000) -- rounded up to the rupee; no option
+   *  readable -> the section refuses with `missing`. ABSENT => the section prices in the row's unit, as before. */
+  area_basis?: Record<string, { unit: string; options: Array<{ needs: string[]; formula: string; line: string }>; missing: string }>;
 }
 
 /** SLICE 12e-3a: the delegated sections a spec declares (those naming a category), in order. PURE. */
@@ -1773,6 +1973,10 @@ export interface LadderHop {
 }
 
 export interface ItemPriceResult {
+  /** DU-1 (DR2 / DR3 / DR4 / DR12): the line a sheet-gauge axis read or ladder wrote, per attr -- the field's note */
+  gaugeNotes?: Record<string, string>;
+  /** DU-1 (DR4): the gauge the owner's size table gave (the field's amber "from the size table" mark) */
+  gaugeFromTable?: { attr: string; gauge: string; rule: string };
   index: number;
   /** SLICE 12c: set INSTEAD of pricing when the stated value is above the top rung and the category
    * declares `compose`. The item is not a refusal and not a price -- it is a request to `priceItemList`
@@ -1914,6 +2118,8 @@ export interface ItemPriceResult {
 }
 
 export interface RowPriceResult {
+  /** DU-2 (R-NOTE-ORDER): the row refused because its item is not a duct (a re-file sentence), before any unit check */
+  refile?: true;
   unit: string;
   unitClass: string | null;
   priced: boolean;
@@ -2073,6 +2279,11 @@ export type NumberRead = { value: number; note?: string; alt?: number; raw?: str
  * Everything else -- "40/50", "two inch", "40-50", "as per spec" -- refuses with `ONE_SIZE_MESSAGE`.
  */
 export const ONE_SIZE_MESSAGE = "Type one pipe size, in mm or inches";
+/** VP-1 (G7): the one-size refusal naming the reader's own axis ("Type one valve size, ..."); a reader named "pipe size" (Piping,
+ *  Insulation) or unnamed reads `ONE_SIZE_MESSAGE` byte for byte. PURE. */
+export function oneSizeMessage(name: string | undefined): string {
+  return name && name.trim() ? `Type one ${name.trim()}, in mm or inches` : ONE_SIZE_MESSAGE;
+}
 const INCH_UNIT = String.raw`(?:"|”|''|\s*(?:in|inch|inches))`;
 const ONE_SIZE_FORMS: RegExp[] = [
   /^\s*\d+(?:\.\d+)?\s*(?:mm|nb|dia|od|mm\s*dia|mm\s*od)?\s*$/i,
@@ -2447,6 +2658,12 @@ export function textNoteLines(
     if (!heads.all.trim() && !ownText.trim()) continue;
     let hit = false;
     try { hit = new RegExp(tn.pattern, "i").test(text); } catch { hit = false; }
+    // VP-4 (T2): the item the model read the configured way (flanged = No) carries no line -- unless its row's own words say so
+    if (hit && tn.unless && String(rawValue(item, tn.unless.attr) ?? "") === tn.unless.equals) {
+      let own = false;
+      try { own = !!tn.unless.own_words && new RegExp(tn.pattern, "i").test(ownText); } catch { own = false; }
+      if (!own) hit = false;
+    }
     if (hit && !out.includes(tn.line)) out.push(tn.line);
   }
   return out;
@@ -2716,6 +2933,131 @@ export function unicodeFractions(text: string): string {
   return text
     .replace(/(\d)\s*([¼½¾⅛-⅞⅓⅔])/g, (_m, d: string, f: string) => `${d}-${VULGAR_FRACTIONS[f]}`)
     .replace(/[¼½¾⅛-⅞⅓⅔]/g, (f) => VULGAR_FRACTIONS[f]);
+}
+
+// DU-2 (R-TYPO, owner 2026-11-15 23:57 "yes": BOQ-26-00283 r24 "24 gause" = 24G): the misspelling "gause" reads as a gauge too
+const SHEET_GAUGE_RE = /(?<![\d.])(\d{1,2})\s*-?\s*(?:g\b|swg\b|gauge\b|guage\b|gause\b|gage\b|ga\b|wg\b)/gi;
+const SHEET_MM_RE = /(?<![\d.])(\d*\.\d+|\d+(?:\.\d+)?)\s*mm\b/gi;
+/** DU-3 (R4, owner 2026-11-16 14:15 + 14:46 "context aware matching ... 24 g or 24   G or 24 gauge with diffrent spellings"): the gauge
+ *  word BEFORE the number ("G24", "Guage: 20", "gauge - 22") reads like "24G"; never a decimal and never a number followed by mm / x */
+const SHEET_GAUGE_PREFIX_RE = /\b(?:g|ga|gauge|guage|gage|gause|swg)\s*[.:-]?\s*(\d{1,2})(?![\d.])(?!\s*(?:mm|x|\*|\u00d7))/gi;
+/** DU-3 (R4): a duct gauge / thickness field that holds ONLY a whole number 16-30 is that GAUGE (a duct sheet is never 16-30 mm thick) */
+const BARE_GAUGE_RE = /^\s*(\d{2})(?:\.0+)?\s*$/;
+/** DU-3 (R4): a field that holds ONLY a decimal below 3 ("0.63", "1.0", "1.25") is a thickness in mm -> the standard-thickness table */
+const BARE_MM_RE = /^\s*(\d?\.\d+|[0-2](?:\.\d+)?)\s*$/;
+/** DU-3 (R6) / DU-2 R-LABOUR: a labour-charges row ("Labour Charges for GI Duct Erections", "labour only", "labour cost") */
+export const LABOUR_ROW_WORDS = /\blabou?r\s+(?:charges?|only|cost)\b/i;
+
+/** DU-3 (R4). PURE. A gauge field's text with the R4 forms rewritten to the words `readGauge` reads: a bare 16-30 -> "NNG", "G24" /
+ *  "Guage: 20" -> "24G" / "20G", a bare decimal below 3 -> "N mm". Every other text is returned unchanged. */
+export function gaugeFieldText(said: string): { text: string; bare: string | null } {
+  const b = BARE_GAUGE_RE.exec(said);
+  if (b && Number(b[1]) >= 16 && Number(b[1]) <= 30) return { text: `${Number(b[1])}G`, bare: String(Number(b[1])) };
+  if (BARE_MM_RE.test(said)) return { text: `${said.trim()} mm`, bare: null };
+  return { text: said.replace(SHEET_GAUGE_PREFIX_RE, (_m, n: string) => `${Number(n)}G`), bare: null };
+}
+
+/** DU-3 (R4 "mmG"): a gauge line's template filled so a value that is no gauge reads "0.83 mm", never "0.83 mmG": "{gauge}G" / "{top}G"
+ *  take the whole label (a gauge "24G" or a thickness "0.83 mm"), a bare "{gauge}" / "{top}" the label without its G. */
+export function fillGaugeLine(tpl: string, g: GaugeReading, want: number, top: number, fmt: (v: number) => string): string {
+  const full = (v: number) => gaugeLabelOf(g, v) ?? `${fmt(v)} mm`;
+  const lab = (v: number) => full(v).replace(/G$/, "");
+  return tpl.split("{gauge}G").join(full(want)).split("{top}G").join(full(top)).split("{gauge}").join(lab(want)).split("{top}").join(lab(top));
+}
+
+/** DU-1. PURE. The gauge label of a sheet mm on a gauge axis ("0.6" -> "24G"); null when no gauge carries that mm. */
+export function gaugeLabelOf(g: GaugeReading, mm: number): string | null {
+  const hit = Object.entries(g.mm).find(([, v]) => Math.abs(v - mm) < 1e-9);
+  return hit ? `${hit[0]}G` : null;
+}
+
+/** DU-1. PURE. The largest size (mm) a size-as-written text states -- the longer side of "1500 x 600", the dia of "150 mm dia",
+ *  the top of "751-1500 mm"; a size in metres is mm x 1000. Null when it states none. */
+export function largestSizeMm(text: unknown): number | null {
+  if (text === null || text === undefined) return null;
+  const t = String(text).replace(/,/g, "");
+  const nums: number[] = [];
+  for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*(mm|cm|m(?![a-z]))?/gi)) {
+    const v = Number(m[1]);
+    if (!Number.isFinite(v)) continue;
+    const u = (m[2] ?? "").toLowerCase();
+    nums.push(u === "m" ? v * 1000 : u === "cm" ? v * 10 : v);
+  }
+  const sizes = nums.filter((v) => v >= 50);
+  return sizes.length ? Math.max(...sizes) : null;
+}
+
+const fmtGaugeNum = (n: number): string => String(Number(n.toFixed(3)));
+
+/** DU-1 (DR4 / DR12). PURE. The band of a family's size table a size falls in. */
+export function gaugeBandFor(g: GaugeReading, family: string, size: number): { gauge: string; band: string } | null {
+  const bands = g.by_size?.bands?.[family];
+  if (!bands?.length) return null;
+  let lo = 0;
+  for (const b of bands) {
+    if (b.max === null || size <= b.max) {
+      return { gauge: b.gauge, band: b.max === null ? `above ${fmtGaugeNum(lo)} mm` : lo === 0 ? `up to ${fmtGaugeNum(b.max)} mm` : `${fmtGaugeNum(lo + 1)}-${fmtGaugeNum(b.max)} mm` };
+    }
+    lo = b.max;
+  }
+  return null;
+}
+
+/**
+ * DU-1 (DR3 / DR12). PURE. A sheet-gauge text read into the SHEET mm, with its line: one gauge -> its mm (a mm also written is
+ * named and set aside: the gauge wins); several gauges -> the one whose size band holds THIS row's size, read from the clause after
+ * each gauge ("22 G up to 751 to 1500mm"), else refused; no gauge, a thickness -> a standard thickness is its gauge, any other mm is
+ * read as itself (the ladder takes the next thicker). Null when the text states neither.
+ */
+export function readGauge(text: unknown, g: GaugeReading, rowSize: number | null): NumberRead {
+  if (text === null || text === undefined) return null;
+  const said = String(text).trim();
+  if (said === "" || said === "None") return null;
+  const L = g.lines;
+  const fill = (tpl: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), tpl);
+  // DU-3 (R4): the forms the owner ruled -- a bare 16-30, the gauge word before the number, a bare decimal -- read through ONE rewrite
+  const rw = gaugeFieldText(said);
+  const src = rw.text;
+  if (rw.bare !== null) {
+    const mm0 = g.mm[rw.bare];
+    if (mm0 === undefined) return { blank: `gauge ${rw.bare}G is not a sheet gauge we know - price this row by hand` };
+    return { value: mm0, ...(L.bare_number ? { note: fill(L.bare_number, { said, gauge: rw.bare }) } : {}) };
+  }
+  const gauges = [...src.matchAll(SHEET_GAUGE_RE)].map((m) => ({ g: String(Number(m[1])), at: m.index ?? 0, end: (m.index ?? 0) + m[0].length }));
+  const distinct = [...new Set(gauges.map((x) => x.g))];
+  const mms = [...src.matchAll(SHEET_MM_RE)].map((m) => Number(m[1])).filter((v) => Number.isFinite(v) && v > 0 && v <= 3);
+  if (distinct.length === 1) {
+    const gg = distinct[0];
+    const mm = g.mm[gg];
+    if (mm === undefined) return { blank: `gauge ${gg}G is not a sheet gauge we know - price this row by hand` };
+    const note = mms.length ? fill(L.gauge_wins, { said, gauge: gg, mm: mms.map(fmtGaugeNum).join(" / ") }) : undefined;
+    return { value: mm, ...(note ? { note } : {}) };
+  }
+  if (distinct.length > 1) {
+    // DR12: each gauge's band, read from the words up to the next gauge
+    const bands = gauges.map((x, i) => {
+      const clause = src.slice(x.end, gauges[i + 1]?.at ?? src.length);
+      const nums = [...clause.replace(/,/g, "").matchAll(/(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1])).filter((v) => v >= 50);
+      const above = /\babove\b|\bover\b|\bbeyond\b|>\s*\d/i.test(clause);
+      // a gauge with no size words after it ("20G / 22G") states no band at all -- it is never the band of every size
+      const lo = above ? (nums[0] ?? null) : nums.length >= 2 ? nums[0] : nums.length ? 0 : null;
+      const hi = above ? null : nums.length ? nums[nums.length - 1] : null;
+      return { g: x.g, lo, hi };
+    }).filter((b) => b.hi !== null || b.lo !== null);
+    const hit = rowSize === null ? undefined : bands.find((b) => (b.lo ?? 0) <= rowSize && (b.hi === null || rowSize <= b.hi));
+    const gg = hit?.g;
+    if (gg !== undefined && g.mm[gg] !== undefined) {
+      return { value: g.mm[gg], note: fill(L.several_band, { said, gauge: gg, size: fmtGaugeNum(rowSize as number), gauges: distinct.map((x) => `${x}G`).join(" / ") }) };
+    }
+    return { blank: fill(L.several_none, { gauges: distinct.map((x) => `${x}G`).join(" / ") }) };
+  }
+  if (mms.length) {
+    const m = Math.max(...mms);
+    const std = g.standard_mm.find((r) => m >= r.from - 1e-9 && m <= r.to + 1e-9);
+    if (std && g.mm[std.gauge] !== undefined) return { value: g.mm[std.gauge], note: fill(L.standard, { said, gauge: std.gauge, mm: fmtGaugeNum(m) }) };
+    return { value: m };
+  }
+  return null;
 }
 
 export function readNumber(text: string | number | null | undefined, reader: NumberReader): NumberRead {
@@ -3463,6 +3805,13 @@ export function stockedUnitsWords(spec: ItemListPricingSpec, family: string): st
   return classes.map((c) => `per ${unitWord(spec, c)}`).join(" or ");
 }
 
+/** VP-3. The working lines a reading rule left on an item (`NET_LINES_ATTR`, one line per text line), or []. PURE. */
+export function netLinesOf(item: ExtractedListItem | undefined): string[] {
+  const raw = item?.attributes?.[NET_LINES_ATTR]?.value;
+  if (typeof raw !== "string") return [];
+  return raw.split("\n").map((x) => x.trim()).filter((x) => x !== "");
+}
+
 function rawValue(item: ExtractedListItem, id: string): string | number | null {
   const cell = item.attributes?.[id];
   if (!cell) return null;
@@ -3514,17 +3863,26 @@ export function familyWhenNone(
   spec: ItemListPricingSpec,
   rowUnitClass: string,
   rowText: string,
-): { value: string; rule: string } | null {
+  ownText?: string,
+): { value: string; rule: string; refuse?: string } | null {
   const fwn = spec.family_when_none;
   if (!fwn) return null;
   let family = fwn.by_unit_class[rowUnitClass];
   if (!family) return null;
+  let rule = fwn.rule;
   for (const w of fwn.when_words ?? []) {
     if (w.unit_class !== rowUnitClass) continue;
     // a WORD START: "acoustic" matches "acoustics" and "acoustical", never "subacoustic" (the shared test)
-    if (wordStartHit(rowText, w.words) !== null) { family = w.family; break; }
+    if (wordStartHit(rowText, w.words) !== null) {
+      // DU-3 (owner 2026-11-17 00:28): a removal / refixing-only entry; any other row whose words hit refuses with its sentence
+      if (w.existing_work_only && (ownText === undefined || existingWorkOf(spec, ownText) === null)) {
+        if (w.otherwise_refuse) return { value: family, rule, refuse: w.otherwise_refuse };
+        continue;
+      }
+      family = w.family; rule = w.rule ?? fwn.rule; break;
+    }
   }
-  return { value: family, rule: fwn.rule };
+  return { value: family, rule };
 }
 
 /**
@@ -3553,7 +3911,7 @@ export function readFamilyText(
       return { family: m.to, line: ft.line.replace("{from}", m.from).replace("{to}", m.to), rule: m.rule };
     }
   }
-  for (const r of ft.refuse ?? []) if (norm(r.from) === want) return { refuse: r.refuse, rule: r.rule };
+  for (const r of ft.refuse ?? []) if (norm(r.from) === want && !refuseUnless(r, String(text))) return { refuse: r.refuse, rule: r.rule };
   return null;
 }
 
@@ -3605,6 +3963,12 @@ export function typedFamilyLine(line: string): string {
   return line.replace(/^BoQ (?:says|names|allows) /, "You typed ");
 }
 
+/** DU-3 (Case 12). PURE. A `family_text.refuse` entry's `unless` words hit the written text (the entry is then skipped). */
+function refuseUnless(r: { unless?: string }, text: string): boolean {
+  if (!r.unless) return false;
+  try { return new RegExp(r.unless, "i").test(text); } catch { return false; }
+}
+
 export function readFamilyWord(
   spec: ItemListPricingSpec,
   text: string | number | null | undefined,
@@ -3618,7 +3982,16 @@ export function readFamilyWord(
   if (several && "refuse" in several) return several;
   if (several) return { family: several.family, line: `BoQ names ${several.named.join(" / ")} -> priced as ${several.family}`, rule: several.rule };
   for (const r of spec.family_text?.refuse ?? []) {
-    if (wordStartHit(word, [r.from]) !== null) return { refuse: r.refuse, rule: r.rule };
+    if (wordStartHit(word, [r.from]) !== null && !refuseUnless(r, word)) return { refuse: r.refuse, rule: r.rule };
+  }
+  // DU-1 (DR11, owner 2026-11-13 20:53): on a config WITHOUT `from_row` (Ducting -- Piping reads longer words through step 2), a
+  // mapped spelling inside a longer text ("MS welded duct", "black steel duct") reads as its kind, with the map's line. A config with
+  // `from_row` never reaches this (step 2 already read every map word), so Piping is byte-identical.
+  if (!spec.family_text?.from_row) {
+    const ft = spec.family_text;
+    for (const m of ft?.map ?? []) {
+      if (wordStartHit(word, [m.from]) !== null) return { family: m.to, line: ft!.line.replace("{from}", m.from).replace("{to}", m.to), rule: m.rule };
+    }
   }
   return null;
 }
@@ -3659,8 +4032,16 @@ export interface MaterialText {
   map: Array<{
     /** Every group must have at least one whole-word hit in the as-written text. */
     all_of: string[][];
+    /** VP-1 (N4, owner ANSWER 3 2026-11-12 13:46 / VR3 "40 and below is ball valve"): the as-written may hold NOTHING but
+     *  these words (and numbers, units, punctuation) -- any other word (a type the catalogue does not stock, "globe") keeps
+     *  the refusal by name. ABSENT => any text hitting `all_of` maps. */
+    only_words?: string[];
     /** The family priced, by the row's unit class. */
     to_by_unit_class: Record<string, string>;
+    /** VP-1 (N4): the family by the item's SIZE instead -- `attr` read by the config's own number reader: at most `at_most`
+     *  -> `small`, above -> `large`; no readable size -> `small`, whose own needs then refuse for the missing size. Wins over
+     *  `to_by_unit_class` where present. */
+    to_by_size?: { attr: string; at_most: number; small: string; large: string };
     /** The amber family line: "{to}" = the family priced. */
     line: string;
     rule: string;
@@ -3673,6 +4054,18 @@ function wholeWordHit(text: string, words: readonly string[]): boolean {
     const ww = w.toLowerCase().replace(/[^a-z0-9.-]+/g, " ").trim();
     return ww !== "" && t.includes(` ${ww} `);
   });
+}
+/** VP-1 (N4). PURE. Whether `text` holds nothing but `words` (whole words, case-insensitive), numbers and unit marks
+ *  (mm, nb, dn, dia, inch, ", /, -) -- "Isolation valve 40 mm" yes, "Globe valve" no. */
+export function onlyTheseWords(text: string, words: readonly string[]): boolean {
+  let t = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  const all = [...words, "mm", "nb", "dn", "dia", "diameter", "inch", "inches", "in", "size", "of", "nos", "no"];
+  for (const w of [...all].sort((a, b) => b.length - a.length)) {
+    const ww = ` ${w.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+    if (ww.trim() === "") continue;
+    while (t.includes(ww)) t = t.replace(ww, " ");
+  }
+  return t.replace(/\b\d+\b/g, " ").trim() === "";
 }
 /**
  * SLICE 12e-5b (owner R2, 2026-10-15: "should read as 26G GI cladding and mapped to aluminium as we dont have gi
@@ -3717,6 +4110,16 @@ export function materialTextFor(
   if (said.trim() === "") return null;
   for (const e of mt.map) {
     if (!e.all_of.every((group) => wholeWordHit(said, group))) continue;
+    if (e.only_words && !onlyTheseWords(said, e.only_words)) continue;
+    // VP-1 (N4): the family by the item's size (the config's own reader); no readable size -> the small family, which refuses
+    if (e.to_by_size) {
+      const rd = spec.numbers[e.to_by_size.attr];
+      const sz = rawValue(item, e.to_by_size.attr);
+      const r = rd && sz !== null && sz !== "None" ? readNumber(sz, rd) : null;
+      const mm = r && typeof (r as { value?: unknown }).value === "number" ? (r as { value: number }).value : null;
+      const to = mm !== null && mm > e.to_by_size.at_most ? e.to_by_size.large : e.to_by_size.small;
+      return { family: to, line: e.line.replace("{to}", to), rule: e.rule };
+    }
     const to = rowUnitClass === null ? Object.values(e.to_by_unit_class)[0] : e.to_by_unit_class[rowUnitClass];
     if (!to) return null;
     return { family: to, line: e.line.replace("{to}", to), rule: e.rule };
@@ -3729,6 +4132,14 @@ export function namedMaterialRefusal(spec: ItemListPricingSpec, item: ExtractedL
   const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
   const namedText = named !== null && named !== "None" && String(named).trim() !== "" ? String(named).trim() : null;
   if (famRaw !== null && (spec.no_sku_families ?? []).includes(String(famRaw))) {
+    // DU-1 (DR13, owner 2026-11-13 20:14 "most of these are ADP items which hosuld not be part of ducting. leavethem unrpiced"; the
+    // signed-off mockup "Reads as a damper, not a duct - re-file this row under ADP"): a config's own sentence for what the words
+    // say the item is -- the first entry whose words the as-written text (else the row's own text) names
+    for (const r of spec.no_sku_refusals ?? []) {
+      if (wordStartHit(namedText ?? ownText, r.words) !== null) return r.refuse;
+    }
+    // DU-2 (R-NOTE-ORDER): no entry names it -> the config's own re-file sentence, naming the item as written
+    if (spec.no_sku_refuse_default) return spec.no_sku_refuse_default.replace("{named}", namedText ?? "this item");
     // SLICE 12d-1b (owner T5): where the config names the attribute that carries the material AS WRITTEN and
     // the model answered it, the refusal names that material; otherwise the sentence is the one it always was.
     return namedText !== null
@@ -3742,6 +4153,8 @@ export function namedMaterialRefusal(spec: ItemListPricingSpec, item: ExtractedL
     // SLICE 12e-6 (owner R1): an unstocked word offered as an ALTERNATIVE to a stocked one ("nitrile rubber/XLPE")
     // is not a refusal -- the stocked one prices (`alternativeMaterials`); only the text outside such a clause counts
     const hit = wordStartHit(`${withoutStockedAlternatives(ownText, um.words)} | ${withoutStockedAlternatives(copiedText, um.words)}`, um.words);
+    // VP-1 (per_item): a word only the row text carries (the item's own words do not) is named as the word, never as the item
+    if (hit !== null && um.per_item && wordStartHit(copiedText, um.words) === null) return `No SKU in the catalogue for ${hit} - price this row by hand`;
     if (hit !== null) return `No SKU in the catalogue for ${namedText ?? hit.toUpperCase()} - price this row by hand`;
   }
   return null;
@@ -3836,6 +4249,9 @@ export function alternativeMaterials(
 /** R8 / R5 (owner "correct" / "this is XLPE"): an XLPE alias in the row's own text or a copied value -> its refusal. PURE. */
 export function xlpeAliasRefusal(spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string): string | null {
   if (!spec.unstocked_materials) return null;
+  // VP-1 (G2): an insulation rule -- only where the unstocked words are insulation materials (XLPE among them); a valve row
+  // naming its insulation in XLPE is not refused by it
+  if (!spec.unstocked_materials.words.some((w) => /\bxlpe\b/i.test(String(w)))) return null;
   const unstocked = spec.unstocked_materials.words;
   const copiedAttrs = [spec.no_sku_named_by, ...(spec.choice_text ?? []).map((c) => c.from_attr)].filter((a): a is string => !!a);
   for (const a of copiedAttrs) {
@@ -4161,6 +4577,21 @@ function priceOneItem(
       || /(^|[^a-z0-9])xlpe(?![a-z0-9])/i.test(rowText) || XLPE_RE.test(rowText);
     if (namedText === "" && !unstockedNamed && familyWhenNone(spec, rowUnitClass, rowText)) out.familyRaw = "None";
   }
+  /**
+   * DU-1 (DR11, owner 2026-11-13 20:53 / 20:57: "MS (not fire-rated) priced as MS Fire Rated", "aluminium unpriced"). On a config with
+   * BOTH a row-kind default (`family_when_none`) and an as-written reader (`family_text.from_attr`) -- Ducting only, measured on every
+   * HVAC and Electrical config -- the as-written word decides BEFORE the row-kind default where the one reader resolves it (a stocked
+   * name, a `map` spelling, a `refuse` word): a "none of these" or unanswered duct type written "MS welded duct" prices as MS Fire
+   * Rated with its line, "aluminium duct" refuses with its sentence. A word the reader does not resolve ("GI duct") changes nothing:
+   * the row-kind default as before. A pricer's own pick is never touched.
+   */
+  const ftAttr = spec.family_text?.from_attr;
+  if (ftAttr && spec.family_when_none && item.attributes?.[familyAttr(spec)]?.typed !== true
+      && (out.familyRaw === null || out.familyRaw === "None" || (spec.no_sku_families ?? []).includes(out.familyRaw))) {
+    const w = rawValue(item, ftAttr);
+    const word = w !== null && w !== "None" ? String(w).trim() : "";
+    if (word !== "" && readFamilyWord(spec, word) !== null) out.familyRaw = word;
+  }
   // SLICE 12e-6c (owner R, 2026-10-18 "ok"): NO material answered -- nothing, "not mentioned", or a no-SKU answer by
   // the MODEL -- and RPUF in the row's own text or as written: Tubular PUF, with its line, BEFORE the row-kind default
   // could read the row as naming no material. A material the model or the pricer answered is never touched.
@@ -4183,7 +4614,9 @@ function priceOneItem(
   // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
   // "none of these" included, is never touched.
   const ruled = out.familyRaw === null || out.familyRaw === "None"
-    ? familyWhenNone(spec, rowUnitClass, rowText) : null;
+    ? familyWhenNone(spec, rowUnitClass, rowText, ownText) : null;
+  // DU-3 (owner 2026-11-17 00:28): a duct row whose type cannot be told (rectangular AND oval, not removal) is left for a person
+  if (ruled?.refuse) return blank(ruled.refuse);
   if (ruled) {
     out.familyDefaulted = ruled;
     out.familyRaw = ruled.value;
@@ -4227,7 +4660,13 @@ function priceOneItem(
   }
   // SLICE 12d-1a (owner R6): category-NEUTRAL -- the sentence names the family in the config's own label
   // ("no item family could be told", "no insulation material could be told"); it used to say "ADP kind".
-  if (out.familyRaw === null || out.familyRaw === "None") return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
+  if (out.familyRaw === null || out.familyRaw === "None") {
+    // VP-3 (C3, owner "ok"): on a per-item config (Valve Package, Misc) an item whose own words name an unstocked thing refuses
+    // naming it ("No SKU in the catalogue for 2/3 way motorised valves"), not "no valve type could be told"
+    const named = spec.unstocked_materials?.per_item ? namedMaterialRefusal(spec, item, ownText) : null;
+    if (named !== null) return blank(named);
+    return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
+  }
   let family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
   // SLICE 12e-2 (owner Q16 / Q18): a config declaring `family_text` reads the answer through the ONE reader --
   // a stocked spelling (any case), a mapped one (GI -> MS, with its line), a refused one (SS, with its own
@@ -4288,6 +4727,14 @@ function priceOneItem(
     out.familyLine = materialMapped.line;
     out.working.push(materialMapped.line);
   }
+  // VP-3 (D7b): a reading rule decided this item's kind -- its amber line, in place of any line above
+  const netFamilyLine = rawValue(item, NET_FAMILY_LINE_ATTR);
+  if (typeof netFamilyLine === "string" && netFamilyLine.trim() !== "") {
+    out.familyLine = netFamilyLine;
+    out.working.push(netFamilyLine);
+  }
+  // VP-3 (D1-D7c): the lines the reading rules left on this item (a folded accessory, a moved size, a stated type, the scope words)
+  out.working.push(...netLinesOf(item));
   out.family = family;
   if (spec.family_alias?.[out.familyRaw]) out.working.push(`'${out.familyRaw}' prices as ${family} (R3)`);
   // SLICE 12d-4a: the named-material refusal is ONE function (`namedMaterialRefusal`) -- the T5 no-SKU
@@ -4384,7 +4831,7 @@ function priceOneItem(
   // ADP-1 (owner H3): what this family's rule for the row's unit READS -- its needs, its unit block's, else its
   // conversions'. A `typed_only` number is read only here, so no other family or unit reads, shows or mentions it.
   const readsHere = new Set<string>([...fam.needs, ...(fam.units[rowUnitClass]?.needs ?? []),
-    ...(fam.units[rowUnitClass] ? [] : (fam.convert?.[rowUnitClass] ?? []).flatMap((o) => o.needs))]);
+    ...(fam.units[rowUnitClass] ? [] : convertOptionsFor(spec, fam, rowUnitClass, out.familyRaw).flatMap((o) => o.needs))]);
   // ADP-3b (owner D3): a `second_key` family reads its outer size beside its primary (the square diffuser's neck), so
   // the outer size's typed face boxes are read wherever the primary is
   for (const k of spec.second_key ?? []) if (k.families.includes(String(family)) && readsHere.has(k.primary)) for (const a of k.key) readsHere.add(a);
@@ -4481,9 +4928,11 @@ function priceOneItem(
           const cell = item.attributes?.[src];
           // SLICE 12e-5b (owner R6): a typed `1/2" (12.7mm)` is one size too -- its agreeing bracket is dropped
           const typedEcho = cell ? inchWithMmEcho(cell.value) : null;
-          const typedText = typedEcho && "head" in typedEcho ? typedEcho.head : cell?.value;
+          const typedText0 = typedEcho && "head" in typedEcho ? typedEcho.head : cell?.value;
+          // VP-1 (G7, owner VR2 "NB should be read as mm as we do in pipes"): on a reader declaring `typed_dn` a typed "DN 50" is 50 mm
+          const typedText = reader.typed_dn && typeof typedText0 === "string" ? typedText0.replace(/^\s*dn\s*(?=\d)/i, "") : typedText0;
           if (cell && cell.typed === true && cell.value !== null && cell.value !== "" && !isOneSizeEntry(typedText)) {
-            got = { blank: ONE_SIZE_MESSAGE };
+            got = { blank: oneSizeMessage(reader.name) };
             break;
           }
         }
@@ -4525,10 +4974,52 @@ function priceOneItem(
           }
         }
       }
-      if (got === null) {
+      // DU-1 (DR3 / DR12): a sheet-gauge axis on a family it names reads gauge words and sheet thicknesses into the sheet mm
+      const gaugeAxis = !!reader.gauge && family !== null && reader.gauge.families.includes(family);
+      if (got === null && gaugeAxis) {
+        const sizeText = reader.gauge!.by_size ? rawValue(item, reader.gauge!.by_size.from) : null;
+        for (const src of reader.from) {
+          const cell = item.attributes?.[src];
+          // a value PICKED in the field (the calculator's dropdown, a changed panel field) is the sheet mm the field offers
+          // ("0.6" = 24G) -- read as that number, with no "BoQ says" line; gauge words typed there read as written
+          // DU-3 (CERT-1, owner 14:15 / 14:46): only a value the field OFFERS (one of the sheet mm, a dropdown pick) is read as that number;
+          // anything else typed -- "24", "24 g", "0.63MM", "G24" -- reads through the same gauge reader as the panel
+          const offered = Object.values(reader.gauge!.mm).map(Number);
+          const bare = cell?.typed === true && /^\s*\d+(?:\.\d+)?\s*$/.test(String(cell.value ?? ""))
+            && offered.some((v) => Math.abs(v - Number(String(cell.value).trim())) < 1e-9);
+          got = bare ? readNumber(cell!.value, reader) : readGauge(rawValue(item, src), reader.gauge!, largestSizeMm(sizeText));
+          // DU-3 (R7, BOQ-26-00336 r16 "22 G up to 751 to 1500mm"): several gauges in the model's answer, but the row's OWN words name
+          // exactly one of them -> this row's gauge, said in the config's line (the answer copied the whole heading's band list)
+          const ownLine = reader.gauge!.lines.own_row;
+          if (!bare && ownLine && got !== null) {
+            const said = String(rawValue(item, src) ?? "");
+            const many = [...new Set([...gaugeFieldText(said).text.matchAll(SHEET_GAUGE_RE)].map((m) => String(Number(m[1]))))];
+            // the row's DESCRIPTION (its own notes may repeat the whole band table: BOQ-26-00336 r16)
+            const desc = ownText.split(" | ")[0];
+            const mine = [...new Set([...gaugeFieldText(desc).text.matchAll(SHEET_GAUGE_RE)].map((m) => String(Number(m[1]))))];
+            if (many.length > 1 && mine.length === 1 && many.includes(mine[0]) && reader.gauge!.mm[mine[0]] !== undefined) {
+              got = { value: reader.gauge!.mm[mine[0]], note: ownLine.split("{gauge}").join(mine[0]).split("{said}").join(desc.trim().slice(0, 60)) };
+            }
+          }
+          if (got !== null) break;
+        }
+        if (got !== null && "value" in got && got.note) (out.gaugeNotes ??= {})[attr] = got.note;
+      }
+      if (got === null && !gaugeAxis) {
         for (const src of reader.from) {
           got = readNumber(rawValue(item, src), reader);
           if (got !== null) break;
+        }
+        // DU-2 K1b (owner 2026-11-15 23:57 R-DOUBT: "20mm thick PIR Panels" -> "PIR ducts" = PIR duct 20 mm): on a sheet-gauge axis, a
+        // family it does NOT read as a gauge (PIR panels: a thickness in mm) with nothing read takes the row's OWN "NN mm thick" words --
+        // the model leaves a panel thickness out of the gauge answer ("never an insulation thickness"). Only a config with a gauge axis
+        // reaches this, so every other category is byte-identical.
+        if (got === null && reader.gauge && family !== null) {
+          const m = /(?<![\d.])(\d+(?:\.\d+)?)\s*mm\s*(?:thick|thk)\b/i.exec(ownText);
+          if (m) {
+            got = { value: Number(m[1]) };
+            (out.gaugeNotes ??= {})[attr] = `${String(family)} thickness not in the gauge answer - the row's own words say "${m[0]}" -> ${m[1]} mm`;
+          }
         }
       }
       // ADP-2 (owner H7 / Q2 / Q3): nothing typed -- a BOX SIDE read from the size as written (L x W x H, a label
@@ -4883,13 +5374,22 @@ function priceOneItem(
     // ADP-4b (owner fix (b), 2026-10-21; AC5 "same rule everywhere"): a unit the family declares `units_not_offered`
     // is neither priced nor stocked -- its conversions do not run, so the row refuses below naming the stocked units
     // (the double-skin plenum per number, as its Derivation line says; 0 stored rows)
-    const options = (fam.units_not_offered ?? []).includes(rowUnitClass) ? [] : (fam.convert?.[rowUnitClass] ?? []);
+    const options = (fam.units_not_offered ?? []).includes(rowUnitClass) ? [] : convertOptionsFor(spec, fam, rowUnitClass, out.familyRaw);
     // ADP-1 (owner H3 (d)): a need the config gives a ruled number default for THIS family (the 1 m piece length) does
     // not stop its option being chosen -- the needs loop below fills it, marked. A need read but unreadable still does
     // (its refusal names it). No shipped option before ADP-1 needs such a number, so every other choice is unchanged.
     const ruledNumber = (n: string): boolean => {
       const nd = spec.number_defaults?.[n];
-      return !!nd && Number.isFinite(nd.value) && !(n in unreadable) && (!nd.families || nd.families.includes(family));
+      if (nd && Number.isFinite(nd.value) && !(n in unreadable) && (!nd.families || nd.families.includes(family))) return true;
+      // DU-1 (DR4): a gauge axis the owner's size table fills from the size as written (a round duct per metre with its diameter
+      // and no gauge) does not stop its option being chosen either -- the needs loop fills it, marked "from the size table"
+      const gr = spec.numbers[n]?.gauge;
+      if (gr?.by_size && !(n in unreadable) && gr.families.includes(family) && gr.by_size.bands[family]) {
+        const size = largestSizeMm(rawValue(item, gr.by_size.from));
+        const band = size === null ? null : gaugeBandFor(gr, family, size);
+        return !!band && gr.mm[band.gauge] !== undefined;
+      }
+      return false;
     };
     const chosen = options.find((o) => o.needs.every((n) => n in read || ruledNumber(n)));
     if (chosen) {
@@ -5126,6 +5626,41 @@ function priceOneItem(
     if (unreadable[n]) {
       if (absent.length) return absentRefusal();
       return { ...blank(unreadable[n]), selection: sel, missing: [n], ...(n in spec.numbers ? { sizeRefused: n } : {}), ...held(n) };
+    }
+    // DU-1 (DR4, owner 2026-11-13 19:49): no gauge read on a gauge axis -> the owner's size table by the family, marked as taken
+    // from the table; no size either -> unpriced, saying both are missing
+    const gr = spec.numbers[n]?.gauge;
+    if (gr?.by_size && out.family !== null && gr.families.includes(out.family) && gr.by_size.bands[out.family]) {
+      const size = largestSizeMm(rawValue(item, gr.by_size.from));
+      const band = size === null ? null : gaugeBandFor(gr, out.family, size);
+      if (band && gr.mm[band.gauge] !== undefined) {
+        const fill = (tpl: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), tpl);
+        const rule = fill(gr.lines.size_table, { gauge: band.gauge, size: fmt(size as number), band: band.band, dimension: gr.by_size.dimension[out.family] ?? "size" });
+        sel[n] = gr.mm[band.gauge];
+        read[n] = gr.mm[band.gauge];
+        // the field's VALUE is the sheet mm (what the dropdown option is); its label shows the gauge
+        readDefaulted.push({ attr: n, value: fmt(gr.mm[band.gauge]), rule });
+        (out.gaugeNotes ??= {})[n] = rule;
+        out.gaugeFromTable = { attr: n, gauge: band.gauge, rule };
+        continue;
+      }
+      // DU-1 (DR14): work on EXISTING ducts (removal / refixing) -- the sheet's installation does not vary by gauge, so the duct type
+      // decides: with no gauge and no size, the family's first stocked gauge prices it, said in a line
+      // DU-3 (R6): a labour row ("Labour charges for GI duct erection") is the duct's installation only -- the same for every gauge
+      const labourRow = !!gr.lines.labour_any_gauge && LABOUR_ROW_WORDS.test(ownText);
+      if ((existingWorkOf(spec, ownText) !== null && gr.lines.existing_any_gauge) || labourRow) {
+        const stocked = [...new Set(projected.filter((it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === out.family && typeof it.attributes[n] === "number").map((it) => Number(it.attributes[n])))].sort((a, b) => a - b);
+        if (stocked.length) {
+          sel[n] = stocked[0];
+          read[n] = stocked[0];
+          const rule = (existingWorkOf(spec, ownText) !== null ? gr.lines.existing_any_gauge : undefined) ?? gr.lines.labour_any_gauge!;
+          readDefaulted.push({ attr: n, value: fmt(stocked[0]), rule });
+          (out.gaugeNotes ??= {})[n] = rule;
+          continue;
+        }
+      }
+      if (absent.length) return absentRefusal();
+      return { ...blank(gr.lines.no_size), selection: sel, missing: [n], sizeRefused: n };
     }
     const ndef = spec.number_defaults?.[n];
     if (ndef && Number.isFinite(ndef.value)
@@ -5414,6 +5949,12 @@ function priceOneItem(
       if (comp) {
         return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size, ...pipeAsReadOf() } };
       }
+      // DU-1 (DR2 / DR11): a sheet-gauge axis names gauges -- "16G is thicker than the thickest gauge on the sheet (18G)"
+      const gw0 = spec.numbers[attr]?.gauge;
+      if (gw0 && family !== null && gw0.families.includes(family)) {
+        const tpl = gw0.lines.thicker_by_family?.[family] ?? gw0.lines.thicker;
+        return { ...blank(fillGaugeLine(tpl, gw0, want, top.size, fmt)), selection: sel, sizeRefused: attr };
+      }
       // SLICE 12e-6 (AC9 b): the axis is named, so a section taking its size from it repeats this sentence (12e-4d AC2)
       return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel, sizeRefused: attr };
     }
@@ -5494,7 +6035,14 @@ function priceOneItem(
       ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}) } : {}),
       ...(severalReads[attr] ? { several: severalReads[attr] } : {}),
       ...(!declares && belowSmallest ? { belowSmallest: true as const } : {}) });
-    if (!fit.exact) {
+    const gw1 = spec.numbers[attr]?.gauge;
+    if (!fit.exact && gw1 && family !== null && gw1.families.includes(family)) {
+      // DU-1 (DR2, owner "be careful with ladder up for gauges, it runs reverse"): next size up IS the next thicker gauge
+      const line = fillGaugeLine(belowSmallest ? gw1.lines.thinner : gw1.lines.between, gw1, want, fit.modules, fmt);
+      out.working.push(line);
+      (out.gaugeNotes ??= {})[attr] = out.gaugeNotes?.[attr] ? `${out.gaugeNotes[attr]}; ${line}` : line;
+      sel[attr] = fit.modules;
+    } else if (!fit.exact) {
       out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : userSingle ? "the option the user chose" : "next size up"}, R6)`);
       sel[attr] = fit.modules;
     }
@@ -5929,8 +6477,20 @@ export function priceItemList(
    * ⚠️ `unitClassOf` IS CONSULTED FIRST, so a real unit can never be read as "rate only", and a
    * category that declared a unit spelled like one would keep it.
    */
+  // DU-2 (R-NOTE-ORDER, owner 2026-11-15 23:57: non-ducts filed Ducting "stay unpriced, but the note must be the RE-FILE note, not
+  // 'unit not priceable': the not-a-duct check runs BEFORE the unit check"): on a config declaring its re-file sentences
+  // (`no_sku_refusals` -- Ducting only), a row whose first item the model read as no SKU refuses with that sentence before the
+  // blank-unit, whole-lot and unit checks below. A config without the key never reaches this.
+  if (cls === null && spec.no_sku_refusals && extracted && extracted.length) {
+    const firstFam = rawValue(extracted[0], familyAttr(spec));
+    if (firstFam !== null && (spec.no_sku_families ?? []).includes(String(firstFam))) {
+      const refile = namedMaterialRefusal(spec, extracted[0], ownText);
+      if (refile !== null) return { unit, unitClass: null, priced: false, reason: refile, items: [], refile: true };
+    }
+  }
   // VRF-10 (F1): a blank unit is never priced by assuming one -- refused before the 12c-U default unit below
-  if (cls === null && unit.trim() === "" && vrf10On(spec)) {
+  // VP-1 (N2): the same refusal on a config declaring `blank_unit_refuses` (Valve Package)
+  if (cls === null && unit.trim() === "" && (vrf10On(spec) || spec.blank_unit_refuses === true)) {
     return { unit, unitClass: null, priced: false, reason: VRF10_NO_UNIT_REFUSAL, items: [] };
   }
   if (cls === null && (unit.trim() === "" || isRateOnlyUnit(unit))) {
@@ -5989,7 +6549,8 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint, headingNoteText, headings));
+  // VP-1 (per_item): on a several-item row each item reads the row text without the unstocked words another item carries
+  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownTextForItem(spec, extracted, i, ownText), odHint, headingNoteText, headings));
   // ADP-5a (SCOPE-5a-1): an item `applyFamilyMerge` priced as another family says so on the item, with the size it is
   // priced at where `at` resolved one ("... priced as one Butterfly Damper With Spigot, 200 mm")
   priced = priced.map((p, i) => {
@@ -6056,11 +6617,22 @@ export function priceItemList(
     });
     priced = expanded;
   }
-  const firstBlank = priced.find((p) => p.state === "blank");
+  // VP-3 (C3, owner "ok"): on a per-item config (Valve Package, Misc) the row names the item that cannot be priced at all (an
+  // unstocked item, a size above the sheet) before one that only misses a fact the pricer can give (a size, a type)
+  const firstBlank = (spec.unstocked_materials?.per_item
+    ? priced.find((p) => p.state === "blank" && !MISSING_FACT_REASON.test(String(p.reason ?? "")))
+    : undefined) ?? priced.find((p) => p.state === "blank");
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
-    const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";
-    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced, ...unitResolved(false) };
+    const whoOf = (p: typeof firstBlank) => (priced.length > 1 ? `item ${p.index + 1}${p.family ? ` (${p.family})` : ""}: ` : "");
+    // VP-4 T5 (block 65): a kit with SEVERAL items that cannot be priced at all names EVERY one of them, not only the first
+    const unstocked = spec.unstocked_materials?.per_item
+      ? priced.filter((p) => p.state === "blank" && !MISSING_FACT_REASON.test(String(p.reason ?? "")))
+      : [];
+    const reason = unstocked.length > 1
+      ? unstocked.map((p) => `${whoOf(p)}${p.reason}`).join("; ")
+      : `${whoOf(firstBlank)}${firstBlank.reason}`;
+    return { unit, unitClass: cls, priced: false, reason, items: priced, ...unitResolved(false) };
   }
   const sum = (k: string) => priced.reduce((a, p) => a + (p.figures[k] ?? 0), 0);
   return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced, ...unitResolved(true) };
@@ -6090,10 +6662,16 @@ export function listSpecDefs(config: RateCategoryConfig | null | undefined): Lis
  * own order, with the unit(s) its SKUs are sold per ("per sq.m"). Aliases and no-SKU families are NOT
  * offered: they exist for the model's answer, not for a pick. PURE. */
 export function familyChoices(spec: ItemListPricingSpec): Array<{ family: string; units: string }> {
-  return Object.entries(spec.families).map(([family, f]) => ({
+  const unitsOf = (f: { units: Record<string, unknown>; convert?: Record<string, unknown> }) =>
+    [...new Set([...Object.keys(f.units), ...Object.keys(f.convert ?? {})])].map((cls) => `per ${unitWord(spec, cls)}`).join(" / ");
+  const own = Object.entries(spec.families).map(([family, f]) => ({
     family,
     units: Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
   }));
+  // DU-1: an offered alias is listed with its target's units (its conversions included -- "Round (GI) - per metre" is per metre)
+  const offered = (spec.family_alias_offered ?? []).filter((a) => spec.family_alias?.[a] && spec.families[spec.family_alias[a]])
+    .map((a) => ({ family: a, units: unitsOf(spec.families[spec.family_alias![a]]) }));
+  return [...own, ...offered];
 }
 
 /**
@@ -6267,12 +6845,22 @@ function sameValue(a: unknown, b: string | number): boolean {
  * `derive_when_none` rule that applies to the family -- in that order, deduplicated. A family the block
  * does not price, or no family, gives []. PURE.
  */
+/** DU-2 (finding a). PURE. A family's conversions for a unit class, without the ones an alias family may not read
+ *  (`family_alias_needs`); no alias entry -> every conversion, as before. */
+export function convertOptionsFor(spec: ItemListPricingSpec, fam: FamilySpec, cls: string, rawFamily?: string | null): ConversionOption[] {
+  const all = fam.convert?.[cls] ?? [];
+  const allowed = rawFamily ? spec.family_alias_needs?.[rawFamily] : undefined;
+  return allowed ? all.filter((o) => o.needs.every((n) => allowed.includes(n))) : all;
+}
+
 export function itemFieldDefs(
   spec: ItemListPricingSpec,
   defs: ListSpecDef[],
   family: string | null | undefined,
   rowUnitClass: string | null | undefined,
   skus?: { items: RateMasterItem[]; answers?: Record<string, string | number> },
+  /** DU-2 (finding a): the family as answered / picked, when it is an alias of `family` */
+  rawFamily?: string | null,
 ): ItemFieldDef[] {
   if (!family || !spec.families[family]) return [];
   const controlOf = (skuAttr: string, fallback: PanelControl): PanelControl => spec.panel_controls?.[skuAttr] ?? fallback;
@@ -6295,7 +6883,7 @@ export function itemFieldDefs(
   const ids: string[] = [...fam.needs];
   const cls = rowUnitClass ?? "";
   if (fam.units[cls]) ids.push(...(fam.units[cls].needs ?? []));
-  else for (const o of fam.convert?.[cls] ?? []) ids.push(...o.needs);
+  else for (const o of convertOptionsFor(spec, fam, cls, rawFamily)) ids.push(...o.needs);
   for (const rule of spec.derive_when_none ?? []) {
     if (rule.families.includes(family) && ids.includes(rule.attr)) ids.push(rule.when.attr);
   }
@@ -6328,10 +6916,13 @@ export function itemFieldDefs(
         // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers.
         // OWNER FA8: `dropdown_or_other` offers those SAME live options and still lets a person type the size the
         // BoQ states -- the ladder then resolves it and says which stocked size it used.
-        const options = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
+        const stocked = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
+        // DU-1 (DR17): a box no value of which is stocked offers the config's own values (the sheet's round diameters)
+        const offered = !stocked.length && reader.offered?.length ? reader.offered.map((n) => String(n)) : null;
+        const options = offered ?? stocked;
         const typedNote = typedFieldNote(spec, attr, reads, options);
         out.push({ id: modelId, label: shownLabel(d?.label, reader) ?? reader.name, allowNone: false, skuAttr: attr, control, options,
-                   optionSource: "catalogue", axes,
+                   optionSource: offered ? "definition" : "catalogue", axes,
                    ...(control === "dropdown_or_other" ? { allowOther: true, typedNote } : {}) });
       } else {
         // ADP-3a (B6 #1): a size box of which this row reads only SOME parts (a per-metre grille reads the height of
@@ -6447,7 +7038,7 @@ export function itemFieldDefs(
   // Height" (ADP-2's words, byte for byte), one box for one fact is its own label -- the SAME helper the refusal
   // uses (`waysLabel`), handed the labels these fields carry so the two can never word one box two ways.
   const labelOfBox = (box: string) => out.find((f) => f.id === box)?.label;
-  const eitherOr = fam.units[cls] ? [] : (fam.convert?.[cls] ?? []);
+  const eitherOr = fam.units[cls] ? [] : convertOptionsFor(spec, fam, cls, rawFamily);
   const ways: string[][] = eitherOr.length > 1 ? eitherOr.map((o) => o.needs) : [];
   let group: string | undefined = ways.length > 1 ? waysLabel(spec, ways, labelOfBox) : undefined;
   if (sk && ids.includes(sk.primary) && out.some((f) => f.secondKey)) {

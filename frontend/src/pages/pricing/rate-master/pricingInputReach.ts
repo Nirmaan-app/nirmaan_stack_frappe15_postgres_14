@@ -395,6 +395,25 @@ const inputFactor = (items: readonly RateMasterItem[] | null | undefined, id: st
  * sizes: a band's cells reach the units of its role whose capacity, after conversion, falls in the band; the
  * communication cable and the lengths reach every unit that carries extras. PURE; [] for a config without `extras`.
  */
+/**
+ * VP-1 (N1, owner VR9 / QR-2 Q1 (a) "we will follow the same practice for all categories"): a category WITHOUT `extras` whose
+ * pricing declares its own `scope` (Valve Package) reads its installation-only uplift input -- reaching every SKU of the
+ * category's kind(s): any of them can be priced on an installation-only row. VRF's own uplift stays with `extrasUses`. PURE.
+ */
+export function scopeUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {
+  const pr = pricingOf(cfg);
+  if (pr.extras) return [];
+  const sc = loose(pr.scope);
+  // DU-3 (R1, owner 2026-11-16 16:38 "make this 90% thershold a pricing input"): the per-sheet duct-insulation check reads its
+  // coverage threshold from a Pricing Input too -- "used by" names the category (the server twin: config_validation.extras_input_ids)
+  const si = loose(pr.sheet_insulation);
+  const ids = [sc.uplift_input, si.threshold_input].filter((x): x is string => typeof x === "string" && x !== "");
+  if (!ids.length) return [];
+  const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
+  const skus = (items ?? []).filter((it) => kinds.has(String(it.kind ?? ""))).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+  return ids.map((input) => ({ input, skus: [...new Set(skus)].sort() }));
+}
+
 export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {
   const pr = pricingOf(cfg);
   const ex = loose(pr.extras);
@@ -645,7 +664,8 @@ export function computePricingInputReach(
     for (const u of unitsConvertUses(cfg)) (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
     // VRF-3b: VRF's extras read their inputs (one per table cell) -- read by this category, reaching the units they size;
     // the convert inputs reach the units whose capacity they convert (owner: "now at 0 items")
-    for (const u of extrasUses(cfg, items)) {
+    // VP-1 (N1): a pricing-level scope's installation-only uplift (Valve Package) -- read by this category, every SKU of its kind
+    for (const u of [...extrasUses(cfg, items), ...scopeUses(cfg, items)]) {
       (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
       const set = assemblySkus.get(u.input) ?? assemblySkus.set(u.input, new Set<string>()).get(u.input)!;
       for (const s of u.skus) set.add(s);

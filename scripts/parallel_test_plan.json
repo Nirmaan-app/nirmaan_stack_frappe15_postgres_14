@@ -36,6 +36,60 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_hvac_v70_du1": {
+   "seconds": 11.1,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_hvac_v71_du1": {
+   "seconds": 9.5,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_hvac_v72_du2": {
+   "seconds": 11.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_hvac_v73_du2b": {
+   "seconds": 9.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_hvac_v74_du2c": {
+   "seconds": 11.1,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_hvac_v75_du3": {
+   "seconds": 11.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.test_match_estimate": {
    "seconds": 15.8,
    "series": [],
@@ -211,6 +265,42 @@
     "tabMilestone Tracker",
     "tabServer Script",
     "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_valve_v66": {
+   "seconds": 14.1,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_valve_v67": {
+   "seconds": 15.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_valve_v68": {
+   "seconds": 9.2,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_valve_v69": {
+   "seconds": 9.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
    ]
   },
   "nirmaan_stack.api.boq.test_vrf_v55": {
@@ -2529,6 +2619,42 @@
   },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_adp5d": {
    "seconds": 14.0,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du1": {
+   "seconds": 8.5,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du1b": {
+   "seconds": 7.6,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du2": {
+   "seconds": 6.5,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du3": {
+   "seconds": 14.4,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_vp1": {
+   "seconds": 13.9,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_vp4": {
+   "seconds": 7.5,
    "series": [],
    "writes": [],
    "reads": []

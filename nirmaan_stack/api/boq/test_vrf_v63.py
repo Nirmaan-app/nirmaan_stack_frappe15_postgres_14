@@ -243,8 +243,8 @@ class TestVrf7AssetV63(FrappeTestCase):
     def test_06_v63_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V63))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 65)  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE nums[-1] == 64
-        self.assertEqual(nums, list(range(1, 66)))  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE list(range(1, 65))
+        self.assertEqual(nums[-1], 75)  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE nums[-1] == 74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70; DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE nums[-1] == 69; VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE nums[-1] == 68; VP-4 (BEFORE nums[-1] == 67); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66 (VP-1), 65
+        self.assertEqual(nums, list(range(1, 76)))  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE list(range(1, 75)); DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74)); DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72)); DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71)); DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE list(range(1, 70)); VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE list(range(1, 69)); VP-4 (BEFORE list(range(1, 68))); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67)) (VP-1), list(range(1, 66))
         self.assertTrue(os.path.exists(_asset_path(V62)))
 
     def test_07_live_catalogue_is_v63(self):
@@ -263,4 +263,4 @@ class TestVrf7AssetV63(FrappeTestCase):
                 self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
         self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 585)
+        self.assertEqual(n, 744)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 743; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585

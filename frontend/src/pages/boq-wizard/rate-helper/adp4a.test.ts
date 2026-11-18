@@ -151,10 +151,14 @@ describe("AC1 -- ADP's Derivation tab: each rule once, in plain English, with it
       expect({ id, changed }).toEqual({ id, changed: [] });
     }
     const ins = itemListRuleOrder(cfgOf(V50, INS), ITEMS), pip = itemListRuleOrder(cfgOf(V50, PIP), ITEMS);
-    expect([ins.length, pip.length]).toEqual([43, 25]);
+    // INVERTED at DU-1 FIX-1 (owner QR-1 Q1 (a), 2026-11-15: every material_text entry is its own line -- Insulation's closed cell
+    // polyethylene -> nitrile, the LAST line; mechanical authority): BEFORE toEqual([43, 25])
+    expect([ins.length, pip.length]).toEqual([44, 25]);
+    expect(ins.filter((l) => /closed cell/.test(l.title) && /Nitrile/.test(l.title)).length).toBe(1);
     expect(JSON.stringify([ins, pip])).not.toMatch(/and \d+ more|grey 'derived'/);
-    expect(ins[38].detail).toContain("(the amber 'derived' cells)");
-    expect(ins[39].detail).toMatch(/^a row in sq\.ft \(sqft, sq ft, sq\.ft, sft\) takes the per-sq\.m rate x 0\.0929, rounded up to the rupee$/);
+    // INVERTED at DU-1 FIX-1 (the closed-cell line sits above these two; mechanical authority): BEFORE ins[38] / ins[39]
+    expect(ins[39].detail).toContain("(the amber 'derived' cells)");
+    expect(ins[40].detail).toMatch(/^a row in sq\.ft \(sqft, sq ft, sq\.ft, sft\) takes the per-sq\.m rate x 0\.0929, rounded up to the rupee$/);
     expect(pip[12].title).toMatch(/^A Copper, MS, PVC, CPVC row stating its own figure/);
     expect(ins[1].title).toBe("The item's own kind decides which products can price it");
     expect(ins.find((l) => /could not match/.test(l.title))!.title).toBe("A material the model could not match to any kind refuses");

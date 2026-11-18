@@ -1578,24 +1578,54 @@ describe("suggestConfirmCopy (the confirmation before ANY AI call)", () => {
   });
 });
 
-// SLICE 12e-5b AC7 (owner R8 "option a"): a selected-row run on a sheet whose last run is older than some of its rows
-// also reads the rows no run has read -- the confirmation names them by category, and the run count includes them.
-describe("suggestConfirmCopy: the rows no run has read yet (12e-5b AC7)", () => {
-  it("names them by category and counts them in the action", () => {
-    const c = suggestConfirmCopy(2, 94, ["Piping", "Piping", "Insulation"]);
-    expect(c.neverRead).toBe(
-      "This sheet's last run is older than some of its rows. This run will also read 3 rows that no run has read yet (by category: Piping 2, Insulation 1).",
-    );
-    expect(c.confirmLabel).toBe("Run 5 rows");
-    expect(c.title).toBe("Suggest rates for 2 selected rows?");
-    expect(c.wholeSheet).toBe(false);
+// SLICE SR-1 (owner 2026-11-17 13:09 + QR-1 "option a" + QR-2 "2a 3a"): a selected-row run reads ONLY the ticked rows,
+// first run included; the 12e-5b "will also read" line (and its inflated count) is retired. Four cases + the info line
+// + the read-again line. (Replaces the 12e-5b AC7 describe, which pinned the auto-add.)
+describe("suggestConfirmCopy: SR-1 the four cases (selected / whole sheet x first run / later run)", () => {
+  it("SELECTED, FIRST run (no run on the sheet): only the ticked rows are read; the rest get no suggestions; info line by category", () => {
+    const c = suggestConfirmCopy(5, 120, ["Wiring & Cabling", "Wiring & Cabling", "Cable Tray"], null);
+    expect(c.title).toBe("Suggest rates for 5 selected rows?");
+    expect(c.body).toBe("Only the 5 rows you selected will be read. This sheet has no suggestions yet; the other 115 eligible rows will not be read and will have no suggestions.");
+    expect(c.neverRead).toBe("Not in this run: 3 rows (by category: Wiring & Cabling 2, Cable Tray 1). Select them, or clear the selection to run the whole sheet.");
+    expect(c.confirmLabel).toBe("Run 5 rows"); // the count is the ticked rows only - never inflated
     expect(c.warning).toBe("");
-    expect(suggestConfirmCopy(1, 94, ["Piping"]).neverRead).toContain("will also read 1 row that no run has read yet (by category: Piping 1)");
+    expect(c.wholeSheet).toBe(false);
+    expect("readAgain" in c).toBe(false);
   });
-  it("NEGATIVE (the pinned unchanged case): no such rows -> the copy is exactly as before; a whole-sheet run ignores them", () => {
-    expect(suggestConfirmCopy(4, 94, [])).toEqual(suggestConfirmCopy(4, 94));
-    expect("neverRead" in suggestConfirmCopy(4, 94)).toBe(false);
-    expect(suggestConfirmCopy(0, 94, ["Piping"])).toEqual(suggestConfirmCopy(0, 94));
+  it("SELECTED, LATER run (live run): carried-forward body; the info line only when the live run left rows unread", () => {
+    const c = suggestConfirmCopy(5, 120, ["VRF", "VRF"], "live");
+    expect(c.body).toBe("Only the 5 rows you selected will be read. Every other row keeps the attributes it already has -- they are carried forward unchanged.");
+    expect(c.neverRead).toBe("2 rows on this sheet have not been read yet (by category: VRF 2). They are not in this run. Select them, or clear the selection to run the whole sheet.");
+    expect(c.confirmLabel).toBe("Run 5 rows");
+    expect(suggestConfirmCopy(1, 120, ["VRF"], "live").neverRead).toContain("1 row on this sheet has not been read yet");
+    // NEGATIVE: nothing unread -> no info line at all
+    expect("neverRead" in suggestConfirmCopy(5, 120, [], "live")).toBe(false);
+  });
+  it("SELECTED over a HALTED partial (QR-2 Q2 (a)): the later-run wording - the halted run's rows ARE carried, never 'no suggestions'", () => {
+    const c = suggestConfirmCopy(3, 8, ["Lights", "Lights"], "partial");
+    expect(c.body).toContain("carried forward unchanged");
+    expect(c.body).not.toContain("will have no suggestions");
+    expect(c.neverRead).toContain("2 rows on this sheet have not been read yet");
+  });
+  it("WHOLE SHEET, FIRST run (no live run): reads every row, NO overwrite warning, still the big destructive action", () => {
+    for (const src of [null, "partial"] as const) {
+      const c = suggestConfirmCopy(0, 120, ["X"], src);
+      expect(c.title).toBe("Suggest rates for the whole sheet (120 rows)?");
+      expect(c.body).toBe("No rows are selected, so all 120 eligible rows will be read. To read just a few, tick them in the Excel-row column first.");
+      expect(c.warning).toBe("");
+      expect(c.confirmLabel).toBe("Run all 120 rows");
+      expect(c.wholeSheet).toBe(true);
+      expect("readAgain" in c).toBe(false);
+    }
+  });
+  it("WHOLE SHEET over a LIVE run: today's re-extract text + (QR-2 Q2 (a)) how many rows are read again", () => {
+    const c = suggestConfirmCopy(0, 120, Array(80).fill("VRF"), "live");
+    expect(c.title).toBe("Re-extract the whole sheet (120 rows)?");
+    expect(c.warning).toContain("OVERWRITES");
+    expect(c.readAgain).toBe("40 of these rows already have suggestions from an earlier run; they will be read again.");
+    expect(suggestConfirmCopy(0, 2, ["VRF"], "live").readAgain).toBe("1 of these rows already has suggestions from an earlier run; it will be read again.");
+    // NEGATIVE: a live run that read nothing on the sheet's current population -> no read-again line
+    expect("readAgain" in suggestConfirmCopy(0, 3, ["a", "b", "c"], "live")).toBe(false);
   });
 });
 

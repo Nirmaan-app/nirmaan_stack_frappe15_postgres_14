@@ -219,6 +219,7 @@ import {
 import {
   RateSuggestProgressModal,
   confirmEstimateLine,
+  serverRefusalText,
   suggestReadRows,
   type MatchPaces,
   type MatchPhaseState,
@@ -407,6 +408,10 @@ interface SuggestStatusResponse {
   /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
    *  it to report what RAN rather than the population. Already published by the worker. */
   scoped_row_count?: number | null;
+  /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). */
+  first_selected_run?: boolean;
+  /** Rows THIS pass attempted (the worker publishes it; the modal's halted-scoped split needs it). */
+  pass_attempted_count?: number;
   /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
   match?: { queued: boolean; run?: string; reason?: string } | null;
 }
@@ -733,8 +738,11 @@ const SheetPricingPage = () => {
        *  output). THE server is the single source -- see PricingGrid's tickableRows doc for why a
        *  client-side copy would be a fifth, drifting definition of "eligible". */
       eligible_rows?: number[];
-      /** SLICE 12e-5b (owner R8): eligible rows the active run never read -- a selected-row run reads them too. */
+      /** SLICE SR-1 (information only): eligible rows the run a selected-row pass would carry has not read (all eligible
+       *  rows when there is none). A selected-row run reads ONLY the ticked rows (owner QR-1 "option a"). */
       never_read_rows?: Array<{ excel_row: number; category_id: string }>;
+      /** SLICE SR-1: what a selected-row run carries forward from - "live", "partial" (QR-2 Q3 (a)) or null (a first run). */
+      carry_source?: "live" | "partial" | null;
     };
   }>(
     "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
@@ -3157,17 +3165,10 @@ const SheetPricingPage = () => {
       }
       if (msg.state === "done") {
         setSuggestRunning(false);
-        setSuggestSummary({
-          status: msg.status,
-          ai_status: msg.ai_status,
-          results: msg.results,
-          run_id: msg.run_id,
-          run_status: msg.run_status,
-          halt_reason: msg.halt_reason,
-          attempted_count: msg.attempted_count,
-          population_count: msg.population_count,
-          scoped_row_count: msg.scoped_row_count,
-        });
+        // SR-1 K3/K4: pass the WHOLE done payload through. A field-by-field copy dropped first_selected_run (AC5 C2) and
+        // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
+        // modal reads named keys only; the extra keys (state, committed_version, match) are harmless there.
+        setSuggestSummary({ ...msg });
         // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
         // complete run was already there (it never superseded it server-side either), so the
         // badges + "Use this value" keep reflecting a trustworthy, whole run.
@@ -3240,16 +3241,20 @@ const SheetPricingPage = () => {
 
   // The count the CONFIRMATION quotes. Page-local, never a grid prop.
   const selectedCount = selectedRows.size;
-  // SLICE 12e-5b (owner R8): the rows no run has read yet that were not ticked -- the run reads them too
-  const neverReadLabels = useMemo(
+  // SLICE SR-1 (owner QR-1 "option a"): the eligible rows this press will NOT read -- unread by the run it would carry
+  // (or by anyone, on a first run) and not ticked. Information only: the run reads exactly the ticked rows.
+  const unreadLabels = useMemo(
     () => (activeRunData?.message?.never_read_rows ?? [])
       .filter((r) => !selectedRows.has(r.excel_row))
       .map((r) => labelFor(r.category_id, categoryLabelById)),
     [activeRunData, selectedRows, categoryLabelById],
   );
+  // SLICE SR-1: what a selected run carries from ("live" / "partial" / null = a first run). A server without the key
+  // predates SR-1, where a selected run always carried the live run.
+  const carrySource = activeRunData?.message?.carry_source === undefined ? "live" : activeRunData.message.carry_source;
   const confirmCopy = useMemo(
-    () => suggestConfirmCopy(selectedCount, eligibleRows.size, neverReadLabels),
-    [selectedCount, eligibleRows, neverReadLabels],
+    () => suggestConfirmCopy(selectedCount, eligibleRows.size, unreadLabels, carrySource),
+    [selectedCount, eligibleRows, unreadLabels, carrySource],
   );
   // DEV2-B8 S2 (WAIT ESTIMATE, owner 2026-11-06 12:42): how many of the rows the press will read have no valid spec
   // card. Asked when the confirm box opens (in its handler); null until it answers, or when it fails -> the estimate
@@ -3262,20 +3267,20 @@ const SheetPricingPage = () => {
     setSuggestConfirmOpen(true);
     if (!matchEnabled || !boqId || !sheetName) return;
     const ask = ++noCardAskRef.current;
-    const rowsToRead = suggestReadRows(selectedRows, activeRunData?.message?.never_read_rows ?? [], eligibleRows);
+    const rowsToRead = suggestReadRows(selectedRows, eligibleRows);
     countNoCardCall({ boq: boqId, sheet_name: sheetName, excel_rows: JSON.stringify(rowsToRead) })
       .then((r: { message?: { rows_without_card?: number } }) => {
         const n = r?.message?.rows_without_card;
         if (ask === noCardAskRef.current && typeof n === "number") setConfirmNoCard(n);
       })
       .catch(() => { /* the safe side: confirmNoCard stays null = every row needs a card */ });
-  }, [matchEnabled, boqId, sheetName, selectedRows, activeRunData, eligibleRows, countNoCardCall]);
+  }, [matchEnabled, boqId, sheetName, selectedRows, eligibleRows, countNoCardCall]);
   // DEV2-B4: the ONE estimate line (total + split) when matching is ON; "" -> the dialog is exactly as before. The rows
-  // are the ones the run will read: the ticked rows plus the never-read ones, or the whole eligible set.
+  // are the ones the run will read: the ticked rows (SR-1), or the whole eligible set.
   const confirmEstimate = useMemo(
-    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount + neverReadLabels.length : eligibleRows.size,
+    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount : eligibleRows.size,
       matchPaces, confirmNoCard),
-    [matchEnabled, selectedCount, neverReadLabels, eligibleRows, matchPaces, confirmNoCard],
+    [matchEnabled, selectedCount, eligibleRows, matchPaces, confirmNoCard],
   );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
@@ -3299,9 +3304,11 @@ const SheetPricingPage = () => {
         ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
         ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
       });
-    } catch {
+    } catch (err) {
       setSuggestRunning(false);
-      setSuggestSummary({ status: "error" });
+      // SR-1 C9: show the server's OWN refusal (e.g. "Rows not eligible ... reload and try again") instead of the
+      // generic line -- every refusal used to be invisible. null -> the modal keeps its generic text.
+      setSuggestSummary({ status: "error", halt_reason: serverRefusalText(err) });
     }
   }, [startSuggestCall, boqId, sheetName]);
 
@@ -3413,7 +3420,7 @@ const SheetPricingPage = () => {
     // SLICE 6: the row's UNIT rides the context -- an item-list row prices per its unit (R12); every other
     // helper ignores it.
     // SLICE 12d-1a (owner R2): `rows` rides along so the context carries the row's section headings.
-    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows), unit: row.unit ?? "" };
+    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows, liveCategoriesByExcelRow), unit: row.unit ?? "" };
   }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
   // DEV2-B5 S4 (G14 (a)): `?row=<excel_row>` -- the "Open this row" link of the Previously priced card. Once the rows are
   // loaded and the row exists: clear the view filters (a filtered-out row could not be shown) and scroll to it through
@@ -4863,6 +4870,7 @@ const SheetPricingPage = () => {
                   {confirmCopy.warning && (
                     <p className="font-medium text-destructive">{confirmCopy.warning}</p>
                   )}
+                  {confirmCopy.readAgain && <p data-testid="suggest-confirm-read-again">{confirmCopy.readAgain}</p>}
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>

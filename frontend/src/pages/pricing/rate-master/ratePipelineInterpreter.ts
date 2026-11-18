@@ -145,6 +145,12 @@ export function roundUp(x: number, digits: number): number {
   return Math.ceil(x * factor - 1e-9) / factor;
 }
 
+/** DU-1 (owner QR-1 (c)): Excel ROUND -- half up (away from zero at the half), to `digits`. 362.67 -> 363; 91.5 -> 92. */
+export function roundHalfUp(x: number, digits: number): number {
+  const factor = Math.pow(10, digits);
+  return Math.sign(x) * Math.floor(Math.abs(x) * factor + 0.5 + 1e-9) / factor;
+}
+
 // ---------- EA-4a assembly helpers (used only by circuit_fit + the assembly component_ref) ----------
 
 /** EA-4a-r: the POSITIVE-ABSENCE sentinel. A composite component set to this value contributes ZERO
@@ -1542,12 +1548,14 @@ export function runPipeline(
         });
         continue;
       }
-      const value = roundUp(roundBase, s.params.digits);
+      // DU-1 (QR-1 (c)): a `mode: "half_up"` step rounds half up (Excel ROUND); absent => ROUNDUP as before
+      const halfUp = s.params.mode === "half_up";
+      const value = halfUp ? roundHalfUp(roundBase, s.params.digits) : roundUp(roundBase, s.params.digits);
       ctx[s.target] = value;
       steps.push({
         step: stepType,
-        label: s.explain || `round up (${s.params.digits <= -1 ? "to tens" : "to units"})`,
-        params: { digits: s.params.digits },
+        label: s.explain || `${halfUp ? "round half up" : "round up"} (${s.params.digits <= -1 ? "to tens" : "to units"})`,
+        params: halfUp ? { digits: s.params.digits, mode: "half_up" } : { digits: s.params.digits },
         produced: { key: s.target, value },
         runningValues: snapshot(),
       });

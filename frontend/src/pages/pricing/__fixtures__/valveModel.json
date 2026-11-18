@@ -1,0 +1,5987 @@
+{
+ "_about": "VP-1 (2026-11-13): what HVAC v66 adds over v65 -- the hvac_valve_package config (124 SKUs, the scope pick, N2 / N4, G4 / G7), the borrow-only hvac_misc config (12 SKUs, G5 / G12), the 'Valve - installation-only uplift' Pricing Input (50%) and the Piping N5 note entry (`sheet_heading_notes`). Built from VP-D0's validated projection by VP-1\\queries\\build_fixture.py. Read by the VP-1 frontend tests and scripts/_instruments/mint_hvac_v66_valve.py (test_valve_v66 proves the asset equals it). `_boq` on an item = the ruled sheet's BoQ supply / install (identity).",
+ "valve_config": {
+  "discipline": "HVAC",
+  "category_id": "hvac_valve_package",
+  "category_display": "Valve Package",
+  "item_kinds": [
+   "hvac_valve_item"
+  ],
+  "attribute_definitions": [
+   {
+    "id": "item_name",
+    "label": "Item",
+    "type": "choice",
+    "values": [
+     "2-way modulating valve",
+     "Automatic Air Vent",
+     "BTU Meter",
+     "Ball Type NRV",
+     "Ball Valve",
+     "Butterfly Valve",
+     "Butterfly Valve (Gear Box )",
+     "Butterfly Valve (Hand lever)",
+     "Butterfly Valve (Modulating Motorised Actuator)",
+     "Butterfly Valve (On-Off Duty Motorised Actuator)",
+     "Butterfly Valve (Steel lever)",
+     "Dual Plate NRV",
+     "Flanged Balancing Valve",
+     "Flanged NRV",
+     "Foot Valve Flanged",
+     "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+     "Sluice Valve ( Non Rising Spindle)",
+     "Sluice Valve ( Rising Spindle )",
+     "T-Type Strainer",
+     "Test & Drain Valve",
+     "Wafer NRV",
+     "Y-Type Strainer"
+    ],
+    "note": "The ruled sheet's own Item text, verbatim.",
+    "selector": false,
+    "panel": false
+   },
+   {
+    "id": "valve_type",
+    "label": "Valve type",
+    "type": "choice",
+    "values": [
+     "Butterfly Valve",
+     "Motorised Butterfly Valve",
+     "Balancing Valve",
+     "NRV / Check Valve",
+     "PIBCV",
+     "Sluice / Gate Valve",
+     "Strainer",
+     "Ball Valve",
+     "Test & Drain Valve",
+     "Foot Valve",
+     "Automatic Air Vent",
+     "BTU Meter",
+     "2-Way Valve"
+    ]
+   },
+   {
+    "id": "size_mm",
+    "label": "Size (mm)",
+    "type": "number_choice",
+    "values": [
+     15.0,
+     20.0,
+     25.0,
+     32.0,
+     40.0,
+     50.0,
+     65.0,
+     80.0,
+     100.0,
+     125.0,
+     150.0,
+     200.0,
+     250.0,
+     300.0
+    ]
+   },
+   {
+    "id": "actuation",
+    "label": "Actuator duty",
+    "type": "choice",
+    "values": [
+     "On-Off",
+     "Modulating"
+    ]
+   },
+   {
+    "id": "operation",
+    "label": "2-way operation",
+    "type": "choice",
+    "values": [
+     "Modulating"
+    ]
+   },
+   {
+    "id": "nrv_type",
+    "label": "NRV type",
+    "type": "choice",
+    "values": [
+     "Dual Plate",
+     "Ball Type",
+     "Wafer",
+     "Flanged"
+    ]
+   },
+   {
+    "id": "spindle",
+    "label": "Spindle",
+    "type": "choice",
+    "values": [
+     "Rising",
+     "Non-rising"
+    ]
+   },
+   {
+    "id": "strainer_type",
+    "label": "Strainer type",
+    "type": "choice",
+    "values": [
+     "Y-Type",
+     "T-Type"
+    ]
+   }
+  ],
+  "pipelines": {},
+  "notes": "VP-1 (2026-11-13): the Valve Package -- the 124 SKUs of the owner's ruled valve sheet (Valve_Package_after_V1_rulings_2026-11-11.xlsx; BoQ supply = ROUNDUP(BCS x 1.4), install = ROUNDUP(BCS install x 2)), the item-list shape of Piping, the Misc instruments borrowed under Misc's own rules (list_spec.sections), the scope pick, rulings VR1-VR12, QR-1 / QR-2, ANSWER 3.",
+  "matching_mode": "item_list",
+  "list_spec": {
+   "family_attribute_id": "valve_type",
+   "qty_attribute_id": "qty_per_row_unit",
+   "attribute_definitions": [
+    {
+     "id": "valve_type",
+     "label": "Valve type",
+     "type": "choice",
+     "values": [
+      "Butterfly Valve",
+      "Motorised Butterfly Valve",
+      "Balancing Valve",
+      "NRV / Check Valve",
+      "PIBCV",
+      "Sluice / Gate Valve",
+      "Strainer",
+      "Ball Valve",
+      "Test & Drain Valve",
+      "Foot Valve",
+      "Automatic Air Vent",
+      "BTU Meter",
+      "2-Way Valve",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which valve or valve-type item THIS row buys. Butterfly Valve = a manual (lever / gear) butterfly valve; Motorised Butterfly Valve = a butterfly valve with an electric / motorised actuator; Balancing Valve = a balancing valve, DRV, double regulating or commissioning set; NRV / Check Valve = any non-return, check or reflux valve; PIBCV = a pressure independent (balancing) control valve, PICV or PIBCV; Sluice / Gate Valve = a sluice or gate valve; Strainer = any strainer; Ball Valve = a ball valve, and a drain valve or drain cock; Test & Drain Valve = only where the row says 'test and drain' valve; Foot Valve = a foot valve; Automatic Air Vent = an automatic air vent / air release / air purger; BTU Meter = a BTU, heat or thermal energy meter; 2-Way Valve = a 2-way (motorised) control valve that is not pressure independent. A thermometer, temperature or pressure gauge, test plug / point, thermowell, rubber bellows, flexible connection or expansion joint is NOT a valve: return it as its own item in the misc section. Answer 'none of these' for any other valve or instrument (a flow meter, a 3-way valve, a pot strainer, a gauge cock, an isolation valve with no type, a valve whose type is not written) and copy its words into 'Valve type as written'. Return one item per valve or instrument the row pays for: a valve named with gauges, a thermometer or another valve is several items. A part built into the valve (its actuator, its flanges, its handle) is never a second item. The row's own text wins over a heading; take the type from a heading only when it describes this row's item (a size-only row under 'Butterfly valves')."
+    },
+    {
+     "id": "valve_type_as_written",
+     "label": "Valve type as written",
+     "type": "text",
+     "note": "The valve or instrument's type in the BoQ's OWN WORDS, from the row, else from the nearest heading that describes this row's item. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "size_mm",
+     "label": "Valve size",
+     "type": "text",
+     "note": "The valve's own size AS THE ROW WRITES IT, with its unit: mm, an NB number (50 NB), DN 50, inches (1-1/2\", 2 inch). Never converted, never rounded. A dial size of a gauge or thermometer, a pressure rating (PN 16), a pipe schedule or an insulation thickness is NEVER the valve size. Where the row names two sizes for this item copy both as written (25/32 mm). Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "actuation",
+     "label": "Actuator duty",
+     "type": "choice",
+     "values": [
+      "On-Off",
+      "Modulating"
+     ],
+     "allow_none": true,
+     "note": "Motorised butterfly valves only: On-Off or Modulating, as the row or a heading describing this valve states. 'None' when not stated."
+    },
+    {
+     "id": "operation",
+     "label": "2-way operation",
+     "type": "choice",
+     "values": [
+      "On-Off",
+      "Modulating"
+     ],
+     "allow_none": true,
+     "note": "2-way valves only: On-Off or Modulating as stated. 'None' when not stated."
+    },
+    {
+     "id": "nrv_type",
+     "label": "NRV type",
+     "type": "choice",
+     "values": [
+      "Dual Plate",
+      "Ball Type",
+      "Wafer",
+      "Flanged"
+     ],
+     "allow_none": true,
+     "note": "NRV / check valves only: Dual Plate, Ball Type, Wafer, or Flanged (a swing / flanged NRV). 'None' when the row names no NRV type; flanges named only as companion flanges are not a type."
+    },
+    {
+     "id": "spindle",
+     "label": "Spindle",
+     "type": "choice",
+     "values": [
+      "Rising",
+      "Non-rising"
+     ],
+     "allow_none": true,
+     "note": "Sluice / gate valves only: Rising or Non-rising spindle as stated. 'None' when not stated."
+    },
+    {
+     "id": "strainer_type",
+     "label": "Strainer type",
+     "type": "choice",
+     "values": [
+      "Y-Type",
+      "T-Type"
+     ],
+     "allow_none": true,
+     "note": "Strainers only: Y-Type or T-Type as stated. 'None' when not stated (a pot / basket strainer is 'none of these' in Valve type)."
+    },
+    {
+     "id": "flanged",
+     "label": "Flanged",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "Yes when the row, or a heading describing this valve, says the valve is flanged or comes with companion / matching flanges. 'None' when not mentioned."
+    },
+    {
+     "id": "operator_as_written",
+     "label": "Operator as written",
+     "type": "text",
+     "note": "Butterfly valves: the operator the BoQ names (lever, hand lever, gear, gear box, worm gear), copied as written. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "qty_per_row_unit",
+     "label": "Quantity in one row unit",
+     "type": "number",
+     "allow_none": true,
+     "note": "How many of THIS item make one unit of the row, only where the row states a count for this item ('with 2 nos pressure gauges' -> 2 on the gauge item). 'None' otherwise. Never the row's own quantity, a size or a dial size."
+    },
+    {
+     "id": "scope",
+     "label": "Scope",
+     "type": "choice",
+     "values": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only"
+     ],
+     "allow_none": true,
+     "note": "What the row pays for, from its own words first, then a heading describing it: supply + installation (SITC, supply & install, fixing ...), supply only, or installation only. 'None' when nothing is said."
+    }
+   ],
+   "sections": [
+    {
+     "id": "valve",
+     "label": "Valve",
+     "add_label": "Add valve"
+    },
+    {
+     "id": "misc",
+     "label": "Misc item",
+     "add_label": "Add misc item",
+     "category_id": "hvac_misc",
+     "unit_class": "count",
+     "families": [
+      "Temperature Gauge / Thermometer",
+      "Pressure Gauge",
+      "Rubber Bellows / Expansion Joint",
+      "Test Plug / Thermowell"
+     ]
+    }
+   ],
+   "second_opinion": false,
+   "pricing": {
+    "kind": "hvac_valve_item",
+    "label_attr": "item_name",
+    "unit_class_attr": "unit_class",
+    "unit_classes": {
+     "count": [
+      "Nos",
+      "nos",
+      "no",
+      "no's",
+      "nos.",
+      "no.",
+      "no.s",
+      "number",
+      "each",
+      "ea",
+      "pcs",
+      "unit",
+      "Set",
+      "Sets"
+     ]
+    },
+    "unit_words": {
+     "count": "Nos"
+    },
+    "unit_refusal": "unit '{unit}' is not a valve unit - valves are priced per Nos or per Set - price this row by hand",
+    "no_sku_families": [
+     "none of these"
+    ],
+    "unstocked_materials": {
+     "words": [
+      "flow meter",
+      "flowmeter",
+      "3-way",
+      "3 way",
+      "three way",
+      "pot strainer",
+      "basket strainer"
+     ],
+     "from_attr": "valve_type_as_written",
+     "rule": "VR3 not on our sheets - leave unpriced (owner 2026-11-12)",
+     "per_item": true
+    },
+    "numbers": {
+     "size_mm": {
+      "from": [
+       "size_mm"
+      ],
+      "name": "valve size",
+      "unit": "mm",
+      "inches": true,
+      "inch_mm_alt": 25,
+      "typed_entry": "one_size",
+      "typed_dn": true
+     }
+    },
+    "ladders": [
+     "size_mm"
+    ],
+    "match_attrs": [
+     "actuation",
+     "operation",
+     "nrv_type",
+     "spindle",
+     "strainer_type",
+     "size_mm"
+    ],
+    "choice_attrs": [
+     "actuation",
+     "operation",
+     "nrv_type",
+     "spindle",
+     "strainer_type"
+    ],
+    "size_match": {
+     "dp": [
+      2,
+      1
+     ],
+     "near": 0.1,
+     "below_smallest": "smallest"
+    },
+    "defaults": {
+     "actuation": {
+      "value": "On-Off",
+      "absent_as_none": true,
+      "rule": "actuator duty not stated - priced as On-Off (owner VR7: a motorised butterfly valve is on-off unless stated)"
+     },
+     "operation": {
+      "value": "Modulating",
+      "absent_as_none": true,
+      "rule": "2-way valve operation not stated - priced as the 2-way modulating valve (owner VR3)"
+     },
+     "nrv_type": {
+      "value": "Dual Plate",
+      "absent_as_none": true,
+      "rule": "NRV type not stated - priced as Dual Plate (owner VR7)"
+     },
+     "spindle": {
+      "value": "Non-rising",
+      "absent_as_none": true,
+      "rule": "spindle not stated - priced as Non-rising spindle (owner VR7)"
+     },
+     "strainer_type": {
+      "value": "Y-Type",
+      "absent_as_none": true,
+      "rule": "strainer type not stated - priced as Y-Type (owner VR7)"
+     }
+    },
+    "derive_when_none": [
+     {
+      "attr": "nrv_type",
+      "families": [
+       "NRV / Check Valve"
+      ],
+      "when": {
+       "attr": "flanged",
+       "equals": "Yes"
+      },
+      "then": "Flanged",
+      "rule": "flanged NRV with no other type named - priced as the Flanged NRV (owner VR4)"
+     }
+    ],
+    "families": {
+     "Butterfly Valve": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Motorised Butterfly Valve": {
+      "needs": [
+       "actuation"
+      ],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Balancing Valve": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "NRV / Check Valve": {
+      "needs": [
+       "nrv_type"
+      ],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "PIBCV": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Sluice / Gate Valve": {
+      "needs": [
+       "spindle"
+      ],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Strainer": {
+      "needs": [
+       "strainer_type"
+      ],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Ball Valve": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Test & Drain Valve": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Foot Valve": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Automatic Air Vent": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "BTU Meter": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "2-Way Valve": {
+      "needs": [
+       "operation"
+      ],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_valve_item"
+            },
+            "explain": "match the valve SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     }
+    },
+    "per_set": {
+     "units": [
+      "Set",
+      "Sets"
+     ],
+     "qty_label": "Pieces in one Set of this row",
+     "bar": {
+      "title": "PRICED PER SET - CHECK WHAT ONE SET HOLDS.",
+      "line": "The BoQ prices this row per Set. The helper priced the items it read in one Set. If the Set holds more, add them or change the quantities below."
+     }
+    },
+    "lot_units": {
+     "units": [
+      "Lot",
+      "LS",
+      "L.S.",
+      "Lumpsum",
+      "Lump sum",
+      "Job",
+      "Rmt",
+      "Mtr"
+     ],
+     "bar": "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND.",
+     "line": "Unit \"{unit}\" is not a valve unit: valves are priced per Nos or per Set. A Lot, a job or a length is priced by hand."
+    },
+    "panel_controls": {
+     "valve_type": "dropdown",
+     "size_mm": "dropdown_or_other",
+     "actuation": "dropdown",
+     "operation": "dropdown",
+     "nrv_type": "dropdown",
+     "spindle": "dropdown",
+     "strainer_type": "dropdown",
+     "flanged": "dropdown"
+    },
+    "panel_notes": {
+     "size_mm": "Type the valve size the BoQ states, in mm or inches (1-1/2\", 2 inch). For an NB or DN size type the number."
+    },
+    "panel_readonly": [
+     "valve_type_as_written",
+     "operator_as_written"
+    ],
+    "read_notes": [
+     {
+      "families": [
+       "Butterfly Valve"
+      ],
+      "from_attr": "operator_as_written",
+      "pattern": "^\\s*(\\S.*?)\\s*$",
+      "line": "BoQ says {match} - the size decides the sheet's butterfly valve (lever up to 150 mm, gear box 200-250 mm); the operator is noted, not priced (owner VR8)",
+      "rule_line": "A butterfly valve row naming its operator (lever, gear) carries a line: the size decides the sheet's butterfly valve, the operator is noted, never refused"
+     },
+     {
+      "families": [
+       "PIBCV"
+      ],
+      "from_attr": "valve_type_as_written",
+      "pattern": "^\\s*(\\S.*?)\\s*$",
+      "line": "priced as the sheet's one PIBCV item (Pressure Independent control valve with thermostat and actuator with inbuilt controller) for {match} (owner VR12)",
+      "rule_line": "Every PIBCV row is priced as the sheet's one PIBCV item, with a line naming that item"
+     }
+    ],
+    "text_notes": [
+     {
+      "families": [
+       "Butterfly Valve",
+       "Motorised Butterfly Valve",
+       "Balancing Valve",
+       "PIBCV",
+       "Sluice / Gate Valve",
+       "Strainer",
+       "Ball Valve",
+       "BTU Meter",
+       "2-Way Valve",
+       "Test & Drain Valve",
+       "Automatic Air Vent"
+      ],
+      "from_text": "own_and_headings",
+      "pattern": "flang",
+      "line": "The BoQ names flanges: flanges, nuts, bolts and gaskets are part of fitting the valve and are not priced separately (owner VR4)",
+      "rule": "VR4"
+     },
+     {
+      "families": [
+       "Balancing Valve"
+      ],
+      "from_text": "own_and_headings",
+      "pattern": "balanc",
+      "line": "priced as the sheet's Flanged Balancing Valve - the only balancing valve on our sheet (owner VR4)",
+      "rule": "VR4"
+     },
+     {
+      "families": [
+       "Butterfly Valve",
+       "Motorised Butterfly Valve",
+       "Balancing Valve",
+       "NRV / Check Valve",
+       "PIBCV",
+       "Sluice / Gate Valve",
+       "Strainer",
+       "Ball Valve",
+       "Test & Drain Valve",
+       "Foot Valve",
+       "Automatic Air Vent",
+       "BTU Meter",
+       "2-Way Valve"
+      ],
+      "from_text": "own_and_headings",
+      "pattern": "insulat",
+      "line": "The BoQ asks for the valve to be insulated. Valve insulation is not on our sheets and is not in this price - add it by hand if it is needed (QR-1 Q4 (a))",
+      "rule": "QR-1 Q4"
+     }
+    ],
+    "no_sku_named_by": "valve_type_as_written",
+    "material_text": {
+     "from_attr": "valve_type_as_written",
+     "when_family": [
+      "none of these"
+     ],
+     "map": [
+      {
+       "all_of": [
+        [
+         "drain"
+        ]
+       ],
+       "to_by_unit_class": {
+        "count": "Ball Valve"
+       },
+       "line": "BoQ says a drain valve -> priced as the {to} of the same size (owner VR3)",
+       "rule": "VR3 drain valve = ball valve (owner 2026-11-12)"
+      },
+      {
+       "all_of": [
+        [
+         "valve",
+         "valves",
+         "isolation",
+         "isolating",
+         "isolator",
+         "isolative"
+        ]
+       ],
+       "only_words": [
+        "valve",
+        "valves",
+        "isolation",
+        "isolating",
+        "isolator",
+        "isolative",
+        "shut off",
+        "shut-off",
+        "shutoff",
+        "line",
+        "type",
+        "supply",
+        "installation",
+        "fixing",
+        "with",
+        "and",
+        "for",
+        "the",
+        "a"
+       ],
+       "to_by_unit_class": {
+        "count": "Ball Valve"
+       },
+       "to_by_size": {
+        "attr": "size_mm",
+        "at_most": 40,
+        "small": "Ball Valve",
+        "large": "Butterfly Valve"
+       },
+       "line": "The BoQ does not say which valve type. Priced as the {to} by size (40 mm and below ball, above 40 mm butterfly) - change it if the BoQ means another type. (owner ANSWER 3)",
+       "rule": "N4: isolation valve / valve type stated nowhere -> ball <= 40 mm, butterfly above (owner 2026-11-12 13:46)"
+      }
+     ]
+    },
+    "blank_unit_refuses": true,
+    "scope": {
+     "options": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only",
+      "Installation only (supply quoted on another row)"
+     ],
+     "supply_only": "Supply only",
+     "install_only": "Installation only",
+     "install_only_normal": "Installation only (supply quoted on another row)",
+     "uplift_input": "valve_install_only_uplift",
+     "title": "Scope",
+     "model_attr": "scope",
+     "lines": {
+      "supply_only_note": "BoQ says supply only - no installation: install 0 on every line of this row.",
+      "install_only_note": "Installation only: each line's install rate x (1 + {pct}) (Pricing Input \"Valve - installation-only uplift\"), rounded up to the rupee; supply not in scope = 0:",
+      "install_only_line": "{title} {rate} x (1 + {pct}) = {figure}",
+      "no_install": "BoQ says installation only, but {title} has no installation rate - price this row by hand",
+      "uplift_missing": "BoQ says installation only, but the Pricing Input 'Valve - installation-only uplift' is not set - set it in Pricing Inputs",
+      "row_title": "the row"
+     },
+     "supply_row": {
+      "normal_note": "Installation only: the normal installation rate (no uplift), because this sheet quotes the supply of this valve on its own row; supply not in scope = 0.",
+      "with_row": "Supply row(s) of this valve on this sheet: {rows} (owner VR9).",
+      "no_row": "The sheet does not quote this valve's supply on another row, so the uplift applies. Switch back to Supply + installation if the BoQ supplies it too (owner VR9)."
+     },
+     "panel_pick": {
+      "note": "Scope changed by user (the helper chose {helper}{because})"
+     }
+    }
+   }
+  }
+ },
+ "misc_config": {
+  "discipline": "HVAC",
+  "category_id": "hvac_misc",
+  "category_display": "Misc",
+  "item_kinds": [
+   "hvac_misc_item"
+  ],
+  "attribute_definitions": [],
+  "pipelines": {},
+  "notes": "VP-1 (2026-11-13): the Misc category's rules for its 12 priced items (owner 2026-11-12 12:14-12:27, 'option a'), BORROW-ONLY (QR-1 Q5 (a)): no top-level attribute_definitions, so it is never eligible on its own -- Misc rows keep 'coming soon'; Valve Package prices these items under these rules. Built properly when the Misc category is built.",
+  "matching_mode": "item_list",
+  "list_spec": {
+   "family_attribute_id": "item",
+   "attribute_definitions": [
+    {
+     "id": "item",
+     "label": "Misc item",
+     "type": "choice",
+     "values": [
+      "Temperature Gauge / Thermometer",
+      "Pressure Gauge",
+      "Rubber Bellows / Expansion Joint",
+      "Test Plug / Thermowell",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which Misc item THIS row buys: a thermometer or temperature gauge; a pressure gauge; rubber bellows, a flexible pipe connection or an expansion joint; a test plug, test point or thermowell. Answer 'none of these' for anything else (a flow meter, a gauge cock) and copy its words into 'Item as written'. A thermowell named WITH a thermometer, and a syphon, gauge cock, needle valve or small isolation cock named WITH a gauge, is part of that instrument, never a second item."
+    },
+    {
+     "id": "item_as_written",
+     "label": "Item as written",
+     "type": "text",
+     "note": "The item in the BoQ's own words. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "size_mm",
+     "label": "Size",
+     "type": "text",
+     "note": "Rubber bellows / flexible connections / expansion joints only: the pipe size AS WRITTEN (mm, NB, inches). A gauge's dial size is not asked. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    }
+   ],
+   "second_opinion": false,
+   "pricing": {
+    "kind": "hvac_misc_item",
+    "label_attr": "item",
+    "unit_class_attr": "unit_class",
+    "unit_classes": {
+     "count": [
+      "Nos",
+      "nos",
+      "no",
+      "no's",
+      "nos.",
+      "no.",
+      "no.s",
+      "number",
+      "each",
+      "ea",
+      "pcs",
+      "unit"
+     ]
+    },
+    "unit_words": {
+     "count": "Nos"
+    },
+    "unit_refusal": "unit '{unit}' is not a Misc unit - these Misc items are priced per Nos - price this row by hand",
+    "no_sku_families": [
+     "none of these"
+    ],
+    "unstocked_materials": {
+     "words": [
+      "flow meter",
+      "flowmeter"
+     ],
+     "from_attr": "item_as_written",
+     "rule": "VR3 not on our sheets",
+     "per_item": true
+    },
+    "numbers": {
+     "size_mm": {
+      "from": [
+       "size_mm"
+      ],
+      "name": "size",
+      "unit": "mm",
+      "inches": true,
+      "inch_mm_alt": 25,
+      "typed_entry": "one_size"
+     }
+    },
+    "ladders": [
+     "size_mm"
+    ],
+    "match_attrs": [
+     "size_mm"
+    ],
+    "choice_attrs": [],
+    "size_match": {
+     "dp": [
+      2,
+      1
+     ],
+     "near": 0.1,
+     "below_smallest": "smallest"
+    },
+    "families": {
+     "Temperature Gauge / Thermometer": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Pressure Gauge": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Rubber Bellows / Expansion Joint": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [
+         "size_mm"
+        ],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     "Test Plug / Thermowell": {
+      "needs": [],
+      "units": {
+       "count": {
+        "needs": [],
+        "pipelines": {
+         "supply": {
+          "output": [
+           "supply"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "unit",
+            "target": "cost_supply",
+            "formula": "base",
+            "explain": "BCS supply: the SKU's own cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_supply",
+            "explain": "BCS supply"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_supply",
+            "result": "supply",
+            "params": {
+             "m_from_ctx": "supply_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS supply x (1 + the SKU's supply markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "supply",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(supply, 0)"
+           }
+          ]
+         },
+         "install": {
+          "output": [
+           "install"
+          ],
+          "steps": [
+           {
+            "step": "match_master_row",
+            "params": {
+             "kind": "hvac_misc_item"
+            },
+            "explain": "match the Misc SKU (type and size)"
+           },
+           {
+            "step": "component",
+            "name": "install",
+            "target": "cost_install",
+            "formula": "base",
+            "explain": "BCS install: the SKU's own installation cost from the sheet"
+           },
+           {
+            "step": "sum_components",
+            "result": "bcs_install",
+            "explain": "BCS install"
+           },
+           {
+            "step": "scale",
+            "target": "bcs_install",
+            "result": "install",
+            "params": {
+             "m_from_ctx": "install_markup"
+            },
+            "formula": "base*(1+m)",
+            "explain": "BCS install x (1 + the SKU's install markup)"
+           },
+           {
+            "step": "roundup",
+            "target": "install",
+            "params": {
+             "digits": 0
+            },
+            "explain": "ROUNDUP(install, 0)"
+           }
+          ]
+         }
+        }
+       }
+      }
+     }
+    },
+    "panel_controls": {
+     "item": "dropdown",
+     "size_mm": "dropdown_or_other"
+    },
+    "panel_readonly": [
+     "item_as_written"
+    ],
+    "no_sku_named_by": "item_as_written",
+    "blank_unit_refuses": true,
+    "panel_notes": {
+     "size_mm": "Type the pipe size the bellows / flexible connection fits, in mm or inches. For an NB or DN size type the number."
+    },
+    "text_notes": [
+     {
+      "families": [
+       "Temperature Gauge / Thermometer"
+      ],
+      "from_text": "own_and_headings",
+      "pattern": "thermo\\s*-?\\s*well",
+      "line": "The BoQ includes a thermowell with the thermometer; it is part of fitting it and is not priced separately (owner QR-1 Q3)",
+      "rule": "QR-1 Q3"
+     },
+     {
+      "families": [
+       "Pressure Gauge"
+      ],
+      "from_text": "own_and_headings",
+      "pattern": "s[iy]phon|gauge\\s*cock|needle\\s*valve|\\bcock\\b",
+      "line": "The BoQ includes the gauge's own fittings (syphon / gauge cock / needle valve); they are part of fitting it and are not priced separately (owner QR-1 Q3)",
+      "rule": "QR-1 Q3"
+     }
+    ]
+   }
+  }
+ },
+ "valve_items": [
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Steel lever)",
+    "size_mm": 25.0
+   },
+   "rates": {
+    "cost_supply": 1230.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 3
+   },
+   "_boq": [
+    1722,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 1950.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 4
+   },
+   "_boq": [
+    2730,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 65.0
+   },
+   "rates": {
+    "cost_supply": 2106.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 5
+   },
+   "_boq": [
+    2949,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 80.0
+   },
+   "rates": {
+    "cost_supply": 2218.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 6
+   },
+   "_boq": [
+    3106,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 100.0
+   },
+   "rates": {
+    "cost_supply": 2934.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 7
+   },
+   "_boq": [
+    4108,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 125.0
+   },
+   "rates": {
+    "cost_supply": 3539.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 8
+   },
+   "_boq": [
+    4955,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Hand lever)",
+    "size_mm": 150.0
+   },
+   "rates": {
+    "cost_supply": 4077.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 9
+   },
+   "_boq": [
+    5708,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Gear Box )",
+    "size_mm": 200.0
+   },
+   "rates": {
+    "cost_supply": 9229.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 10
+   },
+   "_boq": [
+    12921,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve (Gear Box )",
+    "size_mm": 250.0
+   },
+   "rates": {
+    "cost_supply": 13709.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 11
+   },
+   "_boq": [
+    19193,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Butterfly Valve",
+    "item_name": "Butterfly Valve",
+    "size_mm": 300.0
+   },
+   "rates": {
+    "cost_supply": 16414.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 12
+   },
+   "_boq": [
+    22980,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Balancing Valve",
+    "item_name": "Flanged Balancing Valve",
+    "size_mm": 100.0
+   },
+   "rates": {
+    "cost_supply": 13619.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 13
+   },
+   "_boq": [
+    19067,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Balancing Valve",
+    "item_name": "Flanged Balancing Valve",
+    "size_mm": 150.0
+   },
+   "rates": {
+    "cost_supply": 24998.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 14
+   },
+   "_boq": [
+    34998,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Balancing Valve",
+    "item_name": "Flanged Balancing Valve",
+    "size_mm": 200.0
+   },
+   "rates": {
+    "cost_supply": 49190.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 15
+   },
+   "_boq": [
+    68866,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Balancing Valve",
+    "item_name": "Flanged Balancing Valve",
+    "size_mm": 250.0
+   },
+   "rates": {
+    "cost_supply": 92288.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 16
+   },
+   "_boq": [
+    129204,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (Modulating Motorised Actuator)",
+    "size_mm": 150.0,
+    "actuation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 50397.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 17
+   },
+   "_boq": [
+    70556,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (Modulating Motorised Actuator)",
+    "size_mm": 200.0,
+    "actuation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 57347.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 18
+   },
+   "_boq": [
+    80286,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (Modulating Motorised Actuator)",
+    "size_mm": 250.0,
+    "actuation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 144309.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 19
+   },
+   "_boq": [
+    202033,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (On-Off Duty Motorised Actuator)",
+    "size_mm": 150.0,
+    "actuation": "On-Off"
+   },
+   "rates": {
+    "cost_supply": 38077.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 20
+   },
+   "_boq": [
+    53308,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (On-Off Duty Motorised Actuator)",
+    "size_mm": 200.0,
+    "actuation": "On-Off"
+   },
+   "rates": {
+    "cost_supply": 49107.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 21
+   },
+   "_boq": [
+    68750,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Motorised Butterfly Valve",
+    "item_name": "Butterfly Valve (On-Off Duty Motorised Actuator)",
+    "size_mm": 250.0,
+    "actuation": "On-Off"
+   },
+   "rates": {
+    "cost_supply": 127149.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 22
+   },
+   "_boq": [
+    178009,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 50.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 2402.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 23
+   },
+   "_boq": [
+    3363,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 65.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 2664.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 24
+   },
+   "_boq": [
+    3730,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 80.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 3117.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 25
+   },
+   "_boq": [
+    4364,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 100.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 4002.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 26
+   },
+   "_boq": [
+    5603,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 125.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 5204.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 27
+   },
+   "_boq": [
+    7286,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 150.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 5869.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 28
+   },
+   "_boq": [
+    8217,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 200.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 11820.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 29
+   },
+   "_boq": [
+    16548,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 250.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 19288.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 30
+   },
+   "_boq": [
+    27004,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Dual Plate NRV",
+    "size_mm": 300.0,
+    "nrv_type": "Dual Plate"
+   },
+   "rates": {
+    "cost_supply": 26800.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 31
+   },
+   "_boq": [
+    37520,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 25.0
+   },
+   "rates": {
+    "cost_supply": 12486.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 32
+   },
+   "_boq": [
+    17481,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 32.0
+   },
+   "rates": {
+    "cost_supply": 20066.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 33
+   },
+   "_boq": [
+    28093,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 40.0
+   },
+   "rates": {
+    "cost_supply": 25120.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 34
+   },
+   "_boq": [
+    35168,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 36213.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 35
+   },
+   "_boq": [
+    50699,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 65.0
+   },
+   "rates": {
+    "cost_supply": 44508.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 36
+   },
+   "_boq": [
+    62312,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 80.0
+   },
+   "rates": {
+    "cost_supply": 47421.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 37
+   },
+   "_boq": [
+    66390,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 100.0
+   },
+   "rates": {
+    "cost_supply": 65257.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 38
+   },
+   "_boq": [
+    91360,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "PIBCV",
+    "item_name": "Pressure Independent control valve with thermostat and actuator with inbuilt controller (PIBCV)",
+    "size_mm": 125.0
+   },
+   "rates": {
+    "cost_supply": 82307.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 39
+   },
+   "_boq": [
+    115230,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 50.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 5828.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 40
+   },
+   "_boq": [
+    8160,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 65.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 7013.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 41
+   },
+   "_boq": [
+    9819,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 80.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 8370.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 42
+   },
+   "_boq": [
+    11718,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 100.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 11365.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 43
+   },
+   "_boq": [
+    15911,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 125.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 13991.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 44
+   },
+   "_boq": [
+    19588,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 150.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 17464.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 45
+   },
+   "_boq": [
+    24450,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 200.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 29910.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 46
+   },
+   "_boq": [
+    41874,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 250.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 42848.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 47
+   },
+   "_boq": [
+    59988,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Rising Spindle )",
+    "size_mm": 300.0,
+    "spindle": "Rising"
+   },
+   "rates": {
+    "cost_supply": 53794.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 48
+   },
+   "_boq": [
+    75312,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 50.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 6391.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 49
+   },
+   "_boq": [
+    8948,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 65.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 7621.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 50
+   },
+   "_boq": [
+    10670,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 80.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 9577.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 51
+   },
+   "_boq": [
+    13408,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 100.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 13908.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 52
+   },
+   "_boq": [
+    19472,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 125.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 17274.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 53
+   },
+   "_boq": [
+    24184,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 150.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 20973.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 54
+   },
+   "_boq": [
+    29363,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 200.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 34782.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 55
+   },
+   "_boq": [
+    48695,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 250.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 51153.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 56
+   },
+   "_boq": [
+    71615,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Sluice / Gate Valve",
+    "item_name": "Sluice Valve ( Non Rising Spindle)",
+    "size_mm": 300.0,
+    "spindle": "Non-rising"
+   },
+   "rates": {
+    "cost_supply": 64190.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 57
+   },
+   "_boq": [
+    89866,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 50.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 2864.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 58
+   },
+   "_boq": [
+    4010,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 65.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 3544.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 59
+   },
+   "_boq": [
+    4962,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 80.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 4664.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 60
+   },
+   "_boq": [
+    6530,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 100.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 6360.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 61
+   },
+   "_boq": [
+    8904,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 125.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 10432.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 62
+   },
+   "_boq": [
+    14605,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 150.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 15440.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 63
+   },
+   "_boq": [
+    21616,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 200.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 25760.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 64
+   },
+   "_boq": [
+    36064,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 250.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 40248.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 65
+   },
+   "_boq": [
+    56348,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Ball Type NRV",
+    "size_mm": 300.0,
+    "nrv_type": "Ball Type"
+   },
+   "rates": {
+    "cost_supply": 59040.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 66
+   },
+   "_boq": [
+    82656,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 50.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 3452.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 67
+   },
+   "_boq": [
+    4833,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 65.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 4436.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 68
+   },
+   "_boq": [
+    6211,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 80.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 5473.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 69
+   },
+   "_boq": [
+    7663,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 100.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 7816.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 70
+   },
+   "_boq": [
+    10943,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 125.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 10500.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 71
+   },
+   "_boq": [
+    14700,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 150.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 14539.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 72
+   },
+   "_boq": [
+    20355,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 200.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 25993.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 73
+   },
+   "_boq": [
+    36391,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 250.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 31665.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 74
+   },
+   "_boq": [
+    44331,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Flanged NRV",
+    "size_mm": 300.0,
+    "nrv_type": "Flanged"
+   },
+   "rates": {
+    "cost_supply": 39412.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 75
+   },
+   "_boq": [
+    55177,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 50.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 2243.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 76
+   },
+   "_boq": [
+    3141,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 65.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 2940.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 77
+   },
+   "_boq": [
+    4116,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 80.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 3498.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 78
+   },
+   "_boq": [
+    4898,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 100.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 4958.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 79
+   },
+   "_boq": [
+    6942,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 125.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 7884.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 80
+   },
+   "_boq": [
+    11038,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 150.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 9665.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 81
+   },
+   "_boq": [
+    13531,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 200.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 17676.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 82
+   },
+   "_boq": [
+    24747,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 250.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 27733.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 83
+   },
+   "_boq": [
+    38827,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "Y-Type Strainer",
+    "size_mm": 300.0,
+    "strainer_type": "Y-Type"
+   },
+   "rates": {
+    "cost_supply": 30496.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 84
+   },
+   "_boq": [
+    42695,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 50.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 692.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 85
+   },
+   "_boq": [
+    969,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 65.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 826.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 86
+   },
+   "_boq": [
+    1157,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 80.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 992.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 87
+   },
+   "_boq": [
+    1389,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 100.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 1301.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 88
+   },
+   "_boq": [
+    1822,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 125.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 1802.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 89
+   },
+   "_boq": [
+    2523,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 150.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 2302.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 90
+   },
+   "_boq": [
+    3223,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 200.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 3694.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 91
+   },
+   "_boq": [
+    5172,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 250.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 6432.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 92
+   },
+   "_boq": [
+    9005,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "NRV / Check Valve",
+    "item_name": "Wafer NRV",
+    "size_mm": 300.0,
+    "nrv_type": "Wafer"
+   },
+   "rates": {
+    "cost_supply": 10110.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 93
+   },
+   "_boq": [
+    14154,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 50.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 2217.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 94
+   },
+   "_boq": [
+    3104,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 65.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 2765.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 95
+   },
+   "_boq": [
+    3871,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 80.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 3323.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 96
+   },
+   "_boq": [
+    4653,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 100.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 4774.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 97
+   },
+   "_boq": [
+    6684,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 125.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 6761.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 98
+   },
+   "_boq": [
+    9466,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 150.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 8925.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 99
+   },
+   "_boq": [
+    12495,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 200.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 19470.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 100
+   },
+   "_boq": [
+    27258,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 250.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 24214.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 101
+   },
+   "_boq": [
+    33900,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Strainer",
+    "item_name": "T-Type Strainer",
+    "size_mm": 300.0,
+    "strainer_type": "T-Type"
+   },
+   "rates": {
+    "cost_supply": 33280.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 102
+   },
+   "_boq": [
+    46592,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 20.0
+   },
+   "rates": {
+    "cost_supply": 322.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 103
+   },
+   "_boq": [
+    451,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 25.0
+   },
+   "rates": {
+    "cost_supply": 487.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 104
+   },
+   "_boq": [
+    682,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 32.0
+   },
+   "rates": {
+    "cost_supply": 874.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 105
+   },
+   "_boq": [
+    1224,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 40.0
+   },
+   "rates": {
+    "cost_supply": 1050.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 106
+   },
+   "_boq": [
+    1470,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 1562.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 107
+   },
+   "_boq": [
+    2187,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Ball Valve",
+    "item_name": "Ball Valve",
+    "size_mm": 15.0
+   },
+   "rates": {
+    "cost_supply": 180.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 108
+   },
+   "_boq": [
+    252,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Test & Drain Valve",
+    "item_name": "Test & Drain Valve",
+    "size_mm": 25.0
+   },
+   "rates": {
+    "cost_supply": 3400.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 109
+   },
+   "_boq": [
+    4760,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Test & Drain Valve",
+    "item_name": "Test & Drain Valve",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 7350.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 110
+   },
+   "_boq": [
+    10290,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 1904.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 111
+   },
+   "_boq": [
+    2666,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 65.0
+   },
+   "rates": {
+    "cost_supply": 2512.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 112
+   },
+   "_boq": [
+    3517,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 80.0
+   },
+   "rates": {
+    "cost_supply": 3264.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 113
+   },
+   "_boq": [
+    4570,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 100.0
+   },
+   "rates": {
+    "cost_supply": 5200.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 114
+   },
+   "_boq": [
+    7280,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 125.0
+   },
+   "rates": {
+    "cost_supply": 6480.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 115
+   },
+   "_boq": [
+    9072,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 150.0
+   },
+   "rates": {
+    "cost_supply": 10904.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 116
+   },
+   "_boq": [
+    15266,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 200.0
+   },
+   "rates": {
+    "cost_supply": 21880.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 117
+   },
+   "_boq": [
+    30632,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 250.0
+   },
+   "rates": {
+    "cost_supply": 47744.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 118
+   },
+   "_boq": [
+    66842,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Foot Valve",
+    "item_name": "Foot Valve Flanged",
+    "size_mm": 300.0
+   },
+   "rates": {
+    "cost_supply": 68272.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 119
+   },
+   "_boq": [
+    95581,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "Automatic Air Vent",
+    "item_name": "Automatic Air Vent"
+   },
+   "rates": {
+    "cost_supply": 800.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 120
+   },
+   "_boq": [
+    1120,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "BTU Meter",
+    "item_name": "BTU Meter",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 34000.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 121
+   },
+   "_boq": [
+    47600,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "BTU Meter",
+    "item_name": "BTU Meter",
+    "size_mm": 65.0
+   },
+   "rates": {
+    "cost_supply": 46000.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 122
+   },
+   "_boq": [
+    64400,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "BTU Meter",
+    "item_name": "BTU Meter",
+    "size_mm": 80.0
+   },
+   "rates": {
+    "cost_supply": 60000.0,
+    "supply_markup": 0.4,
+    "cost_install": 1500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 123
+   },
+   "_boq": [
+    84000,
+    3000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "2-Way Valve",
+    "item_name": "2-way modulating valve",
+    "size_mm": 20.0,
+    "operation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 2400.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 124
+   },
+   "_boq": [
+    3360,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "2-Way Valve",
+    "item_name": "2-way modulating valve",
+    "size_mm": 25.0,
+    "operation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 2800.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 125
+   },
+   "_boq": [
+    3920,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_valve_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Valve Package",
+    "valve_type": "2-Way Valve",
+    "item_name": "2-way modulating valve",
+    "size_mm": 32.0,
+    "operation": "Modulating"
+   },
+   "rates": {
+    "cost_supply": 3500.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Valve Package",
+    "row": 126
+   },
+   "_boq": [
+    4900,
+    1000
+   ]
+  }
+ ],
+ "misc_items": [
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Temperature Gauge / Thermometer",
+    "item_name": "Temparaturre Gauge/ Thermometer"
+   },
+   "rates": {
+    "cost_supply": 1450.0,
+    "supply_markup": 0.5,
+    "cost_install": 250.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 28
+   },
+   "_boq": [
+    2175,
+    500
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Pressure Gauge",
+    "item_name": "Pressure Gauge"
+   },
+   "rates": {
+    "cost_supply": 1450.0,
+    "supply_markup": 0.5,
+    "cost_install": 250.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 29
+   },
+   "_boq": [
+    2175,
+    500
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "50 mm",
+    "size_mm": 50.0
+   },
+   "rates": {
+    "cost_supply": 3704.0,
+    "supply_markup": 0.5,
+    "cost_install": 370.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 30
+   },
+   "_boq": [
+    5556,
+    740
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "65 mm",
+    "size_mm": 65.0
+   },
+   "rates": {
+    "cost_supply": 4570.0,
+    "supply_markup": 0.5,
+    "cost_install": 460.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 31
+   },
+   "_boq": [
+    6855,
+    920
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "80mm",
+    "size_mm": 80.0
+   },
+   "rates": {
+    "cost_supply": 4969.0,
+    "supply_markup": 0.5,
+    "cost_install": 500.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 32
+   },
+   "_boq": [
+    7454,
+    1000
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "100 mm",
+    "size_mm": 100.0
+   },
+   "rates": {
+    "cost_supply": 5925.0,
+    "supply_markup": 0.5,
+    "cost_install": 600.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 33
+   },
+   "_boq": [
+    8888,
+    1200
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "125 mm",
+    "size_mm": 125.0
+   },
+   "rates": {
+    "cost_supply": 6750.0,
+    "supply_markup": 0.5,
+    "cost_install": 675.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 34
+   },
+   "_boq": [
+    10125,
+    1350
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "150 mm",
+    "size_mm": 150.0
+   },
+   "rates": {
+    "cost_supply": 7517.0,
+    "supply_markup": 0.5,
+    "cost_install": 750.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 35
+   },
+   "_boq": [
+    11276,
+    1500
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "200 mm",
+    "size_mm": 200.0
+   },
+   "rates": {
+    "cost_supply": 10127.0,
+    "supply_markup": 0.5,
+    "cost_install": 1000.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 36
+   },
+   "_boq": [
+    15191,
+    2000
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "250 mm",
+    "size_mm": 250.0
+   },
+   "rates": {
+    "cost_supply": 17059.0,
+    "supply_markup": 0.5,
+    "cost_install": 1750.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 37
+   },
+   "_boq": [
+    25589,
+    3500
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Rubber Bellows / Expansion Joint",
+    "item_name": "Rubber Bellows / Expansion Joints",
+    "item_detail": "300 mm",
+    "size_mm": 300.0
+   },
+   "rates": {
+    "cost_supply": 19027.0,
+    "supply_markup": 0.5,
+    "cost_install": 1900.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 38
+   },
+   "_boq": [
+    28541,
+    3800
+   ]
+  },
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "Test Plug / Thermowell",
+    "item_name": "Test Plug/ Thermowell"
+   },
+   "rates": {
+    "cost_supply": 480.0,
+    "supply_markup": 0.5,
+    "cost_install": 50.0,
+    "install_markup": 1.0
+   },
+   "source": {
+    "sheet": "Misc",
+    "row": 39
+   },
+   "_boq": [
+    720,
+    100
+   ]
+  }
+ ],
+ "pricing_input": {
+  "kind": "hvac_pricing_input",
+  "brand": null,
+  "unit": "share of the final install (0.5 = 50%)",
+  "attributes": {
+   "item": "valve_install_only_uplift",
+   "name": "Valve - installation-only uplift",
+   "remarks": "A Valve Package row the BoQ prices as INSTALLATION ONLY, where the sheet quotes no supply row of that valve: each line's final install (after every markup and rounding) x (1 + this), rounded up to the rupee once; no supply (owner VR9 2026-11-11; QR-2 Q1 (a) 2026-11-12: every category its own installation-only uplift input).",
+   "shared_by": "valve"
+  },
+  "rates": {
+   "factor": 0.5
+  },
+  "source": {
+   "sheet": "Pricing Inputs",
+   "row": 0
+  }
+ },
+ "piping_sheet_heading_notes": [
+  {
+   "pattern": "\\bvalves?\\b",
+   "category": "hvac_valve_package",
+   "with_rows": "This row's heading mentions valves. This sheet prices valves on their own rows (rows {rows}), so valves are not included in this pipe price.",
+   "none": "This row's heading mentions valves, but this sheet quotes no valve on its own row. Valves are not included in this pipe price - add them on their own rows if the BoQ needs them.",
+   "cap": 10,
+   "rule": "VR1 (owner 2026-11-12 23:59; 11-13 00:09 no add-valves button; 00:33 first 10 rows then 'and N more')"
+  }
+ ]
+}

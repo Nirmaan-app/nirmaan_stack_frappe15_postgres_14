@@ -1,0 +1,878 @@
+{
+"source": "DU-D0 D6 parity table: the 97 duct rows of the owner rate sheet with the sheet figure (supply, install) each states",
+"rows": [
+{
+"src": 2,
+"row": "GI Rectangular 26G",
+"unit": "Sqm",
+"sheet": [
+970,
+260
+]
+},
+{
+"src": 3,
+"row": "GI Rectangular 24G",
+"unit": "Sqm",
+"sheet": [
+1080,
+260
+]
+},
+{
+"src": 4,
+"row": "GI Rectangular 22G",
+"unit": "Sqm",
+"sheet": [
+1310,
+260
+]
+},
+{
+"src": 5,
+"row": "GI Rectangular 20G",
+"unit": "Sqm",
+"sheet": [
+1520,
+260
+]
+},
+{
+"src": 6,
+"row": "GI Rectangular 18G",
+"unit": "Sqm",
+"sheet": [
+1800,
+260
+]
+},
+{
+"src": 7,
+"row": "GI Spiral/Oval 26G",
+"unit": "Sqm",
+"sheet": [
+1080,
+280
+]
+},
+{
+"src": 8,
+"row": "GI Spiral/Oval 24G",
+"unit": "Sqm",
+"sheet": [
+1240,
+280
+]
+},
+{
+"src": 9,
+"row": "GI Spiral/Oval 22G",
+"unit": "Sqm",
+"sheet": [
+1500,
+280
+]
+},
+{
+"src": 10,
+"row": "GI Spiral/Oval 20G",
+"unit": "Sqm",
+"sheet": [
+1750,
+280
+]
+},
+{
+"src": 11,
+"row": "GI Spiral/Oval 18G",
+"unit": "Sqm",
+"sheet": [
+1910,
+280
+]
+},
+{
+"src": 12,
+"row": "GI Spiral/Oval with Insulation 18G + 9 mm insulation",
+"unit": "Sqm",
+"sheet": [
+2290,
+430
+]
+},
+{
+"src": 13,
+"row": "GI Spiral/Oval with Insulation 20G + 9 mm insulation",
+"unit": "Sqm",
+"sheet": [
+2140,
+430
+]
+},
+{
+"src": 14,
+"row": "GI Spiral/Oval with Insulation 22G + 9 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1890,
+430
+]
+},
+{
+"src": 15,
+"row": "GI Spiral/Oval with Insulation 24G + 9 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1620,
+430
+]
+},
+{
+"src": 16,
+"row": "GI Spiral/Oval with Insulation 26G + 9 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1470,
+430
+]
+},
+{
+"src": 17,
+"row": "GI Spiral/Oval with Insulation 18G + 13 mm insulation",
+"unit": "Sqm",
+"sheet": [
+2370,
+430
+]
+},
+{
+"src": 18,
+"row": "GI Spiral/Oval with Insulation 20G + 13 mm insulation",
+"unit": "Sqm",
+"sheet": [
+2220,
+430
+]
+},
+{
+"src": 19,
+"row": "GI Spiral/Oval with Insulation 22G + 13 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1970,
+430
+]
+},
+{
+"src": 20,
+"row": "GI Spiral/Oval with Insulation 24G + 13 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1700,
+430
+]
+},
+{
+"src": 21,
+"row": "GI Spiral/Oval with Insulation 26G + 13 mm insulation",
+"unit": "Sqm",
+"sheet": [
+1550,
+430
+]
+},
+{
+"src": 22,
+"row": "GI Round GI Duct 150 mm 24G",
+"unit": "Mts",
+"sheet": [
+670,
+130
+]
+},
+{
+"src": 23,
+"row": "GI Round GI Duct 100 mm 24G",
+"unit": "Mts",
+"sheet": [
+500,
+90
+]
+},
+{
+"src": 24,
+"row": "GI Round GI Duct 200 mm 24G",
+"unit": "Mts",
+"sheet": [
+840,
+180
+]
+},
+{
+"src": 25,
+"row": "GI Round GI Duct 250 mm 24G",
+"unit": "Mts",
+"sheet": [
+1000,
+220
+]
+},
+{
+"src": 26,
+"row": "GI Round GI Duct 300 mm 24G",
+"unit": "Mts",
+"sheet": [
+1170,
+260
+]
+},
+{
+"src": 27,
+"row": "GI Round GI Duct 80 mm 24G",
+"unit": "Mts",
+"sheet": [
+430,
+70
+]
+},
+{
+"src": 28,
+"row": "GI Round GI Duct 150 mm 22G",
+"unit": "Mts",
+"sheet": [
+790,
+130
+]
+},
+{
+"src": 29,
+"row": "GI Round GI Duct 100 mm 22G",
+"unit": "Mts",
+"sheet": [
+580,
+90
+]
+},
+{
+"src": 30,
+"row": "GI Round GI Duct 200 mm 22G",
+"unit": "Mts",
+"sheet": [
+1000,
+180
+]
+},
+{
+"src": 31,
+"row": "GI Round GI Duct 250 mm 22G",
+"unit": "Mts",
+"sheet": [
+1210,
+220
+]
+},
+{
+"src": 32,
+"row": "GI Round GI Duct 300 mm 22G",
+"unit": "Mts",
+"sheet": [
+1420,
+260
+]
+},
+{
+"src": 33,
+"row": "GI Round GI Duct 80 mm 22G",
+"unit": "Mts",
+"sheet": [
+500,
+70
+]
+},
+{
+"src": 34,
+"row": "GI Round GI Duct 150 mm 26G",
+"unit": "Mts",
+"sheet": [
+590,
+130
+]
+},
+{
+"src": 35,
+"row": "GI Round GI Duct 100 mm 26G",
+"unit": "Mts",
+"sheet": [
+450,
+90
+]
+},
+{
+"src": 36,
+"row": "GI Round GI Duct 200 mm 26G",
+"unit": "Mts",
+"sheet": [
+740,
+180
+]
+},
+{
+"src": 37,
+"row": "GI Round GI Duct 250 mm 26G",
+"unit": "Mts",
+"sheet": [
+880,
+220
+]
+},
+{
+"src": 38,
+"row": "GI Round GI Duct 300 mm 26G",
+"unit": "Mts",
+"sheet": [
+1030,
+260
+]
+},
+{
+"src": 39,
+"row": "GI Round GI Duct 80 mm 26G",
+"unit": "Mts",
+"sheet": [
+390,
+70
+]
+},
+{
+"src": 40,
+"row": "GI Round GI Duct 150 mm 18G",
+"unit": "Mts",
+"sheet": [
+980,
+130
+]
+},
+{
+"src": 41,
+"row": "GI Round GI Duct 100 mm 18G",
+"unit": "Mts",
+"sheet": [
+710,
+90
+]
+},
+{
+"src": 42,
+"row": "GI Round GI Duct 200 mm 18G",
+"unit": "Mts",
+"sheet": [
+1260,
+180
+]
+},
+{
+"src": 43,
+"row": "GI Round GI Duct 250 mm 18G",
+"unit": "Mts",
+"sheet": [
+1530,
+220
+]
+},
+{
+"src": 44,
+"row": "GI Round GI Duct 300 mm 18G",
+"unit": "Mts",
+"sheet": [
+1810,
+260
+]
+},
+{
+"src": 45,
+"row": "GI Round GI Duct 80 mm 18G",
+"unit": "Mts",
+"sheet": [
+600,
+70
+]
+},
+{
+"src": 46,
+"row": "GI Round GI Duct with Insulation 150 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+850,
+210
+]
+},
+{
+"src": 47,
+"row": "GI Round GI Duct with Insulation 100 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+620,
+140
+]
+},
+{
+"src": 48,
+"row": "GI Round GI Duct with Insulation 200 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1080,
+270
+]
+},
+{
+"src": 49,
+"row": "GI Round GI Duct with Insulation 250 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1300,
+340
+]
+},
+{
+"src": 50,
+"row": "GI Round GI Duct with Insulation 300 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1530,
+410
+]
+},
+{
+"src": 51,
+"row": "GI Round GI Duct with Insulation 80 mm 24G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+530,
+110
+]
+},
+{
+"src": 52,
+"row": "GI Round GI Duct with Insulation 150 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+970,
+210
+]
+},
+{
+"src": 53,
+"row": "GI Round GI Duct with Insulation 100 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+700,
+140
+]
+},
+{
+"src": 54,
+"row": "GI Round GI Duct with Insulation 200 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1240,
+270
+]
+},
+{
+"src": 55,
+"row": "GI Round GI Duct with Insulation 250 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1510,
+340
+]
+},
+{
+"src": 56,
+"row": "GI Round GI Duct with Insulation 300 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1780,
+410
+]
+},
+{
+"src": 57,
+"row": "GI Round GI Duct with Insulation 80 mm 22G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+590,
+110
+]
+},
+{
+"src": 58,
+"row": "GI Round GI Duct with Insulation 150 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+770,
+210
+]
+},
+{
+"src": 59,
+"row": "GI Round GI Duct with Insulation 100 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+570,
+140
+]
+},
+{
+"src": 60,
+"row": "GI Round GI Duct with Insulation 200 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+980,
+270
+]
+},
+{
+"src": 61,
+"row": "GI Round GI Duct with Insulation 250 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1180,
+340
+]
+},
+{
+"src": 62,
+"row": "GI Round GI Duct with Insulation 300 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1390,
+410
+]
+},
+{
+"src": 63,
+"row": "GI Round GI Duct with Insulation 80 mm 26G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+490,
+110
+]
+},
+{
+"src": 64,
+"row": "GI Round GI Duct with Insulation 150 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1160,
+210
+]
+},
+{
+"src": 65,
+"row": "GI Round GI Duct with Insulation 100 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+830,
+140
+]
+},
+{
+"src": 66,
+"row": "GI Round GI Duct with Insulation 200 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1500,
+270
+]
+},
+{
+"src": 67,
+"row": "GI Round GI Duct with Insulation 250 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+1830,
+340
+]
+},
+{
+"src": 68,
+"row": "GI Round GI Duct with Insulation 300 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+2170,
+410
+]
+},
+{
+"src": 69,
+"row": "GI Round GI Duct with Insulation 80 mm 18G + 9 mm insulation",
+"unit": "Mts",
+"sheet": [
+700,
+110
+]
+},
+{
+"src": 70,
+"row": "GI Round GI Duct with Insulation 150 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+890,
+210
+]
+},
+{
+"src": 71,
+"row": "GI Round GI Duct with Insulation 100 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+640,
+140
+]
+},
+{
+"src": 72,
+"row": "GI Round GI Duct with Insulation 200 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1130,
+270
+]
+},
+{
+"src": 73,
+"row": "GI Round GI Duct with Insulation 250 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1370,
+340
+]
+},
+{
+"src": 74,
+"row": "GI Round GI Duct with Insulation 300 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1610,
+410
+]
+},
+{
+"src": 75,
+"row": "GI Round GI Duct with Insulation 80 mm 24G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+550,
+110
+]
+},
+{
+"src": 76,
+"row": "GI Round GI Duct with Insulation 150 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1010,
+210
+]
+},
+{
+"src": 77,
+"row": "GI Round GI Duct with Insulation 100 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+730,
+140
+]
+},
+{
+"src": 78,
+"row": "GI Round GI Duct with Insulation 200 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1290,
+270
+]
+},
+{
+"src": 79,
+"row": "GI Round GI Duct with Insulation 250 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1580,
+340
+]
+},
+{
+"src": 80,
+"row": "GI Round GI Duct with Insulation 300 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1860,
+410
+]
+},
+{
+"src": 81,
+"row": "GI Round GI Duct with Insulation 80 mm 22G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+610,
+110
+]
+},
+{
+"src": 82,
+"row": "GI Round GI Duct with Insulation 150 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+810,
+210
+]
+},
+{
+"src": 83,
+"row": "GI Round GI Duct with Insulation 100 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+590,
+140
+]
+},
+{
+"src": 84,
+"row": "GI Round GI Duct with Insulation 200 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1030,
+270
+]
+},
+{
+"src": 85,
+"row": "GI Round GI Duct with Insulation 250 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1250,
+340
+]
+},
+{
+"src": 86,
+"row": "GI Round GI Duct with Insulation 300 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1470,
+410
+]
+},
+{
+"src": 87,
+"row": "GI Round GI Duct with Insulation 80 mm 26G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+510,
+110
+]
+},
+{
+"src": 88,
+"row": "GI Round GI Duct with Insulation 150 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1200,
+210
+]
+},
+{
+"src": 89,
+"row": "GI Round GI Duct with Insulation 100 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+850,
+140
+]
+},
+{
+"src": 90,
+"row": "GI Round GI Duct with Insulation 200 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1550,
+270
+]
+},
+{
+"src": 91,
+"row": "GI Round GI Duct with Insulation 250 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+1900,
+340
+]
+},
+{
+"src": 92,
+"row": "GI Round GI Duct with Insulation 300 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+2240,
+410
+]
+},
+{
+"src": 93,
+"row": "GI Round GI Duct with Insulation 80 mm 18G + 13 mm insulation",
+"unit": "Mts",
+"sheet": [
+710,
+110
+]
+},
+{
+"src": 94,
+"row": "PIR PIR (Pre Insulated Duct) 30 mm",
+"unit": "Sqm",
+"sheet": [
+1560,
+340
+]
+},
+{
+"src": 95,
+"row": "PIR PIR (Pre Insulated Duct) 20 mm",
+"unit": "Sqm",
+"sheet": [
+1280,
+340
+]
+},
+{
+"src": 96,
+"row": "MS Fire Rated Ducts 18G",
+"unit": "Sqm",
+"sheet": [
+3390,
+490
+]
+},
+{
+"src": 97,
+"row": "MS Fire Rated Ducts 20G",
+"unit": "Sqm",
+"sheet": [
+3180,
+490
+]
+},
+{
+"src": 98,
+"row": "MS Fire Rated Ducts 22G",
+"unit": "Sqm",
+"sheet": [
+3040,
+490
+]
+}
+]
+}
