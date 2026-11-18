@@ -3196,9 +3196,6 @@
   "src/pages/boq-wizard/BoqHubPage.tsx": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "typescript/use-unknown-in-catch-callback-variable": {
-      "count": 1
     }
   },
   "src/pages/boq-wizard/BoqMasterPanel.tsx": {

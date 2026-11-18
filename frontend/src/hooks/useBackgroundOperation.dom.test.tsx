@@ -153,3 +153,51 @@ describe("useBackgroundOperation: two BoQ uploads in two tabs", () => {
     expect(tabs.a?.view.phase).toBe("failed");
   });
 });
+
+describe("useBackgroundOperation: a slot change (the pricing page switching sheets)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("shows the new slot's own operation, idle when the new slot holds none, and the old one again on return", async () => {
+    const server = fakeServer();
+    vi.stubGlobal("fetch", server.fetchFake);
+    const socket = fakeSocket();
+    let op: BackgroundOperation | null = null;
+    const render = (storageKey: string) => act(async () => {
+      root.render(
+        <FrappeContext.Provider value={{ socket, call: server.call } as never}>
+          <Tab storageKey={storageKey} expose={(o) => { op = o; }} onFinished={vi.fn()} />
+        </FrappeContext.Provider>,
+      );
+    });
+    const view = () => (op as BackgroundOperation | null)?.view;
+
+    await render("rate_suggest:BOQ-TEST-0001:Sheet A");
+    await act(async () => {
+      await (op as BackgroundOperation | null)?.start(UPLOAD_METHOD, upload("Sheet_A.xlsx"));
+    });
+    const opA = view()?.phase === "queued" ? (view() as { opId: string }).opId : "";
+    expect(opA).not.toBe("");
+
+    await render("rate_suggest:BOQ-TEST-0001:Sheet B");
+    expect(view()).toEqual({ phase: "idle" });
+
+    await render("rate_suggest:BOQ-TEST-0001:Sheet A");
+    await settle();
+    expect(view()).toEqual({ phase: "queued", opId: opA });
+  });
+});

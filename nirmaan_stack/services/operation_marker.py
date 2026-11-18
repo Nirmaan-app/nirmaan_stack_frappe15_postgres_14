@@ -8,7 +8,8 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
 
 * The marker is claimed, set only when absent, BEFORE the operation is queued, so two start requests that both read
   "no marker" cannot both queue (`claim`; hub parse claims its BoQ row the same way). A start whose queue call fails
-  removes its marker again.
+  ends its background operation failed; its marker then names a job rq never had, which the next start heals after
+  ENQUEUE_GRACE_SEC (below).
 * Two readers that both judge one marker stale must not both clear it: the second would clear the first's new
   claim. `heal` deletes a stale marker only while it still holds the value that was read (compare-and-delete).
 * The claim's key expires after CLAIM_TTL_SEC, a day: rq keeps a queued job until a worker takes it, so the marker
@@ -51,15 +52,21 @@ def heal(key, marker, stale_seconds) -> str:
     return state
 
 
-def enqueue_claimed(key, method, **kwargs):
-    """Commit, then queue `method` (the job reads only committed rows). A queue call that raises removes the marker
-    `key` this start claimed, so nothing is left stuck."""
-    frappe.db.commit()
-    try:
-        return frappe.enqueue(method, **kwargs)
-    except Exception:
-        frappe.cache().delete_value(key)
-        raise
+def release(key, job_id):
+    """Delete the marker at `key` when its operation ends, but only while it still names `job_id`: a duplicate that
+    ends late must not free the sheet for a run it does not own (spec #1654, story 6)."""
+    frappe.local.cache.pop(frappe.cache().make_key(key), None)  # read Redis, not this process's copy
+    marker = frappe.cache().get_value(key)
+    if marker and marker.get("job_id") == job_id:
+        _delete_if_unchanged(key, marker)
+
+
+def release_own(key):
+    """`release` the marker at `key` for the background operation this worker runs (`frappe.local.background_op_id`;
+    nothing outside one). The `finally` of each flow's work."""
+    op_id = getattr(frappe.local, "background_op_id", None)
+    if op_id:
+        release(key, op_id)
 
 
 def _delete_if_unchanged(key, marker):

@@ -191,6 +191,12 @@ interface SheetCardProps {
    */
   checkSummary?: CheckSummary;
   /**
+   * #1668: the chip for this sheet's check from the check's own background operation, when the hub follows one
+   * (hubParseOperation.checkChipOf): "Waiting to check rows…" while it is queued, "Checking rows…" while it runs.
+   * null/undefined => the chip comes from checkSummary alone.
+   */
+  checkOpChip?: string | null;
+  /**
    * S6 (F12 / Q-i): never committed, or re-parsed after its last commit (hubState). Drives the
    * commit line's wording and whether a not-checked sheet says so. undefined => false.
    */
@@ -213,6 +219,7 @@ export function SheetCard({
   downstreamState,
   isTemplateOrigin,
   checkSummary,
+  checkOpChip,
   changedSinceCommit,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
@@ -390,6 +397,9 @@ export function SheetCard({
   // hubCheckSummary / the server. While the check runs the Review step reads
   // "Parsed · check in progress" in place of the parse date.
   const check = cardCheck(effectiveStatus, checkSummary);
+  // #1668: a check this tab follows says itself whether it waits in the queue or runs.
+  const checkChip =
+    effectiveStatus === "Parsed" || effectiveStatus === "Finalized" ? (checkOpChip ?? check.chip) : check.chip;
   if (check.stageSub) zone2DynamicSub = check.stageSub;
   // S6 (U1): "not checked" for a sheet whose check never ran -- only while it changed since commit.
   const notChecked = cardNotChecked(effectiveStatus, checkSummary, !!changedSinceCommit);
@@ -641,11 +651,11 @@ export function SheetCard({
               Parsing&hellip;
             </span>
           )}
-          {/* S4b (U3): the automatic row check of this sheet is running. */}
-          {check.chip && !isParsing && (
+          {/* S4b (U3): the automatic row check of this sheet is queued or running. */}
+          {checkChip && !isParsing && (
             <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 whitespace-nowrap">
               <Loader2 className="h-3 w-3 animate-spin" />
-              {check.chip}
+              {checkChip}
             </span>
           )}
           {/* Dirty indicator: Config Done sheet whose config changed since last parse.

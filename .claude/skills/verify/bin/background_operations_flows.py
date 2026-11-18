@@ -12,12 +12,12 @@ operation's outcome where the screen reads it (the status the polling fallback r
   its own operation id (#1669). An operation is ok when its status record ends finished with a success result and
   the new BoQ holds one Review Row per template row.
 - classify: ceil(N/2) Classify clicks at once, each on its own committed sheet with Electrical and HVAC rows, and
-  each click starts both engines (`start_classify` per engine, as `ClassifySheetDialog` does). An operation (one
-  engine) is ok when its classify status is success.
-- suggest: N rate suggests at once, each on its own committed sheet that passes the suggest gate (`start_suggest`,
-  whole sheet, as the Suggest rates dialog does). An operation is ok when its suggest status is success for that
-  sheet and, when the suggest started a historical match run (the match switch is on), that match run ends without
-  an error. A suggest whose status falls back to idle with no outcome (the screen would spin) is a failure.
+  each click starts both engines (`start_classify` per engine with its own operation id, as the pricing page does,
+  #1666). An operation (one engine) is ok when its status record ends finished with a success result.
+- suggest: N rate suggests at once, each on its own committed sheet that passes the suggest gate (`start_suggest`
+  with its own operation id, whole sheet, as the Suggest rates dialog does, #1667). An operation is ok when its status
+  record ends finished with a success result for that sheet and, when the suggest started a historical match (the
+  match switch is on), the match operation its result names ends finished (complete or halted) for that same run.
 - tds: N TDS exports by one user back to back, as N tabs of one screen (`start_tds_export`, #1662), heavy (200 rows)
   and light (1 row) alternating, heavy first. Every row of export i carries the marker `NWC<i>X<run>`. An operation
   is ok when its status record ends finished and the PDF `collect_result` hands back holds its own marker and no
@@ -50,7 +50,7 @@ from pypdf import PdfReader
 from rq import Worker
 
 from nirmaan_stack.api import background_ops
-from nirmaan_stack.api.boq import rate_master, rate_match
+from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.api.boq.wizard import classify, create_from_template, pricing
 from nirmaan_stack.api.boq.wizard.ai_settings import SETTINGS_DOCTYPE
 from nirmaan_stack.api.tds import tds_report
@@ -59,6 +59,7 @@ from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.services.series_lock import boq_series, recent_waits
 
 ENGINES = ("Electrical", "HVAC")
+ENDED = ("finished", "failed", "lost")  # a status record's end states
 PROJECT_NAME = "Background operations check"
 
 
@@ -217,22 +218,27 @@ def classify_setup(workers):
 
 
 def classify_run(ctx, run, timeout):
-    started = []
+    """Each click starts one background operation per engine (#1666); each engine is read from its own record."""
+    started = {}
     for boq, sheet in ctx["sheets"]:
         for engine in ENGINES:
-            classify.start_classify(boq=boq, sheet_name=sheet, discipline=engine, scope={"mode": "sheet"})
-            started.append((boq, sheet, engine))
+            op_id = str(uuid.uuid4())
+            classify.start_classify(boq=boq, sheet_name=sheet, discipline=engine, scope={"mode": "sheet"}, op_id=op_id)
+            frappe.db.commit()  # the request's own commit, which queues the operation
+            started[op_id] = (boq, sheet, engine)
 
-    def read(op):
-        status = classify.get_classify_status(*op)
-        if status.get("state") != "done":
+    def read(op_id):
+        status = background_ops.get_status(op_id=op_id)
+        if status["state"] not in ENDED:
             return None
-        what = f"classify {op[2]} on {op[0]} {op[1]!r}"
-        if status.get("status") != "success":
-            return {"ok": False, "detail": f"{what}: {status.get('status')} {status.get('error_code')}"}
-        if status.get("ai_status") not in ("disabled", "no_key"):
-            return {"ok": False, "detail": f"{what}: the AI voter ran ({status.get('ai_status')})"}
-        return {"ok": True, "detail": f"{what}: {status.get('eligible_classified')} rows"}
+        boq, sheet, engine = started[op_id]
+        what = f"classify {engine} on {boq} {sheet!r}"
+        result = status.get("result") or {}
+        if status["state"] != "finished" or result.get("status") != "success":
+            return {"ok": False, "detail": f"{what}: ended {status['state']} {status.get('error') or ''}".rstrip()}
+        if result.get("ai_status") not in ("disabled", "no_key"):
+            return {"ok": False, "detail": f"{what}: the AI voter ran ({result.get('ai_status')})"}
+        return {"ok": True, "detail": f"{what}: {result.get('eligible_classified')} rows"}
 
     return wait_until(set(started), read, timeout)
 
@@ -268,45 +274,48 @@ def suggest_setup(workers):
 
 
 def suggest_run(ctx, run, timeout):
+    """Each suggest is its own background operation (#1667); its match, the operation its result names."""
+    started = {}
     for boq, sheet in ctx["sheets"]:
-        rate_master.start_suggest(boq=boq, sheet_name=sheet)
+        op_id = str(uuid.uuid4())
+        rate_master.start_suggest(boq=boq, sheet_name=sheet, op_id=op_id)
+        frappe.db.commit()  # the request's own commit, which queues the operation
+        started[op_id] = (boq, sheet)
 
-    def read(op):
-        boq, sheet = op
+    def read(op_id):
+        boq, sheet = started[op_id]
         what = f"suggest on {boq} {sheet!r}"
-        status = rate_master.get_suggest_status(boq=boq, sheet_name=sheet)
-        if status.get("state") == "running":
+        status = background_ops.get_status(op_id=op_id)
+        if status["state"] not in ENDED:
             return None
-        if status.get("state") != "done":
-            return {"ok": False, "detail": f"{what}: no outcome, the status reads {status.get('state')}"}
-        if (status.get("boq"), status.get("sheet_name")) != op:
-            return {"ok": False, "detail": f"{what}: the status holds another sheet's run"}
-        if status.get("status") != "success":
-            return {"ok": False, "detail": f"{what}: {status.get('status')} {status.get('error_code')}"}
-        if status.get("ai_status") != "disabled":
-            return {"ok": False, "detail": f"{what}: the AI ran ({status.get('ai_status')})"}
-        match = status.get("match")
+        result = status.get("result") or {}
+        if status["state"] != "finished" or result.get("status") != "success":
+            return {"ok": False, "detail": f"{what}: ended {status['state']} {result.get('status') or ''} "
+                                           f"{status.get('error') or ''}".rstrip()}
+        if (result.get("boq"), result.get("sheet_name")) != (boq, sheet):
+            return {"ok": False, "detail": f"{what}: the result holds another sheet's run"}
+        if result.get("ai_status") != "disabled":
+            return {"ok": False, "detail": f"{what}: the AI ran ({result.get('ai_status')})"}
+        match = result.get("match")
         if match is None:
-            return {"ok": True, "detail": f"{what}: {status.get('attempted_count')} rows, no match (switch off)"}
+            return {"ok": True, "detail": f"{what}: {result.get('attempted_count')} rows, no match (switch off)"}
         if not match.get("queued"):
             return {"ok": False, "detail": f"{what}: its match run did not start: {match.get('reason')}"}
-        m = rate_match.get_match_status(boq=boq, sheet_name=sheet)
-        if m.get("state") == "running":
+        m = background_ops.get_status(op_id=match["op_id"])
+        if m["state"] not in ENDED:
             return None
-        if m.get("state") != "done":
-            return {"ok": False, "detail": f"{what}: match run {match['run']} has no outcome ({m.get('state')})"}
-        if m.get("run") != match["run"]:
-            return {"ok": False, "detail": f"{what}: the match status holds run {m.get('run')}, not {match['run']}"}
-        if m.get("status") == "error":
-            return {"ok": False, "detail": f"{what}: match run {match['run']} failed: {m.get('halt_reason')}"}
-        return {"ok": True, "detail": f"{what}: {status.get('attempted_count')} rows, match {m.get('run_status')}"}
+        outcome = m.get("result") or {}
+        if m["state"] != "finished":
+            return {"ok": False, "detail": f"{what}: match run {match['run']} ended {m['state']}: {m.get('error')}"}
+        if outcome.get("run") != match["run"]:
+            return {"ok": False, "detail": f"{what}: the match operation holds run {outcome.get('run')}, not {match['run']}"}
+        return {"ok": True, "detail": f"{what}: {result.get('attempted_count')} rows, match {outcome.get('run_status')}"}
 
-    return wait_until(set(ctx["sheets"]), read, timeout)
+    return wait_until(set(started), read, timeout)
 
 
 # ── tds ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 TDS_HEAVY_ROWS = 200
-TDS_ENDED = ("finished", "failed", "lost")
 
 
 def tds_marker(tag, i):
@@ -350,7 +359,7 @@ def tds_run(ctx, run, timeout):
 
     def read(op_id):
         status = background_ops.get_status(op_id=op_id)
-        if status["state"] not in TDS_ENDED:
+        if status["state"] not in ENDED:
             return None
         i, marker, weight = started[op_id]
         what = f"TDS export {i} ({weight}, {marker})"

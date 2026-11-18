@@ -31,17 +31,19 @@ Coverage map (behavior -> test):
 import json
 import os
 import tempfile
+import uuid
 from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
+from nirmaan_stack.services import background_ops, operation_marker
 from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.api.boq.wizard.test_classify import _FakeClient, _Resp, _new_boq, _new_sheet, _node
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 from nirmaan_stack.services.test_operation_marker import (
-    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, wait_past_one_second_ttl,
+    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails,
 )
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -253,7 +255,7 @@ class TestRateSuggest(FrappeTestCase):
         with mock.patch(
             "nirmaan_stack.services.boq_rate_master.extraction.run_extraction", return_value=canned
         ), mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
-            rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name, user="Administrator")
+            rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name)
 
         active = frappe.get_all(
             _RUN, filters={"boq": self.boq, "sheet_name": self.sheet_name, "active": 1},
@@ -506,8 +508,7 @@ class TestRateSuggest(FrappeTestCase):
         # DEV2-B5 (B4 open item e): historical matching pinned OFF in the harness, never read from dev2's live switch.
         with mock.patch.object(extraction, "run_extraction", side_effect=_with_client),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
             rate_master._suggest_worker(
-                boq=self.boq, sheet_name=self.sheet_name, user="Administrator",
-                resume_run_id=resume_run_id,
+                boq=self.boq, sheet_name=self.sheet_name, resume_run_id=resume_run_id,
             )
 
     def _failing_after_first_batch(self, error):
@@ -561,13 +562,12 @@ class TestRateSuggest(FrappeTestCase):
         self.assertIn("usage limit", (p["halt_reason"] or "").lower())
         self.assertNotIn("suggest_failed", (p["halt_reason"] or ""))
 
-    def test_13b_a_database_error_publishes_failure_and_keeps_checkpointed_rows(self):
-        """#1657: a suggest operation that fails with a DATABASE error after one checkpoint tells its screen it
-        failed (the done message and the polled status both read failed), records the error, and keeps the rows the
-        checkpoint committed. A database error aborts the transaction, so the worker must roll back before it can
-        write anything, and that rollback must not reach the committed checkpoint."""
+    def test_13b_a_database_error_fails_in_its_own_words_and_keeps_checkpointed_rows(self):
+        """#1657, #1667: a suggest whose work fails with a DATABASE error after one checkpoint ends in its run's own
+        words (the work raises them, so its background operation ends failed with them), records the error, and keeps
+        the rows the checkpoint committed. A database error aborts the transaction, so the worker must roll back
+        before it can write anything, and that rollback must not reach the committed checkpoint."""
         self._reset_runs()
-        frappe.cache().delete_value(rate_master._s_status_key(self.boq, self.sheet_name))
         started = frappe.utils.now()
 
         def _checkpoint_then_db_error(boq, sheet_name, checkpoint_cb=None, **kw):
@@ -577,21 +577,11 @@ class TestRateSuggest(FrappeTestCase):
             ], [2, 3])
             frappe.db.sql("select 1/0")  # a database error: the transaction is now aborted
 
-        published = []
         try:
-            with mock.patch.object(extraction, "run_extraction", side_effect=_checkpoint_then_db_error), \
-                    mock.patch.object(frappe, "publish_realtime",
-                                      side_effect=lambda event, message=None, **kw: published.append((event, message))):
-                try:
-                    rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name, user="Administrator")
-                except Exception as e:  # noqa: BLE001
-                    self.fail(f"the worker raised {type(e).__name__} instead of publishing its failure: {e}")
-
-            done = [m for ev, m in published if ev == "boq:suggest_sheet_done"]
-            self.assertEqual(len(done), 1, "exactly one done message")
-            self.assertEqual((done[0]["status"], done[0]["run_status"]), ("error", "failed"))
-            polled = rate_master.get_suggest_status(boq=self.boq, sheet_name=self.sheet_name)
-            self.assertEqual((polled["state"], polled["status"], polled["run_status"]), ("done", "error", "failed"))
+            with mock.patch.object(extraction, "run_extraction", side_effect=_checkpoint_then_db_error):
+                with self.assertRaises(frappe.ValidationError) as raised:
+                    rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name)
+            self.assertIn("stopped unexpectedly", str(raised.exception))
 
             run = frappe.get_all(_RUN, filters={"boq": self.boq, "sheet_name": self.sheet_name},
                                  fields=["status", "active", "results", "attempted_rows"])
@@ -1319,16 +1309,16 @@ class TestRateSuggest(FrappeTestCase):
         captured = {}
 
         def _fake_enqueue(method, **kwargs):
-            captured["method"] = method
             captured.update(kwargs)
 
         with mock.patch.object(frappe, "enqueue", side_effect=_fake_enqueue):
-            rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+            rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name, op_id=str(uuid.uuid4()))
+            frappe.db.commit()  # the request's own commit queues the operation
         # The marker is set on a successful start; clear it so the "already in progress" guard
         # cannot leak into a later test in this class.
-        rate_master._s_clear_marker(self.boq, self.sheet_name)
+        self._forget_suggest_marker()
 
-        self.assertEqual(captured["method"],
+        self.assertEqual(captured["work"],
                          "nirmaan_stack.api.boq.rate_master._suggest_worker")
         self.assertEqual(captured["timeout"], rate_master._SUGGEST_JOB_TIMEOUT_SEC,
                          "the enqueue must carry the CONSTANT -- a literal here is invisible to "
@@ -1354,32 +1344,30 @@ class TestRateSuggest(FrappeTestCase):
         The stale threshold must also clear rq's kill grace (`timeout + 60`), or the guard can
         expire in the window between the timeout firing and the horse actually dying.
 
-        `_S_STATUS_TTL_SEC` is deliberately NOT in this chain: its clock starts AFTER the run
-        ends (it is how long the poll can still read the terminal payload), so it answers a
-        different question and must not be dragged into the ordering."""
+        The marker's TTL is the claim's (operation_marker.CLAIM_TTL_SEC) since #1667: the progress
+        bar lives in the operation's own record, so nothing refreshes the marker mid-run."""
         job = rate_master._SUGGEST_JOB_TIMEOUT_SEC
         stale = rate_master._STALE_SUGGEST_SECONDS
-        marker = rate_master._S_MARKER_TTL_SEC
+        marker = operation_marker.CLAIM_TTL_SEC
 
         self.assertGreater(stale, job + rate_master._RQ_KILL_GRACE_SEC,
                            "the in-progress guard must outlast the job AND rq's kill grace, or a "
                            "second run can start on top of a live one")
-        self.assertGreater(marker, job,
-                           "the progress marker must outlive the job, or the progress bar goes "
-                           "blank while the run is still going")
+        self.assertGreater(marker, stale,
+                           "the marker must outlive the stale window, or a second start slips in "
+                           "while the run is still going")
 
     # ---- "already running?" counts from the start of running (#1660) ----
     def _start_suggest(self):
+        """One start request: start_suggest with a browser-made id, then the request's own commit (which queues
+        the operation). Returns the operation's record."""
         new_request()
-        return rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
-
-    def _suggest_state(self):
-        new_request()
-        return rate_master.get_suggest_status(boq=self.boq, sheet_name=self.sheet_name)["state"]
+        reply = rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name, op_id=str(uuid.uuid4()))
+        frappe.db.commit()
+        return reply
 
     def _forget_suggest_marker(self):
-        rate_master._s_clear_marker(self.boq, self.sheet_name)
-        frappe.cache().delete_value(rate_master._s_status_key(self.boq, self.sheet_name))
+        frappe.cache().delete_value(rate_master._s_marker_key(self.boq, self.sheet_name))
         new_request()
 
     def test_43_a_second_start_that_also_read_no_marker_is_refused(self):
@@ -1401,8 +1389,8 @@ class TestRateSuggest(FrappeTestCase):
             with held_in_queue() as jobs, \
                     mock.patch.object(rate_master, "_s_get_marker", side_effect=first_reads_then_second_runs):
                 with self.assertRaises(frappe.ValidationError):
-                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
-            self.assertEqual(second[0]["status"], "queued")
+                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name, op_id=str(uuid.uuid4()))
+            self.assertEqual(second[0]["state"], "queued")
             self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
         finally:
             self._forget_suggest_marker()
@@ -1412,9 +1400,9 @@ class TestRateSuggest(FrappeTestCase):
         _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
         try:
             with held_in_queue() as jobs, mock.patch.object(rate_master, "_STALE_SUGGEST_SECONDS", 0):
-                self._start_suggest()
+                first = self._start_suggest()
                 with later(60):
-                    self.assertEqual(self._suggest_state(), "running")
+                    self.assertEqual(background_ops.status(first["op_id"])["state"], "queued")
                     with self.assertRaises(frappe.ValidationError):
                         self._start_suggest()
             self.assertEqual(len(jobs), 1)
@@ -1428,22 +1416,7 @@ class TestRateSuggest(FrappeTestCase):
             with never_queued():
                 self._start_suggest()
                 with later(rate_master._STALE_SUGGEST_SECONDS + 1):
-                    self.assertEqual(self._suggest_state(), "idle")
-                    self.assertEqual(self._start_suggest()["status"], "queued")
-        finally:
-            self._forget_suggest_marker()
-
-    def test_47_a_run_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
-        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
-        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
-        try:
-            with held_in_queue() as jobs, mock.patch.object(rate_master, "_S_MARKER_TTL_SEC", 1):
-                self._start_suggest()
-                wait_past_one_second_ttl()
-                self.assertEqual(self._suggest_state(), "running")
-                with self.assertRaises(frappe.ValidationError):
-                    self._start_suggest()
-            self.assertEqual(len(jobs), 1)
+                    self.assertEqual(self._start_suggest()["state"], "queued")
         finally:
             self._forget_suggest_marker()
 
@@ -1467,19 +1440,21 @@ class TestRateSuggest(FrappeTestCase):
             with held_in_queue() as jobs, \
                     mock.patch.object(rate_master, "_s_get_marker", side_effect=b_reads_then_a_runs):
                 with self.assertRaises(frappe.ValidationError):
-                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
-            self.assertEqual(first[0]["status"], "queued")
+                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name, op_id=str(uuid.uuid4()))
+            self.assertEqual(first[0]["state"], "queued")
             self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
         finally:
             self._forget_suggest_marker()
 
-    def test_46_a_failed_queue_call_leaves_no_marker(self):
+    def test_46_a_failed_queue_call_fails_the_operation_and_frees_the_sheet_after_the_grace(self):
         from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
         _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
         try:
-            with queue_call_fails(), self.assertRaises(ConnectionError):
-                self._start_suggest()
-            self.assertEqual(self._suggest_state(), "idle")
+            with queue_call_fails(), mock.patch("frappe.log_error"):
+                first = self._start_suggest()
+            self.assertEqual(background_ops.status(first["op_id"])["state"], "failed")
+            with never_queued(), later(operation_marker.ENQUEUE_GRACE_SEC + 1):
+                self.assertEqual(self._start_suggest()["state"], "queued")
         finally:
             self._forget_suggest_marker()
 

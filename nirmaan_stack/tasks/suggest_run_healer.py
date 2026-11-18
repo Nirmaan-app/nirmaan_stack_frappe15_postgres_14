@@ -25,6 +25,8 @@ import logging
 import frappe
 from frappe.utils import add_to_date, now_datetime
 
+from nirmaan_stack.services.background_ops import queued_work
+
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
 SUGGEST_WORKER = "nirmaan_stack.api.boq.rate_master._suggest_worker"
 STALE_AFTER_SEC = 2 * 3600
@@ -50,12 +52,9 @@ def _live_suggest_jobs() -> tuple[set, set] | None:
                 wrapped = job.kwargs or {}
                 if wrapped.get("site") != frappe.local.site:
                     continue
-                method = wrapped.get("method")
-                if not isinstance(method, str):
-                    method = f"{getattr(method, '__module__', '')}.{getattr(method, '__name__', '')}"
+                method, inner = queued_work(wrapped)
                 if method != SUGGEST_WORKER:
                     continue
-                inner = wrapped.get("kwargs") or {}
                 ids.add(job.id)
                 keys.add((inner.get("boq"), inner.get("sheet_name")))
         return ids, keys

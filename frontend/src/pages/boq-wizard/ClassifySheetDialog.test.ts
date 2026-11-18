@@ -10,8 +10,6 @@ import {
   selectableEngines,
   validateRange,
   buildStartArgs,
-  clampDone,
-  reduceProgress,
   skipRollupText,
   aiStatusNote,
 } from "./ClassifySheetDialog";
@@ -75,37 +73,6 @@ describe("buildStartArgs", () => {
   it("passes a whole-sheet scope through", () => {
     const scope = { mode: "sheet" } as const;
     expect(buildStartArgs(engine(), scope)).toEqual({ discipline: "Electrical", scope });
-  });
-});
-
-describe("clampDone", () => {
-  it("clamps above total", () => {
-    expect(clampDone(15, 10)).toBe(10);
-  });
-
-  it("floors at 0", () => {
-    expect(clampDone(-3, 10)).toBe(0);
-  });
-
-  it("passes an in-range value through", () => {
-    expect(clampDone(4, 10)).toBe(4);
-  });
-});
-
-describe("reduceProgress", () => {
-  it("clamps done to total", () => {
-    expect(reduceProgress(null, { done: 99, total: 10 })).toEqual({ done: 10, total: 10 });
-  });
-
-  it("is monotonic non-decreasing when totals match", () => {
-    const prev = { done: 7, total: 10 };
-    expect(reduceProgress(prev, { done: 3, total: 10 })).toEqual({ done: 7, total: 10 });
-    expect(reduceProgress(prev, { done: 9, total: 10 })).toEqual({ done: 9, total: 10 });
-  });
-
-  it("resets when the total changes", () => {
-    const prev = { done: 7, total: 10 };
-    expect(reduceProgress(prev, { done: 2, total: 20 })).toEqual({ done: 2, total: 20 });
   });
 });
 

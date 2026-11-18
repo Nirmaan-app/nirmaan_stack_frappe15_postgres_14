@@ -16,10 +16,11 @@ Coverage matrix:
     NEG  AI disabled -> voter fails closed (no call) -> every row Needs review, blank final.
   START_CLASSIFY (mock frappe.enqueue -- no real queue)
     NEG  unavailable engine / bad range / uncommitted sheet -> throw.
-    POS  happy path returns a job_id, enqueues the worker (queue=long, timeout=600), sets marker.
-  STATUS  idle when nothing; done mirrors the terminal payload; running when a live marker.
-  WORKER  success -> terminal success payload + marker cleared + event published; failure ->
-          terminal error payload + marker cleared (never left stuck).
+    POS  happy path starts one background operation (kind boq_classify, timeout 600) and claims the marker.
+  ENGINE OPERATIONS (#1666)  one background operation per engine, each ending in its own status record; an
+          engine that fails first ends failed while the other finishes; progress in the engine's own record.
+  WORKER  success -> returns the engine's summary + marker released; failure -> raises + marker released
+          (never left stuck); a marker another operation holds is left alone.
   GET_SHEET_CATEGORIES  effective = human when set else final; only current-version rows.
   SET_ROW_CATEGORY  valid id writes + returns effective; unknown id -> throw; "" clears to machine.
 
@@ -31,6 +32,7 @@ set_single_value bypasses the doc lifecycle, so that flip is invisible in the Ve
 """
 
 import json
+import uuid
 from unittest import mock
 
 import unittest
@@ -38,10 +40,10 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.background_ops import get_status
 from nirmaan_stack.api.boq.wizard import classify
 from nirmaan_stack.api.boq.wizard.classify import (
     _classify_worker,
-    get_classify_status,
     get_sheet_categories,
     get_sheet_categories_resolved,
     list_engines,
@@ -49,6 +51,7 @@ from nirmaan_stack.api.boq.wizard.classify import (
     start_classify,
 )
 from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
+from nirmaan_stack.services import background_ops, operation_marker
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 # Slice 1a: the resolution ladder was relocated classify -> persist (service layer). Import it
 # under its former name so the existing TestResolveRowLadder cases exercise the SAME function.
@@ -57,8 +60,7 @@ from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 from nirmaan_stack.services.test_operation_marker import (
-    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, started_job,
-    wait_past_one_second_ttl,
+    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails,
 )
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -428,7 +430,6 @@ class TestStartClassify(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.cache().delete_value(classify._marker_key(cls.boq, cls.sheet, "Electrical"))
-        frappe.cache().delete_value(classify._status_key(cls.boq, cls.sheet, "Electrical"))
         purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
         purge_boq(cls.boq)
@@ -453,31 +454,158 @@ class TestStartClassify(FrappeTestCase):
                 boq=self.boq, sheet_name="No Such Sheet", discipline="Electrical", scope={"mode": "sheet"}
             )
 
-    def test_happy_path_enqueues_and_marks(self):
-        # Spy on _set_marker (still executes) to verify the marker is set with the returned
-        # job_id. NB: we do NOT read the Redis marker back here -- FrappeTestCase isolates a
-        # frappe.cache() write made before the endpoint's frappe.db.commit() from a later read
-        # in the same test (a harness quirk; a probe confirms the marker persists across commit
-        # in a real request). The spy asserts the contract without that read.
-        with mock.patch("frappe.enqueue") as enq, mock.patch(
-            "nirmaan_stack.api.boq.wizard.classify._set_marker", wraps=classify._set_marker
-        ) as setm:
+    def test_happy_path_starts_an_operation_and_marks(self):
+        op_id = str(uuid.uuid4())
+        with mock.patch("frappe.enqueue") as enq:
             res = start_classify(
-                boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"}
+                boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"}, op_id=op_id
             )
-        self.assertEqual(res["status"], "queued")
-        self.assertTrue(res["job_id"])
+            frappe.db.commit()  # the request's own commit, which queues the operation
+        self.assertEqual((res["op_id"], res["kind"], res["state"]), (op_id, "boq_classify", "queued"))
         enq.assert_called_once()
-        args, kwargs = enq.call_args
-        self.assertTrue(args[0].endswith("_classify_worker"))
-        self.assertEqual(kwargs["queue"], "long")
-        self.assertEqual(kwargs["timeout"], 600)
-        self.assertEqual(kwargs["job_id"], res["job_id"])
-        setm.assert_called_once()
-        # _set_marker(boq, sheet_name, discipline, job_id, user) -- job_id is positional arg 3.
-        self.assertEqual(setm.call_args[0][3], res["job_id"])
-        classify._clear_marker(self.boq, self.sheet, "Electrical")
-        frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, "Electrical"))
+        kwargs = enq.call_args.kwargs
+        self.assertTrue(kwargs["work"].endswith("classify._classify_worker"))
+        self.assertEqual((kwargs["queue"], kwargs["timeout"], kwargs["job_id"]), ("long", 600, op_id))
+        self.assertEqual(kwargs["work_kwargs"]["discipline"], "Electrical")
+        new_request()
+        self.assertEqual(classify._get_marker(self.boq, self.sheet, "Electrical")["job_id"], op_id)
+        frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, "Electrical"))
+
+
+# ── EACH ENGINE IS ITS OWN BACKGROUND OPERATION (#1666) ──────────────────────────
+class TestClassifyEnginesAsBackgroundOperations(FrappeTestCase):
+    """A Classify click starts one background operation per engine (ADR 0047). Each engine ends in its own status
+    record, which its owner reads with `api/background_ops.get_status`, so an engine that fails never hides behind
+    another that finishes. The queue is faked (`frappe.enqueue` records each operation) and the test runs the
+    queued wrapper itself, as a worker would; the orchestrator is the other edge faked."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Engine Operations BoQ")
+        cls.sheet = "EngineOpsFix "  # VERBATIM trailing space (#152)
+        _new_sheet(cls.boq, cls.sheet)
+
+    @classmethod
+    def tearDownClass(cls):
+        # Roll back first (a test that ended on a database error leaves the transaction aborted), then each scope in
+        # its own try, committed on its own, a failure reported and the other scopes still cleaned (CODING_STANDARDS
+        # § Writing tests).
+        frappe.db.rollback()
+        for label, purge in (
+            ("BoQ Sheet", lambda: purge_docs("BoQ Sheet", {"boq": cls.boq})),
+            ("BOQs", lambda: purge_boq(cls.boq)),
+            ("Projects", lambda: _cleanup_project(cls.project.name)),
+        ):
+            try:
+                purge()
+                frappe.db.commit()
+            except Exception as e:  # noqa: BLE001 -- report, keep cleaning the other scopes
+                frappe.db.rollback()
+                print(f"cleanup of {label} failed: {e}")
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for engine in ("Electrical", "HVAC"):
+            frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, engine))
+        new_request()
+
+    def _click(self, engines=("Electrical", "HVAC")):
+        """One Classify click: `start_classify` once per engine, each with its own browser-made id, as the page
+        does. Returns ({engine: op_id}, the operations queued)."""
+        op_ids, queued = {}, []
+        with mock.patch.object(frappe, "enqueue", side_effect=lambda method, **kw: queued.append(kw)):
+            for engine in engines:
+                new_request()
+                op_ids[engine] = str(uuid.uuid4())
+                start_classify(boq=self.boq, sheet_name=self.sheet, discipline=engine,
+                               scope={"mode": "sheet"}, op_id=op_ids[engine])
+                frappe.db.commit()  # the request's own commit, which queues the operation
+        return op_ids, queued
+
+    def _work_off(self, queued, summaries):
+        """Run each queued operation as a worker does. `summaries[engine]` is what the orchestrator returns for
+        that engine, or an exception it raises."""
+
+        def orchestrate(boq, sheet_name, discipline, **kwargs):
+            outcome = summaries[discipline]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with mock.patch.object(orchestrator, "classify_sheet_rows", side_effect=orchestrate), \
+                mock.patch("frappe.log_error"):
+            for job in queued:
+                frappe.set_user("Guest")
+                background_ops.run(op_id=job["op_id"], work=job["work"], work_kwargs=job["work_kwargs"])
+        frappe.set_user("Administrator")
+
+    _SUMMARY = {
+        "total_in_range": 4, "eligible_classified": 3, "needs_review": 1, "auto_accepted": 3,
+        "skipped_total": 0, "skipped_by_reason": {}, "committed_version": 1, "sheet_warnings": [],
+        "ai_status": "ran",
+    }
+
+    def test_a_click_with_two_engines_starts_one_operation_per_engine(self):
+        op_ids, queued = self._click()
+        self.assertEqual(len(queued), 2, "a two-engine click queues one operation per engine")
+        for engine, op_id in op_ids.items():
+            status = get_status(op_id=op_id)
+            self.assertEqual((status["kind"], status["state"]), ("boq_classify", "queued"), engine)
+
+    def test_an_engine_that_fails_first_ends_failed_in_its_own_record(self):
+        op_ids, queued = self._click()
+        electrical_first = sorted(queued, key=lambda job: job["work_kwargs"]["discipline"] != "Electrical")
+        self._work_off(electrical_first, {"Electrical": RuntimeError("boom"), "HVAC": self._SUMMARY})
+
+        electrical, hvac = get_status(op_id=op_ids["Electrical"]), get_status(op_id=op_ids["HVAC"])
+        self.assertEqual(electrical["state"], "failed")
+        self.assertTrue(electrical["error"])
+        self.assertEqual(hvac["state"], "finished", hvac.get("error"))
+        self.assertEqual((hvac["result"]["status"], hvac["result"]["discipline"]), ("success", "HVAC"))
+        self.assertEqual(hvac["result"]["eligible_classified"], 3)
+
+    def test_a_finished_engine_frees_its_sheet_for_the_next_click(self):
+        op_ids, queued = self._click(engines=("Electrical",))
+        self._work_off(queued, {"Electrical": self._SUMMARY})
+        self.assertEqual(get_status(op_id=op_ids["Electrical"])["state"], "finished")
+
+        again, _ = self._click(engines=("Electrical",))
+        self.assertEqual(get_status(op_id=again["Electrical"])["state"], "queued")
+
+    def test_a_second_start_while_the_first_waits_in_the_queue_is_refused(self):
+        self._click(engines=("Electrical",))
+        with self.assertRaises(frappe.ValidationError):
+            self._click(engines=("Electrical",))
+
+    def test_the_same_users_repeat_of_one_id_returns_the_existing_operation(self):
+        op_ids, queued = self._click(engines=("Electrical",))
+        new_request()
+        with mock.patch.object(frappe, "enqueue") as enqueue:
+            again = start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical",
+                                   scope={"mode": "sheet"}, op_id=op_ids["Electrical"])
+            frappe.db.commit()
+        self.assertEqual((again["op_id"], again["state"]), (op_ids["Electrical"], "queued"))
+        enqueue.assert_not_called()
+
+    def test_progress_is_in_the_engines_own_record(self):
+        op_ids, queued = self._click(engines=("Electrical",))
+        seen = []
+
+        def orchestrate(boq, sheet_name, discipline, progress_cb=None, **kwargs):
+            progress_cb(20, 57)
+            seen.append(background_ops.status(op_ids["Electrical"])["progress"])
+            return self._SUMMARY
+
+        with mock.patch.object(orchestrator, "classify_sheet_rows", side_effect=orchestrate):
+            job = queued[0]
+            background_ops.run(op_id=job["op_id"], work=job["work"], work_kwargs=job["work_kwargs"])
+        self.assertEqual(seen[0]["detail"], {"done": 20, "total": 57})
 
 
 # ── "ALREADY RUNNING?" COUNTS FROM THE START OF RUNNING (#1660) ──────────────────
@@ -503,16 +631,23 @@ class TestClassifyAlreadyRunning(FrappeTestCase):
 
     def tearDown(self):
         frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, "Electrical"))
-        frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, "Electrical"))
         new_request()
 
     def _start(self):
+        """One start request: start_classify, then the request's own commit (which queues the operation)."""
         new_request()
-        return start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
+        reply = start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical",
+                               scope={"mode": "sheet"}, op_id=str(uuid.uuid4()))
+        frappe.db.commit()
+        return reply
 
-    def _status(self):
-        new_request()
-        return get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline="Electrical")["state"]
+    def _refused(self):
+        """Is a further start refused as already running?"""
+        try:
+            self._start()
+        except frappe.ValidationError:
+            return True
+        return False
 
     def test_a_second_start_that_also_read_no_marker_is_refused(self):
         second = []
@@ -530,27 +665,17 @@ class TestClassifyAlreadyRunning(FrappeTestCase):
         with held_in_queue() as jobs, \
                 mock.patch.object(classify, "_get_marker", side_effect=first_reads_then_second_runs):
             with self.assertRaises(frappe.ValidationError):
-                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
-        self.assertEqual(second[0]["status"], "queued")
+                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical",
+                               scope={"mode": "sheet"}, op_id=str(uuid.uuid4()))
+        self.assertEqual(second[0]["state"], "queued")
         self.assertEqual(len(jobs), 1, "two starts that both read no marker must not both queue")
 
     def test_a_run_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
         with held_in_queue() as jobs, mock.patch.object(classify, "_STALE_CLASSIFY_SECONDS", 0):
-            self._start()
+            first = self._start()
             with later(60):
-                self.assertEqual(self._status(), "running")
-                with self.assertRaises(frappe.ValidationError):
-                    self._start()
-        self.assertEqual(len(jobs), 1)
-
-    def test_a_run_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
-        """The marker's progress TTL counts from the claim; a queue wait longer than it must not drop the marker."""
-        with held_in_queue() as jobs, mock.patch.object(classify, "_MARKER_TTL_SEC", 1):
-            self._start()
-            wait_past_one_second_ttl()
-            self.assertEqual(self._status(), "running")
-            with self.assertRaises(frappe.ValidationError):
-                self._start()
+                self.assertEqual(background_ops.status(first["op_id"])["state"], "queued")
+                self.assertTrue(self._refused())
         self.assertEqual(len(jobs), 1)
 
     def test_two_starts_that_both_heal_one_stale_marker_queue_once(self):
@@ -570,119 +695,30 @@ class TestClassifyAlreadyRunning(FrappeTestCase):
 
         with held_in_queue() as jobs, mock.patch.object(classify, "_get_marker", side_effect=b_reads_then_a_runs):
             with self.assertRaises(frappe.ValidationError):
-                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
-        self.assertEqual(first[0]["status"], "queued")
+                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical",
+                               scope={"mode": "sheet"}, op_id=str(uuid.uuid4()))
+        self.assertEqual(first[0]["state"], "queued")
         self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
 
     def test_a_run_whose_worker_never_starts_is_healed(self):
         with never_queued():
             self._start()
             with later(classify._STALE_CLASSIFY_SECONDS + 1):
-                self.assertEqual(self._status(), "idle")
-                self.assertEqual(self._start()["status"], "queued")
+                self.assertEqual(self._start()["state"], "queued")
 
-    def test_a_failed_queue_call_leaves_no_marker(self):
-        with queue_call_fails(), self.assertRaises(ConnectionError):
-            self._start()
-        self.assertEqual(self._status(), "idle")
-
-
-# ── STATUS ───────────────────────────────────────────────────────────────────────
-class TestClassifyStatus(FrappeTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.boq = "STATUS-TEST-BOQ"  # status is pure Redis -- no BOQs row needed
-        cls.sheet = "StatusFix "
-        cls.disc = "Electrical"
-
-    def tearDown(self):
-        frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, self.disc))
-        frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, self.disc))
-
-    def test_idle_when_nothing(self):
-        res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
-        self.assertEqual(res["state"], "idle")
-
-    def test_done_mirrors_terminal(self):
-        payload = {
-            "status": "success", "boq_name": self.boq, "sheet_name": self.sheet, "discipline": self.disc,
-            "total_in_range": 4, "eligible_classified": 2, "needs_review": 1, "auto_accepted": 1,
-            "skipped_total": 2, "skipped_by_reason": {"layout": 1, "superseded": 1},
-            "committed_version": 1, "sheet_warnings": [],
-        }
-        frappe.cache().set_value(classify._status_key(self.boq, self.sheet, self.disc), payload, expires_in_sec=60)
-        res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
-        self.assertEqual(res["state"], "done")
-        self.assertEqual(res["status"], "success")
-        self.assertEqual(res["eligible_classified"], 2)
-        self.assertEqual(res["skipped_by_reason"], {"layout": 1, "superseded": 1})
-
-    def test_running_when_marker_live(self):
-        classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
-        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
-            res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
-        self.assertEqual(res["state"], "running")
-
-    def test_running_bare_before_first_batch(self):
-        # A marker set at start (no done/total yet) -> running WITHOUT done/total (the poll bar
-        # stays indeterminate until the first batch writes progress).
-        classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
-        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
-            res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
-        self.assertEqual(res["state"], "running")
-        self.assertNotIn("done", res)
-        self.assertNotIn("total", res)
-
-    def test_running_carries_done_total_after_batch(self):
-        # After a batch merges progress into the marker, the running status carries ints the poll
-        # feeds straight into the progress bar.
-        classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
-        classify._update_marker_progress(self.boq, self.sheet, self.disc, 20, 57)
-        with mock.patch("frappe.utils.background_jobs.get_job", return_value=started_job()):
-            res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
-        self.assertEqual(res["state"], "running")
-        self.assertEqual(res["done"], 20)
-        self.assertEqual(res["total"], 57)
-
-
-# ── MARKER PROGRESS (poll-driven progress) ───────────────────────────────────────
-class TestMarkerProgress(FrappeTestCase):
-    """The _update_marker_progress sibling helper: merges done/total into a live marker while
-    preserving job_id/enqueued_at/user, and SKIPS SILENTLY when the marker is gone (never
-    re-creates one for a terminated job)."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.boq = "MARKER-PROGRESS-BOQ"  # pure Redis -- no BOQs row needed
-        cls.sheet = "MarkerFix "
-        cls.disc = "Electrical"
-
-    def tearDown(self):
-        frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, self.disc))
-
-    def test_update_merges_and_preserves_identity(self):
-        classify._set_marker(self.boq, self.sheet, self.disc, "jobABC", "Administrator")
-        before = classify._get_marker(self.boq, self.sheet, self.disc)
-        classify._update_marker_progress(self.boq, self.sheet, self.disc, 40, 100)
-        after = classify._get_marker(self.boq, self.sheet, self.disc)
-        self.assertEqual(after["done"], 40)
-        self.assertEqual(after["total"], 100)
-        # job_id / enqueued_at / user survive the merge untouched.
-        self.assertEqual(after["job_id"], "jobABC")
-        self.assertEqual(after["user"], "Administrator")
-        self.assertEqual(after["enqueued_at"], before["enqueued_at"])
-
-    def test_update_skips_when_marker_missing(self):
-        # No marker set (expired / already cleared) -> the helper is a no-op, NEVER re-creates one.
-        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
-        classify._update_marker_progress(self.boq, self.sheet, self.disc, 5, 10)
-        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
+    def test_a_failed_queue_call_fails_the_operation_and_frees_the_sheet_after_the_grace(self):
+        with queue_call_fails(), mock.patch("frappe.log_error"):
+            first = self._start()
+        self.assertEqual(background_ops.status(first["op_id"])["state"], "failed")
+        with never_queued(), later(operation_marker.ENQUEUE_GRACE_SEC + 1):
+            self.assertEqual(self._start()["state"], "queued")
 
 
 # ── WORKER ───────────────────────────────────────────────────────────────────────
 class TestClassifyWorker(FrappeTestCase):
+    """The engine's work as `background_ops.run` calls it: it returns the summary (the operation's result) or
+    raises, and releases its own marker either way."""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -690,48 +726,48 @@ class TestClassifyWorker(FrappeTestCase):
         cls.sheet = "WorkerFix "
         cls.disc = "Electrical"
 
+    def setUp(self):
+        self.op_id = str(uuid.uuid4())
+        frappe.local.background_op_id = self.op_id
+
     def tearDown(self):
-        frappe.cache().delete_value(classify._status_key(self.boq, self.sheet, self.disc))
+        frappe.local.background_op_id = None
         frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, self.disc))
+        new_request()
 
-    def test_success_terminal_and_marker_cleared(self):
-        classify._set_marker(self.boq, self.sheet, self.disc, "job1", "Administrator")
-        fake_summary = {
-            "total_in_range": 4, "eligible_classified": 2, "needs_review": 1, "auto_accepted": 1,
-            "skipped_total": 2, "skipped_by_reason": {"layout": 1, "superseded": 1},
-            "committed_version": 1, "sheet_warnings": [],
-        }
-        with mock.patch(
-            "nirmaan_stack.api.boq.wizard.classify.orchestrator.classify_sheet_rows",
-            return_value=fake_summary,
-        ), mock.patch("frappe.publish_realtime") as pub, mock.patch("frappe.db.commit"):
-            _classify_worker(
-                boq=self.boq, sheet_name=self.sheet, discipline=self.disc,
-                scope={"mode": "sheet"}, user="Administrator",
-            )
-        term = frappe.cache().get_value(classify._status_key(self.boq, self.sheet, self.disc))
-        self.assertEqual(term["status"], "success")
-        self.assertEqual(term["eligible_classified"], 2)
-        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
-        pub.assert_called_once()
-        self.assertEqual(pub.call_args[0][0], "boq:classify_sheet_done")
+    _SUMMARY = {
+        "total_in_range": 4, "eligible_classified": 2, "needs_review": 1, "auto_accepted": 1,
+        "skipped_total": 2, "skipped_by_reason": {"layout": 1, "superseded": 1},
+        "committed_version": 1, "sheet_warnings": [],
+    }
 
-    def test_failure_terminal_and_marker_cleared(self):
-        classify._set_marker(self.boq, self.sheet, self.disc, "job2", "Administrator")
-        with mock.patch(
-            "nirmaan_stack.api.boq.wizard.classify.orchestrator.classify_sheet_rows",
-            side_effect=RuntimeError("boom"),
-        ), mock.patch("frappe.publish_realtime") as pub, mock.patch("frappe.db.rollback"), \
-                mock.patch("frappe.log_error"):
-            _classify_worker(
-                boq=self.boq, sheet_name=self.sheet, discipline=self.disc,
-                scope={"mode": "sheet"}, user="Administrator",
-            )
-        term = frappe.cache().get_value(classify._status_key(self.boq, self.sheet, self.disc))
-        self.assertEqual(term["status"], "error")
-        self.assertEqual(term["error_code"], "classify_failed")
+    def _work(self, **orchestrate):
+        with mock.patch("nirmaan_stack.api.boq.wizard.classify.orchestrator.classify_sheet_rows", **orchestrate), \
+                mock.patch("frappe.db.commit"):
+            return _classify_worker(boq=self.boq, sheet_name=self.sheet, discipline=self.disc,
+                                    scope={"mode": "sheet"})
+
+    def test_success_returns_the_summary_and_releases_the_marker(self):
+        classify._set_marker(self.boq, self.sheet, self.disc, self.op_id, "Administrator")
+        result = self._work(return_value=self._SUMMARY)
+        self.assertEqual((result["status"], result["discipline"]), ("success", self.disc))
+        self.assertEqual(result["eligible_classified"], 2)
+        new_request()
         self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
-        pub.assert_called_once()
+
+    def test_failure_raises_and_releases_the_marker(self):
+        classify._set_marker(self.boq, self.sheet, self.disc, self.op_id, "Administrator")
+        with self.assertRaises(RuntimeError):
+            self._work(side_effect=RuntimeError("boom"))
+        new_request()
+        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
+
+    def test_a_marker_another_operation_holds_is_left_alone(self):
+        """A duplicate that ends late must not free the sheet for the operation that now holds it."""
+        classify._set_marker(self.boq, self.sheet, self.disc, "another-operation", "Administrator")
+        self._work(return_value=self._SUMMARY)
+        new_request()
+        self.assertEqual(classify._get_marker(self.boq, self.sheet, self.disc)["job_id"], "another-operation")
 
 
 # ── G2d: RE-CLASSIFY CLEARS THE CATEGORY-GATE OVERRIDE ─────────────────────────────
@@ -771,7 +807,6 @@ class TestReclassifyClearsOverride(FrappeTestCase):
         for s in (self.sheetA, self.sheetB):
             self._reset_override(s)
             for d in (self.disc, "HVAC"):  # the multi-engine test also runs the HVAC worker
-                frappe.cache().delete_value(classify._status_key(self.boq, s, d))
                 frappe.cache().delete_value(classify._marker_key(self.boq, s, d))
         frappe.db.delete(_ROW_CATEGORY, {"boq": self.boq})
         frappe.db.commit()
@@ -836,13 +871,12 @@ class TestReclassifyClearsOverride(FrappeTestCase):
             return_value=None if fail else self._FAKE_SUMMARY,
         )
         disc = discipline or self.disc
-        with orch, mock.patch("frappe.publish_realtime"), mock.patch("frappe.log_error"):
-            _classify_worker(
-                boq=self.boq, sheet_name=sheet_name, discipline=disc,
-                scope=scope, user="Administrator",
-            )
-        # The worker keys its terminal payload by the ACTUAL discipline it ran.
-        return frappe.cache().get_value(classify._status_key(self.boq, sheet_name, disc))
+        with orch, mock.patch("frappe.log_error"):
+            try:
+                return _classify_worker(boq=self.boq, sheet_name=sheet_name, discipline=disc, scope=scope)
+            except RuntimeError:
+                frappe.db.rollback()  # what background_ops.run does before it ends the operation failed
+                return None
 
     # ── (a) POSITIVE: whole-sheet success clears a set override ──
     def test_whole_sheet_success_clears_override(self):
@@ -856,8 +890,7 @@ class TestReclassifyClearsOverride(FrappeTestCase):
     def test_failed_run_leaves_override_intact(self):
         self._set_override(self.sheetA)
         term = self._run_worker(self.sheetA, {"mode": "sheet"}, fail=True)
-        self.assertEqual(term["status"], "error")
-        self.assertNotIn("category_override_cleared", term)  # only the success payload carries it
+        self.assertIsNone(term, "a failed run returns no result: its operation ends failed")
         self._assert_set(self.sheetA)
 
     # ── (b2) NEGATIVE: a partial row-range run does NOT clear ──

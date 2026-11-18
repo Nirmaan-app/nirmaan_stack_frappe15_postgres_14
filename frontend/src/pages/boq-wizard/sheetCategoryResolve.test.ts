@@ -1,11 +1,8 @@
 // HV-10 -- pure helper tests for the multi-engine pricing editor.
 import { describe, it, expect } from "vitest";
 import {
-  acceptClassifyEvent,
-  addRunningDisciplines,
   buildSheetEngineCatalogs,
   categoryCellTitle,
-  removeRunningDiscipline,
   resolvedToSheetCategoryRow,
   summariseResolvedOutcome,
   unionScopes,
@@ -269,30 +266,6 @@ describe("categoryCellTitle (the Category cell's tooltip)", () => {
 
   it("is undefined when there is no label to show", () => {
     expect(categoryCellTitle("", "unclassified", undefined)).toBeUndefined();
-  });
-});
-
-describe("acceptClassifyEvent (membership, not equality)", () => {
-  it("accepts a discipline the sheet ran", () => {
-    expect(acceptClassifyEvent("HVAC", ["HVAC"], [])).toBe(true);
-  });
-  it("accepts a discipline currently running even before it has rows (first-ever run)", () => {
-    expect(acceptClassifyEvent("HVAC", [], ["HVAC"])).toBe(true);
-  });
-  it("rejects an unrelated discipline", () => {
-    expect(acceptClassifyEvent("ELV", ["HVAC"], ["Electrical"])).toBe(false);
-  });
-});
-
-describe("running-set helpers", () => {
-  it("addRunningDisciplines dedups and preserves order", () => {
-    expect(addRunningDisciplines(["HVAC"], ["Electrical", "HVAC"])).toEqual(["HVAC", "Electrical"]);
-  });
-  it("removeRunningDiscipline drops exactly one", () => {
-    expect(removeRunningDiscipline(["HVAC", "Electrical"], "HVAC")).toEqual(["Electrical"]);
-  });
-  it("removeRunningDiscipline is a no-op for an absent discipline", () => {
-    expect(removeRunningDiscipline(["HVAC"], "ELV")).toEqual(["HVAC"]);
   });
 });
 

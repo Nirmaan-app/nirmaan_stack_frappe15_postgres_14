@@ -13,7 +13,7 @@
  * against (a declared-New / unmapped sheet, total 0).
  */
 
-/** Per-sheet carry counts from the `boq:parse_run_done` payload's optional `revision_carry`. */
+/** Per-sheet carry counts from the finished parse operation's optional `revision_carry` (#1668). */
 export interface SheetCarryCounts {
   copied: number;
   needs_review: number;

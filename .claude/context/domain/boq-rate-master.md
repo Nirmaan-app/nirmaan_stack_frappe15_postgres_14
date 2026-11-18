@@ -111,10 +111,14 @@ lists with the row order). DEV2-B4 proved the lists = F2b's rule (iii) lists on 
 build now spends ~245 s on the measure.
 
 **HISTORICAL MATCHING RUNS AFTER A COMPLETE SUGGEST RUN, AS ITS OWN JOB (owner SEQUENCE G1, 2026-11-02 16:13).**
-`rate_master._suggest_worker` hands a COMPLETE run - after its own commit, before its done payload - to
+`rate_master._suggest_worker` hands a COMPLETE run - after its own commit, before it returns its result - to
 `api/boq/rate_match.start_after_suggest`, which queues ONE `BoQ Rate Match Run` (queued -> running -> complete / failed /
-halted) and its job on `long`, with its own job id, marker and status keys (`boq_match_marker` / `boq_match_status`) and
-the same three derived clocks as Suggest's (job timeout 1800 < stale 2100 < marker TTL 3600). A halted or failed Suggest
+halted) as its own **background operation** (kind `boq_rate_match`, ADR 0047, #1667): the server makes its id, the
+Suggest operation's result names it (`match: {queued, run, op_id}`), and the screen follows it through its own status
+record (queued until a worker takes it). The per-sheet "already running?" marker `boq_match_marker` stays (#1660),
+with the same derived clocks as Suggest's (job timeout 1800 < stale 2100 < the claim's one-day TTL). No per-sheet
+status key holds either outcome: Suggest (kind `boq_rate_suggest`, started by `start_suggest` with a browser-made
+`op_id`) and match each end in their own record, so an older or duplicate run cannot replace the one a screen shows. A halted or failed Suggest
 run starts no match; a live match run on the sheet blocks a second. With `match_enabled` OFF the trigger reads only that
 one stored value (straight from the database, `cache=False` - a meta / cache read once read a mocked cache as ON) and
 the Suggest payload is byte for byte as before; ON, the payload gains `match: {queued, run | reason}`. The trigger and
@@ -132,7 +136,9 @@ run's own `match_calls_at_once` stays its ceiling. The slots' key is read from t
 the judge thread runs in a copy of the job thread's context (`match_run._judge_with_progress`); the call threads use
 only the process-wide `frappe.cache`, never `frappe.local` or the database.
 `tasks/match_run_healer.py` (*/5) halts a queued / running run past its clocks with no live job ("stale - worker
-gone"). Endpoints: `get_match_status` (OFF -> `{match_enabled: false}` only) and `get_match_results` (the active run).
+gone"); both healers also recognise a live job queued as the background-operation wrapper (`background_ops.run`,
+#1667). Endpoints: `get_match_settings` (OFF -> `{match_enabled: false}` only, ON -> the paces) and
+`get_match_results` (the active run).
 A TEST THAT DRIVES THE REAL SUGGEST WORKER MUST PIN THE SWITCH (patch `rate_match.match_enabled`): with dev2's
 switch ON the trigger otherwise enqueues a real match job for the test's fixture (DEV2-B4's full set did; it failed
 closed) and an exact payload-key pin reads the live setting (test_rate_master test_81, inverted in C4b; test_rate_suggest's
@@ -203,7 +209,7 @@ total; nothing is derived), unit and date priced; each row also keeps the judge'
 **THE WAIT IS DISCLOSED BEFORE THE RUN AND THE PROGRESS SHOWN DURING IT (owner G1; 2026-11-03 11:11 "total estimate -
 suggest rate + historical rates - with splits - give a safe number").** With matching ON the Suggest confirm dialog
 carries ONE line: total + split, each phase rounded UP to whole minutes (`rate_match.PACES`, served by
-`get_match_status`): Suggest = 13 s + 53 s x ceil(rows / 20) (DEV2-B5: a p90 quantile fit on 189 stored complete runs,
+`get_match_settings`): Suggest = 13 s + 53 s x ceil(rows / 20) (DEV2-B5: a p90 quantile fit on 189 stored complete runs,
 the per-batch part raised once 48 -> 53 so that EVERY size band - 1-20 / 21-100 / 101-300 / >300 rows - is covered in
 >= 90 % of runs; `rate_match.estimate_coverage` + the 189-run fixture in test_rate_match prove it); matching = 65 s +
 0.45 s a row (DEV2-B4 S4, re-checked on B5 S1: 12 / 12 runs covered). `RateSuggestProgressModal.matchWaitEstimate` and
@@ -4803,10 +4809,11 @@ invariants:
   fail-closed `ai_status` envelope; reuses `ai_voter._extract_json_array`) and persists only the extracted
   ATTRIBUTES; the rate itself is computed CLIENT-SIDE via the RM-2 interpreter UNCHANGED, so a rate/param
   change flows in live with no AI re-run. The regex corroborator is DISPLAY-ONLY and never overrides AI.
-- **Endpoints** (`api/boq/rate_master.py`, long-job pattern): `start_suggest` / `_suggest_worker` /
-  `get_suggest_status` / `get_active_suggestion_run` / `record_rate_suggestion_event` /
+- **Endpoints** (`api/boq/rate_master.py`): `start_suggest` (a background operation since #1667, followed
+  through `api/background_ops.get_status`) / `_suggest_worker` (its work; returns the run's outcome) /
+  `get_active_suggestion_run` / `record_rate_suggestion_event` /
   `get_suggestion_events`, gated by the shared D8 chain (not locked + formulas complete + category gate,
-  REUSING the `pricing.py` predicates). Marker + terminal payload live in Redis keyed by (boq, sheet_name).
+  REUSING the `pricing.py` predicates). The "already running?" marker lives in Redis keyed by (boq, sheet_name).
 - **SR-1 run resilience (owner-locked, MIGRATE-carrying; full as-built in `.claude/context/domain/boq-backend.md`):**
   a run is NO LONGER all-or-nothing. **The run doc IS the partial store** (never Redis — its TTL is the wrong
   lifetime): created up front at `status=running`/`active=0` and updated per completed batch via a
@@ -4869,10 +4876,9 @@ invariants:
   AI calls, both writing the same run doc. At the old pairing (600 job / 1200 stale) that was unreachable
   only because every job died at 660s; the timeout raise is precisely what makes it reachable. It must
   also clear rq's kill grace, or the guard can expire inside the window between the timeout firing and the
-  horse actually dying. `_S_MARKER_TTL_SEC` (was 3600) holds the progress bar in Redis and must outlive
-  the job or the bar goes blank mid-run.
-- **`_S_STATUS_TTL_SEC` is deliberately NOT in that chain** and stays at 3600: its clock starts AFTER the
-  run ends (how long the poll can still read the terminal payload), so it answers a different question.
+  horse actually dying. The marker's TTL is the claim's (`operation_marker.CLAIM_TTL_SEC`, a day) since #1667:
+  the progress bar lives in the operation's own status record, and `_S_MARKER_TTL_SEC` / `_S_STATUS_TTL_SEC`
+  are gone with the per-sheet status key.
 - ⚠️ **KNOWN, ACCEPTED COST: the `long` queue has ONE worker** (`bench worker --queue long,default,short`),
   and a suggest run holds it for its whole life. The blast radius was capped at 11 minutes and is now
   capped at 61. Two concurrent suggest presses serialise. A dedicated queue or more workers is the real

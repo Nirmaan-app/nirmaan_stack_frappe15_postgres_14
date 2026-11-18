@@ -13,6 +13,7 @@ site's real runs and clear its real stuck flags.
   TestFailureCategories   every failure category, each with a linked Error Log and no key in it
 """
 import datetime
+import uuid
 from unittest.mock import MagicMock, patch
 
 import anthropic
@@ -23,7 +24,7 @@ from frappe.utils import add_to_date, now_datetime
 from rq.timeouts import JobTimeoutException
 
 from nirmaan_stack.api.boq.wizard import ai_assist, ai_run_log
-from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services import background_ops, boq_ai_assist
 from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _RUN_LOG = "BoQ AI Run Log"
@@ -123,8 +124,6 @@ class _RunLogCase(FrappeTestCase):
                 "parent_index": -1, "human_parent": -1, "human_is_root": 0,
                 "ai_suggested_parent": -1, "ai_suggested_level": -1,
             }).insert(ignore_permissions=True)
-        for sheet in _SHEETS:
-            frappe.cache().delete_value(ai_assist._ai_status_key(self.boq_name, sheet))
         frappe.db.commit()
 
     # -- helpers ------------------------------------------------------------
@@ -300,20 +299,14 @@ class TestHealthCheck(_RunLogCase):
                               last_heartbeat=self._ago(minutes=7))
         self._set_draft(_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
-        with patch("frappe.publish_realtime") as publish:
-            result = self._heal()
+        result = self._heal()
         run = self._run(name)
         self.assertEqual(result["failed_runs"], 1)
         self.assertEqual((run.status, run.failure_category), ("Failed", "worker stopped or timed out"))
         self.assertIn("no heartbeat", run.failure_message)
         self.assertIsNotNone(run.finished_at)
+        # The flag is the screens' "Checking rows..." read: cleared, the chip goes on their next read.
         self.assertEqual(self._flag(), 0)
-        event, payload = publish.call_args.args[:2]
-        self.assertEqual(event, "boq:ai_pass_done")
-        self.assertEqual((payload["status"], payload["error_code"]), ("error", "stale"))
-        # The page's poll fallback gets the same answer.
-        status = frappe.cache().get_value(ai_assist._ai_status_key(self.boq_name, _SHEET))
-        self.assertEqual(status["error_code"], "stale")
 
     def test_a_heartbeat_five_minutes_old_is_healthy(self):
         name = self._make_run(status="Running", started_at=self._ago(minutes=10),
@@ -378,11 +371,9 @@ class TestHealthCheck(_RunLogCase):
         self._make_run()            # a newer run, just queued
         self._set_draft(_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
-        with patch("frappe.publish_realtime") as publish:
-            self._heal()
+        self._heal()
         self.assertEqual(self._run(stale).status, "Failed")
-        self.assertEqual(self._flag(), 1)
-        self.assertFalse(publish.called, "the page is still waiting for the newer run")
+        self.assertEqual(self._flag(), 1, "the newer run still owns the flag")
 
     def test_the_check_is_scoped_to_the_sheet_it_is_given(self):
         other = self._make_run(status="Running", sheet=_OTHER, started_at=self._ago(minutes=30),
@@ -441,13 +432,17 @@ class TestHealthCheck(_RunLogCase):
             job(frappe.local.site, _CLAUDE_WORKER, boq_name="B1", sheet_name="S1"),
             job("another.site", _CLAUDE_WORKER, boq_name="B2", sheet_name="S2"),
             job(frappe.local.site, _GEMINI_WORKER, boq_name="B3", sheet_name="S3"),
+            # A check queued as a background operation (#1668): its work is inside the wrapper.
+            job(frappe.local.site, "nirmaan_stack.services.background_ops.run", op_id="x",
+                work=_CLAUDE_WORKER, work_kwargs={"boq_name": "B4", "sheet_name": "S4", "run_name": "R"}),
             None,       # a job that expired between the two reads
         ]
         with patch("frappe.utils.background_jobs.get_queue", return_value=queue), \
              patch("rq.job.Job.fetch_many", return_value=jobs) as fetch:
             live = ai_run_log._live_sheet_jobs()
         self.assertEqual(fetch.call_args.args[0], ["a", "b", "c", "d"])
-        self.assertEqual(live, {(_CLAUDE_WORKER, "B1", "S1"), (_GEMINI_WORKER, "B3", "S3")})
+        self.assertEqual(live, {(_CLAUDE_WORKER, "B1", "S1"), (_GEMINI_WORKER, "B3", "S3"),
+                                (_CLAUDE_WORKER, "B4", "S4")})
 
     def test_live_sheet_jobs_returns_none_when_the_queue_read_fails(self):
         with patch("frappe.utils.background_jobs.get_queue", side_effect=RuntimeError("redis down")), \
@@ -456,14 +451,12 @@ class TestHealthCheck(_RunLogCase):
 
     # -- heal on read ---------------------------------------------------------
 
-    def test_the_status_read_heals_a_dead_run(self):
+    def test_the_review_screens_check_read_heals_a_dead_run(self):
         name = self._make_run(status="Running", started_at=self._ago(minutes=9),
                               last_heartbeat=self._ago(minutes=9))
         self._set_draft(_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
-        with patch("frappe.publish_realtime"):
-            status = ai_assist.get_ai_pass_status(boq_name=self.boq_name, sheet_name=_SHEET)
-        self.assertEqual((status["status"], status["error_code"]), ("error", "stale"))
+        self.assertEqual(ai_assist.get_check_operation(boq_name=self.boq_name, sheet_name=_SHEET), {"op_id": None})
         self.assertEqual(self._run(name).status, "Failed")
         self.assertEqual(self._flag(), 0)
 
@@ -473,9 +466,8 @@ class TestHealthCheck(_RunLogCase):
         self._set_draft(_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
         with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value="k"), \
-             patch("frappe.publish_realtime"), \
              patch("frappe.enqueue", return_value=MagicMock()) as enqueue:
-            result = ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET)
+            result = ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET, op_id=str(uuid.uuid4()))
         self.assertTrue(result.get("enqueued"), result)
         self.assertTrue(enqueue.called)
         self.assertEqual([r.status for r in self._runs()], ["Failed", "Queued"])
@@ -543,6 +535,20 @@ class TestTimedCheck(FrappeTestCase):
 # The automatic run after a parse
 # ===========================================================================
 
+def _checks_queued(enqueue):
+    """The checks a mocked frappe.enqueue was asked to queue, unwrapped from the background_ops wrapper (#1668): each
+    call reads as the check's work, with its kwargs plus the queue, the time limit and the job id (its op id)."""
+    from types import SimpleNamespace
+    calls = [
+        SimpleNamespace(args=(c.kwargs["work"],),
+                        kwargs={**c.kwargs["work_kwargs"], "queue": c.kwargs["queue"],
+                                "timeout": c.kwargs["timeout"], "job_id": c.kwargs["op_id"]})
+        for c in enqueue.call_args_list
+    ]
+    return SimpleNamespace(call_args_list=calls, call_count=len(calls), called=bool(calls),
+                           call_args=calls[-1] if calls else None)
+
+
 class TestAutoRunAfterParse(_RunLogCase):
 
     def _enqueue(self, sheets, prior=frozenset(), settings=None, key="k", enqueue=None, allowed=True):
@@ -551,8 +557,8 @@ class TestAutoRunAfterParse(_RunLogCase):
              patch(_LOG_SETTINGS, return_value=settings or _settings()), \
              patch(_LOG_API_KEY, return_value=key), \
              patch("frappe.enqueue", enqueue):
-            runs = ai_run_log.enqueue_after_parse(self.boq_name, sheets, "Administrator", prior)
-        return runs, enqueue
+            runs = ai_run_log.enqueue_after_parse(self.boq_name, sheets, prior)
+        return runs, _checks_queued(enqueue)
 
     def test_one_claude_job_per_parsed_sheet(self):
         runs, enqueue = self._enqueue(list(_SHEETS))
@@ -561,13 +567,12 @@ class TestAutoRunAfterParse(_RunLogCase):
         for call in enqueue.call_args_list:
             self.assertEqual(call.args, (_CLAUDE_WORKER,), "only the Claude worker; Gemini is never auto-run")
             kw = call.kwargs
-            self.assertEqual((kw["queue"], kw["timeout"], kw["boq_name"], kw["user"]),
-                             ("long", 1200, self.boq_name, "Administrator"))
+            self.assertEqual((kw["queue"], kw["timeout"], kw["boq_name"]), ("long", 1200, self.boq_name))
             queued[kw["sheet_name"]] = kw
         self.assertEqual(sorted(queued), sorted([_SHEET, _OTHER]))
         records = {r.sheet_name: r for r in self._runs()}
         self.assertEqual(sorted(records), sorted([_SHEET, _OTHER]))
-        self.assertEqual(sorted(runs), sorted(r.name for r in records.values()))
+        self.assertEqual(runs, {r.sheet_name: r.job_id for r in records.values()})
         for sheet, run in records.items():
             self.assertEqual((run.status, run.trigger), ("Queued", "auto-after-parse"))
             self.assertEqual(run.sheet_last_parsed_at, _PARSED_AT)
@@ -577,7 +582,7 @@ class TestAutoRunAfterParse(_RunLogCase):
     def test_no_job_for_a_failed_hidden_skip_or_general_specs_sheet(self):
         skipped = ["HiddenSheet", "SkipSheet", "FailedSheet", "SpecsSheet", "SpecsButParsed"]
         runs, enqueue = self._enqueue(skipped)
-        self.assertEqual(runs, [])
+        self.assertEqual(runs, {})
         self.assertFalse(enqueue.called)
         self.assertEqual(self._runs(), [])
         self.assertEqual([self._flag(s) for s in skipped], [0] * 5)
@@ -596,7 +601,7 @@ class TestAutoRunAfterParse(_RunLogCase):
         frappe.db.set_value("BOQs", self.boq_name, "origin", "template")
         frappe.db.commit()
         runs, enqueue = self._enqueue([_SHEET])
-        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
+        self.assertEqual((runs, enqueue.called, self._runs()), ({}, False, []))
 
     def test_a_revision_boq_is_checked_like_an_upload(self):
         frappe.db.set_value("BOQs", self.boq_name, "origin", "revision")
@@ -619,13 +624,17 @@ class TestAutoRunAfterParse(_RunLogCase):
             self.assertIsNotNone(run.finished_at)
             self.assertEqual(self._flag(), 0)
 
-    def test_a_failed_enqueue_is_recorded_and_sets_no_flag(self):
+    def test_a_failed_queue_call_fails_the_check_and_the_health_check_frees_the_sheet(self):
         enqueue = MagicMock(side_effect=RuntimeError(f"redis refused {_FAKE_KEY}"))
-        self._enqueue([_SHEET], enqueue=enqueue)
+        with patch("frappe.log_error"):
+            runs, _ = self._enqueue([_SHEET], enqueue=enqueue)
+        self.assertEqual(background_ops.status(runs[_SHEET])["state"], "failed")
         (run,) = self._runs()
-        self.assertEqual((run.status, run.failure_category), ("Failed", "internal error"))
-        self.assertIn("RuntimeError", run.failure_message)
-        self.assertNotIn(_FAKE_KEY, run.failure_message)
+        frappe.db.set_value(_RUN_LOG, run.name, "queued_at", add_to_date(now_datetime(), minutes=-5))
+        frappe.db.commit()
+        self._heal(_SHEET)
+        (run,) = self._runs()
+        self.assertEqual((run.status, run.failure_category), ("Failed", "worker stopped or timed out"))
         self.assertEqual(self._flag(), 0)
 
     def test_the_record_is_committed_before_the_job_is_queued(self):
@@ -633,16 +642,10 @@ class TestAutoRunAfterParse(_RunLogCase):
 
         def enqueue(*args, **kwargs):
             frappe.db.rollback()        # whatever is not committed yet is gone now
-            seen["status"] = frappe.db.get_value(_RUN_LOG, kwargs["run_name"], "status")
+            seen["status"] = frappe.db.get_value(_RUN_LOG, kwargs["work_kwargs"]["run_name"], "status")
 
         self._enqueue([_SHEET], enqueue=MagicMock(side_effect=enqueue))
         self.assertEqual(seen["status"], "Queued")
-
-    def test_the_previous_outcome_does_not_answer_the_new_runs_first_poll(self):
-        key = ai_assist._ai_status_key(self.boq_name, _SHEET)
-        frappe.cache().set_value(key, {"status": "error", "error_code": "internal"})
-        self._enqueue([_SHEET])
-        self.assertIsNone(frappe.cache().get_value(key))
 
     def test_a_sheet_named_with_a_leading_or_trailing_space_is_checked(self):
         """S6 F1 (S5 DEF-01): the sheets are picked by their EXACT names. A Frappe ["in", ...]
@@ -663,22 +666,22 @@ class TestAutoRunAfterParse(_RunLogCase):
         self._set_draft(" LeadSpace", {"wizard_status": "Parsed"})
         frappe.db.commit()
         runs, enqueue = self._enqueue(["LeadSpace", "TrailSpace"])
-        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
+        self.assertEqual((runs, enqueue.called, self._runs()), ({}, False, []))
         runs, enqueue = self._enqueue(["TrailSpace "])      # still Hidden
-        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
+        self.assertEqual((runs, enqueue.called, self._runs()), ({}, False, []))
 
     def test_under_a_test_run_nothing_is_ever_queued(self):
         """A parse inside a test must never put a real, paid job on the site's queue."""
         self.assertTrue(frappe.flags.in_test)
         self.assertFalse(ai_run_log._auto_run_allowed())
         with patch("frappe.enqueue") as enqueue:
-            runs = ai_run_log.enqueue_after_parse(self.boq_name, [_SHEET], "Administrator")
-        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
+            runs = ai_run_log.enqueue_after_parse(self.boq_name, [_SHEET])
+        self.assertEqual((runs, enqueue.called, self._runs()), ({}, False, []))
 
     def test_it_never_raises_into_the_parse(self):
         with patch.object(ai_run_log, "_enqueue_after_parse", side_effect=RuntimeError("boom")), \
              patch("frappe.log_error") as log:
-            self.assertEqual(ai_run_log.enqueue_after_parse(self.boq_name, [_SHEET]), [])
+            self.assertEqual(ai_run_log.enqueue_after_parse(self.boq_name, [_SHEET]), {})
         self.assertTrue(log.called)
 
 
@@ -700,6 +703,74 @@ _SUGGESTION = {
 }
 
 
+class TestCheckOperation(_RunLogCase):
+    """Each sheet's automatic check is its own background operation (ADR 0047; spec #1654, #1668): the parse's
+    result names it, the hub and the review screen follow its status record, and it reads queued until a worker
+    runs it, then finished or failed."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_draft(_SHEET, {"wizard_status": "Parsed"})
+        frappe.db.commit()
+
+    def _start(self):
+        """The parse's seam, as its operation runs it: returns ({sheet: op_id}, the queue calls made)."""
+        queued = []
+        with patch.object(ai_run_log, "_auto_run_allowed", return_value=True), \
+             patch(_LOG_SETTINGS, return_value=_settings()), patch(_LOG_API_KEY, return_value="k"), \
+             patch("frappe.enqueue", side_effect=lambda method, **kw: queued.append(kw)):
+            checks = ai_run_log.enqueue_after_parse(self.boq_name, [_SHEET])
+        return checks, queued
+
+    def _work_off(self, queued, service):
+        with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value=_FAKE_KEY), \
+             patch(_GUIDANCE, side_effect=_fake_guidance), patch(_SERVICE, side_effect=service):
+            for job in queued:
+                background_ops.run(op_id=job["op_id"], work=job["work"], work_kwargs=job["work_kwargs"])
+        frappe.set_user("Administrator")
+
+    def test_a_started_check_reads_queued_until_a_worker_runs_it(self):
+        checks, queued = self._start()
+        self.assertEqual(list(checks), [_SHEET])
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(background_ops.status(checks[_SHEET])["state"], "queued")
+        self.assertEqual(self._flag(), 1)
+
+    def test_a_check_finishes_with_its_outcome_and_clears_the_flag(self):
+        checks, queued = self._start()
+        self._work_off(queued, lambda *a, **kw: [_SUGGESTION])
+        status = background_ops.status(checks[_SHEET])
+        self.assertEqual(status["state"], "finished")
+        self.assertEqual((status["result"]["status"], status["result"]["count"]), ("success", 1))
+        self.assertEqual(self._flag(), 0)
+
+    def test_a_failing_check_ends_its_operation_failed_and_clears_the_flag(self):
+        checks, queued = self._start()
+
+        def service(*args, **kwargs):
+            raise RuntimeError("the provider is down")
+
+        started = frappe.utils.now()
+        try:
+            self._work_off(queued, service)
+            status = background_ops.status(checks[_SHEET])
+            self.assertEqual(status["state"], "failed")
+            self.assertEqual(status["error"], ai_assist.CHECK_FAILED_MESSAGE)
+            self.assertEqual(self._flag(), 0)
+            self.assertEqual(frappe.db.get_value(_RUN_LOG, {"job_id": checks[_SHEET]}, "status"), "Failed")
+        finally:
+            frappe.db.rollback()
+            frappe.db.delete("Error Log", {"creation": [">=", started], "method": ["like", "BoQ AI pass worker%"]})
+            frappe.db.commit()
+
+    def test_the_review_screen_finds_its_own_live_check_and_not_another_users(self):
+        checks, _ = self._start()
+        self.assertEqual(ai_assist.get_check_operation(self.boq_name, _SHEET), {"op_id": checks[_SHEET]})
+        frappe.db.set_value(_RUN_LOG, {"job_id": checks[_SHEET]}, "owner", "someone.else@example.com")
+        frappe.db.commit()
+        self.assertEqual(ai_assist.get_check_operation(self.boq_name, _SHEET), {"op_id": None})
+
+
 class TestWorkerRunLog(_RunLogCase):
 
     def _ai_fields(self):
@@ -714,10 +785,9 @@ class TestWorkerRunLog(_RunLogCase):
         frappe.db.commit()
         with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value=_FAKE_KEY), \
              patch(_GUIDANCE, side_effect=_fake_guidance), \
-             patch(_SERVICE, side_effect=service) as svc, \
-             patch("frappe.publish_realtime") as publish:
-            ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, user=None, run_name=run_name)
-        return svc, publish
+             patch(_SERVICE, side_effect=service) as svc:
+            result = ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, run_name=run_name)
+        return svc, result
 
     def test_a_successful_run_is_recorded_with_its_heartbeats(self):
         name = self._make_run()
@@ -742,7 +812,7 @@ class TestWorkerRunLog(_RunLogCase):
 
         real_heartbeat = ai_run_log.heartbeat
         with patch.object(ai_run_log, "heartbeat", side_effect=real_heartbeat) as beat:
-            _, publish = self._work(name, service)
+            _, result = self._work(name, service)
 
         # Heartbeats: after the library step, at the service's start, before each of the 2
         # requests, after each of the 2 chunks. (Job start and end stamp it in begin / finish.)
@@ -765,15 +835,15 @@ class TestWorkerRunLog(_RunLogCase):
         self.assertFalse(run.failure_category)
         self.assertEqual(self._ai_fields()[1].ai_suggested_classification, "preamble")
         self.assertEqual(self._flag(), 0)
-        self.assertEqual(publish.call_args.args[1]["status"], "success")
+        self.assertEqual((result["status"], result["count"]), ("success", 1))
 
     def test_a_run_for_an_older_parse_makes_no_ai_call(self):
         name = self._make_run()
         self._set_draft(_SHEET, {"last_parsed_at": add_to_date(_PARSED_AT, minutes=1)})
         frappe.db.commit()
-        svc, publish = self._work(name, MagicMock(return_value=[_SUGGESTION]))
+        svc, result = self._work(name, MagicMock(return_value=[_SUGGESTION]))
         self.assertFalse(svc.called)
-        self.assertFalse(publish.called)
+        self.assertEqual(result["status"], "stopped")
         self.assertEqual(self._run(name).status, "Superseded")
 
     def test_a_re_parse_during_the_run_discards_the_answers(self):
@@ -785,14 +855,14 @@ class TestWorkerRunLog(_RunLogCase):
             frappe.db.commit()
             return [_SUGGESTION]
 
-        svc, publish = self._work(name, service)
+        svc, result = self._work(name, service)
         self.assertTrue(svc.called)
         run = self._run(name)
         self.assertEqual(run.status, "Superseded")
         self.assertIn("superseded", run.failure_message)
         self.assertTrue(all(r.ai_suggested_classification is None and not r.ai_explanation
                             for r in self._ai_fields()), "nothing from the old run is written")
-        self.assertFalse(publish.called, "a superseded run tells the page nothing")
+        self.assertEqual(result["status"], "superseded", "a superseded run reports no answers")
         self.assertEqual(self._flag(), 0, "no newer run is live here, so the flag is cleared")
 
     def test_a_superseded_run_does_not_touch_the_newer_runs_flag(self):
@@ -807,6 +877,23 @@ class TestWorkerRunLog(_RunLogCase):
         self._work(name, service)
         self.assertEqual([r.status for r in self._runs()], ["Superseded", "Queued"])
         self.assertEqual(self._flag(), 1)
+
+    def test_a_check_that_ends_leaves_the_flag_to_another_live_check_of_the_sheet(self):
+        """A manual check and an automatic one overlap on one sheet: the first to end, done or failed, must not
+        clear the flag the other still holds (#1668 review)."""
+        for outcome in ("done", "failed"):
+            with self.subTest(outcome=outcome):
+                frappe.db.delete(_RUN_LOG, {"boq": self.boq_name})
+                frappe.db.commit()
+                manual = self._make_run()
+                self._make_run(status="Running")    # the automatic check, still busy
+                if outcome == "done":
+                    self._work(manual, MagicMock(return_value=[_SUGGESTION]))
+                else:
+                    with self.assertRaises(frappe.ValidationError), patch("frappe.log_error", return_value=None):
+                        self._work(manual, MagicMock(side_effect=RuntimeError("made-up failure")))
+                self.assertEqual(self._run(manual).status, "Done" if outcome == "done" else "Failed")
+                self.assertEqual(self._flag(), 1, "the other check is live: the flag is still its own")
 
     def test_write_back_refuses_directly_when_the_parse_time_no_longer_matches(self):
         rows = ai_assist._fetch_review_rows_for_ai(self.boq_name, _SHEET)
@@ -826,7 +913,7 @@ class TestWorkerRunLog(_RunLogCase):
         def service(*args, **kwargs):
             # The health check gives up on this run while its worker is still busy.
             ai_run_log.fail_run(name, ai_run_log.CATEGORY_STALE, "worker stopped or timed out")
-            ai_assist._publish_ai_event(self.boq_name, _SHEET, "error", error_code="stale")
+            ai_assist._end_check(self.boq_name, _SHEET, name)
             return [_SUGGESTION]
 
         self._work(name, service)
@@ -840,13 +927,16 @@ class TestWorkerRunLog(_RunLogCase):
         self.assertEqual(self._runs(), [])
 
     def test_a_manual_run_writes_a_record(self):
+        op_id = str(uuid.uuid4())
         with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value="k"), \
              patch("frappe.enqueue", return_value=MagicMock()) as enqueue:
-            ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET)
+            reply = ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET, op_id=op_id)
+        self.assertEqual(reply, {"ok": True, "enqueued": True, "op_id": op_id})
         (run,) = self._runs()
         self.assertEqual((run.trigger, run.status, run.cached), ("manual", "Queued", 0))
-        self.assertEqual(enqueue.call_args.kwargs["run_name"], run.name)
-        self.assertEqual(enqueue.call_args.kwargs["job_id"], run.job_id)
+        self.assertEqual(enqueue.call_args.kwargs["work_kwargs"]["run_name"], run.name)
+        self.assertEqual(enqueue.call_args.kwargs["op_id"], run.job_id)
+        self.assertEqual(run.job_id, op_id)
         self.assertEqual(run.sheet_last_parsed_at, _PARSED_AT)
 
     def test_a_manual_cache_hit_is_logged_as_done_cached(self):
@@ -863,14 +953,15 @@ class TestWorkerRunLog(_RunLogCase):
                          ("manual", "Done", 1, 1))
         self.assertFalse(run.input_tokens)
 
-    def test_a_manual_enqueue_failure_is_recorded(self):
+    def test_a_manual_enqueue_failure_fails_its_operation(self):
+        op_id = str(uuid.uuid4())
         with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value="k"), \
-             patch("frappe.enqueue", side_effect=RuntimeError("redis refused")):
-            with self.assertRaises(RuntimeError):
-                ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET)
+             patch("frappe.enqueue", side_effect=RuntimeError("redis refused")), patch("frappe.log_error"):
+            ai_assist.run_ai_pass(boq_name=self.boq_name, sheet_name=_SHEET, op_id=op_id)
+        self.assertEqual(background_ops.status(op_id)["state"], "failed")
+        # The record waits for the health check, which fails it and frees the sheet (its job never reached rq).
         (run,) = self._runs()
-        self.assertEqual((run.status, run.failure_category), ("Failed", "internal error"))
-        self.assertEqual(self._flag(), 0)
+        self.assertEqual(run.status, "Queued")
 
 
 # ===========================================================================
@@ -933,7 +1024,7 @@ class TestFailureCategories(_RunLogCase):
         patches = [
             patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value=_FAKE_KEY),
             patch(_GUIDANCE, side_effect=_fake_guidance), patch("anthropic.Anthropic", _FakeClient),
-            patch.object(boq_ai_assist.time, "sleep"), patch("frappe.publish_realtime"),
+            patch.object(boq_ai_assist.time, "sleep"),
         ]
         if service is not None:
             patches.append(patch(_SERVICE, side_effect=service))
@@ -941,7 +1032,7 @@ class TestFailureCategories(_RunLogCase):
             p.start()
             self.addCleanup(p.stop)
         with self.assertRaises(expect):
-            ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, user=None, run_name=name)
+            ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, run_name=name)
         run = self._run(name)
         self.assertEqual(run.status, "Failed")
         self.assertIsNotNone(run.finished_at)

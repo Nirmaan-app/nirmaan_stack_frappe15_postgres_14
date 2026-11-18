@@ -8,20 +8,23 @@ flow, MIRRORING the parse flow (parse_run.run_parse / _run_parse_worker /
 _publish_parse_event) exactly. BACKEND ONLY -- the frontend is AI-3.
 
 Public API:
-  run_ai_pass(boq_name, sheet_name) -> dict          [whitelisted endpoint]
-  get_ai_pass_status(boq_name, sheet_name) -> dict    [whitelisted, missed-socket recovery]
+  run_ai_pass(boq_name, sheet_name, op_id) -> dict      [whitelisted endpoint]
+  get_check_operation(boq_name, sheet_name) -> dict      [whitelisted: the caller's live check, by op id]
 
 Internal:
-  _run_ai_pass_worker(boq_name, sheet_name, user)     background worker
-  _apply_ai_suggestions(...)                          set_value scalar-bypass write-back
-  _publish_ai_event(...)                              boq:ai_pass_done choke-point
+  _run_ai_pass_worker(boq_name, sheet_name, run_name)   the check's background operation work
+  _apply_ai_suggestions(...)                            set_value scalar-bypass write-back
+  _end_check(...)                                       clears ai_in_progress (own commit)
 
 DESIGN NOTES
 ------------
-* In-flight tracking uses ONLY BoQ Sheet Draft.ai_in_progress (no ai_job_id /
-  ai_enqueued_at field exists; AI-2c does NOT add one). It is set AFTER a successful
-  enqueue (own commit) and CLEARED inside _publish_ai_event (the choke-point, own
-  commit), so every worker exit path -- success and every error -- clears it.
+* Every check -- the automatic one each parse queues (ai_run_log.enqueue_after_parse) and a manual run_ai_pass --
+  is its own BACKGROUND OPERATION (ADR 0047; spec #1654, #1668), kind OPERATION_KIND. The hub and the review screen
+  follow it through its status record (`api/background_ops.get_status`); its BoQ AI Run Log record's job_id is the
+  operation id. No per-sheet status key holds an outcome, so one check can never answer for another.
+* In-flight tracking uses BoQ Sheet Draft.ai_in_progress (the screens' "Checking rows..." read).
+  It is set before the operation is queued and CLEARED by the work itself (_end_check, own commit) on success and
+  on every error, so every worker exit path clears it.
 * Per-sheet result cache keyed on (boq, sheet, last_parsed_at): a re-parse bumps
   last_parsed_at -> key miss -> a fresh pass. A cache HIT in the endpoint applies the
   cached suggestions synchronously (no enqueue, no API cost) -- the "second click on
@@ -43,6 +46,7 @@ from typing import Any
 
 import frappe
 from frappe.utils import now_datetime
+from rq.timeouts import JobTimeoutException
 
 from nirmaan_stack.api.boq.wizard import ai_run_log, draft_lock, review_flags
 from nirmaan_stack.api.boq.wizard.ai_settings import (
@@ -58,7 +62,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     resolve_effective,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
-from nirmaan_stack.services import boq_ai_assist, boq_ai_guidance
+from nirmaan_stack.services import background_ops, boq_ai_assist, boq_ai_guidance
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
 logger = frappe.logger("boq_ai")
@@ -66,11 +70,15 @@ logger = frappe.logger("boq_ai")
 _REVIEW_ROW = "BoQ Review Row"
 _SHEET_DRAFT = "BoQ Sheet Draft"
 
-# Per-sheet AI-pass result cache + missed-socket status fallback (Redis).
+# Per-sheet AI-pass result cache (Redis).
 _AI_CACHE_PREFIX = "boq_ai_pass"
 _AI_CACHE_TTL_SEC = 6 * 3600  # 6 hours -- ample for a "second click on the same parse"
-_AI_STATUS_PREFIX = "boq_ai_status"
-_AI_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
+
+# The check is a background operation: its kind in the log line, and its time limit (counted from when it starts
+# running). The words its operation fails in; the screens show the check's state from the run log, not these.
+OPERATION_KIND = "boq_ai_check"
+CHECK_TIMEOUT_SEC = 1200
+CHECK_FAILED_MESSAGE = "The automatic check of this sheet did not finish."
 
 # Defaults that mean "no AI suggestion" on a BoQ Review Row (mirrors the AI-1 schema
 # intent: ai_suggested_parent / ai_suggested_level use the -1 sentinel, rest None/empty).
@@ -101,7 +109,7 @@ _AI_FETCH_FIELDS = [
 
 
 # ---------------------------------------------------------------------------
-# Cache / status keys
+# Cache key
 # ---------------------------------------------------------------------------
 
 def _ai_cache_key(boq_name: str, sheet_name: str, last_parsed_at: Any) -> str:
@@ -112,12 +120,6 @@ def _ai_cache_key(boq_name: str, sheet_name: str, last_parsed_at: Any) -> str:
         f"{_AI_CACHE_PREFIX}::{boq_ai_assist.PROMPT_VERSION}::{boq_name}::{sheet_name}"
         f"::{last_parsed_at}"
     )
-
-
-def _ai_status_key(boq_name: str, sheet_name: str) -> str:
-    """Missed-socket status fallback key (per sheet -- the AI pass is per-sheet,
-    unlike the per-BoQ-job parse fallback)."""
-    return f"{_AI_STATUS_PREFIX}::{boq_name}::{sheet_name}"
 
 
 # ---------------------------------------------------------------------------
@@ -285,11 +287,11 @@ def _apply_ai_suggestions(
 # The endpoint
 # ---------------------------------------------------------------------------
 
-@frappe.whitelist()
-def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
+@frappe.whitelist(methods=["POST"])
+def run_ai_pass(boq_name: str = None, sheet_name: str = None, op_id: str = None) -> dict:
     """Run (or recover the cached result of) the AI structure-suggestion pass for one sheet.
 
-    Guards (return without enqueuing):
+    Guards (return without starting anything):
       {"ok": False, "error": "not_parsed"}   -- the sheet has no review rows yet.
       {"ok": False, "error": "ai_disabled"}  -- BOQ Upload Review AI Settings.enabled is off.
       {"ok": False, "error": "no_api_key"}   -- no Anthropic key configured.
@@ -297,13 +299,17 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
       {"ok": False, "error": "parsing"}      -- a parse is rebuilding this sheet's rows.
 
     Cache HIT (same last_parsed_at): applies the cached suggestions synchronously and
-      returns {"ok": True, "cached": True, "count": N} -- NO enqueue, NO API cost.
+      returns {"ok": True, "cached": True, "count": N} -- NO operation, NO API cost.
 
-    Otherwise enqueues the worker, sets ai_in_progress=1 AFTER a successful enqueue (own
-      commit), and returns {"ok": True, "enqueued": True}.
+    Otherwise starts the check as a background operation with the browser-made `op_id` (spec #1654, #1668) and
+    returns {"ok": True, "enqueued": True, "op_id": op_id}; the caller follows it with
+    `api/background_ops.get_status`. The same user repeating an `op_id` gets that reply again and nothing is queued
+    again.
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.run_ai_pass
     """
+    if op_id and background_ops.started_before(op_id):
+        return {"ok": True, "enqueued": True, "op_id": op_id}
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
     if not sheet_name:
@@ -333,7 +339,7 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     # and was never gated -- a fresh pass would run _apply_ai_suggestions's stale-clear and WIPE
     # the ai_suggestion_status of already-Accepted rows, a real mutation of a read-only sheet.
     # Placed BEFORE the cache check below (the cache-hit path ALSO calls _apply_ai_suggestions),
-    # so neither the synchronous cache path nor the enqueue path can touch a frozen sheet.
+    # so neither the synchronous cache path nor the operation path can touch a frozen sheet.
     # run_ai_pass uses the {ok:False} pre-flight idiom (not the throwing _guard_sheet_not_frozen),
     # so we read the status directly via _get_sheet_wizard_status.
     if _get_sheet_wizard_status(boq_name, sheet_name) == _SHEET_FINALIZED:
@@ -364,78 +370,51 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
             frappe.db.commit()
             return {"ok": True, "cached": True, "count": count}
 
-    # Cache miss -> enqueue a fresh pass. Raw (un-namespaced) job id, mirroring run_parse.
-    raw_job_id = frappe.generate_hash(length=32)
-    # The run-log record first, committed, so the worker finds it however fast it starts.
+    # Cache miss -> start a fresh check as a background operation.
+    start_check(boq_name, sheet_name, ai_run_log.TRIGGER_MANUAL, op_id, last_parsed_at)
+    return {"ok": True, "enqueued": True, "op_id": op_id}
+
+
+def start_check(boq_name: str, sheet_name: str, trigger: str, op_id: str, last_parsed_at: Any) -> str:
+    """Start one sheet's check as a background operation, as the current user, and commit (which queues it).
+
+    Its run-log record (job_id = the operation id) and the sheet's ai_in_progress flag are written in the same
+    commit, before the work can start. A queue call that fails ends the operation failed and leaves the record
+    Queued with no job: the health check fails it and clears the flag (ai_run_log.heal_stale_runs). Returns the
+    run-log record's name."""
+    background_ops.started_before(op_id)  # refuses a malformed id, and one another user used, before any write
     run_name = ai_run_log.create_run(
-        boq_name, sheet_name, ai_run_log.TRIGGER_MANUAL,
-        job_id=raw_job_id, last_parsed_at=last_parsed_at,
+        boq_name, sheet_name, trigger, job_id=op_id, last_parsed_at=last_parsed_at,
+    )
+    _set_ai_in_progress(boq_name, sheet_name, 1)
+    background_ops.start(
+        OPERATION_KIND,
+        "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker",
+        op_id=op_id,
+        timeout=CHECK_TIMEOUT_SEC,
+        boq_name=boq_name,
+        sheet_name=sheet_name,
+        run_name=run_name,
     )
     frappe.db.commit()
-    try:
-        job = frappe.enqueue(
-            "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker",
-            queue="long",
-            timeout=1200,
-            job_id=raw_job_id,
-            user=frappe.session.user,
-            boq_name=boq_name,
-            sheet_name=sheet_name,
-            run_name=run_name,
-        )
-    except Exception as exc:
-        ai_run_log.fail_run(
-            run_name, ai_run_log.CATEGORY_INTERNAL,
-            f"enqueue failed: {type(exc).__name__}: {exc}",
-        )
-        frappe.db.commit()
-        raise
-
-    # SET only after a successful enqueue so a failed enqueue doesn't leave state stuck.
-    _set_ai_in_progress(boq_name, sheet_name, 1)
-    frappe.db.commit()
-
-    # Invalidate any PRIOR run's terminal status payload (the Redis missed-socket fallback set
-    # by _publish_ai_event) so the frontend's poll resolves THIS pass, not the last one's outcome.
-    # Without this, re-running after a failure re-shows the old error banner: the poll reads
-    # get_ai_pass_status -> stale cached {status:"error"} while the new run is still in flight.
-    # Best-effort (Redis, outside the DB txn) -- must never fail the enqueue. (Parity with
-    # run_gemini_pass; the cache-hit path above returns early and records no status payload.)
-    try:
-        frappe.cache().delete_value(_ai_status_key(boq_name, sheet_name))
-    except Exception:
-        pass
-
-    return {"ok": True, "enqueued": True, "job_id": job.id if job else None}
+    return run_name
 
 
 @frappe.whitelist()
-def get_ai_pass_status(boq_name: str = None, sheet_name: str = None) -> dict:
-    """Missed-socket recovery: the terminal AI-pass outcome for a sheet, if recorded.
+def get_check_operation(boq_name: str = None, sheet_name: str = None) -> dict:
+    """The caller's own live check of one sheet, as {"op_id": <id> | None}: the operation the review screen then
+    follows (a screen that did not start it, or a new tab). None when no check of this sheet is queued or running,
+    or when another user's parse started it (only its owner may read an operation; the screen then waits on the
+    sheet's own reads). Also runs the health check, as a run start does.
 
-    The boq:ai_pass_done realtime event is room-targeted and not replayed -- a client
-    that missed it polls this. _publish_ai_event records its outcome in the Redis
-    fallback keyed by (boq, sheet); this returns it, else the idle shape with the live
-    ai_in_progress flag.
-
-    URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.get_ai_pass_status
+    URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.get_check_operation
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
     if not sheet_name:
         frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-
-    # Health check on every status read (S2): the Review screen polls this while its "AI pass
-    # running" chip shows, so a dead run is failed and its flag cleared within one poll.
     ai_run_log.heal_on_read(boq_name, sheet_name)
-
-    cached = frappe.cache().get_value(_ai_status_key(boq_name, sheet_name))
-    if cached:
-        return cached
-    return {
-        "status": "idle_or_unknown",
-        "ai_in_progress": _get_ai_in_progress(boq_name, sheet_name),
-    }
+    return {"op_id": ai_run_log.live_check_operation(boq_name, sheet_name, frappe.session.user)}
 
 
 # ---------------------------------------------------------------------------
@@ -883,31 +862,24 @@ def revert_ai_acceptance(
 # The worker
 # ---------------------------------------------------------------------------
 
-def _run_ai_pass_worker(
-    boq_name: str, sheet_name: str, user: str = None, run_name: str = None
-) -> None:
-    """Background worker: fetch rows -> resolve_effective -> AI-2b service -> write-back
-    -> cache -> publish. Mirrors _run_parse_worker structure.
+def _run_ai_pass_worker(boq_name: str, sheet_name: str, run_name: str = None) -> dict:
+    """The check's background operation work (runs as its owner, under `background_ops.run`): fetch rows ->
+    resolve_effective -> AI-2b service -> write-back -> cache. Returns the outcome as the operation's result:
+      {status: "success", boq_name, sheet_name, count}
+      {status: "superseded", ...} / {status: "stopped", ...} -- see below; nothing was written.
+    A failure is recorded on the run and raises CHECK_FAILED_MESSAGE, so the operation ends failed.
 
-    ai_in_progress is CLEARED inside _publish_ai_event (the choke-point), NOT here, so
-    every exit path clears it. On failure: rollback + log + publish error + RAISE (so
-    RQ marks the job failed -- matches _run_parse_worker).
+    ai_in_progress is CLEARED by _end_check on success and on every error, NOT by the superseded and stopped exits.
 
     RUN LOG (S2): `run_name` is this run's "BoQ AI Run Log" record (None for a caller that has
     none -- every run-log call is then a no-op). The record carries the heartbeat, the chunk and
-    token progress, the library status and the failure reason. Two exits publish NOTHING and leave
-    the flag to its owner: a run that is SUPERSEDED (the sheet was re-parsed after it was queued)
-    and a run the health check already failed while its worker was still busy.
-
-    Event published (user-targeted): 'boq:ai_pass_done'
-      success: {status, boq_name, sheet_name, count}
-      error:   {status, boq_name, sheet_name, error_code}   (ai_failed | internal)
+    token progress, the library status and the failure reason. Two exits leave the flag to its owner: a run that
+    is SUPERSEDED (the sheet was re-parsed after it was queued) and a run the health check already failed while its
+    worker was still busy ("stopped").
     """
-    if user:
-        frappe.set_user(user)
-
+    outcome = {"boq_name": boq_name, "sheet_name": sheet_name}
     if not ai_run_log.begin_run(run_name, boq_name, sheet_name):
-        return
+        return {"status": "stopped", **outcome}
 
     api_key = None
     try:
@@ -933,9 +905,9 @@ def _run_ai_pass_worker(
 
         if not ai_run_log.still_running(run_name):
             # The health check failed this run while it was still busy: it has already cleared
-            # the flag and told the page. The late answers are discarded.
+            # the flag. The late answers are discarded.
             frappe.db.rollback()
-            return
+            return {"status": "stopped", **outcome}
 
         _apply_ai_suggestions(
             boq_name, sheet_name, rows, suggestions,
@@ -960,11 +932,9 @@ def _run_ai_pass_worker(
         ai_run_log.finish_run(
             run_name, "Done", suggestion_count=len(suggestions), ai_seconds=ai_seconds
         )
-        # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids races).
         frappe.db.commit()
-        _publish_ai_event(
-            boq_name, sheet_name, "success", user=user, count=len(suggestions)
-        )
+        _end_check(boq_name, sheet_name, run_name)
+        return {"status": "success", "count": len(suggestions), **outcome}
 
     except ai_run_log.RunSuperseded:
         try:
@@ -972,6 +942,7 @@ def _run_ai_pass_worker(
         except Exception:
             pass
         ai_run_log.mark_superseded(run_name, boq_name, sheet_name)
+        return {"status": "superseded", **outcome}
 
     except Exception as exc:
         # Rollback FIRST, then log: an Error Log row inserted before the rollback is rolled back
@@ -986,51 +957,31 @@ def _run_ai_pass_worker(
             message=traceback_text,
         )
         if not ai_run_log.still_running(run_name):
-            # Already failed by the health check (flag cleared, page told): keep that record.
+            # Already failed by the health check (flag cleared): keep that record.
             frappe.db.commit()
-            raise
+            _raise_check_failed(exc)
         category, message = boq_ai_assist.classify_failure(exc)
         ai_run_log.fail_run(
             run_name, category, message,
             error_log=getattr(error_log, "name", None), secrets=[api_key],
         )
-        error_code = "ai_failed" if isinstance(exc, _NonRetryable) else "internal"
-        _publish_ai_event(boq_name, sheet_name, "error", user=user, error_code=error_code)
-        raise
+        frappe.db.commit()
+        _end_check(boq_name, sheet_name, run_name)
+        _raise_check_failed(exc)
 
 
-# ---------------------------------------------------------------------------
-# Publish (choke-point: clears ai_in_progress + commits, on EVERY exit path)
-# ---------------------------------------------------------------------------
+def _raise_check_failed(exc: Exception) -> None:
+    """End the check's operation failed: in its time limit's words when the job ran out of time (background_ops
+    says so), else in CHECK_FAILED_MESSAGE -- the cause is on the run record and in the Error Log already."""
+    if isinstance(exc, JobTimeoutException):
+        raise exc
+    raise frappe.ValidationError(CHECK_FAILED_MESSAGE) from exc
 
-def _publish_ai_event(
-    boq_name: str,
-    sheet_name: str,
-    status: str,
-    user: str | None = None,
-    **kwargs: Any,
-) -> None:
-    """Publish boq:ai_pass_done targeted to the enqueueing user (if known).
 
-    Every completion path funnels through here so one choke-point clears
-    ai_in_progress uniformly. The error path calls frappe.db.rollback() BEFORE this;
-    that rollback is already done, so the set_value + commit below starts a fresh
-    transaction not subject to it (mirrors _publish_parse_event)."""
-    _set_ai_in_progress(boq_name, sheet_name, 0)
+def _end_check(boq_name: str, sheet_name: str, run_name: str | None) -> None:
+    """Check `run_name` ended (or the health check failed it): clear the sheet's ai_in_progress flag in its own
+    commit, unless another check of the sheet is still queued or running -- the flag is then that check's own (a
+    manual check and an automatic one can overlap; the rule mark_superseded keeps)."""
+    if not ai_run_log.other_live_run(boq_name, sheet_name, run_name):
+        _set_ai_in_progress(boq_name, sheet_name, 0)
     frappe.db.commit()
-
-    payload = {"status": status, "boq_name": boq_name, "sheet_name": sheet_name, **kwargs}
-
-    # Missed-socket fallback (best-effort, Redis -- survives the error-path rollback,
-    # must never fail the job). Keyed per sheet so get_ai_pass_status can recover it.
-    try:
-        frappe.cache().set_value(
-            _ai_status_key(boq_name, sheet_name), payload, expires_in_sec=_AI_STATUS_TTL_SEC
-        )
-    except Exception:
-        pass
-
-    publish_kwargs: dict[str, Any] = {}
-    if user:
-        publish_kwargs["user"] = user
-    frappe.publish_realtime("boq:ai_pass_done", payload, **publish_kwargs)

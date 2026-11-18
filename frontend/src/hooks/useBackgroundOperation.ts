@@ -5,6 +5,7 @@
  *
  *   const op = useBackgroundOperation({ storageKey: "tds_export:<project>", onFinished, onFailed });
  *   await op.start("nirmaan_stack.api.tds.tds_report.start_tds_export", { settings_json, ... }, { previewOnly });
+ *   op.followStarted(opId)  // follow one the server started (another operation's result names its id)
  *   op.view  // idle | starting | queued | running (progress) | finished | failed | lost
  *   op.context  // what `start` was given, so a screen knows what a resumed operation is for
  *
@@ -35,6 +36,8 @@ export interface BackgroundOperation {
   context: unknown;
   /** Start a new operation through the flow's own start endpoint, then follow it. */
   start: (method: string, args: StartArgs, context?: unknown) => Promise<void>;
+  /** Follow an operation the server started (its id came in another operation's result); nothing is posted. */
+  followStarted: (opId: string, context?: unknown) => void;
   /** Forget the operation this screen follows. */
   reset: () => void;
 }
@@ -162,12 +165,17 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
   onFailedRef.current = onFailed;
 
   useEffect(() => {
+    // A new slot (the pricing page switching sheets keeps this hook mounted) shows only what that slot holds: idle
+    // until `resume` finds an operation stored there, never the previous slot's view.
+    setFollowed({ view: { phase: "idle" }, context: undefined });
     const follower = new OperationFollower({
       makeId: () => crypto.randomUUID(),
       readStatus: (opId) => readStatus(callRef.current, opId),
       socketUp: () => Boolean(socketRef.current?.connected),
       storage: tabSlot(storageKey),
       onView: (next, nextContext) => {
+        // A start posted for the previous slot can still fail after the switch: its view is not this slot's.
+        if (followerRef.current !== follower) return;
         setFollowed({ view: next, context: nextContext });
         if (next.phase === "failed" || next.phase === "lost") onFailedRef.current?.(next);
       },
@@ -201,7 +209,11 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
     await followerRef.current?.start((opId) => postStart(callRef.current, method, args, opId), context);
   }, []);
 
+  const followStarted = useCallback((opId: string, context?: unknown) => {
+    followerRef.current?.followStarted(opId, context);
+  }, []);
+
   const reset = useCallback(() => followerRef.current?.reset(), []);
 
-  return { view, context, start, reset };
+  return { view, context, start, followStarted, reset };
 }

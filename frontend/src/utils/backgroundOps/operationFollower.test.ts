@@ -242,4 +242,18 @@ describe("OperationFollower", () => {
     await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_DOWN * 5);
     expect(f.reads()).toBe(before);
   });
+
+  it("follows an operation the server started, by the id another operation's result names", async () => {
+    const f = fakeEdge({ makeId: () => { throw new Error("following makes no id"); } });
+    const follower = new OperationFollower(f.edge);
+    f.serverSays({ op_id: B, state: "queued" });
+    follower.followStarted(B, { run: "made-up-run" });
+    await flush();
+    expect(f.last()).toEqual({ phase: "queued", opId: B });
+    expect(f.store.get("op")).toContain(B);
+
+    f.serverSays({ op_id: B, state: "finished", result: { run: "made-up-run" } });
+    await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_DOWN);
+    expect(f.finished).toEqual([{ result: { run: "made-up-run" }, context: { run: "made-up-run" } }]);
+  });
 });

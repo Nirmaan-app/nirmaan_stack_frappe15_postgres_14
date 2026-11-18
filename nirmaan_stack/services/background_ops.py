@@ -208,6 +208,19 @@ def run(op_id, work, work_kwargs):
     _end(op_id, FINISHED, result=result, peak_memory_mb=_peak_memory_mb())
 
 
+def queued_work(job_kwargs):
+    """(dotted work method, its kwargs) of a job on a Frappe queue, from the job's own kwargs: an operation's work is
+    inside this module's wrapper `run`, any other job is its method itself. For a reader that looks for a flow's live
+    jobs on the queues (tasks/suggest_run_healer, tasks/match_run_healer; #1667)."""
+    method = job_kwargs.get("method")
+    if not isinstance(method, str):
+        method = f"{getattr(method, '__module__', '')}.{getattr(method, '__name__', '')}"
+    inner = job_kwargs.get("kwargs") or {}
+    if method == f"{__name__}.run":
+        return inner.get("work"), inner.get("work_kwargs") or {}
+    return method, inner
+
+
 def _peak_memory_mb():
     """The peak memory of the process that ran the work: the worker's work horse (Linux reports KB)."""
     return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
@@ -229,6 +242,14 @@ def set_progress(percent, message=None, detail=None):
         return
     if time.time() - getattr(frappe.local, "background_op_read_now_at", 0) >= READ_NOW_EVERY_SECONDS:
         _read_now(record)
+
+
+def set_row_progress(done, total, **detail):
+    """`set_progress` for work that counts rows: the percent of `total` done, "<done> of <total> rows", and
+    detail {done, total, **detail} for the screen's bar."""
+    done, total = int(done), int(total or 0)
+    percent = round(done * 100 / total) if total else 0
+    set_progress(percent, f"{done} of {total} rows", detail={"done": done, "total": total, **detail})
 
 
 def _read_now(record):
