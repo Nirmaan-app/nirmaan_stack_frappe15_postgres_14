@@ -59,8 +59,11 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   #1653). Walked end to end by `BIN/walk_card_import.py`.
 - [Background operations](./background-operations.md): TDS export, the handover binder, commission and bulk PDF
   download, BoQ upload and template seed, each followed through its owner-only status record: queued apart from
-  running, each tab its own file or outcome, by polling alone (spec #1654). Walked by
-  `BIN/walk_background_operations.py` (`--part tds|handover|commission|bulk|boq|template`).
+  running, each tab its own file or outcome, by polling alone (spec #1654, #1662-#1665). Walked by
+  `BIN/walk_background_operation_screens.py` (`--part tds|handover|commission|bulk|boq|template`).
+  With N `long` workers, N template clones, ceil(N/2) two-engine Classify clicks, N rate suggests on N sheets and N
+  TDS exports at once all succeed, and the check prints peak memory per worker, peak DB connections and the longest
+  BoQ series lock wait (#1656, #1657, #1659, #1662). The N-worker check, `BIN/walk_background_operations.py --workers N`.
 - [Projects](./projects.md): the project list and a project's page.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`

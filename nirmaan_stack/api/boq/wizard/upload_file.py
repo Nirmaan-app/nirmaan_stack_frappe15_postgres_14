@@ -9,6 +9,7 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import _fetch_boq_file_to_tempfi
 from nirmaan_stack.services import background_ops
 from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services.boq_parser.reader import BoqReader
+from nirmaan_stack.services.series_lock import boq_series, series_lock
 from nirmaan_stack.services.stored_files import store_file
 
 _MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
@@ -237,7 +238,17 @@ def _upload_file_worker(project_id, file_url, file_name, is_template_source=0, s
     as today, but NO sheet_drafts are seeded -- S3's confirm_revision_mapping seeds them after
     the human confirms the sheet mapping. The non-revision path (source_boq is None) is
     byte-identical to before.
+
+    The whole operation holds the BoQ series lock (`services/series_lock`, ADR 0048): it takes a BoQ
+    number users see, so an overlapping BoQ creation would otherwise fail it. Its Nirmaan Attachments
+    row is named by `hash` (#1719) and needs no lock. A worker waits for the lock without limit; a lock
+    that fails, like any other error, reaches `background_ops.run`, which ends the operation failed.
     """
+    with series_lock(boq_series()):
+        return _create_boq_from_upload(project_id, file_url, file_name, is_template_source, source_boq)
+
+
+def _create_boq_from_upload(project_id, file_url, file_name, is_template_source, source_boq):
     worker_tmp = None
     try:
         # Step 1: Create Nirmaan Attachments early; associated_docname linked in step 11.

@@ -17,8 +17,11 @@ import tempfile
 import urllib.parse
 from typing import Any
 
+from psycopg2.errors import SerializationFailure
+
 import frappe
 
+from nirmaan_stack.services import operation_marker
 from nirmaan_stack.services.boq_parser.config import (
     GlobalSettings,
     MappingConfig,
@@ -55,8 +58,9 @@ _LIST_JSON_FIELDS: frozenset[str] = frozenset({
 # Per-sheet parse-lifecycle state (#164 A3-backend)
 # ---------------------------------------------------------------------------
 
-# An enqueued/started job older than this is treated as a dead worker remnant and
-# self-healed (20 min). Mirrors the frontend hub's recovery expectation.
+# A job that STARTED longer ago than this is treated as a dead worker remnant and
+# self-healed (20 min); a job still waiting in the queue never is (#1660). Mirrors the
+# frontend hub's recovery expectation.
 _STALE_PARSE_SECONDS = 1200
 
 # wizard_status values admissible as a parse target under Rule 3. Mirrors
@@ -540,11 +544,7 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     if int(frappe.db.get_value("BOQs", boq_name, "parse_in_progress") or 0) == 1:
         state = _maybe_self_heal_parse_state(boq_name)
         if state == "running":
-            frappe.throw(
-                "A parse is already running for this BoQ. "
-                "Wait for it to finish before starting another.",
-                title="Parse in progress",
-            )
+            _throw_parse_in_progress()
         # "cleared" / "cleared_stale" -> the stale state was wiped; proceed.
 
     # NOTE (ADR-0011 Amendment A1, Update 2026-07-06): the force-reparse directional
@@ -560,17 +560,6 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     # RAW id -- storing job.id (already namespaced) would double-namespace and
     # always read None (Recon #2 Q4).
     raw_job_id = frappe.generate_hash(length=32)
-
-    job = frappe.enqueue(
-        "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
-        queue="long",
-        timeout=600,
-        job_id=raw_job_id,
-        user=frappe.session.user,
-        boq_name=boq_name,
-        sheet_names=sheet_names,
-        force_reparse=force_reparse,
-    )
 
     # Superset marking (#164): flag every sheet that COULD parse this run. If a
     # subset was named, those; otherwise every sheet whose wizard_status is
@@ -590,9 +579,24 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
             if (d.wizard_status or "") in admissible
         ]
 
-    # SET only after a successful enqueue so a failed enqueue doesn't leave state
-    # stuck. The BoQ-level flag + job id + enqueue timestamp + the per-sheet
-    # superset markers all land in one commit.
+    # CLAIM the BoQ BEFORE the enqueue (#1660): the flag is set only when it is clear, so of two
+    # starts that both read it clear only one queues. The loser either finds the flag already set
+    # (no row updated) or, its snapshot being older than the winner's commit (REPEATABLE READ),
+    # fails to serialize; both are "a parse is already running". Raw SQL skips doc hooks, as the
+    # set_value below always did: these lifecycle columns feed no derived field. The flag + job id
+    # + timestamp + the per-sheet superset markers land in one commit, BEFORE the queue call, so
+    # the job finds them committed; a failed queue call clears them again.
+    try:
+        claimed = frappe.db.sql(
+            """update "tabBOQs" set parse_in_progress = 1
+            where name = %s and coalesce(parse_in_progress, 0) = 0 returning name""",
+            (boq_name,),
+        )
+    except SerializationFailure:
+        frappe.db.rollback()
+        claimed = None
+    if not claimed:
+        _throw_parse_in_progress()
     frappe.db.set_value("BOQs", boq_name, {
         "parse_in_progress": 1,
         "parse_job_id": raw_job_id,
@@ -600,7 +604,40 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     })
     _set_sheet_parse_markers(boq_name, target_sheets, 1)
     frappe.db.commit()
+    try:
+        job = frappe.enqueue(
+            "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
+            queue="long",
+            timeout=600,
+            job_id=raw_job_id,
+            user=frappe.session.user,
+            boq_name=boq_name,
+            sheet_names=sheet_names,
+            force_reparse=force_reparse,
+        )
+    except Exception:
+        _clear_parse_state(boq_name)
+        raise
     return {"status": "queued", "job_id": job.id if job else None}
+
+
+def _throw_parse_in_progress():
+    frappe.throw(
+        "A parse is already running for this BoQ. "
+        "Wait for it to finish before starting another.",
+        title="Parse in progress",
+    )
+
+
+def _clear_parse_state(boq_name: str) -> None:
+    """Clear the BoQ flag, job id, enqueue timestamp and every per-sheet marker, and commit."""
+    frappe.db.set_value("BOQs", boq_name, {
+        "parse_in_progress": 0,
+        "parse_job_id": None,
+        "parse_enqueued_at": None,
+    })
+    _clear_all_sheet_parse_markers(boq_name)
+    frappe.db.commit()
 
 
 def _maybe_self_heal_parse_state(boq_name: str) -> str:
@@ -611,62 +648,39 @@ def _maybe_self_heal_parse_state(boq_name: str) -> str:
     Assumes the caller has already confirmed BOQs.parse_in_progress == 1.
 
     Returns:
-      "running"       -- the RQ job is live (queued/started) and within the
-                         staleness window; ALL state is left untouched.
+      "running"       -- the RQ job waits in the queue, or started within the
+                         staleness window, or is about to be queued
+                         (operation_marker.job_state); ALL state is left untouched.
       "cleared"       -- the job finished / failed / vanished from Redis; the
                          BoQ flag, job id, enqueue timestamp, and every per-sheet
                          marker are cleared and committed.
-      "cleared_stale" -- the job still reads live (or its id is gone) but
-                         parse_enqueued_at is older than _STALE_PARSE_SECONDS, so
-                         it is treated as a dead worker and cleared as above.
+      "cleared_stale" -- the job STARTED more than _STALE_PARSE_SECONDS ago (#1660:
+                         never counted from the enqueue, so a parse waiting in the
+                         queue is never stale), so it is treated as a dead worker
+                         and cleared as above. A legacy flag with no job id is
+                         cleared_stale when parse_enqueued_at is past the window.
 
     Self-heal ALWAYS blanks parse_job_id + parse_enqueued_at (so a subsequent
     check reads "idle", not a re-evaluated stale id).
     """
-    from frappe.utils.background_jobs import get_job_status
-
     info = frappe.db.get_value(
         "BOQs", boq_name, ["parse_job_id", "parse_enqueued_at"], as_dict=True
     )
     raw_job_id = (info.parse_job_id or "") if info else ""
     enqueued_at = info.parse_enqueued_at if info else None
 
-    def _is_stale() -> bool:
-        if not enqueued_at:
-            return False
-        return (
-            frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at)
-            > _STALE_PARSE_SECONDS
-        )
-
-    def _clear() -> None:
-        frappe.db.set_value("BOQs", boq_name, {
-            "parse_in_progress": 0,
-            "parse_job_id": None,
-            "parse_enqueued_at": None,
-        })
-        _clear_all_sheet_parse_markers(boq_name)
-        frappe.db.commit()
-
     # Legacy stuck state: flag set but no job id was ever stored.
     if not raw_job_id:
-        stale = _is_stale()
-        _clear()
+        stale = bool(enqueued_at) and (
+            frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at) > _STALE_PARSE_SECONDS
+        )
+        _clear_parse_state(boq_name)
         return "cleared_stale" if stale else "cleared"
 
-    status = get_job_status(raw_job_id)
-    # rq JobStatus is a str-enum; normalize to its plain string value defensively.
-    status_val = getattr(status, "value", status)
-
-    if status_val is None or status_val in ("finished", "failed"):
-        _clear()
-        return "cleared"
-
-    # queued / started (or any other not-yet-terminal state) -> live unless stale.
-    if _is_stale():
-        _clear()
-        return "cleared_stale"
-    return "running"
+    state = operation_marker.job_state(raw_job_id, enqueued_at, _STALE_PARSE_SECONDS)
+    if state != "running":
+        _clear_parse_state(boq_name)
+    return state
 
 
 @frappe.whitelist()
@@ -999,14 +1013,17 @@ def _run_parse_worker(
         )
 
     except Exception:
+        # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write and the
+        # publish below would fail with it, leaving the hub on "Parsing..." (#1657). A rollback that fails (dead
+        # connection) must not skip them.
+        try:
+            frappe.db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         frappe.log_error(
             title=f"BoQ parse worker: unhandled error for {boq_name}",
             message=frappe.get_traceback(),
         )
-        try:
-            frappe.db.rollback()
-        except Exception:
-            pass
         _publish_parse_event(boq_name, "error", user=user, error_code="internal")
         raise
 

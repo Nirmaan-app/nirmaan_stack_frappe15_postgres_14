@@ -33,6 +33,9 @@ from residence_check import (  # noqa: E402
     json_call_drift,
     raw_listener_lines,
     raw_listener_uses,
+    BACKGROUND_WRITTEN_DOCTYPES,
+    COUNTED_NAME_WAITING,
+    counted_names_on_background_doctypes,
 )
 
 
@@ -253,12 +256,12 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_eight_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_nine_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
-            "j1_json_calls_unfrozen", "l1_raw_listener_hooks",
+            "j1_json_calls_unfrozen", "l1_raw_listener_hooks", "n1_counted_names_on_background_doctypes",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):
@@ -485,6 +488,102 @@ class RawListenerHooks(unittest.TestCase):
         with redirect_stdout(out):
             rc = main(["--check", "--only", "L1"])
         self.assertEqual(rc, 0, out.getvalue())
+
+
+class CountedNamesOnBackgroundDoctypes(unittest.TestCase):
+    """N1 (#1661, ADR-0048): a doctype background operations write never takes a counted name."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.doctype_dir = Path(tmp.name)
+
+    def doctype(self, name, autoname="hash", controller="class X(Document):\n    pass\n"):
+        folder = self.doctype_dir / name.lower().replace(" ", "_")
+        folder.mkdir(exist_ok=True)
+        (folder / f"{folder.name}.json").write_text(json.dumps({"name": name, "autoname": autoname}))
+        (folder / f"{folder.name}.py").write_text(controller)
+
+    def findings(self, names, waiting=None):
+        return counted_names_on_background_doctypes(self.doctype_dir, names, waiting or {})
+
+    def test_a_counted_autoname_in_the_doctype_json_is_refused(self):
+        for autoname in ("BRR-.YY.-.#####", "naming_series:", "format:BRR-{YY}-{#####}", "BRR.####"):
+            with self.subTest(autoname=autoname):
+                self.doctype("Sample Row", autoname=autoname)
+                found = self.findings(["Sample Row"])
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("Sample Row", found[0])
+
+    def test_a_controller_that_counts_is_refused(self):
+        for line in ('self.name = getseries(f"ATT-{self.project}-", 3)',
+                     'self.name = make_autoname("SR-.#####")',
+                     "self.name = frappe.model.naming.make_autoname(self.prefix + '.####')"):
+            with self.subTest(line=line):
+                self.doctype("Sample Row", autoname="",
+                             controller=f"class X(Document):\n    def autoname(self):\n        {line}\n")
+                found = self.findings(["Sample Row"])
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("sample_row.py:3", found[0])
+
+    def test_hash_and_names_that_take_no_number_pass(self):
+        controller = (
+            "# getseries( in a comment\n"
+            "class X(Document):\n"
+            "    '''make_autoname(\"A.#\") in a docstring'''\n"
+            "    def autoname(self):\n"
+            "        self.name = make_autoname(\"hash\")\n"
+        )
+        for autoname in ("hash", "", "UUID", "autoincrement", "field:title", "Prompt"):
+            with self.subTest(autoname=autoname):
+                self.doctype("Sample Row", autoname=autoname, controller=controller)
+                self.assertEqual(self.findings(["Sample Row"]), [])
+
+    def test_a_doctype_not_on_the_list_is_ignored(self):
+        self.doctype("Sample Row")
+        self.doctype("Other Ledger", autoname="OL-.#####",
+                     controller="def autoname(self):\n    self.name = getseries('OL', 3)\n")
+        self.assertEqual(self.findings(["Sample Row"]), [])
+
+    def test_a_doctype_waiting_on_its_ticket_passes_until_it_switches(self):
+        self.doctype("Sample Row", autoname="SR-.#####")
+        self.assertEqual(self.findings(["Sample Row"], {"Sample Row": "#9999"}), [])
+
+    def test_a_waiting_doctype_that_switched_must_leave_the_waiting_list(self):
+        self.doctype("Sample Row")
+        found = self.findings(["Sample Row"], {"Sample Row": "#9999"})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("COUNTED_NAME_WAITING", found[0])
+
+    def test_a_listed_doctype_with_no_folder_is_refused(self):
+        found = self.findings(["Renamed Row"])
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("Renamed Row", found[0])
+
+    def test_the_list_names_the_nine_doctypes_and_none_waits(self):
+        self.assertEqual(sorted(BACKGROUND_WRITTEN_DOCTYPES), sorted([
+            "BoQ Review Row", "BoQ Row Category", "BoQ Rate Suggestion Run", "BoQ Rate Match Run",
+            "BoQ Cell Pricing", "Project Action Item", "Outflow Row Match", "Expense Bill", "Nirmaan Attachments",
+        ]))
+        self.assertEqual(COUNTED_NAME_WAITING, {})
+
+    def test_the_real_tree_has_no_counted_name_on_a_listed_doctype(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "N1"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("✓ n1_counted_names_on_background_doctypes", out.getvalue())
+
+    def test_a_raised_baseline_entry_does_not_let_a_counted_name_pass(self):
+        self.doctype("Sample Row", autoname="SR-.#####")
+        baseline = self.doctype_dir / "baseline.json"
+        baseline.write_text(json.dumps({"n1_counted_names_on_background_doctypes": {"count": 5, "rule": "N1"}}))
+        out = io.StringIO()
+        with mock.patch("residence_check.DOCTYPE_DIR", self.doctype_dir), \
+                mock.patch("residence_check.BACKGROUND_WRITTEN_DOCTYPES", ["Sample Row"]), redirect_stdout(out):
+            rc = main(["--check", "--only", "N1"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("Sample Row", out.getvalue())
 
 
 if __name__ == "__main__":

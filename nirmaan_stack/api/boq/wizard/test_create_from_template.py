@@ -25,6 +25,7 @@ Run via the bench runner (NOT raw unittest -- see root CLAUDE.md § Commands):
 """
 import json
 import re
+import time
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -647,6 +648,56 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
         self.assertEqual(kwargs.get("new_boq"), res["boq_id"])
         self.assertEqual(kwargs.get("template"), self.master)
         self.assertEqual(kwargs.get("sheet_names"), [_SHEET_A])
+
+    def test_create_commits_when_another_boq_was_created_after_its_transaction_began(self):
+        """#1659: the shell insert takes the BoQ series lock and a fresh snapshot, so a BoQ another
+        operation created (and committed) after this request's transaction began does not fail it on
+        the counted BoQ number."""
+        with self.secondary_connection():
+            frappe.db.sql("select count(*) from `tabBOQs`")  # this request's transaction has begun
+        with self.primary_connection():
+            other = frappe.new_doc("BOQs")
+            other.project = self.project.name
+            other.boq_name = "Created meanwhile"
+            other.insert(ignore_permissions=True)
+            frappe.db.commit()
+        with self.secondary_connection():
+            with patch.object(cft.frappe, "enqueue") as mock_enq:
+                mock_enq.return_value = MagicMock(id="j-overlap")
+                try:
+                    res = create_from_template(self.project.name, "OverlapBoQ", [_SHEET_A])
+                except Exception as e:
+                    self.fail(f"the overlapping create did not commit: {type(e).__name__}: {e}")
+        frappe.db.rollback()
+        self.assertRegex(res["boq_id"], r"^BOQ-\d{2}-\d{5}$")
+        self.assertEqual(int(res["boq_id"].rsplit("-", 1)[1]), int(other.name.rsplit("-", 1)[1]) + 1)
+
+    def test_create_is_refused_quickly_while_another_boq_creation_holds_the_series_lock(self):
+        """#1659 review: a web request waits a bounded time for the BoQ series lock (an upload holds it for its whole
+        run), then refuses with a message the user can act on, and creates nothing."""
+        from nirmaan_stack.services.series_lock import boq_series, series_lock
+
+        held = series_lock(boq_series())
+        with self.secondary_connection():  # the other creation, on its own connection
+            held.__enter__()
+        try:
+            with self.primary_connection():
+                frappe.db.sql("SET statement_timeout = '8s'")  # untouched code waits without limit: fail, not hang
+                began = time.monotonic()
+                try:
+                    with patch.object(cft, "_BOQ_LOCK_WAIT_SEC", 1), \
+                            patch.object(cft.frappe, "enqueue") as mock_enq, \
+                            self.assertRaisesRegex(frappe.ValidationError, "Another BoQ is being created right now"):
+                        create_from_template(self.project.name, "WaitedTooLongBoQ", [_SHEET_A])
+                finally:
+                    frappe.db.sql("RESET statement_timeout")
+                self.assertLess(time.monotonic() - began, 5)
+                mock_enq.assert_not_called()
+                self.assertFalse(frappe.db.exists("BOQs", {"project": self.project.name,
+                                                           "boq_name": "WaitedTooLongBoQ"}))
+        finally:
+            with self.secondary_connection():
+                held.__exit__(None, None, None)
 
     def test_create_accepts_json_string_sheet_names(self):
         with patch.object(cft.frappe, "enqueue") as mock_enq:

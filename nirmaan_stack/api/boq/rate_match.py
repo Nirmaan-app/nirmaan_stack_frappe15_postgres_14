@@ -38,7 +38,8 @@ rows that need a new spec card (`count_rows_without_card`).
 import json
 
 import frappe
-from frappe.utils.background_jobs import get_job_status
+
+from nirmaan_stack.services import operation_marker
 
 MATCH_DOCTYPE = "BoQ Rate Match Run"
 SUGGEST_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -114,24 +115,8 @@ def _set_marker(boq, sheet_name, marker):
 
 
 def _maybe_self_heal(boq, sheet_name, marker):
-    """'running' | 'cleared' | 'cleared_stale' -- rate_master._s_maybe_self_heal's rule for the match marker."""
-    status = None
-    if marker.get("job_id"):
-        try:
-            status = get_job_status(marker["job_id"])
-        except Exception:  # noqa: BLE001
-            status = None
-    if status in ("finished", "failed") or status is None:
-        frappe.cache().delete_value(_marker_key(boq, sheet_name))
-        return "cleared"
-    try:
-        age = frappe.utils.time_diff_in_seconds(frappe.utils.now(), marker.get("enqueued_at"))
-    except Exception:  # noqa: BLE001
-        age = 0
-    if age > _STALE_MATCH_SECONDS:
-        frappe.cache().delete_value(_marker_key(boq, sheet_name))
-        return "cleared_stale"
-    return "running"
+    """'running' | 'cleared' | 'cleared_stale': rate_master._s_maybe_self_heal's rule (operation_marker.heal)."""
+    return operation_marker.heal(_marker_key(boq, sheet_name), marker, _STALE_MATCH_SECONDS)
 
 
 def start_after_suggest(boq, sheet_name, suggest_run_id, only_rows=None, resume_run_id=None, user=None):
@@ -139,35 +124,49 @@ def start_after_suggest(boq, sheet_name, suggest_run_id, only_rows=None, resume_
     {"queued": False, "reason": ...}. Never raises."""
     if not match_enabled():
         return None
+    claimed = False
     try:
-        marker = _get_marker(boq, sheet_name)
-        if marker and _maybe_self_heal(boq, sheet_name, marker) == "running":
-            frappe.log_error(title="BoQ match not started: a match run is in progress",
-                             message=f"boq={boq} sheet={sheet_name} suggest run_id={suggest_run_id} live={marker}")
-            return {"queued": False, "reason": "a match run is already in progress for this sheet"}
+        live = _get_marker(boq, sheet_name)
+        if live and _maybe_self_heal(boq, sheet_name, live) == "running":
+            return _in_progress(boq, sheet_name, suggest_run_id, live)
         srun = frappe.db.get_value(SUGGEST_DOCTYPE, {"boq": boq, "sheet_name": sheet_name, "run_id": suggest_run_id},
                                    ["name", "committed_version"], as_dict=True)
         if not srun:
             return {"queued": False, "reason": "the Suggest run was not found"}
+        # Claim (set only if absent) before the run doc and the enqueue: of two reading "no marker" one queues (#1660)
         job_id = frappe.generate_hash(length=32)
+        marker = {"job_id": job_id, "run": None, "suggest_run_id": suggest_run_id, "enqueued_at": frappe.utils.now(),
+                  "user": user, "phase": "queued", "done": 0, "total": 0}
+        claimed = operation_marker.claim(_marker_key(boq, sheet_name), marker)
+        if not claimed:
+            return _in_progress(boq, sheet_name, suggest_run_id, _get_marker(boq, sheet_name))
         doc = frappe.get_doc({"doctype": MATCH_DOCTYPE, "boq": boq, "sheet_name": sheet_name, "job_id": job_id,
                               "commit_version": srun["committed_version"], "suggest_run": srun["name"],
                               "status": "queued", "active": 0, "rows_total": 0, "rows_done": 0,
                               "usage": json.dumps({"only_rows": only_rows, "resume": bool(resume_run_id)})})
         doc.insert(ignore_permissions=True)
         frappe.db.commit()
+        frappe.cache().delete_value(_status_key(boq, sheet_name))
+        # Still waiting to run: keep the claim's TTL, not the running marker's (#1660 review)
+        frappe.cache().set_value(_marker_key(boq, sheet_name), {**marker, "run": doc.name},
+                                 expires_in_sec=operation_marker.CLAIM_TTL_SEC)
+        # A queue call that fails leaves this run doc `queued`: tasks/match_run_healer halts it.
         frappe.enqueue(WORKER, queue="long", timeout=_MATCH_JOB_TIMEOUT_SEC, job_id=job_id, run_name=doc.name,
                        boq=boq, sheet_name=sheet_name, suggest_run_id=suggest_run_id, user=user,
                        only_rows=list(only_rows) if only_rows else None, resume=bool(resume_run_id))
-        frappe.cache().delete_value(_status_key(boq, sheet_name))
-        _set_marker(boq, sheet_name, {"job_id": job_id, "run": doc.name, "suggest_run_id": suggest_run_id,
-                                      "enqueued_at": frappe.utils.now(), "user": user, "phase": "queued",
-                                      "done": 0, "total": 0})
         return {"queued": True, "run": doc.name}
     except Exception:  # noqa: BLE001 -- never fail or change the Suggest run
         frappe.db.rollback()
+        if claimed:
+            frappe.cache().delete_value(_marker_key(boq, sheet_name))
         frappe.log_error(title="BoQ match trigger failed", message=frappe.get_traceback())
         return {"queued": False, "reason": "matching could not be started"}
+
+
+def _in_progress(boq, sheet_name, suggest_run_id, live):
+    frappe.log_error(title="BoQ match not started: a match run is in progress",
+                     message=f"boq={boq} sheet={sheet_name} suggest run_id={suggest_run_id} live={live}")
+    return {"queued": False, "reason": "a match run is already in progress for this sheet"}
 
 
 def _match_worker(run_name=None, boq=None, sheet_name=None, suggest_run_id=None, user=None, only_rows=None,

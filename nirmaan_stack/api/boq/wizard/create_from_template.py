@@ -43,6 +43,7 @@ from nirmaan_stack.api.boq.wizard.parse_run import _LIST_JSON_FIELDS
 from openpyxl.utils import column_index_from_string, get_column_letter
 from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
+from nirmaan_stack.services.series_lock import SeriesBusy, boq_series, series_lock
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,9 @@ def _get_active_master():
 
 _CLONE_STATUS_CACHE_PREFIX = "boq_clone_status"
 _CLONE_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
+# How long the create request waits for the BoQ series lock (#1659): well inside the web worker's timeout. Another
+# template create holds it for well under a second; an upload, for its whole run.
+_BOQ_LOCK_WAIT_SEC = 15
 
 
 def _clone_status_key(job_id):
@@ -368,11 +372,16 @@ def create_from_template(project=None, boq_name=None, sheet_names=None, tax_trea
     # _validate_area_dimensions via json.loads). Write only when multi-area; blank == single-area.
     if areas:
         new_boq_doc.area_dimensions = json.dumps(areas)
-    new_boq_doc.insert(ignore_permissions=True)
-
-    # Commit the shell BEFORE enqueue so the (async, possibly cross-process) worker can
+    # The BoQ number is counted and users see it, so the insert holds the BoQ series lock (ADR 0048):
+    # an upload creating a BoQ at the same time would otherwise fail on the counter, or this would.
+    # The lock commits the shell BEFORE enqueue, so the (async, possibly cross-process) worker can
     # read the new BOQs row. CODING_STANDARDS.md: commit after DML in a whitelisted method.
-    frappe.db.commit()
+    # An upload holds the lock for its whole run, so this request waits a bounded time, then refuses.
+    try:
+        with series_lock(boq_series(), wait_s=_BOQ_LOCK_WAIT_SEC):
+            new_boq_doc.insert(ignore_permissions=True)
+    except SeriesBusy:
+        frappe.throw("Another BoQ is being created right now. Try again in a minute.", title="BoQ creation busy")
 
     job = frappe.enqueue(
         "nirmaan_stack.api.boq.wizard.create_from_template._clone_worker",

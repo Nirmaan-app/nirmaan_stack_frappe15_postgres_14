@@ -44,6 +44,9 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     set_sheet_config,
     set_sheet_status,
 )
+from nirmaan_stack.services.test_operation_marker import (
+    fake_job, held_in_queue, later, never_queued, new_request, queue_call_fails, started_job,
+)
 
 _FIXTURES = Path(__file__).parent.parent.parent.parent / "services" / "boq_parser" / "tests" / "fixtures"
 
@@ -1133,6 +1136,48 @@ class TestRunParseWorker(FrappeTestCase):
             "Parse failed",
         )
 
+    def test_a_database_error_publishes_the_failure(self):
+        """#1657: a parse that fails with a DATABASE error (here while it writes review rows) tells its screen it
+        failed: the done message and the polled status both read error, and the in-progress flag is cleared. A
+        database error aborts the transaction, so the worker must roll back before it logs and publishes."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from nirmaan_stack.api.boq.wizard.parse_run import _parse_status_key, get_parse_status
+
+        boq = self._make_boq()
+        frappe.db.set_value("BOQs", boq.name, "parse_in_progress", 1)
+        frappe.db.commit()
+        job_id = f"parse-db-error-{frappe.generate_hash(length=8)}"
+        started = frappe.utils.now()
+
+        def _db_error(*args, **kwargs):
+            frappe.db.sql("select 1/0")  # a database error: the transaction is now aborted
+
+        published = []
+        try:
+            with patch("nirmaan_stack.api.boq.wizard.parse_run.flatten_resolved_row", side_effect=_db_error), \
+                    patch("rq.get_current_job", return_value=SimpleNamespace(id=job_id)), \
+                    patch.object(frappe, "publish_realtime",
+                                 side_effect=lambda event, message=None, **kw: published.append((event, message))):
+                with self.assertRaises(Exception):  # the worker re-raises, so RQ records the job as failed
+                    self._run(boq.name)
+
+            done = [m for ev, m in published if ev == "boq:parse_run_done"]
+            self.assertEqual(len(done), 1, "the parse published no done message")
+            self.assertEqual((done[0]["status"], done[0]["error_code"]), ("error", "internal"))
+            polled = get_parse_status(job_id=job_id)
+            self.assertEqual((polled["state"], polled["status"]), ("done", "error"))
+            self.assertEqual(check_parse_status(boq_name=boq.name), {"state": "idle"})
+        finally:
+            frappe.db.rollback()
+            frappe.cache().delete_value(_parse_status_key(job_id))
+            for name in frappe.get_all("Error Log", filters={"creation": [">=", started],
+                                                             "method": ["like", f"BoQ parse%{boq.name}%"]},
+                                       pluck="name"):
+                frappe.db.delete("Error Log", {"name": name})
+            frappe.db.commit()
+
     # -- re-parse / replace ----------------------------------------------
 
     def test_re_parse_does_not_duplicate_rows(self):
@@ -1791,7 +1836,7 @@ class TestParseEnqueueMarking(FrappeTestCase):
       - superset per-sheet marking (named subset AND None=all-admissible);
       - the stored parse_job_id is the RAW (un-namespaced) id.
 
-    frappe.enqueue is patched (no worker runs); get_job_status is patched for the
+    frappe.enqueue is patched (no worker runs); rq's get_job is patched for the
     double-fire case. No workbook needed -- this is purely the enqueue path.
     """
 
@@ -1856,7 +1901,7 @@ class TestParseEnqueueMarking(FrappeTestCase):
         })
         frappe.db.commit()
 
-        with patch("frappe.utils.background_jobs.get_job_status", return_value="started"), \
+        with patch("frappe.utils.background_jobs.get_job", return_value=started_job()), \
              patch.object(frappe, "enqueue", return_value=self._mock_enqueue()) as mock_enq:
             with self.assertRaises(frappe.ValidationError):
                 run_parse(boq_name=self.boq_name)
@@ -1913,6 +1958,108 @@ class TestParseEnqueueMarking(FrappeTestCase):
             frappe.db.commit()
 
 
+class TestParseAlreadyRunning(FrappeTestCase):
+    """#1660: the BoQ's parse flag is claimed (set only when clear) and committed before the parse is queued; a parse
+    waiting in the queue is never judged stale; one whose worker never starts is still healed."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Already Running Parse BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Config Done", "sheet_config": json.dumps(_PROD_BLOB_TMPL),
+        })
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.db.set_value("BOQs", self.boq_name, {
+            "parse_in_progress": 0, "parse_job_id": None, "parse_enqueued_at": None,
+        })
+        _clear_all_sheet_parse_markers(self.boq_name)
+        frappe.db.commit()
+
+    def _start(self):
+        new_request()
+        return run_parse(boq_name=self.boq_name)
+
+    def _state(self):
+        new_request()
+        return check_parse_status(boq_name=self.boq_name)["state"]
+
+    def test_a_second_start_that_also_read_no_flag_is_refused(self):
+        from unittest.mock import patch
+        second = []
+        real_get = frappe.db.get_value
+
+        def first_reads_then_second_runs(*args, **kwargs):
+            seen = real_get(*args, **kwargs)
+            if args == ("BOQs", self.boq_name, "parse_in_progress") and not second:
+                second.append(None)
+                second[0] = self._start()
+            return seen
+
+        with held_in_queue() as jobs, patch.object(frappe.db, "get_value", side_effect=first_reads_then_second_runs):
+            with self.assertRaises(frappe.ValidationError):
+                run_parse(boq_name=self.boq_name)
+        self.assertEqual(second[0]["status"], "queued")
+        self.assertEqual(len(jobs), 1, "two starts that both read no flag must not both queue")
+
+    def test_a_second_start_on_an_overlapping_transaction_is_refused(self):
+        """Two connections: the second request's snapshot is older than the first's commit, so it reads the
+        flag clear (REPEATABLE READ). It is refused as "already running", not queued and not an error."""
+        with held_in_queue() as jobs:
+            with self.secondary_connection():
+                frappe.db.sql("select count(*) from `tabBOQs`")  # takes this transaction's snapshot
+            with self.primary_connection():
+                self.assertEqual(self._start()["status"], "queued")
+            with self.secondary_connection():
+                try:
+                    with self.assertRaises(frappe.ValidationError):
+                        self._start()
+                finally:
+                    frappe.db.rollback()
+        self.assertEqual(len(jobs), 1, "two overlapping starts must not both queue")
+
+    def test_a_parse_held_in_the_queue_past_the_stale_window_blocks_a_second_start(self):
+        from unittest.mock import patch
+        import nirmaan_stack.api.boq.wizard.parse_run as parse_run_module
+        with held_in_queue() as jobs, patch.object(parse_run_module, "_STALE_PARSE_SECONDS", 0):
+            self._start()
+            with later(60):
+                self.assertEqual(self._state(), "running")
+                with self.assertRaises(frappe.ValidationError):
+                    self._start()
+        self.assertEqual(len(jobs), 1)
+
+    def test_a_parse_whose_worker_never_starts_is_healed(self):
+        import nirmaan_stack.api.boq.wizard.parse_run as parse_run_module
+        with never_queued():
+            self._start()
+            with later(parse_run_module._STALE_PARSE_SECONDS + 1):
+                self.assertEqual(self._state(), "cleared")
+                self.assertEqual(self._state(), "idle")
+                self.assertEqual(self._start()["status"], "queued")
+
+    def test_a_failed_queue_call_leaves_no_flag(self):
+        with queue_call_fails(), self.assertRaises(ConnectionError):
+            self._start()
+        self.assertEqual(self._state(), "idle")
+        self.assertEqual(int(frappe.db.get_value(
+            "BoQ Sheet Draft", {"parent": self.boq_name, "sheet_name": "SheetA"}, "parse_in_progress") or 0), 0)
+
+
 # ---------------------------------------------------------------------------
 # Group 8: self-heal of a stuck parse flag (#164 A3-backend)
 # ---------------------------------------------------------------------------
@@ -1920,7 +2067,7 @@ class TestParseEnqueueMarking(FrappeTestCase):
 class TestSelfHealParseState(FrappeTestCase):
     """
     _maybe_self_heal_parse_state + check_parse_status decision tree.
-    get_job_status is patched; no real RQ/Redis or worker involved.
+    rq's get_job is patched; no real RQ/Redis or worker involved.
     """
 
     @classmethod
@@ -1990,22 +2137,22 @@ class TestSelfHealParseState(FrappeTestCase):
 
     def test_none_status_clears(self):
         from unittest.mock import patch
-        self._seed(enqueued_offset_s=-60)  # recent, but job gone
-        with patch("frappe.utils.background_jobs.get_job_status", return_value=None):
+        self._seed(enqueued_offset_s=-60)  # past the enqueue grace, and job gone
+        with patch("frappe.utils.background_jobs.get_job", return_value=None):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
         self._assert_cleared()
 
     def test_finished_status_clears(self):
         from unittest.mock import patch
         self._seed(enqueued_offset_s=-60)
-        with patch("frappe.utils.background_jobs.get_job_status", return_value="finished"):
+        with patch("frappe.utils.background_jobs.get_job", return_value=fake_job("finished")):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
         self._assert_cleared()
 
     def test_queued_within_window_stays_running(self):
         from unittest.mock import patch
         self._seed(enqueued_offset_s=-60)  # 1 min ago: well inside 1200s window
-        with patch("frappe.utils.background_jobs.get_job_status", return_value="queued"):
+        with patch("frappe.utils.background_jobs.get_job", return_value=fake_job("queued")):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "running")
         # NON-MUTATION: nothing changed.
         flag, job_id, _ = self._boq_state()
@@ -2015,18 +2162,19 @@ class TestSelfHealParseState(FrappeTestCase):
 
     def test_stale_started_past_window_clears(self):
         from unittest.mock import patch
-        self._seed(enqueued_offset_s=-1300)  # 21+ min ago: past the 1200s window
-        with patch("frappe.utils.background_jobs.get_job_status", return_value="started"):
+        self._seed(enqueued_offset_s=-1300)  # 21+ min ago
+        # #1660: stale counts from the job's START, so it must have run past the 1200s window.
+        with patch("frappe.utils.background_jobs.get_job", return_value=fake_job("started", started_ago_sec=1300)):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared_stale")
         self._assert_cleared()
 
     def test_legacy_flag_no_job_id_clears(self):
         """Flag set but no job id ever stored (legacy stuck state) -> cleared."""
         self._seed(job_id="", enqueued_offset_s=None)  # no job id, no timestamp
-        # get_job_status must NOT be consulted (no id) -- patch to blow up if called.
+        # get_job must NOT be consulted (no id) -- patch to blow up if called.
         from unittest.mock import patch
-        with patch("frappe.utils.background_jobs.get_job_status",
-                   side_effect=AssertionError("get_job_status must not be called without a job id")):
+        with patch("frappe.utils.background_jobs.get_job",
+                   side_effect=AssertionError("get_job must not be called without a job id")):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
         self._assert_cleared()
 
@@ -2034,8 +2182,8 @@ class TestSelfHealParseState(FrappeTestCase):
         """Legacy flag, no job id, but a stale enqueue timestamp -> cleared_stale."""
         self._seed(job_id="", enqueued_offset_s=-1300)
         from unittest.mock import patch
-        with patch("frappe.utils.background_jobs.get_job_status",
-                   side_effect=AssertionError("get_job_status must not be called without a job id")):
+        with patch("frappe.utils.background_jobs.get_job",
+                   side_effect=AssertionError("get_job must not be called without a job id")):
             self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared_stale")
         self._assert_cleared()
 
@@ -2049,7 +2197,7 @@ class TestSelfHealParseState(FrappeTestCase):
         """A live job -> check_parse_status returns 'running' and leaves ALL state untouched."""
         from unittest.mock import patch
         self._seed(job_id="raw-id", enqueued_offset_s=-60)
-        with patch("frappe.utils.background_jobs.get_job_status", return_value="queued"):
+        with patch("frappe.utils.background_jobs.get_job", return_value=fake_job("queued")):
             self.assertEqual(check_parse_status(boq_name=self.boq_name), {"state": "running"})
         # Explicit non-mutation assertions (required).
         flag, job_id, enqueued = self._boq_state()

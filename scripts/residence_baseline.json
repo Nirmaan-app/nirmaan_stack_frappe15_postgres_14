@@ -34,6 +34,11 @@
     "description": "Frontend lines naming the SDK's useFrappeEventListener, useFrappeDocumentEventListener or useFrappeDocTypeEventListener outside src/lib/frappe.ts.",
     "rule": "L1"
   },
+  "n1_counted_names_on_background_doctypes": {
+    "count": 0,
+    "description": "Doctypes in BACKGROUND_WRITTEN_DOCTYPES that take a counted name (a tabSeries number from the doctype's autoname or its controller's getseries / make_autoname) and are not in COUNTED_NAME_WAITING.",
+    "rule": "N1"
+  },
   "p1_payment_sum_copies": {
     "count": 2,
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
