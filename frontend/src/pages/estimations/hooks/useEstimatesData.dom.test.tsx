@@ -3,7 +3,7 @@
  * The Estimates reads and the refresh after a write. Each read is keyed so a missing BOQ or sheet fetches nothing; the
  * sheet name goes to the server verbatim (spaces kept); and a refresh after a save refetches every cached read of THAT
  * BOQ -- each sheet's and the all-sheets one Estimate Items uses -- and no other BOQ's (BOQ-1 is not BOQ-10).
- * `frappe-react-sdk` is stubbed: the hooks' own logic is what runs.
+ * `@/lib/frappe` (the SDK seam) is stubbed: the hooks' own logic is what runs.
  */
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
@@ -14,7 +14,7 @@ const sdk = vi.hoisted(() => ({
   mutate: vi.fn(),
   docList: vi.fn(),
 }));
-vi.mock("frappe-react-sdk", () => ({
+vi.mock("@/lib/frappe", () => ({
   useFrappeGetCall: (...args: unknown[]) => sdk.getCall(...args),
   useFrappePostCall: () => ({ call: vi.fn(), loading: false }),
   useFrappeGetDocList: (...args: unknown[]) => sdk.docList(...args),
