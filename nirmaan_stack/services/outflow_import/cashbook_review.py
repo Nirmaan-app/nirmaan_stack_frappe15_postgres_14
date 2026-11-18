@@ -85,12 +85,12 @@ class InvoiceCounts:
 
 
 def invoice_counts(plan: CashbookPlan) -> InvoiceCounts:
-    """Count the create lines of `plan` by their bill links. `plan.split.kept` and `plan.rows` are the same
-    lines in the same order (`CashbookPlan`)."""
+    """Count the spends `plan` creates by their bill links; a *Wallet refund expense* needs no bill (#1709).
+    `plan.split.kept` and `plan.rows` are the same lines in the same order (`CashbookPlan`)."""
     links = [
         len(getattr(kept.row, "bill_links", ()) or ())
         for kept, planned in zip(plan.split.kept, plan.rows, strict=True)
-        if planned.creates
+        if planned.creates and not planned.refunds
     ]
     return InvoiceCounts(
         one_file=sum(1 for n in links if n == 1),
@@ -176,9 +176,24 @@ def preview_payload(
         "pairs": [
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
-        # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits). A Collect
+        # #1594: the lines that will stay open on the main table (wallet credits; an unpaired refund is a
+        # Wallet refund expense since #1709, under `refunds`). A Collect
         # payment is created like any spend since #1708, so it is listed in `groups`.
         "open_lines": [_preview_line(row) for row in plan.opening],
+        # #1709 (ADR-0015 Amendment D): each unpaired refund, booked at minus its Credit where its spend is booked, with
+        # the spend it reduces (`refund_of`, its Txn Id; `reduces`, its existing Expense, blank when it has none yet).
+        "refunds": [
+            {
+                **_preview_line(row),
+                "refund_of": row.refund_of,
+                "reduces": row.reduces,
+                "spend_on_statement": row.spend_on_statement,
+                "ledger": row.ledger,
+                "project_name": row.project_name or row.project or "",
+                "expense_type": row.expense_type,
+            }
+            for row in plan.refunding
+        ],
         # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
         # with the import that holds it. Each is also listed above under what it becomes.
         "reopened": [

@@ -41,11 +41,18 @@ falling back to `Petty Cash`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
 from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cutoff
+from nirmaan_stack.services.outflow_import.cashbook_plan import (
+    ACTION_CREATE,
+    ACTION_INTERNAL,
+    ACTION_OPEN,
+    ACTION_SKIP,
+    CashbookPlan,
+    PlannedRow,
+)
 from nirmaan_stack.services.outflow_import.cashbook_placement import (
     FALLBACK_EXPENSE_TYPE,
     placement as _placement,
@@ -54,9 +61,6 @@ from nirmaan_stack.services.outflow_import.cashbook_placement import (
 from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     COLLECT_ROW_KIND,
     CREDIT_ROW_KINDS,
-    OPEN_UNPAIRED_REFUND_NOT_HERE,
-    OPEN_UNPAIRED_REFUND_NOT_PAIRED,
-    OPEN_UNPAIRED_REFUND_PART,
     OPEN_WALLET_CREDIT,
     REFUND_MOVED_STATUSES,
     REFUND_PREFIX,
@@ -66,13 +70,13 @@ from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     WALLET_CREDIT_ROW_KIND,
     line_money as _amount,
     pair_refunds,
+    refunded_spend_id,
     row_kind as _row_kind,
-    unpaired_reason,
 )
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import SpendExpense, refund_placement
 from nirmaan_stack.services.outflow_import.cashbook_reopen import EarlierWrongSkip, claim_wrong_skips, earlier_sightings
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
-    CashbookMove,
     cashbook_move,
     cashbook_raw_transfer,
     name_refused_moves,
@@ -86,7 +90,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
 )
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
-from nirmaan_stack.services.outflow_import.repeats import KeptLine, RepeatSplit, split_repeats
+from nirmaan_stack.services.outflow_import.repeats import KeptLine, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
@@ -107,8 +111,6 @@ __all__ = [
     "ACTION_INTERNAL",
     "SKIP_PAIRED_REFUND",
     "SKIP_PAIRED_SPEND",
-    "OPEN_UNPAIRED_REFUND_PART",
-    "OPEN_UNPAIRED_REFUND_NOT_HERE",
     "OPEN_WALLET_CREDIT",
     "SKIP_ALREADY_BOOKED",
     "SKIP_ALREADY_IMPORTED_STATUS_CHANGED",
@@ -123,15 +125,8 @@ __all__ = [
 # Amendment C). Everything else moves money BETWEEN our own balances, and booking it would count a rupee twice.
 SPEND_ROW_KIND = "Wallet Spend"
 SPEND_ROW_KINDS = frozenset({SPEND_ROW_KIND, COLLECT_ROW_KIND})
+# The four actions, `PlannedRow` and `CashbookPlan` live in `cashbook_plan` (#1709, file size).
 
-
-# The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
-ACTION_CREATE = "create"
-ACTION_SKIP = "skip"
-# An open line (#1594): staged at `Mismatched`, a status the job never takes, and decided on the main table.
-ACTION_OPEN = "open"
-# One of Cashbook's own moves (#1623, spec #1619): staged at `Internal Transfer` with one record, never an expense.
-ACTION_INTERNAL = "internal"
 
 # Every reason a row is not imported. They are constants because the preview groups by them and a
 # reworded sentence would silently split one group into two.
@@ -166,98 +161,6 @@ SKIP_REPEATED_IN_FILE = "The same transfer appears earlier in this file"
 SKIP_REPEATED_IN_FILE_STATUS_CHANGED = SKIP_REPEATED_IN_FILE + _STATUS_CHANGED
 
 
-@dataclass(frozen=True)
-class PlannedRow:
-    """One statement row and what will become of it. Never a partial answer.
-
-    A `create` row always carries a ledger and an expense type; a `skip` row always carries a
-    reason. Nothing here is left for a caller to work out, because the two callers -- the preview
-    and the writer -- would work it out separately.
-    """
-
-    row_number: int
-    transfer_id: str
-    amount: Decimal
-    remarks: str
-    beneficiary_name: str
-    spent_by: str
-    action: str
-    reason: str = ""
-    skip_kind: str | None = None
-    """A `skip_kinds.SKIP_KINDS` member on a skip row, `None` on a create row -- chosen beside `reason` by
-    `_skip_reason`, so the stored kind never has to be read back out of the sentence."""
-    ledger: str | None = None
-    project: str | None = None
-    project_name: str = ""
-    expense_type: str | None = None
-    matched_keyword: str = ""
-    """Which rule chose the expense type, so a surprising type can be traced to the word that
-    caused it. Blank when the fallback was used -- there was no rule."""
-    # #1594: the statement's `Type`; `DIRECTION_CREDIT` on a refund or wallet credit (`amount` is then its Credit),
-    # else blank; and the other line's Txn Id on a *Paired wallet refund*.
-    row_kind: str = ""
-    direction: str = ""
-    partner: str = ""
-    # #1596: the earlier line skipped as own balances that this line re-opens in place; it is then not staged anew.
-    reopens: EarlierWrongSkip | None = None
-    # #1623: an internal line's move (`internal_transfers.cashbook_move`): its ends, money, direction and rule.
-    move: CashbookMove | None = None
-
-    @property
-    def creates(self) -> bool:
-        return self.action == ACTION_CREATE
-
-    @property
-    def opens(self) -> bool:
-        return self.action == ACTION_OPEN
-
-    @property
-    def is_fallback_type(self) -> bool:
-        return self.creates and self.expense_type == FALLBACK_EXPENSE_TYPE
-
-
-@dataclass(frozen=True)
-class CashbookPlan:
-    rows: tuple[PlannedRow, ...] = ()
-    """Every row that will be STAGED, in file order. An exact repeat is not among them (ADR-0031)."""
-    split: RepeatSplit = RepeatSplit(kept=(), repeats_not_saved=0, repeat_of_batch=None)
-    """The repeat walk's answer, as `split_repeats` gave it: `split.kept` are the parsed lines behind
-    `rows` (same order), `split.repeats_not_saved` the exact repeats left out."""
-    pairs: tuple[tuple[PlannedRow, PlannedRow], ...] = ()
-    """Each *Paired wallet refund* as `(refund, spend)`, in the refunds' file order (#1594). Both are in `rows`."""
-    before_cutoff: int = 0  # #1707: the lines dated before 1 Apr 2026 (`cashbook_cutoff`); in nothing above, not staged
-
-    @property
-    def creating(self) -> tuple[PlannedRow, ...]:
-        return tuple(row for row in self.rows if row.creates)
-
-    @property
-    def skipping(self) -> tuple[PlannedRow, ...]:
-        return tuple(row for row in self.rows if row.action == ACTION_SKIP)
-
-    @property
-    def internal(self) -> tuple[PlannedRow, ...]:
-        """Cashbook's own moves (#1623): staged as Internal Transfer lines, in file order."""
-        return tuple(row for row in self.rows if row.action == ACTION_INTERNAL)
-
-    @property
-    def opening(self) -> tuple[PlannedRow, ...]:
-        """The open lines (#1594): unpaired wallet refunds and wallet credits, in file order."""
-        return tuple(row for row in self.rows if row.opens)
-
-    @property
-    def reopening(self) -> tuple[PlannedRow, ...]:
-        """The lines that re-open an earlier own-balances skip in place (#1596), in file order."""
-        return tuple(row for row in self.rows if row.reopens)
-
-    @property
-    def total_value(self) -> Decimal:
-        return sum((row.amount for row in self.creating), Decimal("0"))
-
-    def for_ledger(self, ledger: str) -> tuple[PlannedRow, ...]:
-        return tuple(row for row in self.creating if row.ledger == ledger)
-
-
 def plan_statement(
     rows: Iterable,
     index: ProjectIndex,
@@ -265,6 +168,7 @@ def plan_statement(
     already_imported: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
     already_booked: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
     wrong_skips: Sequence[EarlierWrongSkip] = (),
+    refunded_spends: Mapping[str, SpendExpense] | None = None,
 ) -> CashbookPlan:
     """Decide what every parsed row becomes.
 
@@ -310,7 +214,6 @@ def plan_statement(
     already = dict(already_imported or {})
     booked = dict(already_booked or {})
     every_row = list(rows)  # ⚠️ #1707: THE DATE FIRST, AND ONLY HERE. A line before the cutoff is only counted.
-    # Read twice: by the repeat walk, and by `unpaired_reason` (is a refund's spend on this statement?).
     rows = [raw for raw in every_row if not is_before_cutoff(raw)]
     acted_on = (ACTION_OPEN, ACTION_CREATE)
     claims = claim_wrong_skips(
@@ -349,6 +252,13 @@ def plan_statement(
         partner_of[refund_at] = (SKIP_PAIRED_REFUND, bases[spend_at]["transfer_id"])
         partner_of[spend_at] = (SKIP_PAIRED_SPEND, bases[refund_at]["transfer_id"])
 
+    # Each spend this statement creates, by Txn Id: a part refund of it goes where it goes (#1709).
+    placements = {
+        at: _placement(bases[at]["remarks"], index, expense_rules)
+        for at, (action, _, _) in enumerate(decisions)
+        if action == ACTION_CREATE and at not in partner_of
+    }
+    spends_here = {bases[at]["transfer_id"]: place for at, place in placements.items()}
     planned: list[PlannedRow] = []
     for position, (base, (action, reason, skip_kind)) in enumerate(zip(bases, decisions)):
         if position in partner_of:
@@ -356,14 +266,19 @@ def plan_statement(
             action, reason, skip_kind = ACTION_SKIP, template.format(partner=partner), SKIP_KIND_CASHBOOK_REFUND_PAIR
             planned.append(PlannedRow(action=action, reason=reason, skip_kind=skip_kind, partner=partner, **base))
         elif action == ACTION_CREATE:
-            placement = _placement(base["remarks"], index, expense_rules)
-            planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
+            planned.append(PlannedRow(action=action, reason=reason, **base, **placements[position]))
+        elif action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
+            # ⚠️ #1709 (ADR-0015 Amendment D): an unpaired refund is a *Wallet refund expense*, never an open line.
+            spend = refunded_spend_id(base["transfer_id"])
+            place = refund_placement(
+                base["transfer_id"], base["remarks"], (refunded_spends or {}).get(spend), spends_here.get(spend),
+                expense_rules,
+            )
+            planned.append(PlannedRow(action=ACTION_CREATE, **base, **place))
         elif action == ACTION_INTERNAL:
             move = cashbook_move(split.kept[position].row)
             planned.append(PlannedRow(action=action, reason=reason, move=move, **base))
         else:
-            if action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
-                reason = unpaired_reason(base["transfer_id"], base["amount"], rows)
             planned.append(PlannedRow(action=action, reason=reason, skip_kind=skip_kind, **base))
 
     return CashbookPlan(
@@ -389,7 +304,7 @@ def _decide(
       * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when this line says SUCCESS, else Bank refused
         (`repeat_sentence` names an earlier sighting); any other Type is an Unknown Cashbook type skip (#1619).
 
-    The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
+    An open refund that does not pair becomes a *Wallet refund expense* in `plan_statement` (#1709).
     """
     raw = line.row
     kind = _row_kind(raw)
@@ -405,10 +320,13 @@ def _decide(
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
         else:
             moved = bool(getattr(raw, "is_success", False))
-        # No "already booked" test: that asks the EXPENSE ledgers, and money in is never an Expense.
         reason, skip_kind = _skip_reason(line, amount, None, moved=moved)
         if reason:
             return ACTION_SKIP, reason, skip_kind
+        # #1709: a refund's Expense is minus its Credit (a wallet credit is never an Expense).
+        record = kind in REFUND_ROW_KINDS and find_prior_sighting(booked, raw.transfer_id or "", -amount, _row_date(raw))
+        if record:
+            return ACTION_SKIP, SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
         return ACTION_OPEN, OPEN_WALLET_CREDIT if kind == WALLET_CREDIT_ROW_KIND else "", None
     return ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind=kind or "blank"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE
 

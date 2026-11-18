@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Wallet refunds pair with their spend, and wallet credits stay open (#1594, spec #1585, ADR-0015 Amendment B
+"""Wallet refunds pair with their spend (an unpaired one is a Wallet refund expense since #1709), and wallet
+credits stay open (#1594, spec #1585, ADR-0015 Amendment B
 decision 7). GLOSSARY: *Paired wallet refund*, *Unpaired wallet refund*, *Wallet credit*.
 
 Seam 1: the Cashbook import run inline on the real-file fixture (`cashbook_statement.xlsx`), with the bill
@@ -117,19 +118,20 @@ class TestPairedWalletRefunds(CashbookRefundsCase):
 
 
 class TestOpenLines(CashbookRefundsCase):
-    def test_the_part_refund_is_open_and_its_spend_still_creates_its_expense(self):
+    """CHANGED AT #1709 (ADR-0015 Amendment D): an unpaired refund is a Wallet refund expense, created by the job
+    (`test_cashbook_refund_expenses` says where it goes); only the wallet credit stays open."""
+
+    def test_the_part_refund_is_created_and_its_spend_still_creates_its_expense(self):
         refund = self._line("REF-" + PART_SPEND)
-        self.assertEqual((refund.row_status, refund.skip_kind or None), ("Mismatched", None))
+        self.assertEqual((refund.row_status, refund.skip_kind or None), ("Settled", None))
         self.assertEqual((refund.amount, refund.direction), (11248.0, "Credit"))
-        self.assertIn("gives back ₹11,248 of the ₹17,446 spend", refund.outcome_note)
         spend = self._line(PART_SPEND)
         self.assertEqual(spend.row_status, "Settled")
         self.assertTrue(frappe.db.exists(spend.suggested_doctype, spend.suggested_name))
 
-    def test_a_refund_whose_spend_is_not_on_the_statement_is_open(self):
+    def test_a_refund_whose_spend_is_not_on_the_statement_is_created(self):
         refund = self._line(EARLIER_REFUND)
-        self.assertEqual((refund.row_status, refund.amount, refund.direction), ("Mismatched", 640.0, "Credit"))
-        self.assertIn("is not on this statement", refund.outcome_note)
+        self.assertEqual((refund.row_status, refund.amount, refund.direction), ("Settled", 640.0, "Credit"))
 
     def test_the_wallet_credit_is_open_with_its_credit_amount(self):
         credit = self._line(WALLET_CREDIT)
@@ -138,15 +140,16 @@ class TestOpenLines(CashbookRefundsCase):
 
     def test_the_job_leaves_every_open_line_open(self):
         status = cb.get_cashbook_status(self.batch)
-        # The 3 money-in lines; the 2 unpaired Collect payments are created by the job (#1708).
-        self.assertEqual((status["open"], status["pending"], status["failed"]), (3, 0, 0))
+        # The wallet credit; the 2 unpaired refunds (#1709) and Collect payments (#1708) are created by the job.
+        self.assertEqual((status["open"], status["pending"], status["failed"]), (1, 0, 0))
 
-    def test_the_batch_summary_counts_every_open_money_in_line_as_received_and_undecided(self):
+    def test_the_batch_summary_counts_every_money_in_line_as_received_and_the_wallet_credit_as_undecided(self):
         """Story 42: an Unpaired wallet refund's raw status is REFUNDED, which on this statement is money that moved."""
         totals = get_outflow_summary(batch=self.batch)["totals"]
         # The part refund (11,248), the earlier statement's refund (640) and the wallet credit (9,000).
         self.assertEqual((totals["received_rows"], float(totals["received_value"])), (3, 20888.0))
-        self.assertEqual((totals["open_received_rows"], float(totals["open_received_value"])), (3, 20888.0))
+        # Only the wallet credit is still to decide: the refunds are Settled by their Expenses (#1709).
+        self.assertEqual((totals["open_received_rows"], float(totals["open_received_value"])), (1, 9000.0))
         listed = get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)["rows"]
         self.assertEqual(totals["open_received_rows"], len(listed))
 
@@ -184,7 +187,8 @@ class TestAnOpenMoneyInLineHasTheUnpairedCardCreditChoices(CashbookRefundsCase):
 
     def test_the_open_lines_are_listed_as_money_in_not_matched(self):
         listed = {row["transfer_id"] for row in get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)["rows"]}
-        self.assertEqual(listed, {t + self.suffix for t in ("REF-" + PART_SPEND, EARLIER_REFUND, WALLET_CREDIT)})
+        # Only the wallet credit since #1709: an unpaired refund is a Wallet refund expense.
+        self.assertEqual(listed, {WALLET_CREDIT + self.suffix})
 
     def test_no_main_table_write_is_refused_as_the_jobs_work(self):
         guard_not_an_own_import_line(frappe.db.get_value(ROW_DOCTYPE, self._line(WALLET_CREDIT).name, "*", as_dict=True))
@@ -196,19 +200,19 @@ class TestAnOpenMoneyInLineHasTheUnpairedCardCreditChoices(CashbookRefundsCase):
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line.name, "row_status"), "Settled")
 
     def test_it_may_be_recorded_as_a_vendor_refund_against_a_misc_expense(self):
-        line = self._line("REF-" + PART_SPEND)
+        line = self._line(WALLET_CREDIT)
         vendor = frappe.db.get_value("Vendors", {"vendor_name": ["is", "set"]}, "name", order_by="name asc")
         summary = create_vendor_refund(
             row=line.name,
             vendor=vendor,
-            allocations=[{"document_type": "Misc. Expense", "document_name": "", "amount": "11248"}],
+            allocations=[{"document_type": "Misc. Expense", "document_name": "", "amount": "9000"}],
         )
-        self.assertEqual([r["amount"] for r in summary["records"]], [11248.0])
+        self.assertEqual([r["amount"] for r in summary["records"]], [9000.0])
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line.name, "row_status"), "Settled")
 
     def test_it_may_be_skipped_by_hand(self):
-        line = self._line(EARLIER_REFUND)
-        skip_row(line.name, "Refund of a spend booked by hand last month")
+        line = self._line(WALLET_CREDIT)
+        skip_row(line.name, "Scrap sale already recorded")
         self.assertEqual(
             frappe.db.get_value(ROW_DOCTYPE, line.name, ["row_status", "skip_kind"]), ("Skipped", "Skipped by hand")
         )
@@ -228,11 +232,15 @@ class TestReviewShowsThePairsAndTheOpenLines(FrappeTestCase):
 
     def test_the_lines_that_stay_open_are_listed_with_their_credit(self):
         self.assertEqual(
-            [(line["transfer_id"], line["amount"]) for line in self.payload["open_lines"]],
-            [("REF-" + PART_SPEND, 11248.0), (WALLET_CREDIT, 9000.0), (EARLIER_REFUND, 640.0)],
+            [(line["transfer_id"], line["amount"]) for line in self.payload["open_lines"]], [(WALLET_CREDIT, 9000.0)]
         )
-        # Every open line: these 3. The 2 unpaired Collect payments are created like any spend (#1708).
-        self.assertEqual(self.payload["opening"], 3)
+        # The wallet credit only: the 2 unpaired refunds are listed under `refunds` (#1709), and the 2 unpaired
+        # Collect payments are created like any spend (#1708).
+        self.assertEqual(self.payload["opening"], 1)
+        self.assertEqual(
+            [(line["transfer_id"], line["amount"]) for line in self.payload["refunds"]],
+            [("REF-" + PART_SPEND, 11248.0), (EARLIER_REFUND, 640.0)],
+        )
 
     def test_a_pairs_lines_are_not_listed_again_as_not_importing(self):
         skipped = {line["transfer_id"] for line in self.payload["skipped"]}

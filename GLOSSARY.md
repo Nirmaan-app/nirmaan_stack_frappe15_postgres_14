@@ -244,7 +244,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 
-- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
+- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. It lowers the payments dashboard's amounts but counts as no payment there (owner, 2026-11-18). (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
   *Avoid*: unpaired card credit, card credit, card inflow.
 
 ## Petty-cash wallet (Cashbook)
@@ -266,7 +266,10 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   skipped as refused by the bank. (Owner, 2026-11-07.)
   *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, no longer given).
 
-- **Unpaired wallet refund** — a refund that gives back only part of a spend, or a spend from an earlier statement. It is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+- **Unpaired wallet refund** — a refund that gives back only part of a spend, or a spend from an earlier statement. It is recorded as a *Wallet refund expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment D](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
+
+- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it is a **Non-Project** Expense typed from the refund's own remark, else Petty Cash, and never on a project. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
+  *Avoid*: negative spend, reversal.
 
 - **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
 

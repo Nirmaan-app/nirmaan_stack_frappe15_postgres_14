@@ -192,15 +192,21 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
             )
         self.assertIn(COLLECT_FULL + self.suffix, self._only_line(REFUND_FULL).skip_reason)
 
-        for txn, amount in ((PART_REFUND, 11248.0), (ADJUSTMENT, 2600.0), (EARLIER_REFUND, 640.0), (WALLET_CREDIT, 9000.0)):
+        # #1709: an unpaired refund is a Wallet refund expense, created by its own import's job; the wallet credit
+        # stays open.
+        for txn, amount, status in (
+            (PART_REFUND, 11248.0, "Settled"),
+            (ADJUSTMENT, 2600.0, "Settled"),
+            (EARLIER_REFUND, 640.0, "Settled"),
+            (WALLET_CREDIT, 9000.0, "Mismatched"),
+        ):
             line = self._only_line(txn)
             self.assertEqual(
                 (line.import_batch, line.row_status, line.amount, line.direction),
-                (self.old, "Mismatched", amount, "Credit"),
+                (self.old, status, amount, "Credit"),
                 txn,
             )
         self.assertTrue(self._only_line(WALLET_CREDIT).outcome_note.startswith("Wallet credit:"))
-        self.assertIn("not recorded from this statement", self._only_line(ADJUSTMENT).outcome_note)
 
         self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": new}), 0)
 
@@ -220,13 +226,14 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
         changed = {field for field, *_ in frappe.parse_json(version.data)["changed"]}
         self.assertTrue({"row_status", "amount", "skip_reason"} <= changed, changed)
 
-    def test_reopening_creates_only_the_collect_payments_expenses_in_their_own_import(self):
+    def test_reopening_creates_the_collect_payments_and_refunds_expenses_in_their_own_import(self):
+        """CHANGED AT #1709: the 3 unpaired refunds are Wallet refund expenses too."""
         before = self._expense_matches()
         self.assertEqual(before, SPENDS_OF_THE_OLD_BATCH)
 
         self._upload()
 
-        self.assertEqual(self._expense_matches(), before + 2)
+        self.assertEqual(self._expense_matches(), before + 2 + 3)
         for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
             line = self._only_line(txn)
             self.assertEqual(frappe.db.get_value(line.suggested_doctype, line.suggested_name, "cashbook_batch"), self.old)
@@ -253,7 +260,8 @@ class TestTheNewStatementReopensTheWrongSkips(ReopenCase):
     def test_the_earlier_import_counts_its_reopened_lines_as_open(self):
         self._upload()
         status = cb.get_cashbook_status(self.old)
-        self.assertEqual((status["open"], status["pending"], status["created"]), (4, 0, SPENDS_OF_THE_OLD_BATCH + 2))
+        # CHANGED AT #1709: the 3 unpaired refunds are created too; only the wallet credit stays open.
+        self.assertEqual((status["open"], status["pending"], status["created"]), (1, 0, SPENDS_OF_THE_OLD_BATCH + 2 + 3))
 
     def test_a_second_upload_of_the_same_statement_reopens_nothing_more(self):
         self._upload()

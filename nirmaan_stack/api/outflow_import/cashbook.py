@@ -74,6 +74,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     line_values,
     lock_line_if,
 )
+from nirmaan_stack.api.outflow_import.cashbook_refund_spends import refunds_spend_ids, spend_expenses
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import import internal_transfers as internal_transfer_records
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -88,6 +89,8 @@ from nirmaan_stack.services.outflow_import.candidates import (
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, only_before_cutoff_message
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import refund_description
+from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_ROW_KINDS
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -514,21 +517,26 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     # out of the database after a real run. `expenses.create_expense` has always used this adapter;
     # this path simply did not, which is the whole of the defect.
     staged = StagedRow(doc)
+    # #1709: a *Wallet refund expense* -- minus the line's Credit, where its spend is booked. On a refund line the
+    # statement's From is the merchant paying back and To the wallet holder, so who spent it is the To.
+    refund = (doc.get("row_kind") or "").strip() in REFUND_ROW_KINDS
+    spent_by = doc.get("beneficiary_name") if refund else doc.get("added_by_raw")
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
         expense_type=doc["suggested_expense_type"],
         actor=actor,
         project=doc.get("resolved_project"),
-        # Description is left to `settle._default_description`, which composes the payee with the
-        # remark. Deciding it here would be a second definition of the same sentence.
-        description=None,
+        # A spend's description is left to `settle._default_description`, which composes the payee with the
+        # remark; a refund's names its spend and the merchant (#1709).
+        description=refund_description(doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if refund else None,
         comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
-        # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
-        payment_by=(doc.get("added_by_raw") or "").strip() or None,
+        # ⚠️ WHO SPENT IT, from the statement (a spend's From, a refund's To) -- not the accountant importing it.
+        payment_by=(spent_by or "").strip() or None,
         # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
         cashbook_batch=batch,
+        cashbook_refund=refund,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now
@@ -700,6 +708,8 @@ def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
         wrong_skips=[
             skip for skip in wrong_skips(_statement_transfer_ids(parsed)) if skip.line not in not_reopening
         ],
+        # #1709: where each refund's spend is booked, so an unpaired refund is booked there too.
+        refunded_spends=spend_expenses(refunds_spend_ids(_statement_transfer_ids(parsed))),
     )
 
 
