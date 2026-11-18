@@ -4,7 +4,8 @@ import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeDocumentEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -28,7 +29,7 @@ export const SentBackSummary = () => {
 
     const { data: sent_back, isLoading: sent_back_loading, mutate: sent_back_mutate } = useSentBackCategory(id)
 
-    useFrappeDocumentEventListener("Sent Back Category", id, (event) => {
+    useDocumentEventListener("Sent Back Category", id, (event) => {
         console.log("Sent Back document updated (real-time):", event);
         toast({
             title: "Document Updated",

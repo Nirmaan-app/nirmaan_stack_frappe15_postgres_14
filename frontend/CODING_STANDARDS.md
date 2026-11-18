@@ -89,7 +89,8 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
 - **Read and write through `frappe-react-sdk`, imported from `@/lib/frappe`:** `useFrappeGetDocList`,
   `useFrappeGetDoc`, `useFrappePostCall`. Call a backend mutation as
   `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
-  that each hook's type defaults to `unknown` instead of `any`: pass the generated DocType type
+  that each hook's type defaults to `unknown` instead of `any`, and that its listener hooks are replaced by safe ones
+  (see [Realtime events](#realtime-events)): pass the generated DocType type
   (`useFrappeGetDoc<CustomersDocType>(…)`, with `CustomersDocType` from `@/types/doctypes/Customers` and the hook
   from `@/lib/frappe`, as `pages/customers/` does) or narrow the result. oxlint bans importing `frappe-react-sdk`
   anywhere else (ADR-0049); files that did before are frozen in `oxlint-suppressions.json` and move over folder
@@ -241,6 +242,12 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
 
 - **Name events `{doctype}:{action}`** (`po:new`, `pr:approved`); the backend publishes them after committing
   (root `CODING_STANDARDS.md` § Writing backend Python).
+- **Listen with `useSocketEventListener`, `useDocTypeEventListener` or `useDocumentEventListener` from
+  `@/lib/frappe`** (#1670). They take the SDK's arguments, but remove only their own handler on unmount and leave
+  a document or doctype room only with its last listener. The SDK's `useFrappe…EventListener` hooks remove every
+  listener of the event in the tab (every `list_update` and `doc_update` listener shares one event name), so one
+  closing component stops a whole page's live refresh. Residence check L1 refuses their names outside
+  `src/lib/frappe.ts`.
 - Global listeners are registered in `src/services/socketListeners.ts`, started once by
   `src/config/SocketInitializer.tsx`, each wrapped in the safe handler and removed in the returned cleanup.
   Firebase push lives in `src/firebase/firebaseConfig.ts`. Walkthrough for adding an event, the proxy and

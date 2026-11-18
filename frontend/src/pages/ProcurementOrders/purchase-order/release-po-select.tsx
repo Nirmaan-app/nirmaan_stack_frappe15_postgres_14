@@ -178,7 +178,7 @@ export const ReleasePOSelect: React.FC = () => {
     // the Vendor Invoices doc events. The whole-table invoice fetch that used to be
     // here (4,884 rows on every page open, just to fill one column) is gone.
 
-    // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
+    // useDocTypeEventListener("Procurement Orders", async (event) => {
     //     await mutate()
     // })
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
@@ -338,7 +339,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
     //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
+    // `useServerDataTable` ends with `useDocTypeEventListener(doctype, ...)`
     // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
     // changed EXPENSE never reaches it, even though expense rows are in this table.
     // These two listeners close that gap for both expense ledgers.
@@ -346,8 +347,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // (An earlier attempt invalidated by SWR key instead. That was dead code: this
     // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
     // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+    useDocTypeEventListener("Project Expenses", () => refetch());
+    useDocTypeEventListener("Non Project Expenses", () => refetch());
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {

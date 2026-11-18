@@ -2171,9 +2171,6 @@
     }
   },
   "src/pages/ProcurementRequests/NewPR/NewProcurementRequestPage.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
     "typescript/no-explicit-any": {
       "count": 1
     }
@@ -3535,11 +3532,6 @@
       "count": 1
     }
   },
-  "src/pages/cheque-tracker/components/ChequeTrackerTable.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/cheque-tracker/config/useChequeFacets.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -4082,11 +4074,6 @@
       "count": 2
     }
   },
-  "src/pages/projects/CriticalPOTasks/CriticalPOTasksTab.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/projects/CriticalPOTasks/NoCriticalPOTasksView.tsx": {
     "typescript/no-explicit-any": {
       "count": 1
@@ -4577,9 +4564,6 @@
     }
   },
   "src/pages/projects/edit-project-form.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
     "no-restricted-properties": {
       "count": 2
     },
@@ -4600,11 +4584,6 @@
       "count": 4
     },
     "typescript/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    }
-  },
-  "src/pages/projects/project-form/hooks/useProjectFormData.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },

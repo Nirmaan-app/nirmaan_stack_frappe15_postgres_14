@@ -540,6 +540,32 @@ def json_calls_unfrozen() -> list[str]:
     return json_call_drift(found, frozen)
 
 
+# --- Rule L1: the SDK's listener hooks (#1670) --------------------------------------
+# frappe-react-sdk's useFrappeEventListener, useFrappeDocumentEventListener and useFrappeDocTypeEventListener remove
+# every listener of their event, and leave their document or doctype room for the whole tab, when one component
+# unmounts. src/lib/frappe.ts exports safe listeners in their place and does not re-export these, so oxlint's
+# SDK-import ban covers new files. It does not cover a file oxlint-suppressions.json already freezes for an SDK import:
+# a raw name added to that import keeps the file's count. Retire L1 once that file holds no no-restricted-imports entry.
+
+RAW_LISTENER_HOME = "frontend/src/lib/frappe.ts"
+_RAW_LISTENER = re.compile(r"\buseFrappe(?:Event|DocumentEvent|DocTypeEvent)Listener\b")
+
+
+def raw_listener_lines(src: str) -> list[int]:
+    """The 1-based lines of one TS source that name a raw SDK listener hook, comments included."""
+    return [i + 1 for i, line in enumerate(src.splitlines()) if _RAW_LISTENER.search(line)]
+
+
+def raw_listener_uses() -> list[str]:
+    """Every `path:line` under frontend/src, outside RAW_LISTENER_HOME, that names a raw SDK listener hook."""
+    found = []
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel != RAW_LISTENER_HOME:
+            found.extend(f"{rel}:{n}" for n in raw_listener_lines(read(p)))
+    return sorted(found)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -729,6 +755,18 @@ CHECKS: list[Check] = [
         locate=json_calls_unfrozen,
         pass_mark=0,
     ),
+    # #1670: baseline 0 from the day it was added, and its pass mark is 0 whatever the baseline file says.
+    Check(
+        id="l1_raw_listener_hooks",
+        rule="L1",
+        description="Frontend lines naming the SDK's useFrappeEventListener, useFrappeDocumentEventListener or "
+                    "useFrappeDocTypeEventListener outside src/lib/frappe.ts.",
+        route_hint="use useSocketEventListener, useDocumentEventListener or useDocTypeEventListener from "
+                   "'@/lib/frappe': they take the same arguments and remove only their own listener and room.",
+        measure=lambda: len(raw_listener_uses()),
+        locate=raw_listener_uses,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -813,7 +851,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:

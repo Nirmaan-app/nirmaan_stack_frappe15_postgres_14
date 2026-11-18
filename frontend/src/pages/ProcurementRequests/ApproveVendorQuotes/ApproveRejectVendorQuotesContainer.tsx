@@ -7,7 +7,8 @@ import { useApproveRejectLogic } from './hooks/useApproveRejectLogic';
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Type needed for comments hook if used separately
 import { useVendorsList } from '../VendorQuotesSelection/hooks/useVendorsList';
 import { ApproveRejectVendorQuotesView } from './ApproveRejectVendorQuotesView';
-import { useFrappeDocumentEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { ProcurementItem, ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
@@ -35,7 +36,7 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     // Vendor Hold check
     const { onHoldVendorIds } = useVendorHoldVendors();
 
-    useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+    useDocumentEventListener("Procurement Requests", prId, (event) => {
         console.log("Procurement Requests document updated (real-time):", event);
         toast({
             title: "Document Updated",

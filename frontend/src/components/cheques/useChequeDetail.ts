@@ -1,4 +1,5 @@
-import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 
 import {
     CHEQUES_CHANGED_EVENT,
@@ -82,7 +83,7 @@ export const useChequeDetail = (name: string | null) => {
         { name },
         name ? chequeDetailKey(name) : null,
     );
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => {
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => {
         if (name) mutate();
     });
     return { cheque: data?.message, error, isLoading, refetch: mutate };

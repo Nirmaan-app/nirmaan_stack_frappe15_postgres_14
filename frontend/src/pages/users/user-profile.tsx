@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  useFrappeDocumentEventListener,
   useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
@@ -71,7 +71,7 @@ export default function Profile() {
   );
 
   // Real-time updates
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Nirmaan Users",
     id,
     (event) => {

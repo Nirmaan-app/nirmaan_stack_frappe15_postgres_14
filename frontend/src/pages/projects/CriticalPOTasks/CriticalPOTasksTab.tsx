@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { useFrappeDocumentEventListener } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { useCriticalPOTasks } from "../data/critical-po/useCriticalPOQueries";
 import { TailSpin } from "react-loader-spinner";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -57,7 +57,7 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
 
   // Listen for project document updates (e.g., project_start_date changes)
   // When project is updated, refetch Critical PO Tasks as deadlines may have been recalculated
-  useFrappeDocumentEventListener("Projects", projectId, () => {
+  useDocumentEventListener("Projects", projectId, () => {
     mutate();
   });
 

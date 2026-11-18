@@ -18,7 +18,8 @@ import {
     TableMeta,
     getPaginationRowModel,
 } from '@tanstack/react-table';
-import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useDocTypeEventListener } from '@/lib/frappe';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
@@ -819,7 +820,7 @@ export function useServerDataTable<TData extends { name: string }>({
         fetchData();
     }, [fetchData, isClientSideMode]); // Dependency is the memoized fetchData function
 
-    // --- Real-time Event Listener using useFrappeEventListener ---
+    // --- Real-time Event Listener using useSocketEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
         console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
         // Check if the event is relevant to the current doctype
@@ -848,7 +849,7 @@ export function useServerDataTable<TData extends { name: string }>({
     }, [doctype, apiEndpoint, mutate, fetchData, isClientSideMode]); // Add fetchData to deps
 
 
-    useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
+    useDocTypeEventListener(doctype, handleRealtimeEvent);
 
     // The table's rows as of the last render, for `reviseRowSelection` (which runs on click).
     const rowsRef = useRef<Row<TData>[]>([]);

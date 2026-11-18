@@ -11,7 +11,8 @@ import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner"
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
 import { parseNumber } from "@/utils/parseNumber"
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useDocumentEventListener } from "@/lib/frappe"
 import { CheckCheck, ListChecks, ListX, Store, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
@@ -38,7 +39,7 @@ export const ApproveServiceRequest: React.FC = () => {
         limit: 10000,
     }, "WO_Service_Items_for_std_lookup")
 
-    useFrappeDocumentEventListener("Service Requests", id, (event) => {
+    useDocumentEventListener("Service Requests", id, (event) => {
         console.log("Service Requests document updated (real-time):", event);
         toast({
             title: "Document Updated",
