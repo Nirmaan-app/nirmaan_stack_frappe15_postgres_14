@@ -114,6 +114,28 @@ class TestTdsExportOperation(FrappeTestCase):
 		tokens_after = set(os.listdir(temp_dir)) if os.path.isdir(temp_dir) else set()
 		self.assertEqual(tokens_after, tokens_before, "wrote a file the web server serves")
 
+	def test_a_stranger_can_neither_read_nor_collect_anothers_export(self):
+		"""The Handover export runs this same operation (#1663): its PDF is the owner's alone."""
+		op_id = str(uuid.uuid4())
+		items = [dict(_ROW, name="row-1", tds_item_name="Made-up Sheet")]
+		with patch("frappe.utils.background_jobs.get_queue") as get_queue:
+			queued = []
+			get_queue.return_value.enqueue_call.side_effect = lambda func, **kw: queued.append(kw)
+			get_queue.return_value.count = 0
+			start_tds_export(op_id=op_id, settings_json=json.dumps(SETTINGS), items_json=json.dumps(items))
+			frappe.db.commit()
+		execute_job(**{**queued[0]["kwargs"], "is_async": False})
+		path = background_ops.result_file_path(op_id)
+		self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+		frappe.set_user(self.OWNER)
+		self.assertEqual(get_status(op_id=op_id)["state"], "finished")
+
+		frappe.set_user("tds-export-stranger@example.com")
+		with self.assertRaises(frappe.PermissionError):
+			get_status(op_id=op_id)
+		with self.assertRaises(frappe.PermissionError):
+			collect_result(op_id=op_id)
+
 
 _ROW = {
 	"tds_item_id": "PCUS-000001",

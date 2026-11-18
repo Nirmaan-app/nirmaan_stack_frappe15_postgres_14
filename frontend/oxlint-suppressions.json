@@ -1396,22 +1396,6 @@
       "count": 1
     }
   },
-  "src/pages/HandoverDocuments/useHodBinder.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/pages/HandoverDocuments/useHodTdsExport.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 5
-    }
-  },
   "src/pages/InternalTransferMemos/Create/CreateITMPage.tsx": {
     "no-restricted-imports": {
       "count": 1
@@ -5478,11 +5462,6 @@
   "src/utils/getLowestQuoteFilled.ts": {
     "typescript/no-explicit-any": {
       "count": 2
-    }
-  },
-  "src/utils/hodBinderResume.ts": {
-    "no-restricted-properties": {
-      "count": 1
     }
   },
   "src/utils/invoiceAmounts.test.ts": {

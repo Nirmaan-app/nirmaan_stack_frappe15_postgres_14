@@ -1,9 +1,7 @@
 import frappe
 import json
-import uuid
 from frappe.utils.pdf import get_pdf
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import merge_pdfs_interleaved
-from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
 from nirmaan_stack.services import background_ops
 
 
@@ -13,7 +11,7 @@ EXPORT_TIMEOUT_SECONDS = 600
 
 @frappe.whitelist(methods=["POST"])
 def start_tds_export(op_id: str, settings_json: str, items_json: str, project_name: str = "TDS_Report"):
-    """Start a TDS PDF export from the TDS Repository as a background operation (ADR 0047) and return its record.
+    """Start a TDS PDF export (the TDS Repository's and the Handover's) as a background operation (ADR 0047) and return its record.
 
     The browser makes `op_id`. The screen follows the export with `api/background_ops.get_status` and collects
     the PDF with `collect_result`; only the user who started it can do either.
@@ -41,31 +39,6 @@ def tds_export_op(settings_json, items_json, project_name):
 def _export_filename(project_name):
     clean_name = frappe.scrub(project_name).replace("_", " ").title().replace(" ", "_")
     return f"TDS_Report_{clean_name}_{frappe.utils.nowdate()}.pdf"
-
-
-@frappe.whitelist()
-def export_tds_report(settings_json: str, items_json: str, project_name: str = "TDS_Report"):
-    """Enqueue a TDS PDF export and return immediately. The Handover export's path (`useHodTdsExport`) until it
-    moves to `start_tds_export` (#1663); the TDS Repository uses `start_tds_export`.
-
-    The worker publishes:
-      * `tds_export_progress` — per-item progress (via merge_pdfs_interleaved).
-      * `tds_export_ready`    — on success, with {token, filename, failed_items}.
-      * `tds_export_failed`   — on fatal error, with {message}.
-
-    The client fetches the finished PDF via `bulk_download.fetch_temp_file`.
-    """
-    user = frappe.session.user
-    frappe.enqueue(
-        "nirmaan_stack.api.tds.tds_report.run_tds_export_job",
-        queue="long",
-        timeout=600,  # 10 min
-        user=user,
-        settings_json=settings_json,
-        items_json=items_json,
-        project_name=project_name,
-    )
-    return {"message": "Job enqueued"}
 
 
 def _enrich_derived_cells(items):
@@ -158,14 +131,13 @@ def _enrich_derived_cells(items):
             it["tds_member_names"] = ""
 
 
-def build_tds_report_pdf(settings, items, progress_event: str = None, on_progress=None) -> tuple:
+def build_tds_report_pdf(settings, items, on_progress=None) -> tuple:
     """THE TDS report: the "Project TDS Report" print format over `settings` + `items`, with each
     item's attached data sheet merged in after its row. Returns (pdf_bytes, failed_items).
 
-    Split out of `run_tds_export_job` so the Handover Documents binder can put the SAME document in
-    (`api/hod/tds_pack.py`) instead of stapling the loose data sheets together -- one renderer, so the
-    two can never drift. `progress_event` is the Handover export screen's realtime event and `on_progress` a
-    background operation's progress (`merge_pdfs_interleaved`); the binder passes neither.
+    Shared with the Handover Documents binder, so it puts the SAME document in (`api/hod/tds_pack.py`)
+    instead of stapling the loose data sheets together -- one renderer, so the two can never drift.
+    `on_progress` is a background operation's progress (`merge_pdfs_interleaved`); the binder passes none.
     """
     settings = json.loads(settings) if isinstance(settings, str) else settings
     items = json.loads(items) if isinstance(items, str) else items
@@ -186,36 +158,4 @@ def build_tds_report_pdf(settings, items, progress_event: str = None, on_progres
     template = frappe.render_template(print_format.html, {"frappe": frappe, "json": json})
     base_pdf = get_pdf(template)
 
-    return merge_pdfs_interleaved(base_pdf, items, progress_event=progress_event, on_progress=on_progress)
-
-
-def run_tds_export_job(user, settings_json, items_json, project_name):
-    """Background worker: renders the TDS Print Format, merges attachments,
-    writes the merged PDF to a temp file, emits `tds_export_ready` with a token."""
-    try:
-        frappe.set_user(user)
-
-        merged_pdf, failed_items = build_tds_report_pdf(
-            settings_json, items_json, progress_event="tds_export_progress"
-        )
-
-        ensure_temp_dir()
-        token = uuid.uuid4().hex
-        with open(get_temp_path(token), "wb") as f:
-            f.write(merged_pdf)
-
-        filename = _export_filename(project_name)
-
-        frappe.publish_realtime(
-            "tds_export_ready",
-            {"token": token, "filename": filename, "failed_items": failed_items or []},
-            user=user,
-        )
-
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "run_tds_export_job failed")
-        frappe.publish_realtime(
-            "tds_export_failed",
-            {"message": str(e)},
-            user=user,
-        )
+    return merge_pdfs_interleaved(base_pdf, items, on_progress=on_progress)

@@ -58,7 +58,8 @@ export interface FollowerEdge {
   socketUp: () => boolean;
   /** This tab's slot for the operation it follows (sessionStorage). */
   storage: { get: () => string | null; set: (value: string) => void; remove: () => void };
-  onView: (view: OpView) => void;
+  /** Every change of view, with the context given to `start` (kept across a reload; undefined when idle). */
+  onView: (view: OpView, context: unknown) => void;
   /** Called once per finished operation, with the context given to `start`. */
   onFinished: (result: unknown, context: unknown, opId: string) => void | Promise<void>;
 }
@@ -177,6 +178,7 @@ export class OperationFollower {
   reset(): void {
     this.stopTimers();
     this.opId = null;
+    this.context = undefined;
     this.edge.storage.remove();
     this.setView({ phase: "idle" });
   }
@@ -273,6 +275,6 @@ export class OperationFollower {
 
   private setView(view: OpView) {
     this.view = view;
-    this.edge.onView(view);
+    this.edge.onView(view, this.context);
   }
 }

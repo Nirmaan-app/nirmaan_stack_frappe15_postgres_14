@@ -6,6 +6,7 @@
  *   const op = useBackgroundOperation({ storageKey: "tds_export:<project>", onFinished, onFailed });
  *   await op.start("nirmaan_stack.api.tds.tds_report.start_tds_export", { settings_json, ... }, { previewOnly });
  *   op.view  // idle | starting | queued | running (progress) | finished | failed | lost
+ *   op.context  // what `start` was given, so a screen knows what a resumed operation is for
  *
  * `storageKey` names the screen's slot in this tab's sessionStorage, so a reload picks the operation up again.
  * The server endpoint `start` posts to takes the browser-made `op_id` alongside `args` and calls
@@ -28,6 +29,8 @@ const COLLECT_METHOD = "nirmaan_stack.api.background_ops.collect_result";
 
 export interface BackgroundOperation {
   view: OpView;
+  /** The context given to `start` for the operation shown (kept across a reload); undefined when idle. */
+  context: unknown;
   /** Start a new operation through the flow's own start endpoint, then follow it. */
   start: (method: string, args: Record<string, unknown>, context?: unknown) => Promise<void>;
   /** Forget the operation this screen follows. */
@@ -117,7 +120,10 @@ export interface BackgroundOperationOptions {
 /** Follow one background operation at a time on this screen. */
 export function useBackgroundOperation({ storageKey, onFinished, onFailed }: BackgroundOperationOptions): BackgroundOperation {
   const { socket } = useContext(FrappeContext) as FrappeConfig;
-  const [view, setView] = useState<OpView>({ phase: "idle" });
+  const [{ view, context }, setFollowed] = useState<{ view: OpView; context: unknown }>({
+    view: { phase: "idle" },
+    context: undefined,
+  });
   const followerRef = useRef<OperationFollower | null>(null);
   const socketRef = useRef(socket);
   socketRef.current = socket;
@@ -132,8 +138,8 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
       readStatus,
       socketUp: () => Boolean(socketRef.current?.connected),
       storage: tabSlot(storageKey),
-      onView: (next) => {
-        setView(next);
+      onView: (next, nextContext) => {
+        setFollowed({ view: next, context: nextContext });
         if (next.phase === "failed" || next.phase === "lost") onFailedRef.current?.(next);
       },
       onFinished: (result, context, opId) => onFinishedRef.current(result, context, opId),
@@ -168,5 +174,5 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
 
   const reset = useCallback(() => followerRef.current?.reset(), []);
 
-  return { view, start, reset };
+  return { view, context, start, reset };
 }

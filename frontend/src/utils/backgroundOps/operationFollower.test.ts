@@ -179,6 +179,22 @@ describe("OperationFollower", () => {
     expect(later.reads()).toBe(0);
   });
 
+  it("hands the screen the context its operation was started with, after a reload too", async () => {
+    const f = fakeEdge();
+    const contexts: unknown[] = [];
+    const first = new OperationFollower({ ...f.edge, onView: (_view, context) => void contexts.push(context) });
+    await first.start(async () => undefined, { system: "Made-up System" });
+    expect(contexts.at(-1)).toEqual({ system: "Made-up System" });
+    first.dispose();
+
+    const reloaded: unknown[] = [];
+    const later = fakeEdge({ storage: f.edge.storage });
+    new OperationFollower({ ...later.edge, onView: (view, context) => void reloaded.push([view.phase, context]) })
+      .resume();
+    await flush();
+    expect(reloaded.at(-1)).toEqual(["queued", { system: "Made-up System" }]);
+  });
+
   it("fails only its own operation when the server refuses to start it", async () => {
     const f = fakeEdge();
     await new OperationFollower(f.edge).start(async () => {

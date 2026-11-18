@@ -29,8 +29,7 @@ export const HOD_METHODS = {
   getHeaderRoles: `${API}.header_roles.get_header_roles`,
   setHeaderRoles: `${API}.header_roles.set_header_roles`,
   setSignedCopy: `${API}.package_files.set_signed_copy`,
-  enqueueBinder: `${API}.binder.enqueue_binder`,
-  jobStatus: `${API}.binder.get_job_status`,
+  startBinder: `${API}.binder.start_binder`,
 } as const;
 
 /** Realtime event the server publishes after any row change on a project. */

@@ -630,7 +630,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                         row={row}
                         meta={meta}
                         canEdit={editable}
-                        // Disabled while any build runs (the server takes one at a time) but only THIS
+                        // Disabled while any build runs (the screen follows one at a time) but only THIS
                         // row's own work spins its button.
                         busy={
                           rowBusy ||

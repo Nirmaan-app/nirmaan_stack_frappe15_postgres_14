@@ -61,21 +61,16 @@ def ensure_a4(page):
     return page, was_converted
 
 @frappe.whitelist()
-def merge_pdfs_interleaved(
-    main_pdf_content: bytes, items: list, progress_event: str = None, on_progress=None
-) -> tuple:
+def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, on_progress=None) -> tuple:
     """
     Merge main PDF with attachments interleaved after each item's page.
     Returns: (pdf_content: bytes, failed_items: list)
 
-    Progress goes to `on_progress(percent, message)` when given (a background operation's record), else as the
-    realtime `progress_event` to the session user.
+    Progress goes to `on_progress(percent, message)` when given (a background operation's record).
     """
     def report(payload):
         if on_progress:
             on_progress(payload["progress"], payload["message"])
-        elif progress_event:
-            frappe.publish_realtime(progress_event, payload, user=frappe.session.user)
 
     writer = PdfWriter()
     failed_items = []

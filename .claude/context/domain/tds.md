@@ -87,8 +87,8 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   Handover. Its statuses are disjoint (`pdfStatusOf`): *Approved by Client*, *Approved by Admin* (Approved,
   no Client Status) and Pending (Pending or New); *Rejected by Client* and Rejected rows are never offered.
   `pdfPrintOrder` orders rows by ticked status, then ticked package (none ticked = A to Z), and the dialog
-  sends them in that order: the TDS page to `start_tds_export`, a background operation it follows by its
-  status record (ADR 0047, `hooks/useBackgroundOperation`), and Handover still to `export_tds_report`.
+  sends them in that order, the TDS page and Handover both to `start_tds_export`, a background operation each
+  follows by its status record (ADR 0047, `hooks/useBackgroundOperation`).
   Default ticks are `PDF_DEFAULT_STATUSES`; Handover's saved ticks pass through `pdfSeedTicks`, and the binder (`api/hod/tds_pack.report_items`) prints them in
   saved order and drops *Rejected by Client* rows. A non-Admin with Pending ticked only previews
   (`isPdfPreviewOnly`). The report template is unchanged.

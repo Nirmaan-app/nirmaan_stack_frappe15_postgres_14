@@ -102,15 +102,17 @@ export const BinderDialog: React.FC<{
             <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-sm font-semibold text-gray-900">
-                {progress
-                  ? `Building ${progress.done} of ${progress.total}`
-                  : "Starting…"}
+                {!progress
+                  ? "Starting…"
+                  : progress.waiting
+                    ? "Waiting in the queue for a free worker…"
+                    : `Building… ${progress.percent}%`}
               </p>
               <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-200">
                 <div
                   className="h-full rounded-full bg-primary transition-all"
                   style={{
-                    width: `${progress && progress.total ? (progress.done / progress.total) * 100 : 3}%`,
+                    width: `${Math.max(progress?.percent ?? 0, 3)}%`,
                   }}
                 />
               </div>
