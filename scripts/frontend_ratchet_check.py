@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from oxlint_settings_check import CONFIG, config_loosenings, parse_jsonc  # noqa: E402
 from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # noqa: E402
 from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
-from residence_check import DISABLE_SUPPRESSIONS as DISABLES  # noqa: E402  (check D1's file)
+from disable_comment_check import DISABLE_SUPPRESSIONS as DISABLES  # noqa: E402  (check D1's file)
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
