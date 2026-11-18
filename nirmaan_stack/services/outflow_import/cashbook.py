@@ -45,7 +45,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_PAYMENT_NOTE
 from nirmaan_stack.services.outflow_import.cashbook_placement import (
     FALLBACK_EXPENSE_TYPE,
     placement as _placement,
@@ -103,6 +102,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
 
 __all__ = [
     "SPEND_ROW_KIND",
+    "SPEND_ROW_KINDS",
     "FALLBACK_EXPENSE_TYPE",
     "ACTION_CREATE",
     "ACTION_SKIP",
@@ -122,10 +122,10 @@ __all__ = [
     "pick_expense_type",
 ]
 
-# The one `Type` value that means money left on somebody's behalf. Everything else in a Cashbook
-# export moves money BETWEEN our own balances -- a wallet top-up, a bank load, a refund -- and
-# recording those as expenses would book the same rupee twice.
+# The `Type` values that mean money left on somebody's behalf; a Collect Payment too since #1708 (ADR-0015
+# Amendment C). Everything else moves money BETWEEN our own balances, and booking it would count a rupee twice.
 SPEND_ROW_KIND = "Wallet Spend"
+SPEND_ROW_KINDS = frozenset({SPEND_ROW_KIND, COLLECT_ROW_KIND})
 
 
 # The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
@@ -313,8 +313,9 @@ def plan_statement(
     booked = dict(already_booked or {})
     # Read twice: by the repeat walk, and by `unpaired_reason` (is a refund's spend on this statement?).
     rows = list(rows)
+    acted_on = (ACTION_OPEN, ACTION_CREATE)
     claims = claim_wrong_skips(
-        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] == ACTION_OPEN
+        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] in acted_on
     )
 
     # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three places ask
@@ -355,7 +356,7 @@ def plan_statement(
             template, partner = partner_of[position]
             action, reason, skip_kind = ACTION_SKIP, template.format(partner=partner), SKIP_KIND_CASHBOOK_REFUND_PAIR
             planned.append(PlannedRow(action=action, reason=reason, skip_kind=skip_kind, partner=partner, **base))
-        elif action == ACTION_CREATE or base["row_kind"] == COLLECT_ROW_KIND:  # #1595: Create opens pre-filled
+        elif action == ACTION_CREATE:
             placement = _placement(base["remarks"], index, expense_rules)
             planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
         elif action == ACTION_INTERNAL:
@@ -382,7 +383,7 @@ def _decide(
 
     By the statement's `Type` (#1594, spec #1585 "Planning (pure module)"):
 
-      * a Wallet Spend creates, and a Collect Payment is an OPEN line (#1595), unless `_skip_reason` skips it;
+      * a Wallet Spend or a Collect Payment creates (#1708), unless `_skip_reason` skips it;
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
       * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when this line says SUCCESS, else Bank refused
@@ -392,10 +393,9 @@ def _decide(
     """
     raw = line.row
     kind = _row_kind(raw)
-    if kind in (SPEND_ROW_KIND, COLLECT_ROW_KIND):  # #1595: a Collect payment opens where a spend creates
+    if kind in SPEND_ROW_KINDS:
         reason, skip_kind = _skip_reason(line, amount, booked, moved=bool(getattr(raw, "is_success", False)))
-        opened = (ACTION_CREATE, "", None) if kind == SPEND_ROW_KIND else (ACTION_OPEN, COLLECT_PAYMENT_NOTE, None)
-        return (ACTION_SKIP, reason, skip_kind) if reason else opened
+        return (ACTION_SKIP, reason, skip_kind) if reason else (ACTION_CREATE, "", None)
     if kind in CASHBOOK_INTERNAL_KINDS:
         if getattr(raw, "is_success", False):
             return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
@@ -476,7 +476,7 @@ def _skip_reason(
 
 def _pairable_spend(line: KeptLine, booked: Mapping[tuple, tuple[PriorSighting, ...]]) -> bool:
     """A Wallet Spend or Collect Payment that, unpaired, nothing would skip but its kind."""
-    if _row_kind(line.row) not in (SPEND_ROW_KIND, COLLECT_ROW_KIND):
+    if _row_kind(line.row) not in SPEND_ROW_KINDS:
         return False
     return not _skip_reason(line, _amount(line.row), booked)[0]
 

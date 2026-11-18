@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, PlannedRow
-from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -172,16 +171,12 @@ def preview_payload(
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
         # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits). A Collect
-        # payment is listed under `collect_payments` instead, highlighted.
-        "open_lines": [_preview_line(row) for row in plan.opening if row.row_kind != COLLECT_ROW_KIND],
-        # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
-        "collect_payments": [
-            {**_preview_line(row), "spent_by": row.spent_by} for row in plan.opening if row.row_kind == COLLECT_ROW_KIND
-        ],
+        # payment is created like any spend since #1708, so it is listed in `groups`.
+        "open_lines": [_preview_line(row) for row in plan.opening],
         # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
         # with the import that holds it. Each is also listed above under what it becomes.
         "reopened": [
-            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": "open" if row.opens else "paired"}
+            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": _becomes(row)}
             for row in plan.reopening
         ],
         # #1593: the existing Expenses that will get a bill from a repeat line, which is itself not saved.
@@ -189,6 +184,13 @@ def preview_payload(
         # Owner decision 2 (#1619): the old ₹0 Internal Transfer records this file gives their real amount.
         "records_to_fill": records_to_fill,
     }
+
+
+def _becomes(row: PlannedRow) -> str:
+    """What a re-opened line becomes (#1596): "created" (a Collect payment, #1708), "open", or "paired"."""
+    if row.creates:
+        return "created"
+    return "open" if row.opens else "paired"
 
 
 def _preview_line(row) -> dict:

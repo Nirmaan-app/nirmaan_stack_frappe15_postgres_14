@@ -138,8 +138,8 @@ class TestOpenLines(CashbookRefundsCase):
 
     def test_the_job_leaves_every_open_line_open(self):
         status = cb.get_cashbook_status(self.batch)
-        # 3 money-in lines and the 2 unpaired Collect payments (#1595).
-        self.assertEqual((status["open"], status["pending"], status["failed"]), (5, 0, 0))
+        # The 3 money-in lines; the 2 unpaired Collect payments are created by the job (#1708).
+        self.assertEqual((status["open"], status["pending"], status["failed"]), (3, 0, 0))
 
     def test_the_batch_summary_counts_every_open_money_in_line_as_received_and_undecided(self):
         """Story 42: an Unpaired wallet refund's raw status is REFUNDED, which on this statement is money that moved."""
@@ -231,8 +231,8 @@ class TestReviewShowsThePairsAndTheOpenLines(FrappeTestCase):
             [(line["transfer_id"], line["amount"]) for line in self.payload["open_lines"]],
             [("REF-" + PART_SPEND, 11248.0), (WALLET_CREDIT, 9000.0), (EARLIER_REFUND, 640.0)],
         )
-        # Every open line: these 3, and the 2 unpaired Collect payments Review lists under `collect_payments` (#1595).
-        self.assertEqual(self.payload["opening"], 5)
+        # Every open line: these 3. The 2 unpaired Collect payments are created like any spend (#1708).
+        self.assertEqual(self.payload["opening"], 3)
 
     def test_a_pairs_lines_are_not_listed_again_as_not_importing(self):
         skipped = {line["transfer_id"] for line in self.payload["skipped"]}

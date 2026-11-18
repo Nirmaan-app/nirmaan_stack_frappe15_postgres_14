@@ -817,14 +817,12 @@ describe("which way the money went — the ONE definition of the axis", () => {
         );
     });
 
-    it("offers only Create expense on an open Collect payment (spec #1585 \"Open Cashbook lines\")", () => {
-        // Its second choice, Skip by hand, is the Skip box (`canSkipByHand`), not a disposition.
-        expect(
-            availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Collect Payment" } as any)
-        ).toEqual(["new"]);
-        expect(availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Wallet Spend" } as any)).toEqual(
-            ["Project Payments", "Project Expenses", "Non Project Expenses", "new"]
-        );
+    it("offers a Collect payment the choices of any money-out line (#1708)", () => {
+        for (const row_kind of ["Collect Payment", "Wallet Spend"]) {
+            expect(availableDecisionTargets({ direction: "", source: "Cashbook", row_kind } as any)).toEqual(
+                ["Project Payments", "Project Expenses", "Non Project Expenses", "new"]
+            );
+        }
     });
 
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
@@ -1650,12 +1648,10 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         );
     });
 
-    it("tells an open Collect payment to pick Create expense or Skip, never to link (code review R6)", () => {
+    it("asks an open Collect payment for a record or a create, as any money-out line (#1708)", () => {
         const collect = row({ row_status: "Mismatched", source: "Cashbook", row_kind: "Collect Payment" });
-        const sentence = "Pick Create expense, or Skip by hand.";
-        expect(confirmBlocker(collect, undefined)).toBe(sentence);
-        expect(confirmBlocker(collect, link)).toBe(sentence);
-        expect(confirmDisabledSentence("decision-incomplete", collect, undefined)).toBe(sentence);
+        expect(confirmBlocker(collect, undefined)).toMatch(/Pick the record/);
+        expect(confirmBlocker(collect, link)).toBeNull();
     });
 
     it("maps every gate reason, and stays silent while busy or live", () => {
@@ -1675,10 +1671,10 @@ describe("isMoneyReceivedLine", () => {
         expect(isMoneyReceivedLine(row({ direction: "Credit", source: "Cashbook", row_kind: "Wallet Credit" }))).toBe(true);
     });
 
-    it("is never a Collect payment, which is money out and offers only Create expense", () => {
-        const collect = row({ direction: "Debit", source: "Cashbook", row_kind: "Collect Payment" });
-        expect(availableDecisionTargets(collect)).toEqual(["new"]);
-        expect(isMoneyReceivedLine(collect)).toBe(false);
+    it("is never a Collect payment, which is money out", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Debit", source: "Cashbook", row_kind: "Collect Payment" }))).toBe(
+            false
+        );
     });
 
     it("is never a debit line", () => {

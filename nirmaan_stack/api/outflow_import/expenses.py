@@ -59,7 +59,6 @@ from typing import NamedTuple
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.cashbook_collect import file_stored_bill, statement_line_create_extras
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -88,10 +87,6 @@ from nirmaan_stack.services.outflow_import.allocation import (
     remaining_of,
 )
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
-from nirmaan_stack.services.outflow_import.cashbook_collect import (
-    COLLECT_PAYMENT_CHOICES_REFUSAL,
-    is_collect_payment_line,
-)
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.import_comment import (
     import_comment,
@@ -796,7 +791,7 @@ def _load_allocatable_row(row: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
-    guard_line_may_be_settled_by_hand(doc)
+    guard_not_an_own_import_line(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This transfer is fully allocated. Reverse an allocation to change it.",
@@ -1162,14 +1157,8 @@ def create_expense(
             # writes the `From` column, and a reopened Cashbook line created here must match it.
             # Everywhere else `None`, and `create_expense_from_row` keeps the actor.
             payment_by=_statement_spender(doc),
-            # #1595: a line staged by the Cashbook Statement import (an open Collect payment, a reopened spend)
-            # gives the Expense the Cashbook marker; its stored bill is filed below (#1642).
-            **statement_line_create_extras(doc, _batch_source(doc["import_batch"])),
         )
         record_settlement(staged, doc, result, actor)
-        # #1642: a Collect payment's stored bill, with the Bill check kept on its line. After the settlement, so
-        # its Expense bill finds the line.
-        file_stored_bill(doc, _batch_source(doc["import_batch"]), result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
         # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
         refresh_row_allocation(staged.name, actor, result)
@@ -1235,8 +1224,7 @@ def _statement_file_url(batch: str) -> str | None:
 
 def _load_settleable_row(row: str, creating: bool = False):
     """The guard shared by every WHOLE-TRANSFER write (`settle_row`, `settle_row_partial`,
-    `create_expense`). `creating`: the write creates the record (`create_expense`), the one write besides Skip an
-    open Collect payment takes (`guard_collect_payment_choice`).
+    `create_expense`). `creating`: the write creates the record (`create_expense`).
 
     ⚠️ REFUSES `ROW_PARTIALLY_ALLOCATED` (Task 6 review fix A, ADR-0020). None of the three
     whole-transfer paths above consults `live_legs` or `is_over_allocated` -- `settle_row`'s own
@@ -1259,8 +1247,6 @@ def _load_settleable_row(row: str, creating: bool = False):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     guard_not_an_own_import_line(doc)
-    if not creating:
-        guard_collect_payment_choice(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This row has already settled an expense.", title="Already settled"
@@ -1303,23 +1289,6 @@ def guard_not_an_own_import_line(doc) -> None:
     )
     if refusal:
         frappe.throw(refusal, ExpenseSettlementError, title="Not a main-table line")
-
-
-def guard_collect_payment_choice(doc) -> None:
-    """Refuse Link, Allocate and Split / Part payment on a Collect payment (spec #1585 "Open Cashbook lines": "An
-    open Collect payment offers Create expense and Skip by hand"). A shop asked for the money and it may not be a
-    company spend, so it is recorded as a new Expense or closed on record, never settled against a record that
-    already exists. Create (`create_expense`) and Skip (`review.skip_row`) do not ask this.
-    """
-    if is_collect_payment_line(doc.get("source"), doc.get("row_kind")):
-        frappe.throw(COLLECT_PAYMENT_CHOICES_REFUSAL, ExpenseSettlementError, title="Create expense or Skip")
-
-
-def guard_line_may_be_settled_by_hand(doc) -> None:
-    """The one guard a main-table Link or Allocate loader asks first: the line is not its own import's to write
-    (`guard_not_an_own_import_line`) and is not a Collect payment (`guard_collect_payment_choice`)."""
-    guard_not_an_own_import_line(doc)
-    guard_collect_payment_choice(doc)
 
 
 def _guard_is_a_debit(doc) -> None:

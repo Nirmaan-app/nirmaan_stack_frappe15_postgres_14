@@ -60,7 +60,7 @@ OTHER_RECORDS = {
     "nirmaan_stack/patches/v3_0/migrate_invoices_to_vendor_invoices.py": "Vendor Invoices migration (append-only)",
     "nirmaan_stack/services/reimbursements/convert.py": "a Reimbursement's Expense (spec #1637: out of scope)",
     "nirmaan_stack/services/outflow_import/settle.py": "a Porter spend's shared Porter Invoice URL (spec #1637: out of "
-    "scope); a Collect payment's bill goes through the entry point since #1642",
+    "scope)",
 }
 
 KNOWN = {**ENTRY_POINT, **CLEARS, **ROUTES, **HAND_EDITS, **OTHER_RECORDS}
@@ -162,10 +162,10 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn("receive_bill", calls(path))
 
-    def test_a_collect_payments_create_files_its_stored_bill_through_the_entry_point(self):
-        create = "nirmaan_stack/api/outflow_import/cashbook_collect.py"
-        self.assertNotIn(create, writers())
-        self.assertIn("receive_bill", calls(create))
+    def test_the_open_collect_payments_patch_files_a_stored_bill_through_the_entry_point(self):
+        patch = "nirmaan_stack/patches/v3_0/create_open_collect_payment_expenses.py"
+        self.assertNotIn(patch, writers())
+        self.assertIn("receive_bill", calls(patch))
 
     def test_a_module_that_writes_the_field_is_caught_and_one_that_only_mentions_it_is_not(self):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))

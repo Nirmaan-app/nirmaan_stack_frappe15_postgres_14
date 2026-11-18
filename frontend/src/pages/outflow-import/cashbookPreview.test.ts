@@ -296,11 +296,9 @@ describe("the invoice counts before Create (#1591)", () => {
 });
 
 describe("each bill not copied, as the import summary lists it (#1591, code review S3)", () => {
-    it("names the spend and its Expense, or says the line is an open Collect payment", () => {
+    it("names the spend and its Expense, or says a line from before #1708 has none", () => {
         expect(billNotCopiedLabel({ transfer_id: "OBO1", expense: "PE-1", reason: "x" })).toBe("OBO1 (PE-1)");
-        expect(billNotCopiedLabel({ transfer_id: "OBO2", expense: null, reason: "x" })).toBe(
-            "OBO2 (open Collect payment)"
-        );
+        expect(billNotCopiedLabel({ transfer_id: "OBO2", expense: null, reason: "x" })).toBe("OBO2 (no Expense)");
     });
 });
 
@@ -322,18 +320,6 @@ describe("the bills the job could not copy (#1591)", () => {
         );
     });
 
-    it("says an open Collect payment stays open to decide, not that an Expense waits (code review R6)", () => {
-        const collect = { transfer_id: "OBO2", expense: null, reason: "Bill not copied: the server answered 403." };
-        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect] }))).toBe(
-            "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
-        );
-        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect, collect] }))).toBe(
-            "2 Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:"
-        );
-        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [line, collect] }))).toBe(
-            "2 bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:"
-        );
-    });
 });
 
 
@@ -455,6 +441,10 @@ describe("the lines an earlier import wrongly skipped, re-opened by this stateme
         expect(reopenedLabel(reopened())).toBe("Wallet Credit PTM6 · in OFI-26-00237 · stays open");
         expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO3", becomes: "paired" }))).toBe(
             "Collect Payment OBO3 · in OFI-26-00237 · paired wallet refund"
+        );
+        // #1708: a Collect payment is a wallet spend, created by the import that holds it.
+        expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO2", becomes: "created" }))).toBe(
+            "Collect Payment OBO2 · in OFI-26-00237 · its expense is created"
         );
     });
 

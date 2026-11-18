@@ -416,6 +416,9 @@ still Admin + Accountant Lead only (`unreconcile.get_unreconcile_plan`, `unrecon
 > the skip closes on record money that left the company. `review.skip_row` refuses anyone else
 > (`cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`), and `canSkipByHand(row, mayUndo)` takes the viewer's undo
 > access again, for that kind only. Every other line keeps this amendment.
+>
+> **That narrowing is withdrawn by ADR-0015 Amendment C (2026-11-18, #1708):** a Collect payment is created by the
+> import like any wallet spend, and one still open is skipped by hand like any other line, by every module user.
 
 ## Amendment F — Unreconcile several Settled lines at once (2026-09-25, #1320, parent #1317, owner)
 

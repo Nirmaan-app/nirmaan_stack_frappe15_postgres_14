@@ -18,7 +18,7 @@ from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 AUTO_APPROVED = "Auto-approved"
 
 def stopped_sql(alias: str, param: str = "%(stopped_before)s") -> str:
-    """SQL, true on record `alias` (an Expense bill, or a Collect payment line, which keeps the same fields) whose
+    """SQL, true on record `alias` (an Expense bill) whose
     reading stopped: `reading.reading_stopped`'s rule, spelled in SQL so a query can show and filter on it. The
     query passes `reading.stopped_before()` as `param` (named by default; `%s` for a positional query).
     `test_expense_bill_list.test_a_bill_whose_reading_stopped_shows_not_read` holds the two together."""

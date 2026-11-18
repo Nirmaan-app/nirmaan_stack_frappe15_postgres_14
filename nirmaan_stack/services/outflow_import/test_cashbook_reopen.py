@@ -16,6 +16,7 @@ from datetime import date
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import (
+    ACTION_CREATE,
     ACTION_OPEN,
     ACTION_SKIP,
     SKIP_NOT_A_SPEND,
@@ -57,12 +58,14 @@ def _plan(rows, already=None, wrong_skips=()):
 
 
 class TestWronglySkippedLinesComeBack(unittest.TestCase):
-    def test_a_collect_payment_is_reopened_open_and_highlighted_not_dropped_as_a_repeat(self):
+    def test_a_collect_payment_is_reopened_to_be_created_not_dropped_as_a_repeat(self):
+        # #1708: a Collect payment is a wallet spend, so the line it re-opens is created by the job.
         rows = [_row(transfer_id="OBO-CP", amount="480", kind=COLLECT)]
         plan = _plan(rows, _old_sightings(("OBO-CP", "480", "SUCCESS")), [_old("ROW-1", "OBO-CP", "480")])
 
         [line] = plan.rows
-        self.assertEqual((line.action, line.reason), (ACTION_OPEN, "Shop-requested payment, check it."))
+        self.assertEqual((line.action, line.reason), (ACTION_CREATE, ""))
+        self.assertEqual(line.ledger, "Non Project Expenses")
         self.assertEqual(line.reopens.line, "ROW-1")
         self.assertEqual(plan.split.repeats_not_saved, 0)
         self.assertEqual(plan.reopening, (line,))
