@@ -45,7 +45,7 @@ from dataclasses import asdict
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cutoff, is_undated
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_undated, kept_lines
 from nirmaan_stack.services.outflow_import.cashbook_plan import (
     ACTION_CREATE,
     ACTION_INTERNAL,
@@ -210,7 +210,7 @@ def plan_statement(
     already = dict(already_imported or {})
     booked = dict(already_booked or {})
     every_row = list(rows)  # ⚠️ #1707: THE DATE FIRST, AND ONLY HERE. A line before the cutoff is only counted.
-    rows = [raw for raw in every_row if not is_before_cutoff(raw)]
+    rows = kept_lines(every_row)
     claims = claim_wrong_skips(
         rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] == ACTION_CREATE
     )

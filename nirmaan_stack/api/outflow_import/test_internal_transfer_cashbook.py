@@ -451,3 +451,15 @@ class TestALineBeforeTheCutoffFillsNoRecord(CashbookStageCase):
         ]))
         self.assertEqual((result["records_filled"], result["internal_transfers"]), (0, 1))
         self.assertEqual(float(self._record(old)["amount"]), 0.0)
+
+    def test_an_undated_line_fills_nothing(self):
+        """Owner decision 2 (#1715): a line with no readable date is left out like an early one."""
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        txn = f"VALOAD-{frappe.generate_hash(length=6).upper()}"
+        old = self._zero_record(txn)
+        undated = _xlsx([_line("", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS", txn)])
+
+        preview = _post(cb.preview_cashbook_statement, undated, "test-it-undated-fill.xlsx")
+        self.assertEqual((preview["records_to_fill"], preview["refused"], preview["before_cutoff"]), (0, True, 1))
+        self.assertEqual(float(self._record(old)["amount"]), 0.0)

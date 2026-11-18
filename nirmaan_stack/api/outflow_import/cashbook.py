@@ -90,7 +90,7 @@ from nirmaan_stack.services.outflow_import.candidates import (
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_cutoff import (
     before_cutoff_note,
-    is_before_cutoff,
+    kept_lines,
     kept_period,
     only_before_cutoff_message,
 )
@@ -942,7 +942,7 @@ def _zero_records_to_fill(parsed) -> tuple:
     """The ₹0 Internal Transfer records this statement fills, read from its KEPT lines only (#1715, owner decision 2):
     a line before 1 Apr 2026 or undated is left out like any other early line, so it fills nothing, and a file of
     nothing else is refused by `_assess`."""
-    return internal_transfer_records.zero_records_to_fill([raw for raw in parsed.rows if not is_before_cutoff(raw)])
+    return internal_transfer_records.zero_records_to_fill(kept_lines(parsed.rows))
 
 
 def _statement_transfer_ids(parsed) -> list[str]:
