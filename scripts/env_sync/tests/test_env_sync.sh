@@ -251,5 +251,126 @@ check "backups leave private/backups: backup_local.sh writes to envsync/backups 
 check "db-push makes the laptop backup's envsync/backups/<stamp> folder on the desktop before copying into it (SYNC-D4)" '
   awk "/^cmd_db_push\\(\\)/,/^}/" "$SRC/env_sync.sh" | grep -B1 -A3 "New-Item -ItemType Directory -Force -Path .\$D_BENCH/sites/\$(dirname \"\$lprefix\")" | grep -q "for suf in -database.sql.gz"'
 
+echo "== 7. the checkpoint poller as a scheduled task (CKP-3): one run at a time, heartbeat, B1 / B2 / offline / failure"
+# poller_run.sh with every outside call replaced: the desktop probe (ssh), env_sync.sh and docker are stubs that log their
+# arguments and answer what the case sets. Nothing reaches a machine, a container or a scheduled task.
+PW="$W/poller"; mkdir -p "$PW/state" "$PW/bin" "$PW/sites/localhost/locks"
+cat > "$PW/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+echo "ssh $*" >> "$PW_LOG"
+[ -f "$PW_DIR/ssh_out" ] || exit 255
+cat "$PW_DIR/ssh_out"
+EOF
+cat > "$PW/bin/env_sync" <<'EOF'
+#!/usr/bin/env bash
+echo "env_sync $*" >> "$PW_LOG"
+case "$*" in *"--yes"*) [ -f "$PW_DIR/b2_record" ] && cp "$PW_DIR/b2_record" "$PW_DIR/pull_record";; esac
+cat "$PW_DIR/es_out" 2>/dev/null
+exit "$(cat "$PW_DIR/es_rc" 2>/dev/null || echo 0)"
+EOF
+cat > "$PW/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "docker $*" >> "$PW_LOG"
+case "$1" in
+  info) [ -f "$PW_DIR/engine_up" ];;
+  inspect) echo false;;
+  desktop) rm -f "$PW_DIR/engine_up";;
+esac
+EOF
+cat > "$PW/bin/engine_start" <<'EOF'
+#!/usr/bin/env bash
+echo "engine_start" >> "$PW_LOG"; touch "$PW_DIR/engine_up"
+EOF
+chmod +x "$PW/bin/"*
+prun() {   # one poller run against the stubs (POLLER_ENGINE_START: the real Docker Desktop is never started by a test)
+  PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
+  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_START="$PW/bin/engine_start" \
+  ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
+  bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
+}
+hb() { sed -n 's/^result: *//p' "$PW/hb.txt"; }
+calls() { grep -c "$1" "$PW/calls.log" 2>/dev/null || true; }
+preset() { rm -f "$PW/calls.log" "$PW/ssh_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt"; : > "$PW/calls.log"; }
+echo "free 2026-11-18 14:05:00" > "$PW/turn.txt"
+echo "# desktop fingerprint after the laptop's db-push (2026-11-18 13:57:40, backup x)" > "$PW/pull_record"
+
+preset; prun
+check "IDLE: no slice followed -> heartbeat IDLE, the desktop is not asked, nothing copied" '[[ "$(hb)" == IDLE* ]] && [ "$(calls .)" = 0 ]'
+check "the heartbeat names the run time, the slice, reachability, the last good B1 and B2, and the off switch" '
+  grep -q "^run:  *20[0-9-]* [0-9:]*$" "$PW/hb.txt" && grep -q "^active slice:  *none" "$PW/hb.txt" && grep -q "^desktop reachable: not asked" "$PW/hb.txt" &&
+  grep -q "^last good B1: " "$PW/hb.txt" && grep -q "^last good B2:  *2026-11-18 13:57:40" "$PW/hb.txt" && grep -q "poller pause | resume | remove" "$PW/hb.txt"'
+
+echo "T-1 t1 since 2026-11-18 15:00:00" > "$PW/state/active.txt"
+preset; prun
+check "OFFLINE: the desktop does not answer -> heartbeat OFFLINE, B1 skipped, no failure" '[[ "$(hb)" == OFFLINE* ]] && [ "$(calls "^env_sync")" = 0 ] && [ -f "$PW/state/offline" ] && grep -q "^desktop reachable: n" "$PW/hb.txt"'
+n1=$(grep -c OFFLINE "$PW/poller.log"); preset; prun
+check "OFFLINE is logged once, not at every run" '[ "$(grep -c OFFLINE "$PW/poller.log")" = "$n1" ] && [[ "$(hb)" == OFFLINE* ]]'
+
+preset; printf 'ssh=ok\nF=HEARTBEAT 2026-11-18 15:10:00 M1\nP=\n' > "$PW/ssh_out"
+printf 'desktop answers\nCHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_151000\nCAUGHT-UP T-1 2026-11-18 15:10: code = the checkpoint above\n' > "$PW/es_out"
+mkdir -p "$PW/relay/T-1"; : > "$PW/relay/T-1/to_chat.md"; prun
+check "RECONNECT: the desktop answers again -> the catch-up runs by itself, CAUGHT-UP in the heartbeat, the log and ONE relay entry" '
+  [[ "$(hb)" == CAUGHT-UP* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1$" "$PW/calls.log" && [ ! -f "$PW/state/offline" ] &&
+  [ "$(grep -c "id T-1-CAUGHTUP" "$PW/relay/T-1/to_chat.md")" = 1 ] && grep -q "CAUGHT-UP" "$PW/poller.log" && grep -q "20261118_151000" "$PW/state/last_b1.txt"'
+
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_152500\n  desktop abc\n' > "$PW/es_out"; prun
+check "B1 OK: checkpoint-code --if-older is called, the heartbeat says B1 OK and records the checkpoint" '
+  [ "$(hb)" = "B1 OK" ] && grep -q "^env_sync checkpoint-code --slice T-1 --name t1 --if-older 13$" "$PW/calls.log" && grep -q "T-1 20261118_152500" "$PW/state/last_b1.txt" && grep -q "^desktop reachable: y" "$PW/hb.txt"'
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "checkpoint not due: the newest (x) is 3 min old (< 13)" > "$PW/es_out"; prun
+check "B1 SKIP: not due -> said so, the last good B1 kept, no B2 without a DBCOPY-POINT" '[ "$(hb)" = "B1 SKIP not due" ] && grep -q "20261118_152500" "$PW/hb.txt" && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ]'
+
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "CHECKPOINT FAILED (T-1, now): TEST failure forced at b1" > "$PW/es_out"; echo 3 > "$PW/es_rc"; prun
+check "FAILURE: a failed B1 is ONE heartbeat line and ONE log line, exit 0, the slice stays followed, no retry" '
+  [[ "$(hb)" == "FAILED B1 (rc 3)"* ]] && [ "$(grep -c "FAILED B1" "$PW/poller.log")" = 1 ] && [ "$(calls "^env_sync")" = 1 ] && [ -f "$PW/state/active.txt" ]'
+
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 15:30:00 a paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"
+echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 15:31:10, backup y)" > "$PW/b2_record"; prun
+check "B2 WITH STANDBY: a DBCOPY-POINT newer than the last copy -> Docker Desktop started, catch-up --yes, containers and Docker put back" '
+  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1 --yes$" "$PW/calls.log" && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" &&
+  grep -q "^last good B2:  *2026-11-18 15:31:10" "$PW/hb.txt" && ! grep -q "dev2" "$PW/calls.log" && grep -q "^free" "$PW/turn.txt"'
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 15:30:00 a paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+check "B2 is not repeated once the copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
+
+preset; date '+%F %T' > "$PW/state/paused"; prun
+check "PAUSE: the off switch -> heartbeat PAUSED, nothing asked, nothing copied" '[[ "$(hb)" == PAUSED* ]] && [ "$(calls .)" = 0 ]'
+rm -f "$PW/state/paused"
+
+preset; mkdir "$PW/state/lock"; prun
+check "ONE AT A TIME: a second run while one holds the lock does nothing" '[ ! -f "$PW/hb.txt" ] && grep -q "SKIP another run holds the lock" "$PW/poller.log" && [ -d "$PW/state/lock" ]'
+rmdir "$PW/state/lock"
+
+preset; printf 'ssh=ok\nF=DONE 2026-11-18 16:00:00 all done\nP=\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_160100\n' > "$PW/es_out"; prun
+check "SLICE END: status DONE -> one last B1 (not gated by --if-older), then the slice is no longer followed" '
+  grep -q "^env_sync checkpoint-code --slice T-1 --name t1$" "$PW/calls.log" && [ ! -f "$PW/state/active.txt" ] && [ -f "$PW/state/last_active.txt" ] && [[ "$(hb)" == "B1 OK; "*"no longer followed"* ]]'
+preset; prun
+check "after the slice ended the next run is IDLE" '[[ "$(hb)" == IDLE* ]] && [ "$(calls .)" = 0 ]'
+check "the lock is released after every run" '[ ! -d "$PW/state/lock" ]'
+
+X=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SRC/laptop/poller_task.ps1")" -PrintOnly 2>/dev/null | tr -d '\r')
+if [ -n "$X" ]; then
+  check "the task: every 15 minutes, at log-on, on network connect, on resume from sleep" '
+    grep -q "<Interval>PT15M</Interval>" <<< "$X" && grep -q "<LogonTrigger>" <<< "$X" && grep -q "NetworkProfile/Operational" <<< "$X" && grep -q "EventID=10000" <<< "$X" && grep -q "Power-Troubleshooter" <<< "$X"'
+  check "the task: the logged-on user only (no stored password), least privilege, one instance, hidden start through wscript" '
+    grep -q "<LogonType>InteractiveToken</LogonType>" <<< "$X" && grep -q "<RunLevel>LeastPrivilege</RunLevel>" <<< "$X" && grep -q "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>" <<< "$X" &&
+    grep -q "<Command>wscript.exe</Command>" <<< "$X" && grep -q "poller_hidden.vbs" <<< "$X" && ! grep -qi "password" <<< "$X"'
+else
+  echo "skip the task XML checks (no powershell.exe here)"
+fi
+check "poller_hidden.vbs runs poller_run.sh hidden (window style 0) and waits for it" 'grep -q "poller_run.sh" "$SRC/laptop/poller_hidden.vbs" && grep -q ", 0, True)" "$SRC/laptop/poller_hidden.vbs"'
+H=$(bash "$SRC/env_sync.sh" 2>/dev/null)
+check "the help names the poller commands and the off switch" 'grep -q "poller install" <<< "$H" && grep -q "poller pause | resume" <<< "$H" && grep -q "poller remove" <<< "$H" && grep -q "poller follow --slice S --name N" <<< "$H"'
+check "P6: db-push's run record and the copied loose report files go to BoQ main lane/_run_records, never the Desktop root" '
+  grep -q "RUN_RECORDS=\"\${ENV_SYNC_RUN_RECORDS:-\$L_REPORTS/BoQ main lane/_run_records}\"" "$SRC/env_sync.sh" && grep -q "run=\"\$RUN_RECORDS/" "$SRC/env_sync.sh" && ! grep -q "run=\"\$L_REPORTS/" "$SRC/env_sync.sh" && grep -q "lp=\"\$RUN_RECORDS/\$name\"" "$SRC/env_sync.sh"'
+FS="$W/follow"; mkdir -p "$FS"
+( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller follow --slice T-9 --name t9 ) > /dev/null 2>&1
+check "poller follow writes the followed slice; unfollow, pause and resume are the off switches" '
+  grep -q "^T-9 t9 since " "$FS/active.txt" && ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller pause > /dev/null 2>&1 ) && [ -f "$FS/paused" ] &&
+  ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller resume > /dev/null 2>&1 ) && [ ! -f "$FS/paused" ] &&
+  ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller unfollow > /dev/null 2>&1 ) && [ ! -f "$FS/active.txt" ]'
+check "catch-up reads the last copy's moment from a db-pull record AND a db-push record" '
+  a=$(echo "# desktop fingerprint at the laptop'"'"'s last db-pull (2026-11-17 20:20:56, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
+  b=$(echo "# desktop fingerprint after the laptop'"'"'s db-push (2026-11-18 13:57:40, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
+  [ "$a" = "2026-11-17 20:20:56" ] && [ "$b" = "2026-11-18 13:57:40" ]'
+
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

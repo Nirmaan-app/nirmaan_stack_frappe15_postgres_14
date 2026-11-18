@@ -34,6 +34,15 @@
 #                                      B5: desktop up -> report only; down -> on the owner's word, rebuild the newest
 #                                      checkpoint on the laptop and make the laptop the master
 #
+# The checkpoint poller - a Windows scheduled task on the laptop, so the copies go on without Claude Code (CKP-3):
+#   env_sync.sh poller install         register the task "BoQ Checkpoint Poller" (every 15 min, log-on, network connect,
+#                                      resume from sleep; the logged-on user, no stored password, hidden, one at a time)
+#   env_sync.sh poller follow --slice S --name N     the slice and desktop session the poller copies for (unfollow: none)
+#   env_sync.sh poller status          the task, what it follows, pause state, the last heartbeat
+#   env_sync.sh poller pause | resume  the off switch (runs still write a PAUSED heartbeat)
+#   env_sync.sh poller run             one run now, in this terminal
+#   env_sync.sh poller remove          unregister the task (the undo of install)
+#
 # Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
 # Scheduler, so no SSH connection has to stay open):
 #   env_sync.sh session-start --brief FILE [--name N]     hand over the code if needed, then start a session on FILE
@@ -57,6 +66,9 @@ DESKTOP="${ENV_SYNC_DESKTOP:-desktop}"                 # an alias in ~/.ssh/conf
 D_BENCH="${ENV_SYNC_DESKTOP_BENCH:-C:/Users/USER/Documents/frappe_docker/development/frappe-bench}"
 D_REPORTS="${ENV_SYNC_DESKTOP_REPORTS:-C:/Users/USER/Desktop}"
 L_REPORTS="${ENV_SYNC_LAPTOP_REPORTS:-$(cygpath -u "$USERPROFILE")/OneDrive/Desktop}"
+# env_sync's own run records, the report files copied from the desktop's Desktop and the poller's heartbeat go here, never
+# into the laptop Desktop's root (owner 2026-11-18 00:39 clean-up, MEM-R0 D4, CKP-3 P6).
+RUN_RECORDS="${ENV_SYNC_RUN_RECORDS:-$L_REPORTS/BoQ main lane/_run_records}"
 FRAPPE_C="${ENV_SYNC_FRAPPE_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 PG_C="${ENV_SYNC_PG_CONTAINER:-frappe_docker_devcontainer-postgresql-1}"
 C_BENCH=/workspace/development/frappe-bench           # the same path inside both machines' containers
@@ -503,7 +515,7 @@ cmd_db_push() {
   echo "fingerprints after"; printf '%s\n' "$lfp2" | sed 's/^fp_/  laptop   /'; printf '%s\n' "$dfp2" | sed 's/^fp_/  desktop  /'
   [ "$dfp2" = "$lfp2" ] || die "the desktop does not match the laptop after the restore. The previous desktop database is ${db}_envsync_prev; follow the runbook rollback."
   { echo "# desktop fingerprint after the laptop's db-push ($(date '+%F %T'), backup $(basename "$lprefix"))"; printf '%s\n' "$dfp2"; } > "$PULL_RECORD"
-  run="$L_REPORTS/$(date +%F_%H%M)_env_sync_db-push.md"
+  mkdir -p "$RUN_RECORDS"; run="$RUN_RECORDS/$(date +%F_%H%M)_env_sync_db-push.md"
   { echo "# env_sync db-push - $(date '+%F %T')"; echo
     echo "- started $t0, ended $(date '+%F %T')"
     echo "- code: IN_SYNC at $(lgit rev-parse --short=9 HEAD) on $L_BRANCH"
@@ -522,11 +534,13 @@ cmd_db_push() {
 
 cmd_reports() {
   local list name epoch lp copied=0
+  mkdir -p "$RUN_RECORDS"
   list=$(dps "Get-ChildItem -LiteralPath '$D_REPORTS' | Where-Object { \$_.Extension -ne '.lnk' } | ForEach-Object { if (\$_.PSIsContainer) { \$t = Get-ChildItem -LiteralPath \$_.FullName -Recurse -File | Sort-Object LastWriteTimeUtc | Select-Object -Last 1 -ExpandProperty LastWriteTimeUtc; if (-not \$t) { \$t = \$_.LastWriteTimeUtc }; 'D|' + \$_.Name + '|' + ([DateTimeOffset]\$t).ToUnixTimeSeconds() } else { 'F|' + \$_.Name + '|' + ([DateTimeOffset]\$_.LastWriteTimeUtc).ToUnixTimeSeconds() + '|' + \$_.Length } }")
   while IFS='|' read -r kind name epoch size; do
     [ -n "$name" ] || continue
     lp="$L_REPORTS/$name"
     if [ "$kind" = F ]; then
+      lp="$RUN_RECORDS/$name"                        # a loose file never lands in the laptop Desktop's root (CKP-3 P6)
       [ -f "$lp" ] && [ "$(stat -c %Y "$lp")" -ge "$epoch" ] && continue
       if [ -f "$lp" ] && [ "$(stat -c %s "$lp")" = "$size" ] && [ "$(sha256sum < "$lp" | cut -c1-64)" = \
           "$(dps "(Get-FileHash -Algorithm SHA256 -LiteralPath '$D_REPORTS/$name').Hash.ToLower()")" ]; then
@@ -538,7 +552,7 @@ cmd_reports() {
       "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$D_REPORTS/$name" "$L_REPORTS/" && echo "  copied   $name/" && copied=$((copied + 1))
     fi
   done <<< "$list"
-  echo "reports: $copied item(s) copied from the desktop to $L_REPORTS"
+  echo "reports: $copied item(s) copied from the desktop (folders to $L_REPORTS/<same name>, loose files to $RUN_RECORDS)"
 }
 
 cmd_print() {
@@ -771,7 +785,9 @@ cmd_catch_up() {
   st=$(desktop_alive) || { echo "NOT CAUGHT UP: the desktop does not answer over SSH (laptop offline, or the desktop is down - then see resume-on-laptop)"; return 3; }
   echo "desktop answers: $(printf '%s' "$st" | tr '\n' ' ')"
   IF_OLDER="" cmd_checkpoint_code
-  last=$(sed -n 's/^# desktop fingerprint at the laptop.s last db-pull (\([^,]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null | head -1)
+  # the record's first line carries the copy's moment, whether a db-pull or a db-push wrote it (after a db-push the old
+  # pattern read nothing, and every old DBCOPY-POINT then looked newer than the copy - found in CKP-3)
+  last=$(sed -n '1s/.*(\([0-9]\{4\}-[0-9-]* [0-9:]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null | head -1)
   echo "CAUGHT-UP $SLICE $(date '+%F %H:%M'): code = the checkpoint above; data = the last db-pull ${last:-never} ($(sed -n 's/^# covers: //p' "$PULL_RECORD" 2>/dev/null | head -1))"
   if [ -n "$last" ]; then echo "  the laptop's data is $(( ($(date +%s) - $(date -d "$last" +%s)) / 60 )) min behind that copy's moment (the desktop may have written since)"; fi
   # B4 data: a DBCOPY-POINT (paid run, catalogue load, migrate) newer than the last copy -> bring the data up to date too
@@ -968,10 +984,42 @@ print(" ".join(r["sessionId"][:8] for r in rows if r.get("name") == sys.argv[1] 
   for id in $ids; do dps "claude stop $id"; done        # claude stop takes the short id
 }
 
+# ---- the checkpoint poller as a scheduled task (CKP-3) ------------------------------------------------------------
+# The task runs poller_run.sh (through laptop/poller_hidden.vbs, no window). Which slice it copies for is DECLARED here on
+# the laptop (poll/active.txt, written by `poller follow` when a slice is launched) and CHECKED at every run against the
+# desktop session's own status file, read-only: a status of DONE / FAILED ends the following by itself.
+POLL_ST="${POLLER_STATE:-$BENCH_HOST/$STAGE/poll}"
+POLLER_PS1="$HERE/laptop/poller_task.ps1"
+poller_ps() { powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$POLLER_PS1")" "$@" 2>&1 | tr -d '\r'; }
+cmd_poller() {
+  mkdir -p "$POLL_ST"
+  case "${POLLER_SUB:-status}" in
+    install) poller_ps -Action install;;
+    remove) poller_ps -Action remove;;
+    follow)
+      need_slice; check_name "${NAME:-}"
+      echo "$SLICE $NAME since $(date '+%F %T')" > "$POLL_ST/active.txt"; rm -f "$POLL_ST/offline"
+      echo "poller: following $SLICE (desktop session $NAME); it stops by itself when the session's status says DONE or FAILED";;
+    unfollow) if [ -f "$POLL_ST/active.txt" ]; then mv -f "$POLL_ST/active.txt" "$POLL_ST/last_active.txt"; fi; rm -f "$POLL_ST/offline"; echo "poller: following nothing (IDLE)";;
+    pause) date '+%F %T' > "$POLL_ST/paused"; echo "poller: paused (runs write a PAUSED heartbeat and copy nothing); undo: env_sync.sh poller resume";;
+    resume) rm -f "$POLL_ST/paused"; echo "poller: resumed";;
+    run) bash "$HERE/poller_run.sh"; echo "poller: one run done"; sed 's/^/  /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null;;
+    status)
+      poller_ps -Action status | sed 's/^/  /'
+      echo "  following=$(cat "$POLL_ST/active.txt" 2>/dev/null || echo nothing)"
+      echo "  paused=$([ -f "$POLL_ST/paused" ] && echo "yes, since $(cat "$POLL_ST/paused")" || echo no)"
+      echo "  heartbeat=$RUN_RECORDS/ckp_heartbeat.txt"
+      sed 's/^/    /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null || echo "    (no heartbeat yet)"
+      echo "  log=$BENCH_HOST/$STAGE/checkpoints/poller.log";;
+    *) die "poller takes: install | status | follow --slice S --name N | unfollow | pause | resume | run | remove";;
+  esac
+}
+
 # The dispatch is one block that ends in exit: bash reads a script as it runs it, and from-desktop can fast-forward
 # this very file, so nothing after the block may be read from the new copy.
 {
 CMD="${1:-}"; [ $# -gt 0 ] && shift
+if [ "$CMD" = poller ]; then POLLER_SUB="${1:-status}"; [ $# -gt 0 ] && shift; fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
@@ -993,6 +1041,7 @@ case "$CMD" in
   checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;; resume-on-laptop) cmd_resume_on_laptop;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
+  poller) cmd_poller;;
   *) sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 1;;
 esac
 exit
