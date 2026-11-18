@@ -56,6 +56,8 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   `BIN/walk_cashbook_refunds.py`.
 - [Cashbook Wallet Credits](./cashbook-credits.md): a Wallet Credit booked as a minus Expense where its remark places
   it, and a no-Expense refund placed the same way (#1720). Walked by `BIN/walk_cashbook_credits.py`.
+- [Cashbook cutoff](./cashbook-cutoff.md): the import period and the ₹0 Internal Transfer fills read only the lines
+  kept by the 1 Apr 2026 cutoff, and Review's refunds heading (#1715). Walked by `BIN/walk_cashbook_cutoff.py`.
 - [Credit Card Statement import](./card-import.md): upload, Review with its Refunds list, Create, and the refund
   as a negative Non-Project Expense, and the dialog's Review / Creating / Finished / Needs another Create (spec
   #1653). Walked end to end by `BIN/walk_card_import.py`.

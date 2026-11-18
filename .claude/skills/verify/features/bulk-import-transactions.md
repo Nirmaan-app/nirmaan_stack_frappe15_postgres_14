@@ -38,8 +38,9 @@ past imports by source and month.
   A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
   `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
 - `bit-cashbook-refund-expense` an unpaired wallet refund (#1709, ADR-0015 Amendment D) is listed apart on Review
-  (`N wallet refunds will be booked as minus expenses: each where its spend is booked, or else where its remark says`, each with `reduces <spend Txn
-  Id> (<its Expense> | no Expense yet | created by this import)`, its ledger, project and type); the header
+  (`N wallet refunds will be booked as minus expenses: each where its spend is booked, or else where its remark
+  says`, each with `reduces <spend Txn Id> (<its Expense> | no Expense yet | created by this import)`, its ledger,
+  project and type); the header
   (`N expense records`, ₹) counts the spends only. The job books it as a Paid Expense of minus its Credit on the
   spend's Expense's ledger, project and type, else where its remark places it (a project it names, else a Non Project
   Expense typed from it, else Petty Cash; #1720). It
@@ -49,6 +50,7 @@ past imports by source and month.
 - `bit-cashbook-cutoff` a Cashbook line dated before 1 Apr 2026 is left out and not stored (#1707): Review, the
   Create progress and the import's Import history row say `N lines before 1 Apr 2026 left out`; a file of only such
   lines reads `Not imported. All N lines in '<file>' are dated before 1 Apr 2026 …` with `Create 0 records` disabled.
+  Such a line counts toward neither the import period nor a ₹0-record fill (#1715, `cashbook-cutoff.md`).
 - `bit-cashbook-1711` the stories above, with a Collect payment's pairing and its Skip by hand once open, are walked
   by `BIN/walk_cashbook_refunds.py` (seed `BIN/cashbook_refunds_seed.py`, DB read `BIN/cashbook_refunds_db.py`), as
   an Accountant and an Accountant Lead. Its step 12 (`--part tier-export` alone) exports Project Payment & Expense
