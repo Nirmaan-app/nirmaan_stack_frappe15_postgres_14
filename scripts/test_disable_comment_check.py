@@ -257,6 +257,21 @@ class DisableComments(unittest.TestCase):
         src = "<!-- a ` b\n<!-- eslint-disable-next-line x\nJSON.parse('1');\n--> c ` d\n"
         self.assertEqual(self.comments(src, "src/f.cjs"), ["<!-- eslint-disable-next-line x"])
 
+    def test_html_comment_text_in_a_string_template_regex_jsx_or_comment_is_not_a_comment(self):
+        src = ('const s = "<!-- eslint-disable x";\n'
+               'const t = `\n<!-- eslint-disable x\n--> eslint-disable x\n`;\n'
+               'const r = /<!-- eslint-disable x/;\n'
+               '// <!-- eslint-disable x\n'
+               '/* --> eslint-disable x */\n'
+               'const q = 1; --> eslint-disable-line x\n')
+        for ext in self.HTML_COMMENT_EXTS:
+            # Real comments that only hold the text: read, and no directive (disable_directive is None for each).
+            self.assertEqual(self.comments(src, "src/f" + ext),
+                             ["// <!-- eslint-disable x", "/* --> eslint-disable x */"], ext)
+        jsx = 'const C = () => (<div title="<!-- eslint-disable x">\n--> eslint-disable x\n</div>);\n'
+        for ext in (".jsx", ".tsx", ".js", ".cjs"):
+            self.assertEqual(self.comments(jsx, "src/f" + ext), [], ext)
+
     def test_an_html_like_comment_among_jsx_children_is_a_comment_as_oxlint_reads_it(self):
         # Measured on oxlint 1.94: `<!--` among a .jsx, .tsx, .js or .cjs file's JSX children opens a comment to the
         # end of its line, and a directive there silences the next line.
