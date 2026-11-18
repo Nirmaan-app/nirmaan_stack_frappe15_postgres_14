@@ -9,8 +9,8 @@
  *   op.context  // what `start` was given, so a screen knows what a resumed operation is for
  *
  * `storageKey` names the screen's slot in this tab's sessionStorage, so a reload picks the operation up again.
- * The server endpoint `start` posts to takes the browser-made `op_id` alongside `args` and calls
- * `services/background_ops.start`. `onFinished` runs once per finished operation, with the `context` given to
+ * The server endpoint `start` posts to takes the browser-made `op_id` alongside `args` (JSON, or `FormData` for a
+ * start that uploads a file) and calls `services/background_ops.start`. `onFinished` runs once per finished operation, with the `context` given to
  * `start` (kept across a reload, so JSON only) and the operation id, which `collectResultFile` takes. `onFailed`
  * runs once when it ends failed or lost, with the server's words. The socket's `background_op:read_now` message only makes the hook
  * read the record sooner.
@@ -32,7 +32,7 @@ export interface BackgroundOperation {
   /** The context given to `start` for the operation shown (kept across a reload); undefined when idle. */
   context: unknown;
   /** Start a new operation through the flow's own start endpoint, then follow it. */
-  start: (method: string, args: Record<string, unknown>, context?: unknown) => Promise<void>;
+  start: (method: string, args: StartArgs, context?: unknown) => Promise<void>;
   /** Forget the operation this screen follows. */
   reset: () => void;
 }
@@ -68,11 +68,26 @@ async function readStatus(opId: string): Promise<unknown> {
   return isRecord(body) ? body.message : null;
 }
 
-async function postStart(method: string, args: Record<string, unknown>, opId: string): Promise<void> {
+/** Start args: JSON, or form data for a start that uploads a file (the BoQ upload). Either way the operation id
+ *  rides along as `op_id`. */
+export type StartArgs = Record<string, unknown> | FormData;
+
+function startRequest(args: StartArgs, opId: string): { headers: Record<string, string>; body: string | FormData } {
+  if (!(args instanceof FormData)) {
+    return { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...args, op_id: opId }) };
+  }
+  const body = new FormData();
+  args.forEach((value, key) => body.append(key, value));
+  body.append("op_id", opId);
+  return { headers: {}, body };
+}
+
+async function postStart(method: string, args: StartArgs, opId: string): Promise<void> {
+  const { headers, body } = startRequest(args, opId);
   const response = await fetch(`/api/method/${method}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", "X-Frappe-CSRF-Token": csrfToken() },
-    body: JSON.stringify({ ...args, op_id: opId }),
+    headers: { ...headers, Accept: "application/json", "X-Frappe-CSRF-Token": csrfToken() },
+    body,
   });
   if (!response.ok) throw new Error(await serverError(response, "The server could not start this."));
 }
@@ -168,7 +183,7 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
     };
   }, [socket]);
 
-  const start = useCallback(async (method: string, args: Record<string, unknown>, context?: unknown) => {
+  const start = useCallback(async (method: string, args: StartArgs, context?: unknown) => {
     await followerRef.current?.start((opId) => postStart(method, args, opId), context);
   }, []);
 

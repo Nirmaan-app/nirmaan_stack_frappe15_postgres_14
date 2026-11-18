@@ -752,7 +752,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 **`_LIST_JSON_FIELDS` module constant** -- `frozenset` of the 3 list-type JSON fields that must be pre-serialized via `json.dumps()` before `doc.insert()`: `attached_notes`, `classifier_warnings`, `preamble_candidate_signals`. (`validation_warnings` was REMOVED 2026-06-25 -- field deleted from the `BoQ Review Row` doctype; the orphaned DB column may persist since Frappe does not auto-drop.) Authoritative source for `_run_parse_worker` and `test_parse_run._insert_rows`. `edit_log` (Slice A) is the 5th list-JSON field on BoQ Review Row but is NOT in `_LIST_JSON_FIELDS` (that constant is parse-worker scope only); `edit_log` is handled by `save_review_edit` directly. Do NOT add dict-type fields here.
 
-**`boq:parse_run_done` realtime event** -- `user=`-targeted (unlike `boq:wizard_parse_done` which broadcasts). Success payload: `{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}`. Error payload: `{status,boq_name,error_code}`. Error codes: `missing_file`, `fetch_failed`, `no_eligible_sheets`, `parse_failed`, `internal`. **Payload contract is frozen** -- `_publish_parse_event` clears `parse_in_progress=0` before publishing (Bucket-2 Slice 1) but does NOT change any payload key or error code.
+**`boq:parse_run_done` realtime event** -- `user=`-targeted. Success payload: `{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}`. Error payload: `{status,boq_name,error_code}`. Error codes: `missing_file`, `fetch_failed`, `no_eligible_sheets`, `parse_failed`, `internal`. **Payload contract is frozen** -- `_publish_parse_event` clears `parse_in_progress=0` before publishing (Bucket-2 Slice 1) but does NOT change any payload key or error code.
 
 **`general_specs_sheets` empty guard (Slice 2c)** -- `assemble_mapping_config` builds `general_specs_sheet_names: set[str]` from child rows (`row.source_sheet_name for row in boq_doc.general_specs_sheets or []`). An empty child table produces an empty set; set membership check `sheet_name in general_specs_sheet_names` is safely False. `ParsedBoq.master_preambles: dict[str,str]` -- replaces `master_preamble: str|None`. Empty dict = no general-specs sheets parsed this run (does not blank existing child rows -- falsy-skip per row is preserved).
 
@@ -836,7 +836,11 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
   eligibility (same project + ≥1 committed sheet), called by the upload endpoint. Distinct
   throws: not found / different project / not revisable.
 
-`upload_file.upload_file()` reads `source_boq` from the form, rejects it alongside
+`upload_file.upload_file(op_id)` (POST) starts the parse as a background operation
+(`services/background_ops.start`, kind `boq_upload` or `boq_template_seed`, 600 s; #1665): its
+record's result is the worker's return, `{status: "success", boq_name}` or `{status: "error",
+error_code: "corrupted" | "zero_sheets"}`, and any other failure ends that operation failed.
+It reads `source_boq` from the form, rejects it alongside
 `is_template_source` ("conflicting flags"), and re-validates via `assert_revisable_source`
 (defence-in-depth over the already-filtered picker). `_upload_file_worker(..., source_boq=None)`:
 a revision stamps `origin="revision"` + `source_boq`, **reuses the original's `boq_name`** so the

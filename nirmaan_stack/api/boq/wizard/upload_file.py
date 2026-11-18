@@ -7,21 +7,15 @@ from nirmaan_stack.api.boq.wizard.revision import assert_revisable_source
 from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
 from nirmaan_stack.api.boq.wizard.sheet_preview import _fetch_boq_file_to_tempfile
 from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
+from nirmaan_stack.services import background_ops
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 from nirmaan_stack.services.stored_files import store_file
 
 _MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
 _ALLOWED_EXTENSIONS = frozenset({".xlsx", ".xlsm"})
 
-# Fallback status cache: the worker records its terminal outcome here keyed by RQ
-# job id so the upload screen can poll get_upload_status() if it misses the
-# (room-targeted, non-replayed) boq:wizard_parse_done realtime event.
-_UPLOAD_STATUS_CACHE_PREFIX = "boq_upload_status"
-_UPLOAD_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
-
-
-def _upload_status_key(job_id):
-    return f"{_UPLOAD_STATUS_CACHE_PREFIX}::{job_id}"
+#: The parse's time limit, counted from when it starts running.
+_UPLOAD_TIMEOUT_SECONDS = 600
 
 
 def _coerce_flag(value):
@@ -33,35 +27,14 @@ def _coerce_flag(value):
     return 1 if str(value).strip().lower() in ("1", "true", "yes") else 0
 
 
-def _publish_and_record(payload, user):
-    """Publish boq:wizard_parse_done (user-targeted) AND record the outcome in the
-    cache keyed by the current RQ job id.
+@frappe.whitelist(methods=["POST"])
+def upload_file(op_id=None):
+    """Validate and store the workbook, then start its parse as a background operation (ADR 0047).
 
-    The realtime event is room-targeted and is NOT replayed, so a client that was
-    not connected/joined when this fires (e.g. right after login) never hears it
-    and hangs on "Parsing". get_upload_status() reads this cache entry so the
-    client can recover by polling. The cache write is best-effort -- it lives in
-    Redis (independent of the DB transaction, so it survives the internal-error
-    rollback) and must never fail the job.
-    """
-    frappe.publish_realtime("boq:wizard_parse_done", payload, user=user)
-    try:
-        from rq import get_current_job  # noqa: PLC0415
-
-        job = get_current_job()
-        if job is not None:
-            frappe.cache().set_value(
-                _upload_status_key(job.id),
-                payload,
-                expires_in_sec=_UPLOAD_STATUS_TTL_SEC,
-            )
-    except Exception:
-        pass
-
-
-@frappe.whitelist()
-def upload_file():
-    """Validate, persist, enqueue async parse worker. Returns {job_id}.
+    The browser makes `op_id`; the reply is the operation's status record, and the screen follows it with
+    `api/background_ops.get_status`. The finished record's `result` is the worker's outcome:
+    `{"status": "success", "boq_name"}` or `{"status": "error", "error_code": "corrupted" | "zero_sheets"}`.
+    Any other failure ends the operation failed, in its own record only.
 
     Template-source authoring path (is_template_source=1, ADR-0013 A1-D4/D10): the master
     template is SEEDED from a normally-committed, project-less scratch authoring BoQ. That
@@ -146,44 +119,17 @@ def upload_file():
     # _upload_file_worker). We intentionally do NOT hand the worker a local
     # path: the web process and the RQ worker can run in separate containers
     # with no shared /tmp, so a web-written tempfile is unreadable there.
-    job = frappe.enqueue(
+    return background_ops.start(
+        "boq_template_seed" if is_template_source else "boq_upload",
         "nirmaan_stack.api.boq.wizard.upload_file._upload_file_worker",
-        queue="long",
-        timeout=600,
-        user=frappe.session.user,
+        op_id=op_id,
+        timeout=_UPLOAD_TIMEOUT_SECONDS,
         project_id=project_id,
         file_url=file_url,
         file_name=filename,
         is_template_source=is_template_source,
         source_boq=source_boq,
     )
-
-    return {"job_id": job.id if job else None}
-
-
-@frappe.whitelist()
-def get_upload_status(job_id=None):
-    """Polling fallback for a BoQ upload parse outcome, keyed by RQ job id.
-
-    The upload screen normally learns the result via the realtime
-    boq:wizard_parse_done event, but that event is room-targeted and not replayed
-    -- a client that missed it (e.g. socket not joined yet right after login)
-    would otherwise hang on "Parsing". The worker records its terminal outcome via
-    _publish_and_record(); this returns it.
-
-    Shapes (mirrors the realtime payload so the client reuses one handler):
-      {"state": "pending"}                                          -- still running / unknown
-      {"state": "done", "status": "success", "boq_name": "<name>"}  -- parsed, BOQs row created
-      {"state": "done", "status": "error", "error_code": "<code>"}  -- failed
-    """
-    if not job_id:
-        frappe.throw("job_id is required.", title="Missing field: job_id")
-
-    cached = frappe.cache().get_value(_upload_status_key(job_id))
-    if not cached:
-        return {"state": "pending"}
-
-    return {"state": "done", **cached}
 
 
 def append_sheet_drafts(boq_doc, reader, sheets):
@@ -266,8 +212,13 @@ def prefill_sheet_configs(boq_doc, reader, only_sheet_names=None):
             )
 
 
-def _upload_file_worker(project_id, file_url, file_name, user, is_template_source=0, source_boq=None):
-    """Async worker: open workbook, create BOQs row + sheet_drafts, publish result.
+def _upload_file_worker(project_id, file_url, file_name, is_template_source=0, source_boq=None):
+    """The upload's background operation work (runs as the uploader, under `background_ops.run`): open the
+    workbook, create the BOQs row + sheet_drafts, and return the outcome, which becomes the operation's result.
+
+    A workbook that cannot be read or has no sheets is an outcome, not a failure: it returns
+    `{"status": "error", "error_code": ...}`, and the wrapper still commits the Nirmaan Attachments row made in
+    step 1. Anything else raises; the wrapper rolls back, logs it and ends the operation failed.
 
     is_template_source=1 (ADR-0013 A1): stamp the created BOQs as a project-less template
     SOURCE (is_template_source=1, origin="upload") -- the scratch authoring BoQ that is later
@@ -281,7 +232,6 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
     the human confirms the sheet mapping. The non-revision path (source_boq is None) is
     byte-identical to before.
     """
-    frappe.set_user(user)
     worker_tmp = None
     try:
         # Step 1: Create Nirmaan Attachments early; associated_docname linked in step 11.
@@ -296,10 +246,10 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
         # We re-fetch from durable storage (S3) by URL because the web endpoint and
         # the RQ worker may run in SEPARATE containers with no shared /tmp -- a path
         # written by the web process is unreadable here (mirrors the proven
-        # sheet_preview.get_sheet_preview path). A fetch failure propagates to the
-        # outer except (-> "internal" + raise, landing in the Error Log + a failed
-        # job, so it is diagnosable); a genuine open failure on a good fetch below
-        # is a corrupted workbook.
+        # sheet_preview.get_sheet_preview path). A fetch failure raises out of the
+        # work (the wrapper logs it to the Error Log and ends the operation failed,
+        # so it is diagnosable); a genuine open failure on a good fetch below is a
+        # corrupted workbook.
         worker_tmp = _fetch_boq_file_to_tempfile(file_url)
         try:
             reader = BoqReader(worker_tmp)
@@ -319,14 +269,12 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
                     f"{frappe.get_traceback()}"
                 ),
             )
-            _publish_and_record({"status": "error", "error_code": "corrupted"}, user)
-            return
+            return {"status": "error", "error_code": "corrupted"}
 
         # Step 3: Guard zero sheets.
         sheets = reader.list_sheets()
         if not sheets:
-            _publish_and_record({"status": "error", "error_code": "zero_sheets"}, user)
-            return
+            return {"status": "error", "error_code": "zero_sheets"}
 
         # Step 4: BoQ name. A revision REUSES the original's boq_name (so before_insert bumps
         # version to N+1 for the same (project, boq_name)); a fresh upload derives it from the
@@ -393,12 +341,8 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
 
         frappe.db.commit()
 
-        # Step 12: Notify client (realtime) + record outcome for the polling fallback.
-        _publish_and_record({"boq_name": boq_doc.name, "status": "success"}, user)
-
-    except Exception:
-        _publish_and_record({"status": "error", "error_code": "internal"}, user)
-        raise
+        # Step 12: the outcome, which the wrapper writes to the operation's record after its commit.
+        return {"boq_name": boq_doc.name, "status": "success"}
     finally:
         if worker_tmp:
             try:

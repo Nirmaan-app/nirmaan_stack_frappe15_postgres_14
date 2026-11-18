@@ -2,11 +2,14 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from unittest.mock import ANY, MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils.background_jobs import execute_job
 
+from nirmaan_stack.api.background_ops import get_status
 from nirmaan_stack.api.boq.wizard.upload_file import _upload_file_worker, upload_file
 from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
@@ -52,7 +55,7 @@ def _run_worker(workbook=None, **kwargs):
         "nirmaan_stack.api.boq.wizard.upload_file._fetch_boq_file_to_tempfile",
         return_value=workbook if workbook is not None else _make_xlsx_tempfile(),
     ):
-        _upload_file_worker(**kwargs)
+        return _upload_file_worker(**kwargs)
 
 
 def _make_project_fixture():
@@ -117,7 +120,6 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
             project_id=self.__class__.test_project.name,
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
-            user="Administrator",
         )
         boqs = frappe.get_all(
             "BOQs",
@@ -146,7 +148,6 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
             project_id=self.__class__.test_project.name,
             file_url=_FAKE_FILE_URL,
             file_name="RFQ_Bangalore_HVAC_BOQ.xlsx",
-            user="Administrator",
         )
         boq_name_val = frappe.db.get_value(
             "BOQs",
@@ -169,7 +170,6 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
             project_id=self.__class__.test_project.name,
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
-            user="Administrator",
         )
 
         versions = sorted(
@@ -248,53 +248,38 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
         _cleanup_for_project(self.__class__.test_project.name)
         frappe.db.commit()
 
-    def test_corrupted_xlsx_publishes_error(self):
-        """Worker publishes error_code=corrupted when BoqReader raises; no BOQs row created."""
+    def test_corrupted_xlsx_returns_the_corrupted_outcome(self):
+        """Worker returns error_code=corrupted when BoqReader raises; no BOQs row created."""
         with patch(
             "nirmaan_stack.api.boq.wizard.upload_file.BoqReader",
             side_effect=Exception("simulated corrupt file"),
         ):
-            with patch("frappe.publish_realtime") as mock_pub:
-                _run_worker(
-                    workbook="/nonexistent/path/corrupted.xlsx",
-                    project_id=self.__class__.test_project.name,
-                    file_url="/private/files/corrupted.xlsx",
-                    file_name="corrupted.xlsx",
-                    user="Administrator",
-                )
-                # `user=` is asserted, not ignored: the event is USER-TARGETED (cfd691b6's
-                # `_publish_and_record`). An untargeted broadcast would reach every connected
-                # client, and each one's upload screen filters on its own store state.
-                mock_pub.assert_any_call(
-                    "boq:wizard_parse_done",
-                    {"status": "error", "error_code": "corrupted"},
-                    user="Administrator",
-                )
+            outcome = _run_worker(
+                workbook="/nonexistent/path/corrupted.xlsx",
+                project_id=self.__class__.test_project.name,
+                file_url="/private/files/corrupted.xlsx",
+                file_name="corrupted.xlsx",
+            )
+        self.assertEqual(outcome, {"status": "error", "error_code": "corrupted"})
 
         boq_count = frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name})
         self.assertEqual(boq_count, 0)
 
-    def test_zero_sheets_publishes_error(self):
-        """Worker publishes error_code=zero_sheets when list_sheets returns empty; no BOQs row."""
+    def test_zero_sheets_returns_the_zero_sheets_outcome(self):
+        """Worker returns error_code=zero_sheets when list_sheets returns empty; no BOQs row."""
         mock_reader = MagicMock()
         mock_reader.list_sheets.return_value = []
         with patch(
             "nirmaan_stack.api.boq.wizard.upload_file.BoqReader",
             return_value=mock_reader,
         ):
-            with patch("frappe.publish_realtime") as mock_pub:
-                _run_worker(
-                    workbook="/nonexistent/path/zero_sheets.xlsx",
-                    project_id=self.__class__.test_project.name,
-                    file_url=_FAKE_FILE_URL,
-                    file_name="synthetic_simple.xlsx",
-                    user="Administrator",
-                )
-                mock_pub.assert_any_call(
-                    "boq:wizard_parse_done",
-                    {"status": "error", "error_code": "zero_sheets"},
-                    user="Administrator",
-                )
+            outcome = _run_worker(
+                workbook="/nonexistent/path/zero_sheets.xlsx",
+                project_id=self.__class__.test_project.name,
+                file_url=_FAKE_FILE_URL,
+                file_name="synthetic_simple.xlsx",
+            )
+        self.assertEqual(outcome, {"status": "error", "error_code": "zero_sheets"})
 
         boq_count = frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name})
         self.assertEqual(boq_count, 0)
@@ -329,7 +314,6 @@ class TestPrefillSheetConfig(FrappeTestCase):
             project_id=self.__class__.test_project.name,
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
-            user="Administrator",
         )
         boq = frappe.get_all(
             "BOQs",
@@ -361,7 +345,6 @@ class TestPrefillSheetConfig(FrappeTestCase):
                 project_id=self.__class__.test_project.name,
                 file_url=_FAKE_FILE_URL,
                 file_name="synthetic_simple.xlsx",
-                user="Administrator",
             )
 
         boq = frappe.get_all(
@@ -384,18 +367,12 @@ class TestPrefillSheetConfig(FrappeTestCase):
             "nirmaan_stack.api.boq.wizard.upload_file.auto_guess_sheet_config",
             side_effect=RuntimeError("simulated auto-guess failure"),
         ):
-            with patch("frappe.publish_realtime") as mock_pub:
-                _run_worker(
-                    project_id=self.__class__.test_project.name,
-                    file_url=_FAKE_FILE_URL,
-                    file_name="synthetic_simple.xlsx",
-                    user="Administrator",
-                )
-                mock_pub.assert_any_call(
-                    "boq:wizard_parse_done",
-                    {"boq_name": ANY, "status": "success"},
-                    user="Administrator",
-                )
+            outcome = _run_worker(
+                project_id=self.__class__.test_project.name,
+                file_url=_FAKE_FILE_URL,
+                file_name="synthetic_simple.xlsx",
+            )
+        self.assertEqual(outcome, {"boq_name": ANY, "status": "success"})
 
         boqs = frappe.get_all(
             "BOQs",
@@ -409,3 +386,153 @@ class TestPrefillSheetConfig(FrappeTestCase):
             "sheet_config",
         )
         self.assertIsNone(config, "sheet_config must remain None when auto-guess raises")
+
+
+# ---------------------------------------------------------------------------
+# The upload and the template seed as background operations (#1665, ADR 0047)
+# ---------------------------------------------------------------------------
+
+STRANGER = "boq-upload-stranger@example.com"
+
+
+class TestUploadAsBackgroundOperation(FrappeTestCase):
+    """Both flows start through `upload_file` with a browser-made operation id and end in that operation's own
+    status record. The queue is faked (`get_queue` hands back a recorder) and the test runs the queued wrapper
+    itself, as a worker would; the bucket is the other edge faked (`store_file` and the worker's fetch)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_for_project(cls.test_project.name)
+        frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self.seed_boqs = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        frappe.form_dict.pop("project_id", None)
+        frappe.form_dict.pop("is_template_source", None)
+        _cleanup_for_project(self.__class__.test_project.name)
+        for boq in self.seed_boqs:
+            for att in frappe.get_all(
+                "Nirmaan Attachments",
+                filters={"associated_doctype": "BOQs", "associated_docname": boq},
+                fields=["name"],
+            ):
+                frappe.delete_doc("Nirmaan Attachments", att.name, force=True, ignore_permissions=True)
+            purge_boq(boq)
+            frappe.delete_doc("BOQs", boq, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _start(self, file_name="synthetic_simple.xlsx", template_seed=False):
+        """Post one upload as the screen does; returns (op_id, the queued job)."""
+        op_id = str(uuid.uuid4())
+        if template_seed:
+            frappe.form_dict["is_template_source"] = "1"
+        else:
+            frappe.form_dict["project_id"] = self.__class__.test_project.name
+        uploaded = MagicMock()
+        uploaded.filename = file_name
+        uploaded.read.return_value = b"workbook bytes"
+        request = MagicMock()
+        request.files = {"file": uploaded}
+        queued = []
+        with (
+            patch.object(frappe, "request", request),
+            patch(
+                "nirmaan_stack.api.boq.wizard.upload_file.store_file",
+                return_value=frappe._dict(file_url=f"/private/files/{file_name}"),
+            ),
+            patch("frappe.utils.background_jobs.get_queue") as get_queue,
+        ):
+            get_queue.return_value.enqueue_call.side_effect = lambda func, **kw: queued.append(kw)
+            get_queue.return_value.count = 0
+            started = upload_file(op_id=op_id)
+            frappe.db.commit()
+        frappe.form_dict.pop("is_template_source", None)
+        self.assertEqual(started["state"], "queued")
+        self.assertEqual(len(queued), 1, "the upload queues exactly one operation")
+        return op_id, queued[0]
+
+    def _work_off(self, job, fetch=None):
+        """Run the queued wrapper as a worker does (it starts as no particular user)."""
+        fetch = fetch or (lambda url: _make_xlsx_tempfile())
+        with patch("nirmaan_stack.api.boq.wizard.upload_file._fetch_boq_file_to_tempfile", side_effect=fetch):
+            frappe.set_user("Guest")
+            execute_job(**{**job["kwargs"], "is_async": False})
+        frappe.set_user("Administrator")
+
+    def test_an_upload_finishes_in_its_own_record_with_the_boq_it_made(self):
+        op_id, job = self._start(file_name="Tower_A_Civil.xlsx")
+        self._work_off(job)
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        self.assertEqual(status["result"]["status"], "success")
+        boq = status["result"]["boq_name"]
+        self.assertEqual(frappe.db.get_value("BOQs", boq, "project"), self.__class__.test_project.name)
+        self.assertEqual(frappe.db.get_value("BOQs", boq, "boq_name"), "Tower A Civil")
+        self.assertTrue(
+            frappe.db.exists("Nirmaan Attachments", {"associated_doctype": "BOQs", "associated_docname": boq}),
+            "the upload still records its source file as a Nirmaan Attachment",
+        )
+
+    def test_a_template_seed_finishes_in_its_own_record_with_a_project_less_boq(self):
+        op_id, job = self._start(file_name="Seed_Template.xlsx", template_seed=True)
+        self._work_off(job)
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "finished", status.get("error"))
+        boq = status["result"]["boq_name"]
+        self.seed_boqs.append(boq)
+        self.assertEqual(frappe.db.get_value("BOQs", boq, "is_template_source"), 1)
+        self.assertIsNone(frappe.db.get_value("BOQs", boq, "project"))
+
+    def test_one_uploads_failure_ends_only_its_own_record(self):
+        failing, failing_job = self._start(file_name="Broken_Fetch.xlsx")
+        other, other_job = self._start(file_name="Still_Fine.xlsx")
+
+        def fetch_fails(url):
+            raise ConnectionError("the bucket is unreachable")
+
+        with patch("frappe.log_error"):
+            self._work_off(failing_job, fetch=fetch_fails)
+        self.assertEqual(get_status(op_id=failing)["state"], "failed")
+        self.assertEqual(get_status(op_id=other)["state"], "queued", "another upload is not ended by this failure")
+
+        self._work_off(other_job)
+        self.assertEqual(get_status(op_id=other)["state"], "finished")
+        self.assertEqual(get_status(op_id=failing)["state"], "failed")
+
+    def test_an_unreadable_workbook_finishes_with_the_corrupted_code_and_no_boq(self):
+        op_id, job = self._start(file_name="unreadable.xlsx")
+        with (
+            patch(
+                "nirmaan_stack.api.boq.wizard.upload_file.BoqReader",
+                side_effect=Exception("simulated corrupt file"),
+            ),
+            patch("frappe.log_error"),
+        ):
+            self._work_off(job, fetch=lambda url: "/nonexistent/path/unreadable.xlsx")
+
+        status = get_status(op_id=op_id)
+        self.assertEqual(status["state"], "finished")
+        self.assertEqual(status["result"], {"status": "error", "error_code": "corrupted"})
+        self.assertEqual(frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name}), 0)
+
+    def test_a_stranger_cannot_read_anothers_upload(self):
+        op_id, job = self._start()
+        self._work_off(job)
+
+        frappe.set_user(STRANGER)
+        with self.assertRaises(frappe.PermissionError):
+            get_status(op_id=op_id)

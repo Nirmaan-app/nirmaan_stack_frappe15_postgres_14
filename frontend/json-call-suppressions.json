@@ -34,16 +34,6 @@
       "count": 1
     }
   },
-  "src/pages/boq-wizard/BoqDropZone.tsx": {
-    "no-json-call": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
-    "no-json-call": {
-      "count": 1
-    }
-  },
   "src/pages/outflow-import/components/ImportStatementDialog.tsx": {
     "no-json-call": {
       "count": 2

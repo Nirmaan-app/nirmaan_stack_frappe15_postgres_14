@@ -3229,11 +3229,6 @@
       "count": 1
     }
   },
-  "src/pages/boq-wizard/BoqUploadScreen.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/boq-wizard/ClassifySheetDialog.tsx": {
     "no-restricted-imports": {
       "count": 1
@@ -3340,11 +3335,6 @@
     }
   },
   "src/pages/boq-wizard/TemplateCreateFlow.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
     "no-restricted-imports": {
       "count": 1
     }

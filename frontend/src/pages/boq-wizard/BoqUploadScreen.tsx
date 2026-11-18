@@ -1,11 +1,6 @@
-import { useCallback, useContext, useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeGetCall,
-  useFrappeGetDoc,
-} from "frappe-react-sdk";
+import { useFrappeGetDoc } from "@/lib/frappe";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { BOQsDoc } from "./boqTypes";
 import { Button } from "@/components/ui/button";
@@ -16,7 +11,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
 import { useBoqWizardStore, type GstChoice } from "@/zustand/useBoqWizardStore";
+import { UPLOAD_METHOD, uploadOutcome, uploadedFileOf, type UploadedFile } from "./boqUploadOperation";
 import { BoqDropZone } from "./BoqDropZone";
 import { BoqMasterPanel } from "./BoqMasterPanel";
 
@@ -27,21 +24,6 @@ interface ProjectDoc {
 }
 
 // BOQsDoc is now the shared type from boqTypes.ts -- imported above.
-
-interface ParseDonePayload {
-  status: string;
-  boq_name?: string;
-  error_code?: string;
-}
-
-// Response shape of get_upload_status (the polling fallback). Mirrors the
-// realtime payload (status/boq_name/error_code) so one handler serves both paths.
-interface UploadStatusResponse {
-  state: "pending" | "done";
-  status?: string;
-  boq_name?: string;
-  error_code?: string;
-}
 
 interface BoqUploadScreenProps {
   projectId: string;
@@ -62,29 +44,23 @@ interface BoqUploadScreenProps {
  *
  * Renders in-place inside BoqPickerPage when ?project=<id> is present.
  *
- * Socket listener: subscribes to boq:wizard_parse_done on mount via FrappeContext.
- * The event is screen-scoped; it is NOT registered in the global socketListeners.ts.
- * Cleanup runs on unmount (socket.off). Guard: only acts when uploadStatus === "parsing"
- * to avoid reacting to events from concurrent uploads by other users.
+ * The upload's parse is a background operation (#1665, ADR 0047): this screen starts it and follows
+ * its own status record through useBackgroundOperation, so each tab shows only its own upload's
+ * outcome, and a reload picks a running upload up again.
  */
 export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreenProps) {
   const navigate = useNavigate();
-  const { socket } = useContext(FrappeContext) as FrappeConfig;
 
   const { data: project } = useFrappeGetDoc<ProjectDoc>("Projects", projectId);
 
   const {
     reset,
     setSelectedProject,
-    uploadStatus,
     droppedFile,
     confirmedFields,
-    boqDocName,
-    jobId,
     revisionMode,
     sourceBoq,
-    setUploadStatus,
-    setBoqDocName,
+    setDroppedFile,
     fillFromParse,
   } = useBoqWizardStore();
 
@@ -99,61 +75,28 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
   // NOTE: 1b-ii-a boqName pre-fill from project_name intentionally removed.
   // Per §4.1 clarification: pre-parse = blank; post-parse = pre-filled-unconfirmed.
 
-  // Apply a parse outcome from EITHER the realtime event or the polling fallback.
-  // Guards on uploadStatus === "parsing" so whichever path resolves first wins and
-  // the other becomes a no-op. setUploadStatus/setBoqDocName are stable Zustand refs.
-  const applyParseOutcome = useCallback(
-    (status?: string, boqName?: string | null, errorCode?: string | null) => {
-      if (useBoqWizardStore.getState().uploadStatus !== "parsing") return;
-      if (status === "success" && boqName) {
-        setBoqDocName(boqName);
-        setUploadStatus("done");
-      } else if (status === "error") {
-        if (errorCode === "corrupted") setUploadStatus("error-E");
-        else if (errorCode === "zero_sheets") setUploadStatus("error-F");
-        else setUploadStatus("error-internal");
-      }
-    },
-    // store actions are stable Zustand refs
+  // Declared after the reset effect above, so a reload's resume runs after that reset.
+  const upload = useBackgroundOperation({
+    storageKey: `boq_upload:${projectId}`,
+    // The outcome is read from `upload.view` below; nothing more to do when it finishes.
+    onFinished: () => undefined,
+  });
+  const { status: uploadStatus, boqName: boqDocName, error: uploadError } = uploadOutcome(upload.view);
+
+  // A resumed upload (after a reload) names its file through the operation's context.
+  useEffect(() => {
+    const file = uploadedFileOf(upload.context);
+    if (file && !useBoqWizardStore.getState().droppedFile) setDroppedFile(file);
+    // setDroppedFile is a stable Zustand action ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+  }, [upload.context]);
+
+  const startUpload = useCallback(
+    (form: FormData, file: UploadedFile) => void upload.start(UPLOAD_METHOD, form, file),
+    [upload.start]
   );
 
-  // Fast path: realtime boq:wizard_parse_done socket event.
-  // Registered on mount, cleaned up on unmount (screen-scoped, not global).
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: ParseDonePayload) =>
-      applyParseOutcome(payload.status, payload.boq_name, payload.error_code);
-    socket.on("boq:wizard_parse_done", handler);
-    return () => {
-      socket.off("boq:wizard_parse_done", handler);
-    };
-  }, [socket, applyParseOutcome]);
-
-  // Fallback path: poll get_upload_status by job id while waiting. The realtime
-  // event is room-targeted and NOT replayed, so a client that wasn't connected/
-  // joined when the worker finished (e.g. right after login) would otherwise hang
-  // on "parsing" forever. Socket or poll -- first to resolve wins (both gate on
-  // uploadStatus === "parsing"). swrKey null + refreshInterval 0 stop the poll
-  // once we leave "parsing".
-  const shouldPoll = uploadStatus === "parsing" && !!jobId;
-  const { data: pollData } = useFrappeGetCall<{ message: UploadStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.upload_file.get_upload_status",
-    { job_id: jobId },
-    shouldPoll ? `boq-upload-status::${jobId}` : null,
-    // S6 (F10 / U9): keep polling while the tab is hidden (SWR stops by default), so the upload
-    // moves on even when the socket event was missed and the user is on another tab.
-    { refreshInterval: shouldPoll ? 3000 : 0, refreshWhenHidden: true }
-  );
-
-  useEffect(() => {
-    const msg = pollData?.message;
-    if (!msg || msg.state !== "done") return;
-    applyParseOutcome(msg.status, msg.boq_name, msg.error_code);
-  }, [pollData, applyParseOutcome]);
-
-  // Fetch the BOQs doc once boqDocName is set (i.e. after socket success).
+  // Fetch the BOQs doc once boqDocName is set (i.e. once the parse is done).
   // Third arg null disables SWR fetch until boqDocName is available (per sdk gotcha in CLAUDE.md).
   // mutate is the W3 re-read after an entry conversion: convert_revision_entry recomputes
   // boq_name + version server-side, and the fill effect below re-runs off the fresh doc.
@@ -229,7 +172,12 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
             <CardTitle className="text-base font-semibold">BoQ File</CardTitle>
           </CardHeader>
           <CardContent>
-            <BoqDropZone />
+            <BoqDropZone
+              status={uploadStatus}
+              error={uploadError}
+              onUpload={startUpload}
+              onReset={upload.reset}
+            />
           </CardContent>
         </Card>
 
@@ -242,6 +190,7 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
             <BoqMasterPanel
               projectName={project?.project_name ?? ""}
               customer={project?.customer}
+              boqDocName={boqDocName}
               // W3 entry un-lock: the panel needs the SERVER's current entry to decide
               // whether a radio/picker change is a real conversion or a no-op.
               boqOrigin={boqDoc?.origin}
