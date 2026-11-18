@@ -39,8 +39,43 @@ each machine (newest 3 kept; **never** a cloud drive, **never** `sites\<site>\pr
 chunked copy runs in `frappe-bench\envsync\chunks\<stamp>\` on both machines (outside any Frappe backups folder; removed after
 the proved restore; kept on a failure so a later run can see them).
 
+## The scheduled poller (CKP-3, 2026-11-18): the copies no longer depend on Claude Code
+
+On 2026-11-17 Claude Code's memory reaper stopped the laptop session's poller, and no checkpoint was taken after it. Since
+CKP-3 the copies are made by a **Windows scheduled task on the laptop**, `BoQ Checkpoint Poller`, which runs
+`scripts/env_sync/poller_run.sh` whether or not Claude Code is open.
+
+| | |
+|---|---|
+| Runs | every 15 minutes, at log-on, on network connect, on resume from sleep; one run at a time; no window (`laptop/poller_hidden.vbs`) |
+| As | the logged-on user, "run only when the user is logged on" (no password is stored), least privilege |
+| Follows | the slice named with `env_sync.sh poller follow --slice S --name N` (the laptop session runs this right after it launches a desktop session). Each run checks the desktop session's status file, read-only; `DONE` / `FAILED` there ends the following after one last B1 |
+| Each run | nothing followed -> IDLE. Desktop silent -> OFFLINE (logged once, B1 skipped). Desktop back -> the B4 catch-up by itself, `CAUGHT-UP` in the log and one relay entry. Otherwise B1 `checkpoint-code --if-older 13`, then B2 when the session's newest `DBCOPY-POINT` is newer than the last database copy |
+| B2 and standby | Docker Desktop and the four main containers are started only for the copy and put back as they were (MEM-R0 F3); never dev2. After Docker starts the run waits 45 s before the copy (a just-started Docker Desktop dropped a 277 MB `docker cp` with "502 Bad Gateway") |
+| B2 guards | No copy starts with under 3,000 MB of memory free on the laptop (`B2 PENDING`, tried again at the next run, not a failure): both AC5 failures on 2026-11-18 were the laptop's Docker falling over with about 2 GB free. A FAILED copy is tried again for the same `DBCOPY-POINT` only after 60 minutes (each try costs a desktop backup). The whole output of the last copy is kept in `envsync\poll\b2_last_output.txt` |
+| Heartbeat | `<laptop Desktop>\BoQ main lane\_run_records\ckp_heartbeat.txt`, overwritten at every run: run time, result (`IDLE` / `B1 OK` / `B1 SKIP not due` / `B2 OK` / `OFFLINE` / `CAUGHT-UP` / `FAILED ...` / `PAUSED`), the slice, desktop reachable, the last good B1 and B2. Text only |
+| Log | `frappe-bench\envsync\checkpoints\poller.log` (appended, 30 days kept) |
+| A failure | one heartbeat line + one log line; `ckfail` adds the one `<slice>-CKPFAIL` relay entry (F1 unchanged). No retry loop: the next run tries at its next mark |
+
+**Off switch and undo.** `env_sync.sh poller status` shows the task, what it follows and the last heartbeat.
+`poller pause` / `poller resume` stop and restart the copying (a paused run still writes a `PAUSED` heartbeat).
+`poller unfollow` makes it idle. `poller remove` unregisters the task: that is the complete undo of `poller install`,
+the one Windows change CKP-3 made. `poller run` does one run in the terminal.
+
+**Rehearsal switches** (never in normal use): the file `frappe-bench\envsync\poll\poller_test.env` may set
+`ENV_SYNC_DESKTOP=<an alias that does not answer>` (the desktop "unreachable", without touching Wi-Fi or Tailscale),
+`ENV_SYNC_TEST_FAIL=b1` and `POLLER_B1_MINUTES=0` for the runs while it exists. Delete it afterwards.
+
+**Run records.** env_sync's own run records (`db-push`), the loose report files `reports` copies from the desktop's
+Desktop, and the heartbeat go to `<laptop Desktop>\BoQ main lane\_run_records\`, never the Desktop's root
+(`ENV_SYNC_RUN_RECORDS` overrides it). Folders are still mirrored at the same path.
+
 ## Who runs what, and when
 
+- **The scheduled task copies; the laptop session only watches the status.** B1, B2 and the catch-up are the scheduled
+  poller's job (above). A laptop session that launches a desktop slice runs `poller follow --slice S --name N` and then
+  only relays status lines and questions. `slice_poll.sh` (below) is kept for a session that wants the events in its own
+  terminal; running it beside the task is harmless, because both use `checkpoint-code --if-older`.
 - **The laptop session's slice poller** is `bash scripts/env_sync/slice_poll.sh --slice S --name N`: it polls the desktop
   session's status file once a minute (plain reads over SSH), runs `checkpoint-code --if-older 15` on each poll (B1), and
   exits on an event (a new status line, OFFLINE, or CAUGHT-UP) so the laptop session relays it and restarts it. When the
@@ -108,4 +143,7 @@ throw-away repositories and proves: a snapshot never touches the source checkout
 tree equals the snapshot's; conflicts (own edits, clashing new files) are refused with nothing changed; the B3 commit form
 and the in-order takeover sequence; the count check of a pulled copy; the network record reads a direct private path as the LAN and
 the DERP relay or a public address as not; chunk_split's parts reassemble byte-for-byte; a failed normal copy switches once
-to the chunked route and `--chunked` forces it; no cloud-drive script or path is left.
+to the chunked route and `--chunked` forces it; no cloud-drive script or path is left. Section 7 runs `poller_run.sh`
+against stubs for the desktop probe, `env_sync.sh`, docker and the Docker Desktop start (a test never starts the real
+one): IDLE, OFFLINE logged once, the catch-up on reconnecting, B1 OK / not due / failed, B2 with standby, pause, one run
+at a time, the slice's end, and the task's XML (triggers, user, single instance, hidden start).
