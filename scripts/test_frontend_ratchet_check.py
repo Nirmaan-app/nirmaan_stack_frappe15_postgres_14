@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frontend_ratchet_check import (  # noqa: E402
     JSON_CALLS,
     OXLINT,
-    from_eslint,
     suppression_loosenings,
     threshold_loosenings,
 )
+from oxlint_settings_check import CONFIG  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "frontend_ratchet_check.py"
 
@@ -41,6 +41,24 @@ def loosenings(base, head, base_pkg=None, head_pkg=None):
     """Both checks over oxlint's file, as main() runs them."""
     pkgs = (base_pkg or package(97.47), head_pkg or package(97.47))
     return suppression_loosenings(OXLINT, base, head) + threshold_loosenings(*pkgs)
+
+
+class GitRepo:
+    """A temporary git repo (self.repo) and the script run on it with --base-ref base. Mixed into a TestCase."""
+
+    def git(self, *args):
+        """Run `git <args>` in the repo; raise when it fails."""
+        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+
+    def commit(self, message):
+        """Commit everything in the working tree, as a made-up author (a CI runner has no git identity)."""
+        self.git("add", "-A", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message)
+
+    def run_script(self):
+        """Run frontend_ratchet_check.py on the repo against commit `base`; the CompletedProcess."""
+        return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
+                              capture_output=True, text=True)
 
 
 class Suppressions(unittest.TestCase):
@@ -114,7 +132,7 @@ class Tightening(unittest.TestCase):
         self.assertEqual(loosenings(BASE, head, package(97.47), package(97.6)), [])
 
 
-class CommandLine(unittest.TestCase):
+class CommandLine(GitRepo, unittest.TestCase):
     """The script reads the base side with `git show <ref>:<path>` and the head side from the working tree."""
 
     def setUp(self):
@@ -122,25 +140,13 @@ class CommandLine(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.repo)
         self.git("init", "-q", "-b", "base")
         self.write(BASE, package(97.47))
-        self.git("add", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base")
-
-    def git(self, *args):
-        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        self.commit("base")
 
     def write(self, supp, pkg, json_calls=None, name=OXLINT):
         (self.repo / "frontend").mkdir(exist_ok=True)
         (self.repo / name).write_text(json.dumps(supp))
         (self.repo / JSON_CALLS).write_text(json.dumps(json_calls or JSON_BASE))
         (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
-
-    def commit(self, message):
-        self.git("add", "-A", ".")
-        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message)
-
-    def run_script(self):
-        return subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
-                              capture_output=True, text=True)
 
     def test_a_loosened_working_tree_exits_1_and_names_the_loosening(self):
         self.write(suppressions(orders={"typescript/no-explicit-any": 9, "no-restricted-imports": 1}),
@@ -208,6 +214,176 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("rose 1 -> 2", result.stderr)
         self.assertIn("src/new.tsx no-json-call is new", result.stderr)
+
+
+# The lint settings (#1702): a made-up config in .oxlintrc.json's shape, with JSONC comments and a trailing comma.
+CONFIG_TEXT = """{
+  // the frontend's type ratchet
+  "plugins": ["eslint", "typescript", "react"],
+  "categories": {"correctness": "off"},
+  "ignorePatterns": ["src/components/ui/**"],
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "react/rules-of-hooks": "error", /* a block comment */
+    "no-restricted-imports": ["error", {"paths": [{"name": "sdk-lib", "message": "Use '@/lib/sdk' // not this"}]}],
+  },
+  "overrides": [
+    {
+      "files": ["src/pages/orders/**/*.{ts,tsx}"],
+      "rules": {"typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error"}
+    },
+    {"files": ["src/lib/sdk.ts"], "rules": {"no-restricted-imports": "off"}}
+  ]
+}
+"""
+LINT_PACKAGE = {"scripts": {"lint": "oxlint --type-aware src",
+                            "type-coverage": "type-coverage --strict --at-least 97.47"}}
+BASELINE = {"s1_oversized_files": {"count": 3, "rule": "S1", "description": "big files"},
+            "b3_workflow_state_writers": {"count": 5, "rule": "B3", "description": "local only"}}
+
+
+class LintRepo(GitRepo):
+    """A git repo with a made-up frontend at commit `base`; the test edits the working tree and runs the script.
+
+    Mixed into a unittest.TestCase (here and in test_oxlint_settings_check.py).
+    """
+
+    def setUp(self):
+        self.repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.repo)
+        self.git("init", "-q", "-b", "base")
+        (self.repo / "frontend/src/pages/orders").mkdir(parents=True)
+        (self.repo / "scripts").mkdir()
+        (self.repo / OXLINT).write_text(json.dumps(BASE))
+        (self.repo / JSON_CALLS).write_text(json.dumps(JSON_BASE))
+        self.config(CONFIG_TEXT)
+        self.package(LINT_PACKAGE)
+        self.baseline(BASELINE)
+        self.commit("base")
+
+    def config(self, text, where=CONFIG):
+        (self.repo / where).write_text(text)
+
+    def edit_config(self, old, new):
+        text = (self.repo / CONFIG).read_text()
+        self.assertIn(old, text)
+        self.config(text.replace(old, new))
+
+    def package(self, pkg):
+        (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
+
+    def lint_script(self, script):
+        """frontend/package.json with LINT_PACKAGE's scripts, its `lint` script set to <script>."""
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": script}})
+
+    def baseline(self, data):
+        (self.repo / "scripts/residence_baseline.json").write_text(json.dumps(data))
+
+    def refused(self, *named):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        for words in named:
+            self.assertIn(words, result.stderr)
+
+    def passes(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class LintSettings(LintRepo, unittest.TestCase):
+    """A PR that weakens the lint itself, without touching a suppressions file, is refused, naming the loosening."""
+
+    def test_a_nested_config_anywhere_under_frontend_is_refused(self):
+        for name in (".oxlintrc.json", ".oxlintrc.jsonc", "oxlint.config.ts"):
+            with self.subTest(name):
+                nested = self.repo / "frontend/src/pages/orders" / name
+                nested.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+                self.refused(f"frontend/src/pages/orders/{name}")
+                nested.unlink()
+
+    def test_a_nested_config_in_a_folder_whose_name_only_ends_in_node_modules_is_refused(self):
+        nested = self.repo / "frontend/src/pages/old_node_modules/.oxlintrc.json"
+        nested.parent.mkdir()
+        nested.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+        self.refused("frontend/src/pages/old_node_modules/.oxlintrc.json")
+
+    def test_a_config_inside_an_installed_package_in_node_modules_passes(self):
+        # oxlint never walks into a node_modules folder, so a package's own config there changes nothing.
+        packaged = self.repo / "frontend/node_modules/some-pkg/.oxlintrc.json"
+        packaged.parent.mkdir(parents=True)
+        packaged.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+        self.passes()
+
+    def test_an_eslintignore_or_a_gitignore_that_hides_a_linted_file_is_refused(self):
+        (self.repo / "frontend/src/pages/orders/list.tsx").write_text("export {};\n")
+        self.commit("a page")
+        (self.repo / "frontend/.eslintignore").write_text("src/pages/\n")
+        self.refused("frontend/.eslintignore")
+        (self.repo / "frontend/.eslintignore").unlink()
+        (self.repo / "frontend/src/pages/.gitignore").write_text("orders/\n")
+        self.refused("frontend/src/pages/orders/list.tsx", "gitignore")
+
+    def test_a_narrowed_lint_script_is_refused(self):
+        for script, named in [("oxlint --type-aware src/pages", "drops src"),
+                              ("oxlint src", "drops --type-aware"),
+                              ("oxlint --type-aware -A no-explicit-any src", "adds -A"),
+                              ("oxlint --type-aware --ignore-pattern=src/pages src", "adds --ignore-pattern=src/pages"),
+                              ("oxlint --type-aware src || true", "adds ||"),
+                              ("oxlint --type-aware --disable-nested-config -c loose.json src", "-c loose.json")]:
+            with self.subTest(script):
+                self.lint_script(script)
+                self.refused("lint script", named)
+
+    def test_a_removed_lint_script_or_a_new_prelint_is_refused(self):
+        self.package({"scripts": {"type-coverage": LINT_PACKAGE["scripts"]["type-coverage"]}})
+        self.refused("lint script was removed")
+        self.package({"scripts": {**LINT_PACKAGE["scripts"], "prelint": "cp loose.json .oxlintrc.json"}})
+        self.refused("prelint")
+
+    def test_a_lint_script_that_denies_warnings_too_passes(self):
+        self.lint_script("oxlint --type-aware --deny-warnings src")
+        self.passes()
+
+    def test_a_lint_script_that_sets_max_warnings_to_0_either_way_passes(self):
+        for flag in ("--max-warnings=0", "--max-warnings 0"):
+            with self.subTest(flag):
+                self.lint_script(f"oxlint --type-aware {flag} src")
+                self.passes()
+
+    def test_the_lint_path_written_as_dot_src_or_src_slash_passes(self):
+        for script in ("oxlint --type-aware ./src", "oxlint --type-aware src/", "oxlint --type-aware ./src/"):
+            with self.subTest(script):
+                self.lint_script(script)
+                self.passes()
+
+    def test_a_narrower_lint_path_written_with_dot_or_slash_is_refused(self):
+        for script in ("oxlint --type-aware ./src/pages", "oxlint --type-aware src/pages/"):
+            with self.subTest(script):
+                self.lint_script(script)
+                self.refused("lint script", "drops src")
+
+    def test_a_lint_script_that_allows_warnings_is_refused(self):
+        self.lint_script("oxlint --type-aware --max-warnings 5 src")
+        self.refused("lint script", "--max-warnings")
+
+    def test_a_raised_residence_baseline_entry_that_ci_reads_is_refused(self):
+        self.baseline({**BASELINE, "s1_oversized_files": {**BASELINE["s1_oversized_files"], "count": 4}})
+        self.refused("scripts/residence_baseline.json", "s1_oversized_files", "3 -> 4")
+
+    def test_a_lowered_ci_entry_or_a_raised_local_only_entry_passes(self):
+        # B3 is an ADR-0010 rule: CI does not run it, so its entry is the commit hook's to tighten.
+        self.baseline({"s1_oversized_files": {**BASELINE["s1_oversized_files"], "count": 2},
+                       "b3_workflow_state_writers": {**BASELINE["b3_workflow_state_writers"], "count": 6}})
+        self.passes()
+
+    def test_a_lint_script_word_dropped_once_of_two_is_refused(self):
+        self.lint_script("oxlint --type-aware src src/pages")
+        self.commit("two paths")
+        self.lint_script("oxlint --type-aware src src")
+        self.refused("drops src/pages")
+        self.lint_script("oxlint --type-aware src/pages src/pages")
+        self.refused("drops src")
 
 
 if __name__ == "__main__":

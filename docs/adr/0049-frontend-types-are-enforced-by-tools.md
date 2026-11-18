@@ -104,6 +104,29 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   has no oxlint counterpart and is gone.
 - `scripts/frontend_ratchet_check.py` guards both files in pull requests. Against a base that holds only
   `eslint-suppressions.json` it holds them to that file's counts, so the switch itself loosens nothing.
+- The same check (`scripts/frontend_ratchet_check.py`, CI step "Frontend ratchet not loosened") also refuses a pull
+  request that loosens the lint settings, which `yarn lint` reads from the PR's own tree (#1702); its `.oxlintrc.json`
+  comparison is `scripts/oxlint_settings_check.py`. It compares them with the base commit's and names each loosening:
+  a pattern added to `ignorePatterns`, or a `!` pattern moved before an ignore pattern it followed (the last pattern
+  that matches wins, so the files it brought back are skipped again); an ADR-0049 rule, plugin or category removed or
+  set to `"warn"` or `"off"` (oxlint exits 0 on warnings), also under another name oxlint reads as the same rule
+  (`@typescript-eslint/x`, `eslint/x`, a bare `x`), or a ban list given fewer entries or a new `!` entry, also in a
+  new group (oxlint reads it as "but not these", in any group, so `["x/*", "!x/**"]` bans nothing), or a `!` entry
+  moved after one it preceded (the last match wins); an override that relaxes a rule for a pattern base did not relax,
+  or moved after the override that turns the rule on (the later one wins), or a rule base's overrides turn on (the
+  typed path) no longer on for one of its patterns; a nested `.oxlintrc.json`, `.oxlintrc.jsonc` or `oxlint.config.*`
+  in any folder but a real `node_modules` folder, which oxlint never reads (a folder whose name only ends in
+  `node_modules`, such as `old_node_modules`, is read and counts), an `.eslintignore`, or a `.gitignore` that hides a
+  tracked file under `frontend/src/` (oxlint reads all three on its own); the `lint` script with a word dropped or
+  added (only `--deny-warnings`, `--max-warnings=0` (or `--max-warnings 0`) and `--report-unused-disable-directives`
+  may be added), or a new `prelint`/`postlint`; a top-level config key it does not compare (such as `extends`)
+  changed; and a raised count in `scripts/residence_baseline.json` for a check CI runs. A ban rule's options are
+  judged per key, by a table of what each key means (`OPTION_KEYS`, measured on oxlint 1.94: a longer `paths` or
+  `importNames` bans more, a longer `allowImportNames` or `allowProperties` bans less, `allowTypeImports: true` bans
+  less), and any key not in it must stay equal. A tightening passes: a rule
+  switched on, a folder added to the typed path, an ignore pattern or exception dropped. It reads the settings rather
+  than linting the PR with the base's settings: a rule set to `"warn"` lets no violation through in the PR that sets
+  it, so a lint run would pass that PR.
 - The commit hooks run oxlint where its native binary loads (CI, a native install); on a Mac whose frontend is
   installed inside the Linux dev container, inside that container; elsewhere they skip it with a note.
 - `frontend/tsconfig.json` sets no `baseUrl`: typescript-go refuses it, and with it set the type-aware rules do not
