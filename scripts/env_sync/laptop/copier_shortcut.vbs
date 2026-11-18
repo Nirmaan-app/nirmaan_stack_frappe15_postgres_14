@@ -71,10 +71,16 @@ ElseIf action = "resume" Then
 ElseIf action = "leaving" Then
   ' CKP-4 D4: raise the shared "leaving" flag, then start the copier's task at once (it would see the flag within 15
   ' minutes anyway). The copier checkpoints every detected unit and writes READY to the heartbeat and the relay.
+  ' A second click while the flag is still up changes nothing: the flag is kept, and the task ignores a start while it
+  ' runs. The box then says so and shows where the copier is (2026-11-18: nothing told the owner whether to click again).
+  Dim wasUp
+  wasUp = fso.FileExists(fso.GetParentFolderName(hbPath) & "\ckp_leaving.flag")
   RunHidden q & envsync & q & " leaving"
   sh.Run "schtasks.exe /Run /TN " & q & "BoQ Checkpoint Poller" & q, 0, False
   If fso.FileExists(stateDir & "\paused") Then
     msg = "The copier is PAUSED, so no checkpoint was started." & vbCrLf & "Double-click 'Copier - Resume' first, then 'Leaving' again."
+  ElseIf wasUp Then
+    msg = "'Leaving' was already asked and is still being worked on. This click changed nothing; no need to click again." & vbCrLf & "The copier says: " & HbLine("result") & vbCrLf & "Wait for READY in the chat ('Copier - Status' shows the latest)."
   Else
     msg = "Checkpoint started - wait for READY in the chat." & vbCrLf & "(This box will not close the laptop. 'Copier - Status' shows the result.)"
   End If

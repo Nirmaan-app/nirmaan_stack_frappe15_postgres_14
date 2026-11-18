@@ -183,3 +183,25 @@ to the chunked route and `--chunked` forces it; no cloud-drive script or path is
 against stubs for the desktop probe, `env_sync.sh`, docker and the Docker Desktop start (a test never starts the real
 one): IDLE, OFFLINE logged once, the catch-up on reconnecting, B1 OK / not due / failed, B2 with standby, pause, one run
 at a time, the slice's end, and the task's XML (triggers, user, single instance, hidden start).
+
+### CKP-4 hardening after the first real "leaving" (2026-11-18 20:27)
+
+What happened: the run that found the flag made ONE `units` call, it failed in 4 s (the desktop was up), the run wrote
+OFFLINE and nothing happened until the next slot; then Docker Desktop on the laptop hung at "Starting the Docker Engine",
+`docker info` never returned, and the database step waited without limit with a session paused. The owner had it ended
+by hand as READY (code only).
+
+- **The first desktop call is retried inside the run**: 3 tries (`POLLER_DETECT_TRIES`), 8 while the leaving flag is up
+  (`POLLER_DETECT_TRIES_LEAVING`), `POLLER_DETECT_SLEEP` (20 s) apart; the heartbeat says "retrying ... do not click
+  again". Still no answer with the flag up: heartbeat `OFFLINE - LEAVING NOT DONE`, ONE relay entry `LEAVING-WAITING`,
+  the flag stays up for the next run.
+- **Every docker call has a time limit** (`dk`, `POLLER_DOCKER_TIMEOUT` 25 s); the wait for the engine is bounded by the
+  clock (`POLLER_ENGINE_MAX` 300 s), not by a count of calls that can each hang.
+- **"Leaving" copies the code first, for every unit including main dev's own checkout** (no Docker needed). The database
+  checkpoint is extra: skipped under `B2_MIN_FREE_MB`, or when the engine does not start, or when it fails; the result is
+  then `LEAVING READY (CODE ONLY - database copy NOT taken: <reason>)`, every paused session is told
+  `CHECKPOINT TAKEN <time> | CODE ONLY (...) | carry on`, the flag is cleared, and the relay names the last database copy.
+  `LEAVING FAILED` is left for the case where the code copy failed too.
+- **A second click on "Leaving"** changes nothing (flag kept, the task ignores a start while it runs); the box says so.
+- **Vacuity checks run on a scratch copy.** Copy `scripts/env_sync` elsewhere, switch the rule off there, and run that
+  copy's tests with `ENV_SYNC_TEST_REPO=<the real checkout>`. Never edit the live folder: the scheduled task runs it.

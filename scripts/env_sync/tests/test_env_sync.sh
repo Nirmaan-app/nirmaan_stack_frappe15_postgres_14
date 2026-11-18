@@ -9,8 +9,11 @@
 # copies. The start_task.ps1 checks need powershell.exe (Windows) and are skipped elsewhere.
 set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SRC=$(cd "$HERE/.." && pwd)                      # scripts/env_sync
-REPO=$(cd "$SRC/../.." && pwd)
+SRC=$(cd "$HERE/.." && pwd)                      # scripts/env_sync (or a scratch copy of it: the file under test)
+# A vacuity check switches a rule off in a SCRATCH COPY of scripts/env_sync and runs that copy's tests with
+# ENV_SYNC_TEST_REPO=<the real checkout> (for the base revision). NEVER edit the live folder for it: the scheduled copier
+# runs the live poller_run.sh (2026-11-18 20:27: a real "leaving" was clicked while a vacuity edit was in the live file).
+REPO=${ENV_SYNC_TEST_REPO:-$(cd "$SRC/../.." && pwd)}
 BASE=${1:-2ea4b10f9}
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
@@ -268,7 +271,9 @@ echo "env_sync $*" >> "$PW_LOG"
 cat > /dev/null     # like ssh, the real one reads its stdin: the copier must never hand it the unit list it is looping over
 slice=""; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --slice ] && slice="${a[$((i + 1))]}"; done
 case "$1" in
-  units) [ -f "$PW_DIR/units_out" ] || exit 2; cat "$PW_DIR/units_out"; exit 0;;
+  units) n=$(cat "$PW_DIR/units_fail" 2>/dev/null || echo 0)
+         if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$PW_DIR/units_fail"; exit 2; fi     # the first n calls fail, like a clash
+         [ -f "$PW_DIR/units_out" ] || exit 2; cat "$PW_DIR/units_out"; exit 0;;
   tell) exit 0;;
   checkpoint) if [ -f "$PW_DIR/leave_ok" ]; then echo "CHECKPOINT READY $slice 2026-11-18 19:00: code + data; took 400 s"; exit 0; fi; echo "env_sync: the desktop backup failed"; exit 2;;
   catch-up) case "$*" in *"--yes"*) [ -f "$PW_DIR/b2_record" ] && cp "$PW_DIR/b2_record" "$PW_DIR/pull_record";; esac;;
@@ -280,7 +285,7 @@ cat > "$PW/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "docker $*" >> "$PW_LOG"
 case "$1" in
-  info) [ -f "$PW_DIR/engine_up" ];;
+  info) [ -f "$PW_DIR/docker_hang" ] && sleep 30; [ -f "$PW_DIR/engine_up" ];;
   inspect) echo false;;
   desktop) rm -f "$PW_DIR/engine_up";;
 esac
@@ -300,12 +305,14 @@ prun() {   # one copier run against the stubs (the real Docker Desktop, tailscal
   POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_LOCATION="${POLLER_LOCATION-away}" POLLER_TAILSCALE="${POLLER_TAILSCALE:-}" \
   POLLER_ENGINE_START="$PW/bin/engine_start" POLLER_LEAVING_WAIT="${POLLER_LEAVING_WAIT:-0}" POLLER_LEAVING_STEP=1 \
   POLLER_OPS_RELAY="$PW/ops.md" ENV_SYNC_LEAVING_FLAG="$PW/leaving.flag" \
+  POLLER_DETECT_SLEEP=0 POLLER_DETECT_TRIES_LEAVING=4 POLLER_ENGINE_MAX="${POLLER_ENGINE_MAX:-3}" POLLER_ENGINE_STEP=1 \
+  POLLER_DOCKER_TIMEOUT="${POLLER_DOCKER_TIMEOUT:-5}" POLLER_ENGINE_START="${ENGINE_START_STUB:-$PW/bin/engine_start}" \
   ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
   bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
 }
 hb() { sed -n 's/^result: *//p' "$PW/hb.txt"; }
 calls() { grep -c "$1" "$PW/calls.log" 2>/dev/null || true; }
-preset() { rm -f "$PW/calls.log" "$PW/units_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt" "$PW/leave_ok" "$PW"/ck_out_*; : > "$PW/calls.log"; }
+preset() { rm -f "$PW/calls.log" "$PW/units_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt" "$PW/leave_ok" "$PW/units_fail" "$PW/docker_hang" "$PW"/ck_out_*; : > "$PW/calls.log"; }
 # units <sessions of main dev's checkout> [<extra unit lines>]: what `env_sync.sh units` answers. KEY changes the tree key.
 units() { { echo "ssh=ok"; echo "unit|main|$MR|feature/x|aaaa|${KEY:-k1}|0|$1"; [ -n "${2:-}" ] && printf '%s\n' "$2"; echo "dev2_containers=${DEV2UP:-0}"; } > "$PW/units_out"; }
 OKX='CHECKPOINT CODE u-main-feature-x: /x/checkpoints/u-main-feature-x/20261118_190000'
@@ -323,6 +330,18 @@ preset; prun
 check "OFFLINE: the desktop does not answer -> heartbeat OFFLINE, nothing copied, no failure" '[[ "$(hb)" == OFFLINE* ]] && [ "$(calls "checkpoint")" = 0 ] && [ -f "$PW/state/offline" ] && grep -q "^desktop reachable: n" "$PW/hb.txt" && [ ! -s "$PW/ops.md" ]'
 n1=$(grep -c OFFLINE "$PW/poller.log"); preset; prun
 check "OFFLINE is logged once, not at every run" '[ "$(grep -c OFFLINE "$PW/poller.log")" = "$n1" ] && [[ "$(hb)" == OFFLINE* ]]'
+check "OFFLINE is declared only after 3 tries inside the run, never after one failed call" '[ "$(calls "^env_sync units")" = 3 ]'
+rm -f "$PW/state/offline"
+preset; units "s1:11111111:working:HEARTBEAT"; echo 2 > "$PW/units_fail"; echo "$OKX" > "$PW/es_out"; prun
+check "RETRY: two failed first calls (a clash, a blip) and the third answers -> the run carries on and copies; no OFFLINE is written" '
+  [ "$(calls "^env_sync units")" = 3 ] && [ "$(hb)" = "u-main-feature-x: B1 OK" ] && [ ! -f "$PW/state/offline" ]'
+: > "$PW/ops.md"
+preset; echo "LEAVING w" > "$PW/leaving.flag"; prun
+check "LEAVING while the desktop does not answer: MORE tries, then it says LEAVING NOT DONE, keeps the flag up and tells the relay ONCE" '
+  [ "$(calls "^env_sync units")" = 4 ] && [[ "$(hb)" == "OFFLINE - LEAVING NOT DONE"* ]] && [ -f "$PW/leaving.flag" ] && [ "$(grep -c "id LEAVING-WAITING" "$PW/ops.md")" = 1 ]'
+preset; prun
+check "and it is not told to the relay a second time; the flag is still up for the next run" '[ "$(grep -c "id LEAVING-WAITING" "$PW/ops.md")" = 1 ] && [ -f "$PW/leaving.flag" ]'
+rm -f "$PW/leaving.flag" "$PW/state/leaving_offline_told"; : > "$PW/ops.md"      # state/offline stays: the next run is the reconnect
 
 preset; units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; prun
 check "RECONNECT: the desktop answers again -> the working unit is copied at once (not gated), CAUGHT-UP in the heartbeat and ONE relay entry" '
@@ -410,6 +429,8 @@ preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,other:55555555:working:" "$W
 echo "LEAVING 2026-11-18 19:19:00 raised by a test" > "$PW/leaving.flag"; POLLER_LOCATION=office prun
 check "LEAVING: a session with a status file is asked to pause (CHECKPOINT); one WITHOUT is not asked - it is copied as it stands" '
   [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name other")" = 0 ]'
+check "LEAVING: the CODE of main dev is copied FIRST, before any Docker is started (it never depends on the database copy)" '
+  a=$(grep -n "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name s1$" "$PW/calls.log" | head -1 | cut -d: -f1) && b=$(grep -n "^engine_start" "$PW/calls.log" | head -1 | cut -d: -f1) && [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]'
 check "LEAVING: main dev gets ONE code + database checkpoint (office or away), Docker is started for it and put back" '
   [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --yes --name s1 --also-tell d4b$" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name d4b --text CHECKPOINT TAKEN")" = 0 ] && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" && [[ "$(hb)" == "LEAVING READY: main dev code + database"* ]]'
 check "LEAVING: every other unit is copied as it stands; READY per unit in ONE relay entry; the flag is cleared; the heartbeat says so" '
@@ -427,6 +448,23 @@ check "LEAVING FAILURE: the paused session is released at once (CHECKPOINT FAILE
   [[ "$(hb)" == "LEAVING FAILED for main dev"* ]] && grep -q "^env_sync tell --name s1 --text CHECKPOINT FAILED 20.* | carry on$" "$PW/calls.log" && grep -q "FAILED" "$PW/ops.md" && [ ! -f "$PW/leaving.flag" ]'
 preset; KEY=k9 units ""; echo "LEAVING z" > "$PW/leaving.flag"; echo "CHECKPOINT CODE u-main-feature-x: /x/checkpoints/u-main-feature-x/20261118_193000" > "$PW/es_out"; touch "$PW/leave_ok"; prun
 check "LEAVING with nothing running still answers and clears the flag" '[ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY" "$PW/hb.txt"'
+# the database copy cannot be made -> READY (CODE ONLY), by itself, every paused session released (the real leaving of 2026-11-18)
+: > "$PW/ops.md"
+preset; KEY=k10 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c1" > "$PW/leaving.flag"; ENGINE_START_STUB=/usr/bin/true prun
+check "LEAVING, Docker will not start: it gives up after a bounded wait and ends READY (CODE ONLY) - no hang" '
+  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: Docker on the laptop did not start"* ]] && [ "$(calls "^env_sync checkpoint --slice")" = 0 ] && [ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY (CODE ONLY" "$PW/hb.txt"'
+check "and EVERY paused session is told to carry on, with the plain reason; the relay entry says CODE ONLY and names the last database copy" '
+  [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT TAKEN 20.* | CODE ONLY (the database copy was NOT taken: Docker on the laptop did not start.*) | carry on$" "$PW/calls.log")" = 1 ] &&
+  [ "$(grep -c "^env_sync tell --name misc --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ] && grep -q "READY (CODE ONLY) - the database copy was NOT taken" "$PW/ops.md" && grep -q "last database copy is 2026-11-18" "$PW/ops.md"'
+preset; KEY=k11 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c2" > "$PW/leaving.flag"; POLLER_FREE_MB=900 prun
+check "LEAVING, laptop short of memory: Docker is not even started; READY (CODE ONLY) with the reason" '
+  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: the laptop has only 900 MB"* ]] && [ "$(calls engine_start)" = 0 ] && [ "$(calls "^docker desktop")" = 0 ] && [ "$(grep -c "tell --name s1 --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ]'
+preset; KEY=k12 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c3" > "$PW/leaving.flag"; touch "$PW/docker_hang"; t0=$(date +%s); POLLER_DOCKER_TIMEOUT=1 POLLER_ENGINE_MAX=2 prun; took=$(( $(date +%s) - t0 ))
+check "A HUNG docker command is cut off (every docker call has a time limit): the run still ends, READY (CODE ONLY), in seconds" '
+  [[ "$(hb)" == "LEAVING READY (CODE ONLY"* ]] && [ "$took" -lt 60 ] && [ ! -f "$PW/leaving.flag" ] && [ ! -d "$PW/state/lock" ]'
+preset; KEY=k13 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c4" > "$PW/leaving.flag"; prun
+check "LEAVING, the database checkpoint itself fails after the code copy worked: still READY (CODE ONLY), session released" '
+  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: the database copy failed"* ]] && [ "$(grep -c "tell --name s1 --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ] && grep -q "^docker desktop stop" "$PW/calls.log"'
 
 # `poller follow` is optional now: it only names main dev's unit after a slice while that session works
 echo "T-1 s1 since 2026-11-18 15:00:00" > "$PW/state/active.txt"

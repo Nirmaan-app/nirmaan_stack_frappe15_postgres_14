@@ -105,10 +105,14 @@ where_am_i() {
 }
 unit_id() { printf 'u-%s-%s' "$1" "$2" | sed 's/[^A-Za-z0-9-]/-/g' | cut -c1-41; }
 # Docker on the laptop only for a database copy, and put back as it was (MEM-R0 F3). Never dev2.
-ENGINE_WAS=up; RUNNING_BEFORE=""; TURN_BEFORE=""
+# Every docker call has a time limit: on 2026-11-18 20:42 Docker Desktop hung at "Starting the Docker Engine" with no free
+# memory, `docker info` never returned, and a real "leaving" waited on it until the owner had it stopped by hand.
+dk() { timeout "${POLLER_DOCKER_TIMEOUT:-25}" "$DOCKER" "$@"; }
+ENGINE_WAS=up; RUNNING_BEFORE=""; TURN_BEFORE=""; ENGINE_WHY=""
 engine_up() {
+  local t0
   TURN_BEFORE=$(head -1 "$TURN_FILE" 2>/dev/null)
-  ENGINE_WAS=up; "$DOCKER" info > /dev/null 2>&1 || ENGINE_WAS=down
+  ENGINE_WAS=up; dk info > /dev/null 2>&1 || ENGINE_WAS=down
   if [ "$ENGINE_WAS" = down ]; then
     say "Docker Desktop is off (laptop standby) - starting it for the database copy"
     if [ -n "${POLLER_ENGINE_START:-}" ]; then "$POLLER_ENGINE_START"          # tests: a stub, never the real Docker Desktop
@@ -116,16 +120,18 @@ engine_up() {
       timeout 240 "$DOCKER" desktop start > /dev/null 2>&1 ||
         cmd.exe //c start "" "$(cygpath -w "$DOCKER_DESKTOP_EXE" 2>/dev/null || echo "$DOCKER_DESKTOP_EXE")" > /dev/null 2>&1
     fi
-    for _ in $(seq 1 "${POLLER_ENGINE_WAIT:-60}"); do "$DOCKER" info > /dev/null 2>&1 && break; sleep 5; done
-    "$DOCKER" info > /dev/null 2>&1 && sleep "${POLLER_ENGINE_SETTLE:-45}"   # a just-started Docker Desktop drops large requests
+    t0=$(date +%s)          # at most ENGINE_MAX seconds in all for the engine to answer, however long each try hangs
+    while [ $(( $(date +%s) - t0 )) -lt "${POLLER_ENGINE_MAX:-300}" ]; do dk info > /dev/null 2>&1 && break; sleep "${POLLER_ENGINE_STEP:-5}"; done
+    dk info > /dev/null 2>&1 && sleep "${POLLER_ENGINE_SETTLE:-45}"   # a just-started Docker Desktop drops large requests
   fi
   RUNNING_BEFORE=""
-  for c in $LAPTOP_CONTAINERS; do [ "$("$DOCKER" inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && RUNNING_BEFORE+=" $c"; done
-  "$DOCKER" info > /dev/null 2>&1
+  for c in $LAPTOP_CONTAINERS; do [ "$(dk inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && RUNNING_BEFORE+=" $c"; done
+  if dk info > /dev/null 2>&1; then return 0; fi
+  ENGINE_WHY="Docker on the laptop did not start within ${POLLER_ENGINE_MAX:-300} s"; return 1
 }
 engine_restore() {   # $1 = the unit id whose turn-file claim a failed copy may have left behind
   for c in $LAPTOP_CONTAINERS; do
-    case " $RUNNING_BEFORE " in *" $c "*) ;; *) [ "$("$DOCKER" inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && "$DOCKER" stop "$c" > /dev/null 2>&1;; esac
+    case " $RUNNING_BEFORE " in *" $c "*) ;; *) [ "$(dk inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && timeout 90 "$DOCKER" stop "$c" > /dev/null 2>&1;; esac
   done
   case "$TURN_BEFORE" in free*) case "$(head -1 "$TURN_FILE" 2>/dev/null)" in "main $1 "*) echo "free $(now)" > "$TURN_FILE";; esac;; esac
   if [ "$ENGINE_WAS" = down ]; then timeout 120 "$DOCKER" desktop stop > /dev/null 2>&1; say "Docker Desktop stopped again (it was off before)"; fi
@@ -147,16 +153,32 @@ RUN_START=$(now)
 heartbeat "RUNNING since $RUN_START - asking the desktop which sessions are working" "not asked yet"
 
 # ---- detect -------------------------------------------------------------------------------------------------------
-UOUT=$(es 180 units 2>/dev/null | tr -d '\r')
+# ONE failed call is not "offline": on 2026-11-18 20:27 a real "leaving" run gave up after a single call that failed in 4 s
+# (the desktop was up; most likely its script staging collided with another session's copy) and nothing happened until the
+# next 15-minute slot. The call is retried inside the run - 3 tries, or 8 over about 2.5 minutes while the leaving flag is up
+# - and the heartbeat says so while it does.
+LEAVING=0; [ -f "$LEAVING_FLAG" ] && LEAVING=1
+TRIES="${POLLER_DETECT_TRIES:-3}"; [ "$LEAVING" = 1 ] && TRIES="${POLLER_DETECT_TRIES_LEAVING:-8}"
+UOUT=""; try=1
+while :; do
+  UOUT=$(es 180 units 2>/dev/null | tr -d '\r')
+  grep -q '^ssh=ok' <<< "$UOUT" && break
+  [ "$try" -ge "$TRIES" ] && break
+  heartbeat "RUNNING since $RUN_START - $( [ "$LEAVING" = 1 ] && echo "LEAVING: " )the desktop did not answer (try $try of $TRIES) - retrying by itself in ${POLLER_DETECT_SLEEP:-20} s; do not click again" "not yet"
+  sleep "${POLLER_DETECT_SLEEP:-20}"; try=$((try + 1))
+done
 if ! grep -q '^ssh=ok' <<< "$UOUT"; then
-  if [ ! -f "$ST/offline" ]; then now > "$ST/offline"; say "OFFLINE the desktop does not answer; nothing is copied, everything is caught up by itself when it answers again"; fi
+  if [ ! -f "$ST/offline" ]; then now > "$ST/offline"; say "OFFLINE the desktop does not answer ($TRIES tries); nothing is copied, everything is caught up by itself when it answers again"; fi
   DETECTED="unknown (the desktop does not answer)"
-  heartbeat "OFFLINE (the desktop does not answer since $(cat "$ST/offline"))" n
+  if [ "$LEAVING" = 1 ]; then
+    heartbeat "OFFLINE - LEAVING NOT DONE: the desktop did not answer in $TRIES tries since $(cat "$ST/offline"). The flag stays up; the copier tries again at every run (at most 15 minutes apart). Nothing was copied yet." n
+    [ -f "$ST/leaving_offline_told" ] || { now > "$ST/leaving_offline_told"; relay "LEAVING-WAITING" "- \"Leaving\" was asked ($(head -1 "$LEAVING_FLAG" | one_line 100)) but the desktop did not answer the copier in $TRIES tries. NOTHING is copied yet. The flag stays up and the copier tries again at every run."; }
+  else heartbeat "OFFLINE (the desktop does not answer since $(cat "$ST/offline"))" n; fi
   exit 0
 fi
+rm -f "$ST/leaving_offline_told"
 LOCATION=$(where_am_i)
 BACK=""; if [ -f "$ST/offline" ]; then BACK=$(cat "$ST/offline"); rm -f "$ST/offline"; fi
-LEAVING=0; [ -f "$LEAVING_FLAG" ] && LEAVING=1
 FOLLOW_SLICE="" FOLLOW_NAME=""; read -r FOLLOW_SLICE FOLLOW_NAME _ < "$ST/active.txt" 2>/dev/null || true
 
 # ---- "leaving": ask the sessions that honour CHECKPOINT to stop at their safe point, and wait for them -------------
@@ -217,13 +239,11 @@ while IFS='|' read -r tag env path branch head key changed sess; do
   args=(checkpoint-code --slice "$id" --checkout "$path" --env "$env"); [ -n "$first" ] && args+=(--name "$first")
   [ "$mode" = due ] && args+=(--if-older "$B1_EVERY")
   if [ -n "${POLLER_FAIL_UNIT:-}" ] && [ "$POLLER_FAIL_UNIT" = "$id" ]; then ck="CHECKPOINT FAILED ($id): TEST failure forced on this unit (POLLER_FAIL_UNIT)"; rc=3
-  elif [ "$mode" = leave ] && [ "$is_root" = 1 ]; then ck="(main dev's own checkout is captured by the leaving checkpoint below)"; rc=0
   else ck=$(es 900 "${args[@]}" 2>&1); rc=$?; fi   # a stalled copy is given up, never left hanging
   case "$ck" in
     *"checkpoint not due"*) r="B1 SKIP not due";;
     *"CHECKPOINT CODE"*) r="B1 OK"; echo "$key" > "$ST/units/$id.key"; rm -f "$ST/units/$id.failed"
         echo "$(now) $id $(sed -n 's/^CHECKPOINT CODE [^:]*: //p' <<< "$ck" | head -1 | sed 's#.*/##')" > "$ST/units/$id.last";;
-    "(main dev"*) r="LEAVING";;
     *) r="FAILED B1 (rc $rc): $(one_line 160 <<< "$ck")"; NFAIL=$((NFAIL + 1))
        if [ ! -f "$ST/units/$id.failed" ]; then now > "$ST/units/$id.failed"; relay "CKPFAIL-$id" "- The checkpoint copier could not copy unit $id ($env, $branch): $(one_line 200 <<< "$ck")
 - Last good copy of it: $(cat "$ST/units/$id.last" 2>/dev/null || echo none). No session is stopped or blocked; the other units are still copied; next try at the next run."; fi;;
@@ -254,7 +274,13 @@ PT_NAME="${POINT##*|}"; POINT="${POINT%|*}"
 if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT"; then
   heartbeat "RUNNING since $RUN_START - LEAVING: code + database checkpoint of main dev started $(now) (about 7-10 minutes)" y
   lname="${PAUSED_NAMES# }"; lname="${lname%% *}"; lname="${lname:-$MAIN_NAME}"
-  if engine_up; then
+  # The code of every unit is already on the laptop (the loop above copied it, no Docker needed). The database copy is
+  # extra: it is skipped with the reason when the laptop is short of memory or Docker will not start, and "leaving" still
+  # ends by itself as READY (CODE ONLY) with every paused session released (owner 2026-11-18 20:5x, a real leaving).
+  db_why=""; fm=$(free_mb)
+  if [ -n "$fm" ] && [ "$fm" -lt "$B2_MIN_FREE_MB" ] 2>/dev/null; then db_why="the laptop has only $fm MB of memory free (under $B2_MIN_FREE_MB)"; fi
+  if [ -n "$db_why" ]; then out="$db_why"; rc=8; ENGINE_WAS=up; RUNNING_BEFORE="$LAPTOP_CONTAINERS"
+  elif engine_up; then
     find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null
     args=(checkpoint --slice "$MAIN_ID" --yes); [ -n "$lname" ] && args+=(--name "$lname")
     # every other paused session is released by the checkpoint itself, the moment the desktop side is captured
@@ -262,17 +288,24 @@ if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT";
     [ -n "$others" ] && args+=(--also-tell "$others")
     out=$(es 10800 "${args[@]}" 2>&1); rc=$?
     printf '%s\n' "$(now) leaving checkpoint for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
-  else out="Docker did not start on the laptop"; rc=9; fi
+  else out="$ENGINE_WHY"; rc=9; db_why="$ENGINE_WHY"; fi
   engine_restore "$MAIN_ID"
   if grep -q '^CHECKPOINT READY' <<< "$out"; then
     echo "$(now) $MAIN_ID leaving-checkpoint" > "$ST/units/$MAIN_ID.last"
     LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}; every other session there copied as it stands): READY - code + database. $(grep '^CHECKPOINT READY' <<< "$out" | one_line 260)"$'\n'"$LEAVE_LINES"
     RESULT="LEAVING READY: main dev code + database; $RESULT"
   else
-    # F2: a failed leaving checkpoint releases every waiting session at once
-    for n in $PAUSED_NAMES; do es 120 tell --name "$n" --text "CHECKPOINT FAILED $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
-    LEAVE_LINES="- $MAIN_ID (main dev's checkout): FAILED - $(tail -3 <<< "$out" | one_line 220). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
-    RESULT="LEAVING FAILED for main dev (rc $rc); $RESULT"; NFAIL=$((NFAIL + 1))
+    # No database copy. Every waiting session is released at once (F2). If the code copy above worked, this is still READY.
+    [ -n "$db_why" ] || db_why="the database copy failed: $(tail -2 <<< "$out" | one_line 160)"
+    code_ok=0; grep -q "$MAIN_ID: B1 OK" <<< "$RESULT" && code_ok=1
+    for n in $PAUSED_NAMES; do es 120 tell --name "$n" --text "CHECKPOINT $( [ "$code_ok" = 1 ] && echo "TAKEN $(date '+%F %H:%M') | CODE ONLY (the database copy was NOT taken: $db_why)" || echo "FAILED $(date '+%F %H:%M')" ) | carry on" > /dev/null 2>&1; done
+    if [ "$code_ok" = 1 ]; then
+      LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}): READY (CODE ONLY) - the database copy was NOT taken: $db_why. The laptop's last database copy is $(last_b2 | grep . || echo none). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
+      RESULT="LEAVING READY (CODE ONLY - database copy NOT taken: $db_why); $RESULT"
+    else
+      LEAVE_LINES="- $MAIN_ID (main dev's checkout): FAILED - neither the code nor the database was copied ($db_why). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
+      RESULT="LEAVING FAILED for main dev (rc $rc); $RESULT"; NFAIL=$((NFAIL + 1))
+    fi
   fi
 elif [ -n "$POINT" ] && [ -n "$MAIN_ID" ]; then
   pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$POINT")" +%s 2>/dev/null || echo 0)
@@ -309,7 +342,8 @@ fi
 if [ "$LEAVING" = 1 ]; then
   took=$(( $(date +%s) - LEAVE_T0 ))
   [ -n "$LEAVE_LINES" ] || LEAVE_LINES="- nothing was running on the desktop: no unit to checkpoint"$'\n'
-  verdict=READY; grep -q 'FAILED' <<< "$LEAVE_LINES" && verdict="READY WITH FAILURES - read each line"
+  verdict=READY; grep -q 'READY (CODE ONLY)' <<< "$LEAVE_LINES" && verdict="READY (CODE ONLY - no database copy)"
+  grep -q ': FAILED' <<< "$LEAVE_LINES" && verdict="READY WITH FAILURES - read each line"
   relay "LEAVING" "CHECKPOINT $verdict $(date '+%F %H:%M') - \"leaving\" took $took s. Per unit:
 $LEAVE_LINES- flag: $(head -1 "$LEAVING_FLAG" | one_line 120). It is cleared now."
   UNIT_LINES+="leaving:           $verdict at $(now), took $took s (one line per unit is in the relay entry)"$'\n'
