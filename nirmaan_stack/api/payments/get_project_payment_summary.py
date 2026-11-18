@@ -259,17 +259,20 @@ def get_payment_dashboard_stats():
 
 
             # --- 2d & 2e. PAID Check ---
+            # A refund Expense (amount below zero: a card refund, a wallet refund, #1709) lowers the amounts and
+            # is counted as no payment (ADR-0015 Amendment D, ADR-0039 Amendment D).
             if doc.payment_date:
                 payment_date = doc.payment_date
+                counted = 1 if amount > 0 else 0
 
                 # Paid Today
                 if payment_date == today_date:
-                    stats['payment_done_today'] += 1
+                    stats['payment_done_today'] += counted
                     stats['payment_done_today_amount'] += amount
                 
                 # Paid Last 7 Days (inclusive)
                 if payment_date >= seven_days_ago and payment_date <= today_date:
-                    stats['payment_done_7_days'] += 1
+                    stats['payment_done_7_days'] += counted
                     stats['payment_done_7_days_amount'] += amount
 
                 # Project outflow — Paid PAYMENTS (PO + WO) in the last 30 days.
@@ -301,7 +304,8 @@ def get_payment_dashboard_stats():
             fields=["amount"],
             limit_page_length=None,
         )
-        stats['total_project_outflow_30_days_count'] += len(project_expenses)
+        # #1709: a refund (amount below zero) lowers the amount and is no payment in the count.
+        stats['total_project_outflow_30_days_count'] += sum(1 for r in project_expenses if _to_float(r.amount) > 0)
         stats['total_project_outflow_30_days_amount'] += sum(
             _to_float(r.amount) for r in project_expenses
         )
@@ -337,7 +341,10 @@ def get_payment_dashboard_stats():
             fields=["amount"],
             limit_page_length=None,
         )
-        stats['total_non_project_expense_30_days_count'] = len(non_project_expenses)
+        # #1709: a refund (amount below zero) lowers the amount and is no payment in the count.
+        stats['total_non_project_expense_30_days_count'] = sum(
+            1 for r in non_project_expenses if _to_float(r.amount) > 0
+        )
         stats['total_non_project_expense_30_days_amount'] = sum(
             _to_float(r.amount) for r in non_project_expenses
         )

@@ -38,6 +38,7 @@ import {
     typeHint,
     typeLabel,
 } from "./cashbookPreview";
+import { CashbookRefundLine, refundLabel, refundsHeading } from "./cashbookRefunds";
 
 const group = (
     ledger: string,
@@ -478,5 +479,59 @@ describe("cutoffNotice (#1707)", () => {
     it("says nothing when no line was left out, or the server predates it", () => {
         expect(cutoffNotice({ before_cutoff_note: "" })).toBeNull();
         expect(cutoffNotice({})).toBeNull();
+    });
+});
+
+describe("the wallet refunds on Review (#1709, ADR-0015 Amendment D)", () => {
+    const refund = (over: Partial<CashbookRefundLine> = {}): CashbookRefundLine => ({
+        row_number: 2,
+        transfer_id: "REF-OBO1781597449301W2WH9D",
+        amount: 11248,
+        remarks: "Credit Adj",
+        reason: "",
+        row_kind: "Credit Adjustment",
+        refund_of: "OBO1781597449301W2WH9D",
+        reduces: "9surl50t7h",
+        spend_on_statement: false,
+        ledger: NON_PROJECT_LEDGER,
+        project_name: "",
+        expense_type: "Petty Cash",
+        ...over,
+    });
+
+    it("heads them, saying each is booked as a minus where its spend is", () => {
+        expect(refundsHeading([refund()])).toBe(
+            "1 wallet refund will be booked as a minus expense where its spend is booked"
+        );
+        expect(refundsHeading([refund(), refund()])).toBe(
+            "2 wallet refunds will be booked as minus expenses where their spends are booked"
+        );
+        expect(refundsHeading([])).toBeNull();
+        expect(refundsHeading(undefined)).toBeNull();
+    });
+
+    it("names the spend each one reduces and where it is booked", () => {
+        expect(refundLabel(refund())).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (9surl50t7h) · Non Project Expenses · Petty Cash"
+        );
+        expect(
+            refundLabel(
+                refund({ reduces: "", spend_on_statement: true, ledger: PROJECT_LEDGER, project_name: "Telus GIFT City" })
+            )
+        ).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (created by this import) · Project Expenses · Telus GIFT City · Petty Cash"
+        );
+        expect(refundLabel(refund({ reduces: "" }))).toBe(
+            "Credit Adjustment REF-OBO1781597449301W2WH9D · reduces OBO1781597449301W2WH9D (no Expense yet) · Non Project Expenses · Petty Cash"
+        );
+        expect(refundLabel(refund({ refund_of: "", reduces: "", transfer_id: "CRADJ-7" }))).toBe(
+            "Credit Adjustment CRADJ-7 · names no spend · Non Project Expenses · Petty Cash"
+        );
+    });
+
+    it("the bill counts speak of spends only: a refund needs no bill", () => {
+        expect(invoiceCountsText({ creating: 4, invoices: { one_file: 1, merged: 0, waiting: 2 } })).toBe(
+            "3 spends: 1 with 1 file, 0 with 2–4 files (merged), 2 will wait for an invoice"
+        );
     });
 });

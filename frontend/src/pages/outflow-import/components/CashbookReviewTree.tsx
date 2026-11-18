@@ -24,6 +24,7 @@ import {
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
+import { refundLabel, refundsHeading } from "../cashbookRefunds";
 import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
 
 /**
@@ -69,6 +70,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const lateTitle = lateBillsHeading(lateBills);
     const reopened = preview.reopened ?? [];
     const reopenedTitle = reopenedHeading(reopened);
+    const refunds = preview.refunds ?? [];
+    const refundsTitle = refundsHeading(refunds);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -137,6 +140,27 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                     </div>
                 ))}
             </div>
+
+            {/* #1709: each unpaired wallet refund, booked at minus its Credit where its spend is booked, with the spend
+                it reduces. Not in the groups or the total above, which are the spends. */}
+            {refundsTitle && (
+                <div className="rounded-md border">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{refundsTitle}</p>
+                    <div className="border-t">
+                        {refunds.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
+                                    {formatToRoundedIndianRupee(-line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{refundLabel(line)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* #1594: money that came in. Lines that stay open are shown, never folded away: each is a
                 decision someone still has to make. */}

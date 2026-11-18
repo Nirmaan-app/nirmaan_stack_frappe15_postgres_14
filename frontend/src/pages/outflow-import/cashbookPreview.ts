@@ -8,6 +8,8 @@
 // else -- see `sortGroups`.
 
 
+import type { CashbookRefundLine } from "./cashbookRefunds";
+
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
 
@@ -97,8 +99,10 @@ export interface CashbookPreviewResult {
     records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
-    /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */
+    /** #1594: the lines that stay open on the main table (wallet credits; an unpaired refund since #1709 is below). */
     open_lines?: CashbookSkippedRow[];
+    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
+    refunds?: CashbookRefundLine[];
     opening?: number;
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];
@@ -384,8 +388,10 @@ export const invoiceCountsText = (preview: {
     invoices?: InvoiceCounts;
 }): string | null => {
     const invoices = preview.invoices;
-    if (!invoices || preview.creating <= 0) return null;
-    const spends = `${count(preview.creating)} ${preview.creating === 1 ? "spend" : "spends"}`;
+    // The spends only: `creating` also counts the wallet refunds, which need no bill (#1709).
+    const n = invoices ? invoices.one_file + invoices.merged + invoices.waiting : 0;
+    if (!invoices || preview.creating <= 0 || n <= 0) return null;
+    const spends = `${count(n)} ${n === 1 ? "spend" : "spends"}`;
     return (
         `${spends}: ${count(invoices.one_file)} with 1 file, ` +
         `${count(invoices.merged)} with 2–4 files (merged), ` +
