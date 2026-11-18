@@ -42,7 +42,7 @@ from typing import Callable, NamedTuple
 
 import frozen_counts
 from disable_comment_check import DISABLE_SUPPRESSIONS, PRUNE_FLAG, disable_comments_unfrozen, prune_disable_comments
-from frozen_counts import TsParserError, run_ts_parser
+from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
 
 # Repo root = the parent of this scripts/ directory (NOT the cwd).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -466,26 +466,21 @@ def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]
     """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
 
     ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
-    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
-    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
-    """
-    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
-    out = []
-    for path in sorted(set(found) | set(allowed)):
-        now, was = found.get(path, 0), allowed.get(path, 0)
-        if now > was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
-        elif now < was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
-                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
-    return out
+    ({path: {rule: {"count": n}}}), and only its JSON_CALL_RULE entries count. A lower count fails too
+    (frozen_counts.frozen_drift)."""
+    calls = {path: {JSON_CALL_RULE: {"count": n}} for path, n in found.items()}
+    allowed = {path: {JSON_CALL_RULE: rules[JSON_CALL_RULE]}
+               for path, rules in frozen.items() if JSON_CALL_RULE in rules}
+    over, under = frozen_drift(calls, allowed,
+                               lambda path, _, now, was: f"frontend/{path}: {now} .json() calls, {was} frozen")
+    return sorted([f"{line} (a new call: use parseJson)" for line in over]
+                  + [f"{line} (fewer: lower its count in {JSON_CALL_SUPPRESSIONS})" for line in under])
 
 
 def json_calls_unfrozen() -> list[str]:
     """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
 
-    When the parser cannot run, that is J1's one finding, so the check fails and says why.
-    """
+    When the parser cannot run, that is J1's one finding (frozen_counts.node_cannot_run)."""
     sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         rel = p.relative_to(REPO_ROOT).as_posix()
@@ -494,13 +489,8 @@ def json_calls_unfrozen() -> list[str]:
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
     except TsParserError as e:
-        if frozen_counts.NODE_MAY_SKIP:
-            print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
-            return []
-        return [f"J1 could not count .json() calls: {e}"]
-    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
-    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
-    return json_call_drift(found, frozen)
+        return node_cannot_run("J1", ".json() calls", e)
+    return json_call_drift(found, read_frozen(JSON_CALL_SUPPRESSIONS))
 
 
 # --- check registry ----------------------------------------------------------

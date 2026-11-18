@@ -12,8 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import frozen_counts
-from frozen_counts import TsParserError, run_ts_parser
+from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
 from oxlint_settings_check import CONFIG, parse_jsonc, rule_name, severity
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -249,47 +248,25 @@ def _rule_label(rule: str) -> str:
     return f"{rule} (names no rule)" if rule.startswith(EVERY_RULE) else rule
 
 
-def disable_drift(found: dict[str, dict], frozen: dict[str, dict]) -> tuple[list[str], list[str]]:
-    """(over, under): each file and rule with more disable comments than frozen, and each with fewer, one line each.
-
-    Both fail D1, file by file: over, so a new comment fails even where another file lost one; under, so the change
-    that removes a comment also lowers its frozen count (PRUNE_FLAG does it), as a stale lint suppression fails
-    `yarn lint`. scripts/frontend_ratchet_check.py refuses a count that rises in a pull request."""
-    over, under = [], []
-    for path in sorted(set(found) | set(frozen)):
-        now_rules, was_rules = found.get(path, {}), frozen.get(path, {})
-        for rule in sorted(set(now_rules) | set(was_rules)):
-            now, was = now_rules.get(rule, {}).get("count", 0), was_rules.get(rule, {}).get("count", 0)
-            line = f"frontend/{path}: {now} disable comments for {_rule_label(rule)}, {was} frozen"
-            if now > was:
-                over.append(line)
-            elif now < was:
-                under.append(line)
-    return over, under
-
-
-def _read_disable_suppressions() -> dict[str, dict]:
-    path = REPO_ROOT / DISABLE_SUPPRESSIONS
-    return json.loads(read(path)) if path.exists() else {}
+def _describe(path: str, rule: str, now: int, was: int) -> str:
+    return f"frontend/{path}: {now} disable comments for {_rule_label(rule)}, {was} frozen"
 
 
 def disable_comments_unfrozen() -> list[str]:
-    """D1 over the tree: a line per file and rule off its frozen count in DISABLE_SUPPRESSIONS, as J1's.
+    """D1 over the tree: a line per file and rule off its frozen count in DISABLE_SUPPRESSIONS
+    (frozen_counts.frozen_drift, as J1's), and one per file D1 cannot parse.
 
-    When the parser cannot run, that is D1's one finding, so the check fails and says why."""
+    When the parser cannot run, that is D1's one finding (frozen_counts.node_cannot_run)."""
     try:
         found = disable_comments_found()
     except TsParserError as e:
-        if frozen_counts.NODE_MAY_SKIP:
-            print(f"⚠ D1 skipped: {e}. CI counts disable comments on every pull request.")
-            return []
-        return [f"D1 could not count disable comments: {e}"]
+        return node_cannot_run("D1", "disable comments", e)
     except ValueError as e:
         return [f"D1 could not list ADR-0049's rules: {e}"]
     except (OSError, subprocess.CalledProcessError) as e:
         return [f"D1 could not list the files oxlint lints with git: {e}"]
     found, unreadable = found
-    over, under = disable_drift(found, _read_disable_suppressions())
+    over, under = frozen_drift(found, read_frozen(DISABLE_SUPPRESSIONS), _describe)
     return (over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
             + [f"frontend/{path}: holds disable text in a file D1 cannot parse (oxlint lints its script blocks)"
                for path in unreadable])
@@ -302,7 +279,7 @@ def prune_disable_comments() -> int:
     except (TsParserError, ValueError, OSError, subprocess.CalledProcessError) as e:
         print(f"✗ {PRUNE_FLAG}: D1 could not count disable comments: {e}", file=sys.stderr)
         return 1
-    over, _ = disable_drift(found, _read_disable_suppressions())
+    over, _ = frozen_drift(found, read_frozen(DISABLE_SUPPRESSIONS), _describe)
     if over:
         print(f"✗ {PRUNE_FLAG} lowers counts only; these rose, so nothing was written:", file=sys.stderr)
         for line in over:
