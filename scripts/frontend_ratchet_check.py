@@ -289,7 +289,8 @@ def tree_loosenings(root):
     def git_files(*args):
         listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", *args], capture_output=True, text=True,
                                 check=True).stdout
-        return [path for path in listed.split("\0") if path and "node_modules/" not in path]
+        # oxlint skips a folder named exactly node_modules, not one whose name only ends in it.
+        return [path for path in listed.split("\0") if path and "node_modules" not in path.split("/")[:-1]]
 
     problems = []
     for path in git_files("--cached", "--others", "--exclude-standard", "--", "frontend"):

@@ -345,6 +345,19 @@ class LintSettings(unittest.TestCase):
                 self.refused(f"frontend/src/pages/orders/{name}")
                 nested.unlink()
 
+    def test_a_nested_config_in_a_folder_whose_name_only_ends_in_node_modules_is_refused(self):
+        nested = self.repo / "frontend/src/pages/old_node_modules/.oxlintrc.json"
+        nested.parent.mkdir()
+        nested.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+        self.refused("frontend/src/pages/old_node_modules/.oxlintrc.json")
+
+    def test_a_config_inside_an_installed_package_in_node_modules_passes(self):
+        # oxlint never walks into a node_modules folder, so a package's own config there changes nothing.
+        packaged = self.repo / "frontend/node_modules/some-pkg/.oxlintrc.json"
+        packaged.parent.mkdir(parents=True)
+        packaged.write_text('{"rules": {"typescript/no-explicit-any": "off"}}')
+        self.passes()
+
     def test_an_eslintignore_or_a_gitignore_that_hides_a_linted_file_is_refused(self):
         (self.repo / "frontend/src/pages/orders/list.tsx").write_text("export {};\n")
         self.git("add", ".")
