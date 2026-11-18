@@ -99,7 +99,8 @@ class CashbookPlan:
     `rows` (same order), `split.repeats_not_saved` the exact repeats left out."""
     pairs: tuple[tuple[PlannedRow, PlannedRow], ...] = ()
     """Each *Paired wallet refund* as `(refund, spend)`, in the refunds' file order (#1594). Both are in `rows`."""
-    before_cutoff: int = 0  # #1707: the lines dated before 1 Apr 2026 (`cashbook_cutoff`); in nothing above, not staged
+    before_cutoff: int = 0  # #1707: the lines dated before 1 Apr 2026 or undated (`cashbook_cutoff`); in nothing above, not staged
+    undated: int = 0  # of `before_cutoff`, the lines with no readable date
 
     @property
     def creating(self) -> tuple[PlannedRow, ...]:

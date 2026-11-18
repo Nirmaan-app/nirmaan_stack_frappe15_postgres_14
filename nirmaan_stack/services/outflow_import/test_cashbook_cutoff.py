@@ -78,11 +78,11 @@ class TestLinesBeforeTheCutoff(unittest.TestCase):
         plan = _plan([_row(1, "OBO-MAR", added_on=MARCH_31)], already=already)
         self.assertEqual((plan.before_cutoff, plan.split.repeats_not_saved), (1, 0))
 
-    def test_a_line_with_no_date_is_kept(self):
-        """Nothing shows it is before the cutoff, so the plan decides it as before."""
-        plan = _plan([_row(1, "OBO-NODATE", added_on=None)])
-        self.assertEqual([row.action for row in plan.rows], [ACTION_CREATE])
-        self.assertEqual(plan.before_cutoff, 0)
+    def test_a_line_with_no_date_is_left_out_and_counted_as_undated(self):
+        """Owner, 2026-11-18: a line not shown to be on or after the cutoff is left out like an earlier one."""
+        plan = _plan([_row(1, "OBO-NODATE", added_on=None), _row(2, "OBO-MAR", added_on=MARCH_31), _row(3, "OBO-NEW")])
+        self.assertEqual([row.transfer_id for row in plan.rows], ["OBO-NEW"])
+        self.assertEqual((plan.before_cutoff, plan.undated), (2, 1))
 
 
 class TestLinesFromTheCutoffAreDecidedAsBefore(unittest.TestCase):
@@ -112,6 +112,9 @@ class TestTheNote(unittest.TestCase):
     def test_the_note_names_the_count_and_the_date(self):
         self.assertEqual(before_cutoff_note(1), "1 line before 1 Apr 2026 left out")
         self.assertEqual(before_cutoff_note(14), "14 lines before 1 Apr 2026 left out")
+
+    def test_the_note_names_undated_lines_when_there_are_any(self):
+        self.assertEqual(before_cutoff_note(3, undated=1), "3 lines before 1 Apr 2026 or with no date left out")
 
     def test_no_note_when_nothing_was_left_out(self):
         self.assertEqual(before_cutoff_note(0), "")

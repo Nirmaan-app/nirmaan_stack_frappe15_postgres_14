@@ -45,7 +45,7 @@ from dataclasses import asdict
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cutoff
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cutoff, is_undated
 from nirmaan_stack.services.outflow_import.cashbook_plan import (
     ACTION_CREATE,
     ACTION_INTERNAL,
@@ -286,6 +286,7 @@ def plan_statement(
         split=split,
         pairs=tuple((planned[r], planned[sp]) for r, sp in pairs),
         before_cutoff=len(every_row) - len(rows),
+        undated=sum(1 for raw in every_row if is_undated(raw)),
     )
 
 

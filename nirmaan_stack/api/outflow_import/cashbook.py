@@ -225,8 +225,8 @@ def confirm_cashbook_import():
         # #1623: Cashbook's own moves, staged as Internal Transfer lines.
         "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,
-        # #1707: the lines dated before 1 Apr 2026, left out and not saved.
-        "before_cutoff_note": before_cutoff_note(plan.before_cutoff),
+        # #1707: the lines dated before 1 Apr 2026 or undated, left out and not saved.
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff, plan.undated),
         # #1593: the existing Expenses the job will give a bill.
         "late_bills": len(late),
         # #1596: the earlier lines this import re-opened in place.
