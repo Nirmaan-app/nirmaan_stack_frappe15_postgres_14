@@ -58,6 +58,12 @@ CKP-3 the copies are made by a **Windows scheduled task on the laptop**, `BoQ Ch
 | Log | `frappe-bench\envsync\checkpoints\poller.log` (appended, 30 days kept) |
 | A failure | one heartbeat line + one log line; `ckfail` adds the one `<slice>-CKPFAIL` relay entry (F1 unchanged). No retry loop: the next run tries at its next mark |
 
+**The owner's Desktop shortcuts** (owner 2026-11-18 17:10 "yes add the shortcut"): **double-click "Copier - Pause",
+"Copier - Resume" or "Copier - Status" on the laptop's Desktop.** Each shows one message box and no console window.
+Pause and Resume call `poller pause` / `poller resume` and then run the poller once, so the heartbeat shows the new
+state at once; Status only reads the heartbeat. They are made by `env_sync.sh poller shortcuts` (removed by
+`poller shortcuts-remove`); the `.lnk` files live only on the Desktop and call `laptop/copier_shortcut.vbs` here.
+
 **The owner's off switch.** The owner says "pause the copier", "resume the copier" or "remove the copier" to chat-Claude
 or to the laptop session, which runs `poller pause`, `poller resume` or `poller remove` and confirms with the heartbeat.
 
