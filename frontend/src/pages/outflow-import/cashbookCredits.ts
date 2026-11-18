@@ -4,7 +4,14 @@
 // wallet from outside, booked at minus its Credit where its remark places it. No React, no fetch.
 // GLOSSARY: *Wallet credit expense*.
 
-import { formatCount, type CashbookCreditLine } from "./cashbookPreview";
+import { formatCount, type CashbookSkippedRow } from "./cashbookPreview";
+
+/** #1720: a Wallet Credit, created at minus its Credit where its remark places it. */
+export interface CashbookCreditLine extends CashbookSkippedRow {
+    ledger: string;
+    project_name: string;
+    expense_type: string;
+}
 
 /** The heading over the Wallet Credits, or null when there are none. */
 export const creditsHeading = (lines: readonly CashbookCreditLine[] | undefined): string | null => {

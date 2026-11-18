@@ -2,8 +2,7 @@
 // it goes. Pure functions; the screen renders these strings.
 import { describe, expect, it } from "vitest";
 
-import { creditLabel, creditsHeading } from "./cashbookCredits";
-import type { CashbookCreditLine } from "./cashbookPreview";
+import { creditLabel, creditsHeading, type CashbookCreditLine } from "./cashbookCredits";
 
 const credit = (over: Partial<CashbookCreditLine> = {}): CashbookCreditLine => ({
     row_number: 20,

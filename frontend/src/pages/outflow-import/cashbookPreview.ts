@@ -7,7 +7,7 @@
 // placement FINDABLE in about ten seconds. Every ordering decision below serves that and nothing
 // else -- see `sortGroups`.
 
-
+import type { CashbookCreditLine } from "./cashbookCredits";
 
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
@@ -68,13 +68,6 @@ export interface CashbookRefundLine extends CashbookSkippedRow {
     expense_type: string;
 }
 
-/** #1720: a Wallet Credit, created at minus its Credit where its remark places it (`cashbookCredits.ts`). */
-export interface CashbookCreditLine extends CashbookSkippedRow {
-    ledger: string;
-    project_name: string;
-    expense_type: string;
-}
-
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
 export interface CashbookRefundPair {
     refund: CashbookSkippedRow;
@@ -121,9 +114,7 @@ export interface CashbookPreviewResult {
     open_lines?: CashbookSkippedRow[];
     /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
     refunds?: CashbookRefundLine[];
-    /** #1720: the Wallet Credits, booked at minus their Credit where their remarks place them. */
-    credits?: CashbookCreditLine[];
-    opening?: number;
+    credits?: CashbookCreditLine[]; // #1720: the Wallet Credits, at minus their Credit where their remarks place them
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];
     /** #1596: lines an earlier import skipped as own balances that this statement re-opens in place. */
