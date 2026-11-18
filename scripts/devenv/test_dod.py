@@ -110,6 +110,8 @@ class UnfinishedReport(unittest.TestCase):
             return dod.report_problems(path, "abc1234")[0]
 
     def test_a_finished_review_in_the_templates_shape_is_done(self):
+        for line in ("- Own code-review: finished, no findings", "**Own code-review:** finished, no findings"):
+            self.assertEqual(self.problems(f"{line}\nSeparate review: pending"), [], line)
         for value in ("finished, two findings fixed in abc1234, against 03d44ec3e", "**Finished**: no findings",
                       "finished. Running it found nothing; the Pending-status filter finding is fixed"):
             out = self.problems(f"Own code-review: {value}\nSeparate review: pending")

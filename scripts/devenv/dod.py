@@ -176,9 +176,10 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     if status not in ("DONE", "BLOCKED"):
         problems.append("'## Status' must start with DONE or BLOCKED")
     if status == "DONE":
-        own = re.search(r"^Own code-review:[ \t]*(.*)$", text, re.M)
+        own = re.search(r"^[ \t>*_`-]*Own code-review:[ \t*_`]*(.*)$", text, re.M)
         if not own:
-            problems.append(f"the report's Review needs its line 'Own code-review: <result> against <commit>' ({path})")
+            problems.append(f"the report's Review needs its line 'Own code-review: finished, <result>, against <base "
+                            f"commit>' ({path})")
         elif not re.match(r"[\s*_`]*finished\b", own.group(1), re.I):
             problems.append(f"the 'Own code-review:' line must start with 'finished, ' and the review's result: once "
                             f"your code-review has finished, write it in {path}")
