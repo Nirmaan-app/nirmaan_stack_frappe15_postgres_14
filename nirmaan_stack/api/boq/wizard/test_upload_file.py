@@ -436,6 +436,15 @@ class TestUploadAsBackgroundOperation(FrappeTestCase):
     def _start(self, file_name="synthetic_simple.xlsx", template_seed=False):
         """Post one upload as the screen does; returns (op_id, the queued job)."""
         op_id = str(uuid.uuid4())
+        started, stored, queued = self._post(op_id, file_name=file_name, template_seed=template_seed)
+        self.assertEqual(started["state"], "queued")
+        self.assertEqual(stored, [file_name], "the upload stores its workbook once")
+        self.assertEqual(len(queued), 1, "the upload queues exactly one operation")
+        return op_id, queued[0]
+
+    def _post(self, op_id, file_name="synthetic_simple.xlsx", template_seed=False):
+        """POST `upload_file` with this operation id. Returns (its reply, the file names it stored, the jobs it
+        queued); the reply is the exception when the post was refused."""
         if template_seed:
             frappe.form_dict["is_template_source"] = "1"
         else:
@@ -445,23 +454,48 @@ class TestUploadAsBackgroundOperation(FrappeTestCase):
         uploaded.read.return_value = b"workbook bytes"
         request = MagicMock()
         request.files = {"file": uploaded}
-        queued = []
+        stored, queued = [], []
+
+        def store_file(fname, **kwargs):
+            stored.append(fname)
+            return frappe._dict(file_url=f"/private/files/{fname}")
+
         with (
             patch.object(frappe, "request", request),
-            patch(
-                "nirmaan_stack.api.boq.wizard.upload_file.store_file",
-                return_value=frappe._dict(file_url=f"/private/files/{file_name}"),
-            ),
+            patch("nirmaan_stack.api.boq.wizard.upload_file.store_file", side_effect=store_file),
             patch("frappe.utils.background_jobs.get_queue") as get_queue,
         ):
             get_queue.return_value.enqueue_call.side_effect = lambda func, **kw: queued.append(kw)
             get_queue.return_value.count = 0
-            started = upload_file(op_id=op_id)
+            try:
+                reply = upload_file(op_id=op_id)
+            except (frappe.ValidationError, frappe.PermissionError) as refused:
+                reply = refused
             frappe.db.commit()
         frappe.form_dict.pop("is_template_source", None)
-        self.assertEqual(started["state"], "queued")
-        self.assertEqual(len(queued), 1, "the upload queues exactly one operation")
-        return op_id, queued[0]
+        return reply, stored, queued
+
+    def test_an_operation_id_that_is_not_one_is_refused_before_the_workbook_is_stored(self):
+        reply, stored, queued = self._post("not-an-operation-id")
+        self.assertIsInstance(reply, frappe.ValidationError)
+        self.assertEqual((stored, queued), ([], []), "a refused upload stored its workbook in the bucket")
+
+    def test_an_id_another_user_used_is_refused_before_the_workbook_is_stored(self):
+        op_id, _ = self._start(file_name="First_Users.xlsx")
+
+        frappe.set_user(STRANGER)
+        reply, stored, queued = self._post(op_id, file_name="Strangers.xlsx")
+        self.assertIsInstance(reply, frappe.PermissionError)
+        self.assertEqual((stored, queued), ([], []), "a refused upload stored its workbook in the bucket")
+
+    def test_the_same_users_repeat_returns_the_existing_operation_without_storing_again(self):
+        op_id, _ = self._start(file_name="Tower_A_Civil.xlsx")
+        first = get_status(op_id=op_id)
+
+        reply, stored, queued = self._post(op_id, file_name="Tower_A_Civil.xlsx")
+        self.assertEqual((reply["op_id"], reply["state"], reply["enqueued_at"]),
+                         (op_id, "queued", first["enqueued_at"]))
+        self.assertEqual((stored, queued), ([], []), "a repeated post stored the workbook again")
 
     def _work_off(self, job, fetch=None):
         """Run the queued wrapper as a worker does (it starts as no particular user)."""

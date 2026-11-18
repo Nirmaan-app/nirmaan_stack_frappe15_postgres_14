@@ -18,12 +18,12 @@ import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportP
 
 import { useFromAppSources } from "../hodApi";
 import { formatDate } from "@/utils/FormatDate";
+import { saveUrlAs } from "@/utils/saveUrlAs";
 import { historyStatusLabel } from "@/utils/tdsRequestRules";
 
 import {
   commissionReportPdfUrl,
   hodPdfFilename,
-  saveUrlAs,
   snagBatchPdfUrl,
   usePdfDownload,
 } from "../hodDownloads";

@@ -18,8 +18,7 @@ import { toExportSettingsPayload } from "@/pages/projects/data/tds/tdsSettings";
 import type { TDSRepositoryData } from "@/pages/projects/TDSRepository/components/SetupTDSRepositoryDialog";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { formatDate } from "@/utils/FormatDate";
-
-import { saveUrlAs } from "./hodDownloads";
+import { saveUrlAs } from "@/utils/saveUrlAs";
 
 const START_METHOD = "nirmaan_stack.api.tds.tds_report.start_tds_export";
 

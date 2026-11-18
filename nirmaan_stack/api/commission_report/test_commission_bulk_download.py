@@ -9,6 +9,7 @@ still rendered. The tracker is made-up, committed (the operation is queued only 
 deleted again in `tearDown`.
 """
 
+import datetime
 import io
 import os
 import unittest
@@ -18,8 +19,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
-from frappe.utils.background_jobs import execute_job
+from frappe.utils.background_jobs import create_job_id, execute_job, get_redis_conn
 from pypdf import PdfReader, PdfWriter
+from rq.job import Job, JobStatus
 
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.commission_report import bulk_download_reports as cbd
@@ -91,9 +93,18 @@ class TestCommissionBulkDownload(FrappeTestCase):
 				on_render(op_id)
 			return _blank_pdf()
 
-		with patch.object(cbd, "get_pdf", side_effect=render):
-			frappe.set_user("Guest")  # a worker starts as no particular user
-			execute_job(**{**queued[0]["kwargs"], "is_async": False})
+		# The RQ job a busy worker holds (started, a fresh heartbeat), so a status read during the work does not
+		# find the worker gone and call the operation lost (progress stops at lost).
+		held = Job.create(func="frappe.utils.now", connection=get_redis_conn(), id=create_job_id(op_id))
+		held.set_status(JobStatus.STARTED)
+		held.last_heartbeat = datetime.datetime.utcnow()
+		held.save()
+		try:
+			with patch.object(cbd, "get_pdf", side_effect=render):
+				frappe.set_user("Guest")  # a worker starts as no particular user
+				execute_job(**{**queued[0]["kwargs"], "is_async": False})
+		finally:
+			held.delete()
 		frappe.set_user("Administrator")
 		return op_id
 

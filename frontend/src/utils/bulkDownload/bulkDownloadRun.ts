@@ -3,7 +3,7 @@
  * wizard. Pure: `followRun` turns the download's background operation (ADR 0047) as the shared hook
  * sees it into what the window renders.
  */
-import { parseResultFile, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { isRecord, parseResultFile, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 import { BULK_DOC_TYPES, BulkDocType, TYPE_INFO } from "./bulkDownloadTypes";
 
@@ -110,8 +110,6 @@ export const applyReady = (run: DownloadRun, e: RunReady): DownloadRun => {
 export const applyFailed = (run: DownloadRun, e: { message?: string }): DownloadRun =>
     ({ ...run, status: "failed", current: null, error: e.message || FAILED_FALLBACK });
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null && !Array.isArray(value);
 const numberOrUndefined = (value: unknown) => (typeof value === "number" ? value : undefined);
 
 /** The context a download was started with, or null when it is not one (an older tab's slot). */

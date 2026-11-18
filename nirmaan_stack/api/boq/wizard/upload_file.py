@@ -6,8 +6,8 @@ import frappe
 from nirmaan_stack.api.boq.wizard.revision import assert_revisable_source
 from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
 from nirmaan_stack.api.boq.wizard.sheet_preview import _fetch_boq_file_to_tempfile
-from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 from nirmaan_stack.services.stored_files import store_file
 
@@ -41,6 +41,12 @@ def upload_file(op_id=None):
     seed is authored by uploading with is_template_source=1, so project_id is OPTIONAL then.
     The non-template (project) upload path is byte-identical.
     """
+    # The operation id is checked before anything is stored: store_file() cannot be rolled back. A repeat of the
+    # caller's own start returns that start, without storing the workbook again.
+    earlier = background_ops.started_before(op_id)
+    if earlier:
+        return earlier
+
     is_template_source = _coerce_flag(frappe.form_dict.get("is_template_source"))
 
     # Authoring the project-less template SEED is an Admin/Estimates action (ADR-0013 A1-D10),

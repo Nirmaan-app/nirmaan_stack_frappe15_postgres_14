@@ -417,6 +417,7 @@ def bulk_download_op(doc_type, project=None, vendor=None, names=None, attachment
     try:
         return _build(doc_type, project, vendor, names, attachment_names, with_rate, custom_filename, all_scope)
     except frappe.PermissionError:
+        # Not a bare re-raise: Frappe's own refusal names one record, or says nothing the window can show.
         frappe.throw(f"You do not have access to these {doc_type}.", frappe.PermissionError)
 
 

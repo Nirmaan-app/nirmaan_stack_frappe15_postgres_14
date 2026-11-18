@@ -15,9 +15,9 @@ import { toast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { binderBuildOf, type HodJob } from "@/utils/hodBinderBuild";
+import { saveUrlAs } from "@/utils/saveUrlAs";
 
 import { HOD_METHODS } from "./hodApi";
-import { saveUrlAs } from "./hodDownloads";
 
 export type { BinderProgress, HodJob } from "@/utils/hodBinderBuild";
 

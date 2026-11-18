@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // #1665: two BoQ uploads by one user, in two tabs, each follow their own operation through the shared hook. The
-// server is faked at the hook's edge (fetch): the upload start posts the workbook as multipart form data with the
-// browser-made operation id, and each operation's status record answers for itself. One tab's upload fails; the
+// server is faked at the hook's two edges: fetch, where the upload start posts the workbook as multipart form data
+// with the browser-made operation id, and the SDK's call API, where each operation's status record answers for
+// itself. One tab's upload fails; the
 // other's keeps running and then finishes. The socket's "read now" message for one operation reaches both tabs
 // (it is user-targeted) and must not end the other.
 //
@@ -32,6 +33,8 @@ function fakeSocket() {
   };
 }
 
+const STATUS_METHOD = "nirmaan_stack.api.background_ops.get_status";
+
 /** The server: each operation's record, and the files each start received. */
 function fakeServer() {
   const records = new Map<string, Record<string, unknown>>();
@@ -47,12 +50,18 @@ function fakeServer() {
       records.set(opId, { op_id: opId, state: "queued", started_at: null, timeout: 600, now: 1000 });
       return new Response(JSON.stringify({ message: records.get(opId) }), { status: 200 });
     }
-    const opId = new URL(url, "http://env.localhost").searchParams.get("op_id") ?? "";
-    return new Response(JSON.stringify({ message: records.get(opId) ?? null }), { status: 200 });
+    return new Response("{}", { status: 404 });
   });
+  const call = {
+    get: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== STATUS_METHOD) throw { httpStatus: 404, message: "There was an error.", exception: "" };
+      const opId = typeof params?.op_id === "string" ? params.op_id : "";
+      return { message: records.get(opId) ?? null };
+    }),
+  };
   const set = (opId: string, patch: Record<string, unknown>) =>
     records.set(opId, { ...records.get(opId), ...patch });
-  return { fetchFake, startedFiles, set };
+  return { fetchFake, call, startedFiles, set };
 }
 
 function Tab({ storageKey, expose, onFinished }: {
@@ -102,7 +111,7 @@ describe("useBackgroundOperation: two BoQ uploads in two tabs", () => {
 
     await act(async () => {
       root.render(
-        <FrappeContext.Provider value={{ socket } as never}>
+        <FrappeContext.Provider value={{ socket, call: server.call } as never}>
           <Tab storageKey="boq_upload:tab-a" expose={(op) => { tabs.a = op; }} onFinished={finished.a} />
           <Tab storageKey="boq_upload:tab-b" expose={(op) => { tabs.b = op; }} onFinished={finished.b} />
         </FrappeContext.Provider>,

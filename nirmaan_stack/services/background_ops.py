@@ -11,6 +11,15 @@ The record lives in the cache Redis for 24 hours, as JSON:
     {op_id, owner, kind, state, enqueued_at, started_at, ended_at, timeout, rq_job_id, progress, result, error}
     state: queued -> running -> finished | failed | lost
 
+Every change of a record is a compare-and-set (`_transition`), so a worker and a poll racing on one record never
+undo each other:
+
+    queued  -> running             only the worker's `run`, only from queued: one delivery runs the work
+    running -> running (progress)  only while running: a progress write never revives a lost operation
+    queued | running -> lost       a poll's verdict (a stale heartbeat or a missing job); a guess
+    queued | running | lost -> finished | failed   the worker's (or the start's) outcome, which is the truth
+    finished | failed              final: nothing replaces them
+
 Only its owner (the user who started it) reads it. The browser makes the id of an operation a screen starts.
 """
 
@@ -23,18 +32,18 @@ import re
 import resource
 import time
 
-import frappe
-from frappe.utils import strip_html
-from frappe.utils.background_jobs import create_job_id, get_redis_conn
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 from rq.timeouts import JobTimeoutException
+
+import frappe
+from frappe.utils import strip_html
+from frappe.utils.background_jobs import create_job_id, get_redis_conn
 
 #: How long a record (and its finished file) waits to be read.
 KEEP_SECONDS = 24 * 60 * 60
 
 QUEUED, RUNNING, FINISHED, FAILED, LOST = "queued", "running", "finished", "failed", "lost"
-TERMINAL = (FINISHED, FAILED, LOST)
 
 #: The socket message that tells a screen to read an operation's record now.
 READ_NOW_EVENT = "background_op:read_now"
@@ -85,10 +94,10 @@ def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
     }
     # Set only if absent: of two starts with one id, exactly one writes the record and queues.
     if not frappe.cache().set(_key(op_id), json.dumps(record), ex=KEEP_SECONDS, nx=True):
-        existing = _read(op_id)
-        if not existing or existing["owner"] != owner:
+        existing = started_before(op_id)
+        if not existing:  # the record expired between the two calls: the id is not the caller's to reuse
             frappe.throw("This operation id is already in use.", frappe.PermissionError)
-        return public(existing)
+        return existing
 
     def enqueue():
         try:
@@ -112,6 +121,20 @@ def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
     return public(record)
 
 
+def started_before(op_id):
+    """The caller's earlier start of this id, as `start` returns it, or None when the id is unused.
+
+    The same refusals as `start`, made without starting anything: a malformed id, and an id another user used. For
+    an endpoint that must do work no rollback undoes (`services/stored_files.store_file`) before it calls `start`:
+    it checks the id first, and returns the earlier start on a repeat instead of doing that work again.
+    """
+    _check_op_id(op_id)
+    record = _read(op_id)
+    if record and record["owner"] != frappe.session.user:
+        frappe.throw("This operation id is already in use.", frappe.PermissionError)
+    return public(record) if record else None
+
+
 def run(op_id, work, work_kwargs):
     """The wrapper a worker runs: running, the work as its owner, the work's commit, then finished or failed.
 
@@ -119,12 +142,10 @@ def run(op_id, work, work_kwargs):
     A refusal the user can act on (`frappe.throw`) fails the operation in its own words; anything else is logged
     and fails it with a plain message. The exception is not raised on: the record, not RQ, says how it ended.
     """
-    record = _read(op_id)
-    if not record or record["state"] != QUEUED:
-        return
+    _, record = _transition(op_id, (QUEUED,), lambda _: {"state": RUNNING, "started_at": time.time()})
+    if not record:
+        return  # another delivery of this job got it, or a poll already called it lost
     frappe.set_user(record["owner"])
-    record.update(state=RUNNING, started_at=time.time())
-    _write(record)
     _read_now(record)
     frappe.local.background_op_id = op_id
     frappe.local.background_op_file = None
@@ -153,16 +174,14 @@ def set_progress(percent, message=None, detail=None):
 
     `detail` is the flow's own JSON (counts, the item in hand) for a screen that shows more than a bar."""
     op_id = getattr(frappe.local, "background_op_id", None)
-    record = _read(op_id) if op_id else None
-    if not record:
+    if not op_id:
         return
     progress = {"percent": int(percent), "message": message}
     if detail is not None:
         progress["detail"] = detail
-    if record["progress"] == progress:
+    _, record = _transition(op_id, (RUNNING,), lambda r: None if r["progress"] == progress else {"progress": progress})
+    if not record:
         return
-    record["progress"] = progress
-    _write(record)
     if time.time() - getattr(frappe.local, "background_op_read_now_at", 0) >= READ_NOW_EVERY_SECONDS:
         _read_now(record)
 
@@ -235,38 +254,59 @@ def _error_text(e, kind):
     return "The operation failed. The error has been logged."
 
 
-def _end(op_id, state, *, error=None, result=None, ended_at=None, peak_memory_mb=None):
-    """Move a record that has not ended yet to `state`, write its log line, and tell its owner to read it.
+def _end(op_id, state, *, error=None, result=None, peak_memory_mb=None):
+    """End the operation `finished` or `failed`: the worker's outcome (or the start's, when it never queued).
 
-    `ended_at` defaults to now; a lost operation passes its worker's last sign of life instead, or None.
+    It replaces a `lost` verdict: lost is a poll's guess from a late heartbeat or a missing job, and the worker
+    that writes here was alive after all, so its outcome is the truth and its file can be collected. Nothing
+    replaces finished or failed.
     """
-    record = _read(op_id)
-    if not record or record["state"] in TERMINAL:
-        return
-    record.update(state=state, ended_at=time.time() if state != LOST else ended_at, error=error, result=result)
-    _write(record)
-    _read_now(record)
-    _log(record, peak_memory_mb)
+    before, record = _transition(
+        op_id,
+        (QUEUED, RUNNING, LOST),
+        lambda _: {"state": state, "ended_at": time.time(), "error": error, "result": result},
+    )
+    if record:
+        _read_now(record)
+        _log(record, peak_memory_mb, replaces_lost=before["state"] == LOST)
 
 
-def _log(record, peak_memory_mb):
+def _end_lost(op_id, last_seen):
+    """A poll's verdict that the operation's worker is gone. `last_seen` is the worker's last heartbeat (epoch), or
+    None; it is the record's `ended_at`, since the work stopped then, not when the loss was noticed."""
+    _, record = _transition(
+        op_id, (QUEUED, RUNNING), lambda _: {"state": LOST, "ended_at": last_seen, "error": _WORKER_GONE}
+    )
+    if record:
+        _read_now(record)
+        _log(record, None)
+
+
+def _log(record, peak_memory_mb, replaces_lost=False):
     """One line per ended operation in `logs/background_ops.log`: what sets the number of `long` workers.
 
     `frappe.logger` drops INFO unless the level says otherwise (WARNING in dev, ERROR in production), so the level
     is set on this logger every time. A lost operation's run time is unknown (`run_s` null): the time until the
     loss was noticed is not run time.
+
+    A worker that ends an operation a poll had called lost writes a second line, marked `replaces_lost`. The lost
+    line is kept, not rewritten: a log is append-only, and it records what the owner's screen was shown then.
+    A reader counting outcomes takes the last line of each `op_id`.
     """
     started, ended = record["started_at"], record["ended_at"]
-    logger = frappe.logger("background_ops", allow_site=False)
-    logger.setLevel(logging.INFO)
-    logger.info(json.dumps({
+    line = {
         "op_id": record["op_id"],
         "kind": record["kind"],
         "outcome": record["state"],
         "queue_wait_s": round(started - record["enqueued_at"], 2) if started else None,
         "run_s": round(ended - started, 2) if started and ended and record["state"] != LOST else None,
         "peak_memory_mb": peak_memory_mb,
-    }))
+    }
+    if replaces_lost:
+        line["replaces_lost"] = True
+    logger = frappe.logger("background_ops", allow_site=False)
+    logger.setLevel(logging.INFO)
+    logger.info(json.dumps(line))
 
 
 def _worker_gone(record):
@@ -305,7 +345,7 @@ def status(op_id):
     if record["state"] in (QUEUED, RUNNING):
         gone, last_seen = _worker_gone(record)
         if gone:
-            _end(op_id, LOST, error=_WORKER_GONE, ended_at=last_seen)
+            _end_lost(op_id, last_seen)
             record = _read(op_id)
     return {**public(record), "now": time.time()}
 
@@ -338,5 +378,29 @@ def _read(op_id):
     return json.loads(raw) if raw else None
 
 
-def _write(record):
-    frappe.cache().set(_key(record["op_id"]), json.dumps(record, default=str), ex=KEEP_SECONDS)
+def _transition(op_id, from_states, change):
+    """Compare-and-set one record: when its state is one of `from_states`, merge in `change(record)`'s fields.
+
+    WATCH/MULTI on the cache connection: if another process writes the record between this read and this write,
+    the write is dropped and the whole step runs again on what that process wrote. `change` returns the fields to
+    set, or None to leave the record as it is. Returns `(before, after)`, or `(before, None)` when nothing was
+    written (no record, a state not in `from_states`, or `change` gave None).
+    """
+    key = _key(op_id)
+    outcome = {}
+
+    def attempt(pipe):
+        outcome.clear()
+        raw = pipe.get(key)
+        record = json.loads(raw) if raw else None
+        outcome["before"] = record
+        fields = change(record) if record and record["state"] in from_states else None
+        if fields is None:
+            return
+        after = {**record, **fields}
+        pipe.multi()
+        pipe.set(key, json.dumps(after, default=str), ex=KEEP_SECONDS)
+        outcome["after"] = after
+
+    frappe.cache().transaction(attempt, key)
+    return outcome.get("before"), outcome.get("after")

@@ -18,6 +18,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.background_jobs import create_job_id, execute_job, get_redis_conn
+from redis.commands.core import BasicKeyCommands
+from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 
 from nirmaan_stack.api import background_ops as api
@@ -77,6 +79,32 @@ def _clock_at(epoch):
 def _clock_ahead(seconds):
     later = time.time() + seconds
     return patch("nirmaan_stack.services.background_ops.time.time", return_value=later)
+
+
+def _drop_rq_job(op_id):
+    """The operation's RQ job vanishes (a flushed queue, a worker that died), so a poll reads it as lost."""
+    try:
+        Job.fetch(create_job_id(op_id), connection=get_redis_conn()).delete()
+    except NoSuchJobError:
+        pass
+
+
+def _racing_after_read(op_id, action, nth=1):
+    """Run `action` right after the `nth` read of the operation's record: another process acting between this
+    one's read of the record and its write. A real race, at the only point where one can happen."""
+    key = frappe.cache().make_key(f"background_op:{op_id}")
+    real_get = BasicKeyCommands.get
+    reads = []
+
+    def get(connection, name):
+        value = real_get(connection, name)
+        if name == key and len(reads) < nth:
+            reads.append(name)
+            if len(reads) == nth:
+                action()
+        return value
+
+    return patch.object(BasicKeyCommands, "get", get)
 
 
 class _FakeQueue:
@@ -312,7 +340,9 @@ class TestBackgroundOps(FrappeTestCase):
 
         reads = []
         _behaviour["run"] = progress
-        started = time.time() + 1000
+        # Ahead of the worker's own read-now at running, but well inside its heartbeat: a clock past the heartbeat
+        # would make each status read here call the operation lost, and progress stops at lost.
+        started = time.time() + 10
         with _FakeQueue() as queue, patch("frappe.publish_realtime") as publish:
             op_id = _start()
             frappe.db.commit()
@@ -341,6 +371,94 @@ class TestBackgroundOps(FrappeTestCase):
             reads,
             [{"percent": 40, "message": "Adding 3 of 7", "detail": {"done": 2, "total": 7, "current": "PO-001"}}],
         )
+
+    def test_two_deliveries_of_one_operation_racing_to_start_run_its_work_once(self):
+        runs = []
+        _behaviour["run"] = lambda label: runs.append(label) or {"label": label}
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            second_delivery = lambda: background_ops.run(op_id, _WORK, {"label": "second"})  # noqa: E731
+            with _racing_after_read(op_id, second_delivery):
+                _work_off(queue)
+        self.assertEqual(len(runs), 1, f"the work ran {len(runs)} times")
+        self.assertEqual(api.get_status(op_id=op_id)["state"], "finished")
+
+    def test_progress_racing_a_poll_that_finds_the_worker_gone_does_not_revive_the_operation(self):
+        def work_on(label):
+            def poll_finds_it_gone():
+                _drop_rq_job(op_id)
+                seen.append(api.get_status(op_id=op_id)["state"])
+
+            with _racing_after_read(op_id, poll_finds_it_gone):
+                background_ops.set_progress(50, "Half way")
+            seen.append(api.get_status(op_id=op_id)["state"])
+            raise _Killed  # the worker then dies for real: nothing writes the record again
+
+        seen = []
+        _behaviour["run"] = work_on
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            with self.assertRaises(_Killed):
+                _work_off(queue)
+        frappe.set_user(OWNER)
+        self.assertEqual(seen, ["lost", "lost"], "a progress write after the lost verdict revived the operation")
+        self.assertIsNone(api.get_status(op_id=op_id)["progress"])
+
+    def test_a_worker_that_finishes_after_a_poll_guessed_lost_ends_finished_and_its_file_is_collected(self):
+        lines = self._log_lines()
+
+        def finishes_late(label):
+            _drop_rq_job(op_id)
+            seen.append(api.get_status(op_id=op_id)["state"])
+            background_ops.write_result_file(b"%PDF-1.4 late but real", "Late.pdf")
+            return {"label": label}
+
+        seen = []
+        _behaviour["run"] = finishes_late
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            _work_off(queue)
+        path = background_ops.result_file_path(op_id)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+
+        self.assertEqual(seen, ["lost"])
+        status = api.get_status(op_id=op_id)
+        self.assertEqual((status["state"], status["error"]), ("finished", None))
+        self.assertEqual(background_ops.collect(op_id), (b"%PDF-1.4 late but real", "Late.pdf"))
+        # The lost line stays (it is what the screen was shown then); the real outcome gets its own line, marked.
+        mine = [(line["outcome"], line.get("replaces_lost")) for line in lines if line["op_id"] == op_id]
+        self.assertEqual(mine, [("lost", None), ("finished", True)])
+        self.assertIsInstance([line for line in lines if line["op_id"] == op_id][1]["run_s"], (int, float))
+
+    def test_a_worker_that_fails_after_a_poll_guessed_lost_ends_failed_in_its_own_words(self):
+        def fails_late(label):
+            _drop_rq_job(op_id)
+            seen.append(api.get_status(op_id=op_id)["state"])
+            frappe.throw("Nothing to export.")
+
+        seen = []
+        _behaviour["run"] = fails_late
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            _work_off(queue)
+        self.assertEqual(seen, ["lost"])
+        status = api.get_status(op_id=op_id)
+        self.assertEqual((status["state"], status["error"]), ("failed", "Nothing to export."))
+
+    def test_a_lost_verdict_racing_the_worker_never_replaces_its_finish(self):
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            # The poll reads the record (1st read), finds the job missing, and before it writes lost (2nd read)
+            # the worker runs the operation to its end.
+            with _clock_ahead(120), _racing_after_read(op_id, lambda: _work_off(queue), nth=2):
+                api.get_status(op_id=op_id)
+        status = api.get_status(op_id=op_id)
+        self.assertEqual((status["state"], status["result"]), ("finished", {"label": "first"}))
 
     def _finished_with_file(self, content, filename):
         _behaviour["run"] = lambda label: background_ops.write_result_file(content, filename) or {"label": label}

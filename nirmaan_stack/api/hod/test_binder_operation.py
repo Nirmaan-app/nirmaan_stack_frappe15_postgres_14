@@ -59,14 +59,26 @@ class TestBinderOperation(FrappeTestCase):
 		self.op_files = []
 
 	def tearDown(self):
+		# Roll back first (a failed test can leave the transaction aborted), then each scope on its own: one that
+		# fails is rolled back and reported, and never strands the scopes after it.
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
-		frappe.db.delete(binder.DOCTYPE, {"project": self.project})
-		frappe.db.delete("Projects", {"name": self.project})
-		frappe.db.commit()
+		failures = []
+		for doctype, filters in ((binder.DOCTYPE, {"project": self.project}), ("Projects", {"name": self.project})):
+			try:
+				frappe.db.delete(doctype, filters)
+				frappe.db.commit()
+			except Exception as e:
+				frappe.db.rollback()
+				failures.append(f"{doctype} {filters}: {e}")
 		for path in self.op_files:
-			if os.path.exists(path):
-				os.remove(path)
+			try:
+				if os.path.exists(path):
+					os.remove(path)
+			except OSError as e:
+				failures.append(f"{path}: {e}")
+		if failures:
+			raise AssertionError("tearDown left records behind:\n" + "\n".join(failures))
 
 	def _start_and_work_off(self, document=DOCUMENT):
 		op_id = str(uuid.uuid4())

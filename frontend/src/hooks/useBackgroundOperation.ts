@@ -9,6 +9,8 @@
  *   op.context  // what `start` was given, so a screen knows what a resumed operation is for
  *
  * `storageKey` names the screen's slot in this tab's sessionStorage, so a reload picks the operation up again.
+ * The status read and a JSON start go through the SDK's call API; only a file upload and the file download use
+ * fetch, which the SDK cannot do.
  * The server endpoint `start` posts to takes the browser-made `op_id` alongside `args` (JSON, or `FormData` for a
  * start that uploads a file) and calls `services/background_ops.start`. `onFinished` runs once per finished operation, with the `context` given to
  * `start` (kept across a reload, so JSON only) and the operation id, which `collectResultFile` takes. `onFailed`
@@ -19,7 +21,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { parseJson } from "@/lib/parseJson";
-import { OperationFollower, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { isRecord, OperationFollower, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 /** The socket message the server sends while an operation changes (`services/background_ops.READ_NOW_EVENT`). */
 export const READ_NOW_EVENT = "background_op:read_now";
@@ -37,56 +39,65 @@ export interface BackgroundOperation {
   reset: () => void;
 }
 
-const csrfToken = () => (window as unknown as { csrf_token?: string }).csrf_token ?? "";
+/** The SDK's call API (`FrappeConfig.call`): GET and JSON POST to whitelisted methods. */
+type FrappeCall = FrappeConfig["call"];
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-/** The words of a Frappe error reply (`_server_messages`, else `exception`), for the screen to show. */
-async function serverError(response: Response, fallback: string): Promise<string> {
+/** The words of a Frappe error (`_server_messages`, else `exception`): a fetch reply's parsed body, or what an SDK
+ *  call rejects with. */
+function frappeErrorWords(body: unknown, fallback: string): string {
+  if (!isRecord(body)) return fallback;
   try {
-    const body = parseJson(await response.text());
-    if (!isRecord(body)) return fallback;
     if (typeof body._server_messages === "string") {
       const messages = parseJson(body._server_messages);
       const first = Array.isArray(messages) && typeof messages[0] === "string" ? parseJson(messages[0]) : null;
       if (isRecord(first) && typeof first.message === "string") return first.message;
     }
-    if (typeof body.exception === "string") return body.exception.replace(/^[\w.]+:\s*/, "");
   } catch {
-    // Not a JSON reply: the fallback says enough.
+    // Not the shape Frappe sends: try `exception`.
   }
+  if (typeof body.exception === "string" && body.exception) return body.exception.replace(/^[\w.]+:\s*/, "");
   return fallback;
 }
 
-async function readStatus(opId: string): Promise<unknown> {
-  const response = await fetch(`/api/method/${STATUS_METHOD}?op_id=${encodeURIComponent(opId)}`, {
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(await serverError(response, `Status read failed (${response.status})`));
-  const body = parseJson(await response.text());
-  return isRecord(body) ? body.message : null;
+/** The words of a failed fetch reply, for the screen to show. */
+async function serverError(response: Response, fallback: string): Promise<string> {
+  try {
+    return frappeErrorWords(parseJson(await response.text()), fallback);
+  } catch {
+    return fallback; // Not a JSON reply: the fallback says enough.
+  }
+}
+
+async function readStatus(call: FrappeCall, opId: string): Promise<unknown> {
+  try {
+    const body: unknown = await call.get(STATUS_METHOD, { op_id: opId });
+    return isRecord(body) ? body.message : null;
+  } catch (error) {
+    throw new Error(frappeErrorWords(error, "The status read failed."));
+  }
 }
 
 /** Start args: JSON, or form data for a start that uploads a file (the BoQ upload). Either way the operation id
  *  rides along as `op_id`. */
 export type StartArgs = Record<string, unknown> | FormData;
 
-function startRequest(args: StartArgs, opId: string): { headers: Record<string, string>; body: string | FormData } {
+async function postStart(call: FrappeCall, method: string, args: StartArgs, opId: string): Promise<void> {
   if (!(args instanceof FormData)) {
-    return { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...args, op_id: opId }) };
+    try {
+      await call.post(method, { ...args, op_id: opId });
+    } catch (error) {
+      throw new Error(frappeErrorWords(error, "The server could not start this."));
+    }
+    return;
   }
+  // Raw fetch: the SDK's `call.post` sends a JSON body only, and this start uploads a file as multipart form data.
   const body = new FormData();
   args.forEach((value, key) => body.append(key, value));
   body.append("op_id", opId);
-  return { headers: {}, body };
-}
-
-async function postStart(method: string, args: StartArgs, opId: string): Promise<void> {
-  const { headers, body } = startRequest(args, opId);
+  const csrfToken = (window as unknown as { csrf_token?: string }).csrf_token ?? "";
   const response = await fetch(`/api/method/${method}`, {
     method: "POST",
-    headers: { ...headers, Accept: "application/json", "X-Frappe-CSRF-Token": csrfToken() },
+    headers: { Accept: "application/json", "X-Frappe-CSRF-Token": csrfToken },
     body,
   });
   if (!response.ok) throw new Error(await serverError(response, "The server could not start this."));
@@ -94,6 +105,7 @@ async function postStart(method: string, args: StartArgs, opId: string): Promise
 
 /** The finished file of the caller's own operation. Refused by the server for anyone else. */
 export async function collectResultFile(opId: string): Promise<Blob> {
+  // Raw fetch: the SDK's call API parses a JSON reply, and this reply is the file's bytes.
   const response = await fetch(`/api/method/${COLLECT_METHOD}?op_id=${encodeURIComponent(opId)}`);
   if (!response.ok) throw new Error(await serverError(response, "The finished file could not be fetched."));
   return response.blob();
@@ -134,7 +146,9 @@ export interface BackgroundOperationOptions {
 
 /** Follow one background operation at a time on this screen. */
 export function useBackgroundOperation({ storageKey, onFinished, onFailed }: BackgroundOperationOptions): BackgroundOperation {
-  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  const { socket, call } = useContext(FrappeContext) as FrappeConfig;
+  const callRef = useRef(call);
+  callRef.current = call;
   const [{ view, context }, setFollowed] = useState<{ view: OpView; context: unknown }>({
     view: { phase: "idle" },
     context: undefined,
@@ -150,7 +164,7 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
   useEffect(() => {
     const follower = new OperationFollower({
       makeId: () => crypto.randomUUID(),
-      readStatus,
+      readStatus: (opId) => readStatus(callRef.current, opId),
       socketUp: () => Boolean(socketRef.current?.connected),
       storage: tabSlot(storageKey),
       onView: (next, nextContext) => {
@@ -184,7 +198,7 @@ export function useBackgroundOperation({ storageKey, onFinished, onFailed }: Bac
   }, [socket]);
 
   const start = useCallback(async (method: string, args: StartArgs, context?: unknown) => {
-    await followerRef.current?.start((opId) => postStart(method, args, opId), context);
+    await followerRef.current?.start((opId) => postStart(callRef.current, method, args, opId), context);
   }, []);
 
   const reset = useCallback(() => followerRef.current?.reset(), []);

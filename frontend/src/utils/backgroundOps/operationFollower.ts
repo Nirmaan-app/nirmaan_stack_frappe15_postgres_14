@@ -72,18 +72,19 @@ const RANK: Record<OpView["phase"], number> = {
   idle: 0, starting: 1, queued: 2, running: 3, finished: 4, failed: 4, lost: 4,
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+/** Is this a plain JSON object (not null, not an array)? */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const numberOrNull = (value: unknown): number | null => (typeof value === "number" ? value : null);
 const stringOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
-/** Narrow a status reply; null when it is not one. */
 /** The finished file a result names (`background_ops.write_result_file`), or null. */
 export function parseResultFile(result: unknown): { filename: string; sizeBytes: number } | null {
   if (!isRecord(result) || !isRecord(result.file) || typeof result.file.filename !== "string") return null;
   return { filename: result.file.filename, sizeBytes: numberOrNull(result.file.size_bytes) ?? 0 };
 }
 
+/** Narrow a status reply; null when it is not one. */
 export function parseOpStatus(value: unknown): OpStatus | null {
   if (!isRecord(value) || typeof value.op_id !== "string") return null;
   const state = STATES.find((s) => s === value.state);

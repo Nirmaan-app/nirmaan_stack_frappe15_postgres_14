@@ -3,7 +3,7 @@
  * `upload_file`, which starts the parse through `services/background_ops`, and both screens follow it with
  * `useBackgroundOperation`. This reads what that operation's view means for an upload screen.
  */
-import type { OpView } from "@/utils/backgroundOps/operationFollower";
+import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
 export const UPLOAD_METHOD = "nirmaan_stack.api.boq.wizard.upload_file.upload_file";
 
@@ -42,8 +42,6 @@ export interface UploadedFile {
   size: number;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const CODES: Record<string, UploadStatus> = { corrupted: "error-E", zero_sheets: "error-F" };
 

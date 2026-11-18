@@ -7,12 +7,14 @@
  * A download outlives a dropped socket and a reload of the tab: the shared hook picks it up again from the tab's
  * sessionStorage under `storageKey`.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { useToast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
-import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
+import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
+import { isRecord, parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { type BulkRunContext, type DownloadRun, followRun, isWorking, parseRunContext } from "@/utils/bulkDownload/bulkDownloadRun";
+import { saveUrlAs } from "@/utils/saveUrlAs";
 
 const CANCEL_METHOD = "nirmaan_stack.api.pdf_helper.bulk_download.cancel_bulk_download";
 
@@ -23,33 +25,11 @@ export interface BulkDownloadResult {
 }
 
 const resultOf = (result: unknown): BulkDownloadResult => {
-    const r = typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
+    const r = isRecord(result) ? result : {};
     return {
         included: typeof r.included === "number" ? r.included : null,
         total: typeof r.total === "number" ? r.total : null,
     };
-};
-
-/** Ask the server to stop one of this user's downloads. Best effort: the window has already closed. */
-const cancelOnServer = (opId: string): Promise<unknown> => {
-    const body = new FormData();
-    body.append("op_id", opId);
-    return fetch(`/api/method/${CANCEL_METHOD}`, {
-        method: "POST",
-        headers: { "X-Frappe-CSRF-Token": (window as unknown as { csrf_token?: string }).csrf_token ?? "" },
-        body,
-    }).catch(() => undefined);
-};
-
-const saveBlob = (blob: Blob, filename: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
 };
 
 export interface BulkDownloadOperationOptions {
@@ -60,6 +40,7 @@ export interface BulkDownloadOperationOptions {
 
 export function useBulkDownloadOperation({ storageKey, onSaved }: BulkDownloadOperationOptions) {
     const { toast } = useToast();
+    const { call } = useContext(FrappeContext) as FrappeConfig;
     const onSavedRef = useRef(onSaved);
     onSavedRef.current = onSaved;
 
@@ -67,8 +48,9 @@ export function useBulkDownloadOperation({ storageKey, onSaved }: BulkDownloadOp
         storageKey,
         onFinished: async (result, context, opId) => {
             try {
-                const blob = await collectResultFile(opId);
-                saveBlob(blob, parseResultFile(result)?.filename ?? "Download.pdf");
+                const blobUrl = window.URL.createObjectURL(await collectResultFile(opId));
+                saveUrlAs(blobUrl, parseResultFile(result)?.filename ?? "Download.pdf");
+                window.URL.revokeObjectURL(blobUrl);
             } catch (error) {
                 toast({
                     title: "Download failed",
@@ -98,9 +80,10 @@ export function useBulkDownloadOperation({ storageKey, onSaved }: BulkDownloadOp
     const cancel = useCallback(() => {
         const opId = view.phase === "idle" ? null : view.opId;
         reset();
-        if (opId) void cancelOnServer(opId);
+        // Best effort: the window has already closed, and the server ends the operation failed when it stops.
+        if (opId) void call.post(CANCEL_METHOD, { op_id: opId }).catch(() => undefined);
         toast({ title: "Download cancelled" });
-    }, [view, reset, toast]);
+    }, [view, reset, toast, call]);
 
     const working = run !== null && isWorking(run.status);
     return { run, working, start, cancel, close: reset };
