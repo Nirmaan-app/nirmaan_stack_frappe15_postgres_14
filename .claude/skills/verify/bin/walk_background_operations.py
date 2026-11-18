@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The N-worker check (spec #1654, #1656): overlapping background operations all succeed with N `long` workers.
 
-    python3 .claude/skills/verify/bin/walk_background_operations.py --task <task> [--workers N] [--runs 10]
-        [--flows clone,classify]
+    python3 .claude/skills/verify/bin/walk_background_operations.py --task <task> [--workers N] [--runs R]
+        [--flows clone,classify,suggest]
 
 Starts N `long` workers on the env the way the walks start one (`devenv.sh run <task> worker --queue long`), runs
-`background_operations_flows.py` in the env (N template clones at once, and ceil(N/2) two-engine Classify clicks at
-once, `--runs` times each), and stops the workers again, also on failure or Ctrl-C. While the flows run it samples,
+`background_operations_flows.py` in the env (N template clones at once, ceil(N/2) two-engine Classify clicks at
+once, and N rate suggests on N sheets at once, each flow its own number of runs unless `--runs` sets one for all),
+and stops the workers again, also on failure or Ctrl-C. While the flows run it samples,
 once a second, each worker's memory (its process plus the work horse it forks per operation) and the Postgres
 connections open on the env's DB. It prints the peak of each, and exits 1 when any operation failed, 2 when the
 check could not run (workers already running, too little memory, a worker that did not start).
@@ -144,8 +145,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True)
     ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--runs", type=int, default=10)
-    ap.add_argument("--flows", default="clone,classify")
+    ap.add_argument("--runs", type=int, default=None, help="runs of every flow (default: each flow's own count)")
+    ap.add_argument("--flows", default="clone,classify,suggest")
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # so the clean-up below runs
     site, db = f"t-{a.task}.localhost", f"t_{a.task.replace('-', '_')}"
@@ -159,7 +160,7 @@ def main() -> int:
     if gib > MAX_CONTAINER_GIB:
         print(f"cannot run: the frappe container uses {gib:.2f} GiB (over {MAX_CONTAINER_GIB}); wait and retry")
         return 2
-    print(f"N-worker check on {site}: {a.workers} long workers, {a.runs} runs of {a.flows} "
+    print(f"N-worker check on {site}: {a.workers} long workers, flows {a.flows} "
           f"(container at {gib:.2f} GiB; worker logs in {logs.resolve()})")
 
     started, pids = start_workers(a.task, site, a.workers, logs)
@@ -170,8 +171,8 @@ def main() -> int:
             return 2
         sampler = Sampler(site, db, pids)
         sampler.start()
-        flows = subprocess.Popen([DEVENV, "script", a.task, FLOWS, "--workers", str(a.workers),
-                                  "--runs", str(a.runs), "--flows", a.flows],
+        flows = subprocess.Popen([DEVENV, "script", a.task, FLOWS, "--workers", str(a.workers), "--flows", a.flows]
+                                 + (["--runs", str(a.runs)] if a.runs else []),
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         result = None
         for line in flows.stdout:
@@ -197,8 +198,8 @@ def main() -> int:
         return 1
     failed = 0
     for flow, r in result["flows"].items():
-        at_once = a.workers if flow == "clone" else f"{math.ceil(a.workers / 2)} clicks x 2 engines"
-        print(f"{flow}: {r['ok']} ok, {r['failed']} failed ({a.runs} runs, {at_once} at once)")
+        at_once = f"{math.ceil(a.workers / 2)} clicks x 2 engines" if flow == "classify" else a.workers
+        print(f"{flow}: {r['ok']} ok, {r['failed']} failed ({r['runs']} runs, {at_once} at once)")
         failed += r["failed"]
     print("PASS: every operation succeeded" if not failed else f"FAIL: {failed} operations failed")
     return 1 if failed else 0

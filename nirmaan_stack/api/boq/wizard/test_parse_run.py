@@ -1133,6 +1133,48 @@ class TestRunParseWorker(FrappeTestCase):
             "Parse failed",
         )
 
+    def test_a_database_error_publishes_the_failure(self):
+        """#1657: a parse that fails with a DATABASE error (here while it writes review rows) tells its screen it
+        failed: the done message and the polled status both read error, and the in-progress flag is cleared. A
+        database error aborts the transaction, so the worker must roll back before it logs and publishes."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from nirmaan_stack.api.boq.wizard.parse_run import _parse_status_key, get_parse_status
+
+        boq = self._make_boq()
+        frappe.db.set_value("BOQs", boq.name, "parse_in_progress", 1)
+        frappe.db.commit()
+        job_id = f"parse-db-error-{frappe.generate_hash(length=8)}"
+        started = frappe.utils.now()
+
+        def _db_error(*args, **kwargs):
+            frappe.db.sql("select 1/0")  # a database error: the transaction is now aborted
+
+        published = []
+        try:
+            with patch("nirmaan_stack.api.boq.wizard.parse_run.flatten_resolved_row", side_effect=_db_error), \
+                    patch("rq.get_current_job", return_value=SimpleNamespace(id=job_id)), \
+                    patch.object(frappe, "publish_realtime",
+                                 side_effect=lambda event, message=None, **kw: published.append((event, message))):
+                with self.assertRaises(Exception):  # the worker re-raises, so RQ records the job as failed
+                    self._run(boq.name)
+
+            done = [m for ev, m in published if ev == "boq:parse_run_done"]
+            self.assertEqual(len(done), 1, "the parse published no done message")
+            self.assertEqual((done[0]["status"], done[0]["error_code"]), ("error", "internal"))
+            polled = get_parse_status(job_id=job_id)
+            self.assertEqual((polled["state"], polled["status"]), ("done", "error"))
+            self.assertEqual(check_parse_status(boq_name=boq.name), {"state": "idle"})
+        finally:
+            frappe.db.rollback()
+            frappe.cache().delete_value(_parse_status_key(job_id))
+            for name in frappe.get_all("Error Log", filters={"creation": [">=", started],
+                                                             "method": ["like", f"BoQ parse%{boq.name}%"]},
+                                       pluck="name"):
+                frappe.db.delete("Error Log", {"name": name})
+            frappe.db.commit()
+
     # -- re-parse / replace ----------------------------------------------
 
     def test_re_parse_does_not_duplicate_rows(self):

@@ -1660,6 +1660,15 @@ doctype is `track_changes: 0` so there is no Version audit to bypass (unlike the
 fields, which hit the documented `doc.save()`/`delete_doc` wall -- confirmed live during the SR-1 cert cleanup,
 where `delete_doc` threw `Value for Results cannot be a list`.
 
+**An unexpected failure rolls back first (#1657).** The worker's `except` calls `frappe.db.rollback()` before it
+logs, marks the run `failed` and publishes `suggest_failed`. Because every checkpoint was committed as it was taken,
+the rollback discards only the work since the last checkpoint, and the run keeps its rows. Without it, a database
+error leaves the transaction aborted, `frappe.log_error` raises `InFailedSqlTransaction`, nothing is published and
+the screen spins (`test_rate_suggest.test_13b`). The hub parse worker's outer `except` does the same
+(`test_parse_run.test_a_database_error_publishes_the_failure`). `BoQ Rate Suggestion Run` and `BoQ Rate Match Run`
+name new rows by `hash` (#1657, ADR 0048; older rows keep their `BRSR-` / `BRMR-` names; the screens identify a run
+by `run_id`, and the match run's name only as an opaque link).
+
 ### The three owner rulings
 
 - **R-SUPERSEDE** -- a partial NEVER supersedes a prior COMPLETE run. The doc is created `active=0` and stays

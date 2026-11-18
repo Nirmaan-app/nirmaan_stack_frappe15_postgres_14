@@ -558,6 +558,56 @@ class TestRateSuggest(FrappeTestCase):
         self.assertIn("usage limit", (p["halt_reason"] or "").lower())
         self.assertNotIn("suggest_failed", (p["halt_reason"] or ""))
 
+    def test_13b_a_database_error_publishes_failure_and_keeps_checkpointed_rows(self):
+        """#1657: a suggest operation that fails with a DATABASE error after one checkpoint tells its screen it
+        failed (the done message and the polled status both read failed), records the error, and keeps the rows the
+        checkpoint committed. A database error aborts the transaction, so the worker must roll back before it can
+        write anything, and that rollback must not reach the committed checkpoint."""
+        self._reset_runs()
+        frappe.cache().delete_value(rate_master._s_status_key(self.boq, self.sheet_name))
+        started = frappe.utils.now()
+
+        def _checkpoint_then_db_error(boq, sheet_name, checkpoint_cb=None, **kw):
+            checkpoint_cb([
+                {"excel_row": 2, "description": "d", "attributes": {"material": {"value": "COPPER"}}},
+                {"excel_row": 3, "description": "d", "attributes": {"material": {"value": "ALUMINIUM"}}},
+            ], [2, 3])
+            frappe.db.sql("select 1/0")  # a database error: the transaction is now aborted
+
+        published = []
+        try:
+            with mock.patch.object(extraction, "run_extraction", side_effect=_checkpoint_then_db_error), \
+                    mock.patch.object(frappe, "publish_realtime",
+                                      side_effect=lambda event, message=None, **kw: published.append((event, message))):
+                try:
+                    rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name, user="Administrator")
+                except Exception as e:  # noqa: BLE001
+                    self.fail(f"the worker raised {type(e).__name__} instead of publishing its failure: {e}")
+
+            done = [m for ev, m in published if ev == "boq:suggest_sheet_done"]
+            self.assertEqual(len(done), 1, "exactly one done message")
+            self.assertEqual((done[0]["status"], done[0]["run_status"]), ("error", "failed"))
+            polled = rate_master.get_suggest_status(boq=self.boq, sheet_name=self.sheet_name)
+            self.assertEqual((polled["state"], polled["status"], polled["run_status"]), ("done", "error", "failed"))
+
+            run = frappe.get_all(_RUN, filters={"boq": self.boq, "sheet_name": self.sheet_name},
+                                 fields=["status", "active", "results", "attempted_rows"])
+            self.assertEqual(len(run), 1)
+            self.assertEqual((run[0]["status"], run[0]["active"]), ("failed", 0))
+            self.assertEqual(sorted(r["excel_row"] for r in _j(run[0]["results"])), [2, 3],
+                             "the rows the checkpoint committed are still there")
+            self.assertEqual(_j(run[0]["attempted_rows"]), [2, 3])
+
+            logged = frappe.get_all("Error Log", filters={"method": "BoQ suggest worker failed",
+                                                          "creation": [">=", started]}, pluck="name")
+            self.assertTrue(logged, "the failure is recorded in the Error Log")
+        finally:
+            frappe.db.rollback()
+            for name in frappe.get_all("Error Log", filters={"method": "BoQ suggest worker failed",
+                                                             "creation": [">=", started]}, pluck="name"):
+                frappe.db.delete("Error Log", {"name": name})
+            frappe.db.commit()
+
     def test_14_resume_completes_the_same_run_and_only_pending_rows(self):
         """R-RESUME-SAME-RUN: the resume fills ONLY the pending row, completes the SAME doc/run_id,
         and only THEN goes active (superseding the prior complete run). No second run doc."""

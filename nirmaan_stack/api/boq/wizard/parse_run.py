@@ -999,14 +999,13 @@ def _run_parse_worker(
         )
 
     except Exception:
+        # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write and the
+        # publish below would fail with it, leaving the hub on "Parsing..." (#1657).
+        frappe.db.rollback()
         frappe.log_error(
             title=f"BoQ parse worker: unhandled error for {boq_name}",
             message=frappe.get_traceback(),
         )
-        try:
-            frappe.db.rollback()
-        except Exception:
-            pass
         _publish_parse_event(boq_name, "error", user=user, error_code="internal")
         raise
 

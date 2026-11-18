@@ -58,9 +58,9 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   as a negative Non-Project Expense, and the dialog's Review / Creating / Finished / Needs another Create (spec
   #1653). Walked end to end by `BIN/walk_card_import.py`.
 - [Projects](./projects.md): the project list and a project's page.
-- [Background operations with N long workers](./background-operations.md): N template clones and ceil(N/2)
-  two-engine Classify clicks at once all succeed with N `long` workers; prints peak memory per worker and peak DB
-  connections (spec #1654, #1656). The N-worker check, `BIN/walk_background_operations.py --workers N`.
+- [Background operations with N long workers](./background-operations.md): N template clones, ceil(N/2)
+  two-engine Classify clicks and N rate suggests on N sheets at once all succeed with N `long` workers; prints peak
+  memory per worker and peak DB connections (spec #1654, #1656, #1657). The N-worker check, `BIN/walk_background_operations.py --workers N`.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps).

@@ -82,3 +82,14 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
 
     def test_two_overlapping_review_row_inserts_both_commit(self):
         self.assert_overlapping_inserts_both_commit("BoQ Review Row", lambda n: {})
+
+    def test_two_overlapping_rate_suggestion_run_inserts_both_commit(self):
+        self.assert_overlapping_inserts_both_commit(
+            "BoQ Rate Suggestion Run",
+            lambda n: {"committed_version": 0, "run_id": f"row-names-clash-{n}", "status": "running", "active": 0},
+        )
+
+    def test_two_overlapping_rate_match_run_inserts_both_commit(self):
+        self.assert_overlapping_inserts_both_commit(
+            "BoQ Rate Match Run", lambda n: {"commit_version": 0, "status": "queued", "active": 0}
+        )

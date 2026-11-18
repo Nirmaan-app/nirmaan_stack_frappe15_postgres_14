@@ -984,9 +984,11 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             if match is not None:
                 payload["match"] = match
     except Exception:
-        # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
-        # taken, and rolling back would throw away exactly the work SR-1 exists to preserve. The run
-        # is marked failed but keeps its rows, so it stays resumable.
+        # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write, the
+        # failed mark and the done message below would all fail with it (#1657). The rollback discards only
+        # the uncommitted work since the last checkpoint; every checkpoint was committed as it was taken, so
+        # the run keeps its rows, is marked failed, and stays resumable.
+        frappe.db.rollback()
         frappe.log_error(title="BoQ suggest worker failed", message=frappe.get_traceback())
         halt_reason = "The suggestion run stopped unexpectedly. Anything already extracted was kept."
         if run_name:
