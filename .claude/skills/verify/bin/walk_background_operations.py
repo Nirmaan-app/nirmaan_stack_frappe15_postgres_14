@@ -191,10 +191,11 @@ def part_handover(page, out):
     def tds(p):
         p.goto(url)
         p.get_by_role("row", name=re.compile("Material Technical Data Sheet")).get_by_role(
-            "button", name="Download").click()
+            "button", name="Edit").click()
         d = p.get_by_role("dialog")
-        tick_one(d, 0)
-        d.get_by_role("button", name=re.compile(r"^Download PDF \(1\)")).click()
+        if not d.get_by_role("checkbox", name="Include in PDF", checked=True).count():
+            tick_one(d, 0)  # a first export ticks one; a later one keeps the ticks the last export saved
+        d.get_by_role("button", name=re.compile(r"^Download PDF \([1-9]\d*\)")).click()
 
     two_tab_downloads(page, out, "hod_binder", "tds_export", binder, tds, timeout_s=900, queued_b="Exporting...")
 

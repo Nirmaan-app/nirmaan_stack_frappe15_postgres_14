@@ -10,7 +10,7 @@ tickets #1662-#1665.
 
 - `tds` TDS export from a project's TDS tab (`Download TDS PDF`): two tabs at once, each downloads its own PDF.
 - `handover` the handover binder (`Download binder`) and the Handover TDS export (row "Material Technical Data Sheet"
-  -> Download), at once in two tabs: each ends in its own file.
+  -> Edit -> tick -> Download PDF; a not-Done row's Download is refused), at once in two tabs: each ends in its own file.
 - `commission` Commission Report tab -> `Bulk Approved Reports` -> Export: the reports PDF.
 - `bulk` Bulk Download tab -> a document type -> tick rows -> `Download N ...`: the merged PDF.
 - `boq` Upload BoQ: two tabs upload at once, each shows its own outcome; the 30 s "taking a little longer" note waits
