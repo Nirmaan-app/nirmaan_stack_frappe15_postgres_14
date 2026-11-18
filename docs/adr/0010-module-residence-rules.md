@@ -308,7 +308,13 @@ The residence map and the ownership manifests stay.
 
 On the 2026-11-17 backup, 101 Procurement Requests read *Vendor Approved* while a linked Sent Back Category is
 still *Pending*, *Sent Back* or *Partially Approved* (117 Sent Back Categories). 18 of those Procurement Requests
-have such a Sent Back Category made on or after 2026-08-01. Whether that status is wrong is a product question. Candidate 6 goes to an issue that asks it.
+have such a Sent Back Category made on or after 2026-08-01.
+
+The owner decided (2026-11-18): a request with items still waiting in a Sent Back Category shows *Partially
+Approved*, and moves to *Vendor Approved* only when every item, its Sent Back items included, is decided. Today the
+status also depends on which button was pressed last: on the same backup, 23 requests with approved and sent-back
+items and none pending show *Sent Back* (11), *Partially Approved* (6) or *Vendor Approved* (6). Candidate 6
+(issue #1721) builds the one deriver that applies the rule.
 
 ### Proofs and backlog
 
