@@ -718,11 +718,6 @@ scheduler_events = {
 		"0 8 * * *": [
 			"nirmaan_stack.tasks.reminders.send_due_reminders"
 		],
-		# Every 6 h — bulk-download temp .bin sweep (grace is also 6 h, so an
-		# orphan lives at most ~12 h).
-		"0 */6 * * *": [
-			"nirmaan_stack.tasks.cleanup_temp_downloads.cleanup_temp_downloads"
-        ],
 		# Every 5 min -- BoQ Claude review health check: a run with no heartbeat (or whose job is
 		# gone) is marked Failed and its "AI pass running" flag cleared. Light: no AI, no library.
 		"*/5 * * * *": [

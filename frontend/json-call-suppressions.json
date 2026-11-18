@@ -9,11 +9,6 @@
       "count": 1
     }
   },
-  "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
-    "no-json-call": {
-      "count": 2
-    }
-  },
   "src/pages/HandoverDocuments/hodDownloads.ts": {
     "no-json-call": {
       "count": 1

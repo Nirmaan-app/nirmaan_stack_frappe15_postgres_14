@@ -325,6 +325,23 @@ class TestBackgroundOps(FrappeTestCase):
         # Every change is in the record at once, sent or not.
         self.assertEqual([percent for _, percent in reads], [10, 20, 30, 40, 40, 40, 50])
 
+    def test_progress_carries_the_works_own_detail_to_the_owner(self):
+        def progress(label):
+            background_ops.set_progress(40, "Adding 3 of 7", detail={"done": 2, "total": 7, "current": "PO-001"})
+            reads.append(api.get_status(op_id=op_id)["progress"])
+
+        reads = []
+        _behaviour["run"] = progress
+        with _FakeQueue() as queue:
+            op_id = _start()
+            frappe.db.commit()
+            _work_off(queue)
+
+        self.assertEqual(
+            reads,
+            [{"percent": 40, "message": "Adding 3 of 7", "detail": {"done": 2, "total": 7, "current": "PO-001"}}],
+        )
+
     def _finished_with_file(self, content, filename):
         _behaviour["run"] = lambda label: background_ops.write_result_file(content, filename) or {"label": label}
         with _FakeQueue() as queue:

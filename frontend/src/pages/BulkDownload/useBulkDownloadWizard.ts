@@ -1,13 +1,12 @@
-import { useState, useContext, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useToast } from "@/components/ui/use-toast";
-import { FrappeContext, FrappeConfig, useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
-import { ALL_SCOPE_MAX_ITEMS, BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO, bulkTableLimits, compareMtcs, isOverSelectionLimit } from "@/utils/bulkDownload/bulkDownloadTypes";
-import { BulkDownloadReadyEvent, cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
-import { DownloadRun, applyFailed, applyProgress, applyReady, isWorking, runDetails, startRun } from "@/utils/bulkDownload/bulkDownloadRun";
-import { readFrappeError } from "@/utils/frappeErrors";
+import { ALL_SCOPE_MAX_ITEMS, BulkDocType, BulkDownloadScope, InvoiceSubType, bulkTableLimits, compareMtcs, isOverSelectionLimit } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { useBulkDownloadOperation } from "@/hooks/useBulkDownloadOperation";
+import { runDetails } from "@/utils/bulkDownload/bulkDownloadRun";
 import { usePorterInvoices } from "./usePorterInvoices";
 
 export type { BulkDocType, InvoiceSubType };
@@ -109,7 +108,6 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
     const projectFields = isProject ? [] : ["project", "project.project_name"];
 
     const { toast } = useToast();
-    const { socket } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
@@ -121,33 +119,24 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
     const [withRate, setWithRate] = useState(true);
     const [invoiceSubType, setInvoiceSubTypeState] = useState<InvoiceSubType>("All Invoices");
 
-    const [loading, setLoading] = useState(false);
-    // What the progress window shows; it stays open on the outcome (ready / failed) until closed.
-    const [run, setRun] = useState<DownloadRun | null>(null);
-    const showProgress = run !== null && isWorking(run.status);
-
-    const [downloadToken, setDownloadToken] = useState<BulkDownloadReadyEvent | null>(null);
+    // The download this wizard follows (ADR 0047): the progress window stays open on the outcome (ready /
+    // failed) until closed, and a reload of the tab picks the download up again. Only a delivered file moves
+    // the wizard to Done: a failed download keeps its selection.
+    const download = useBulkDownloadOperation({
+        storageKey: `bulk_wizard:${kind}:${isAll ? "all" : id}`,
+        onSaved: (result, context) => {
+            // The file's own count: a document that failed is not in the file.
+            setDownloadedCount(result.included ?? 1);
+            setDownloadedLabel(DONE_LABEL[context.type] ?? context.type);
+            setStep(3);
+        },
+    });
+    const { run, working: showProgress } = download;
 
     // A project or vendor loads every list up front (they are small, and Step 1 shows their counts).
     // The all scope loads ONLY the list of the type opened: company-wide they run to thousands of
     // rows each, so opening the tab fetches nothing. PO and DN share one list.
     const wants = (...listTypes: BulkDocType[]) => !isAll || (docType !== null && listTypes.includes(docType));
-
-    // The download this wizard started: its id, and the function that removes its listeners.
-    const activeIdRef = useRef<string | null>(null);
-    const unlistenRef = useRef<(() => void) | null>(null);
-    const detach = useCallback(() => {
-        unlistenRef.current?.();
-        unlistenRef.current = null;
-        activeIdRef.current = null;
-    }, []);
-
-    // Leaving the page mid-download stops the job too: nobody would receive the file.
-    useEffect(() => () => {
-        const activeId = activeIdRef.current;
-        unlistenRef.current?.();
-        if (activeId) cancelBulkDownload(activeId);
-    }, []);
 
     const { data: poList = [], isLoading: posLoading } = useFrappeGetDocList<POItem>(
         "Procurement Orders",
@@ -304,7 +293,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
 
     const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
-    const resetToTypeSelection = useCallback(() => { detach(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); }, [detach]);
+    const resetToTypeSelection = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); }, []);
 
     // Switching invoice type swaps the list under the table, so the selection goes with it -- a
     // download must never carry an invoice the current type hides.
@@ -329,149 +318,69 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         setSelectedIds(eligible.filter(p => all.has(p.name)).map(p => p.name));
     }, [docType, criticalTasks, dnCriticalTasks, poList, dnList]);
 
-    const triggerDownload = useCallback((token: string, filename: string) => {
-        const url = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file?token=${token}&filename=${encodeURIComponent(filename)}`;
-        const a = document.createElement("a"); a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    }, []);
-
     const handleDownload = async () => {
-        if (loading) return;
+        if (showProgress || !docType) return;
         if (!selectedIds.length) { toast({ title: "No items selected", variant: "destructive" }); return; }
         // The button is disabled over the limit; this guards any other way in (the server refuses too).
         if (isOverSelectionLimit(selectedIds.length, bulkTableLimits(kind))) {
             toast({ title: "Too many items", description: `One download takes up to ${ALL_SCOPE_MAX_ITEMS}. Narrow the list with the filters.`, variant: "destructive" });
             return;
         }
-        const label = TYPE_INFO[docType!].short;
-
-        try {
-            setLoading(true);
-            setRun(startRun(docType!, runDetails(docType!, {
-                selected: selectedIds.length,
-                withRate: isProjectManager ? false : withRate,
-                invoiceType: docType === "Invoice" ? invoiceSubType : undefined,
-            })));
-            setDownloadToken(null);
-
-            detach();
-            const downloadId = newDownloadId();
-            activeIdRef.current = downloadId;
-            if (socket) {
-                unlistenRef.current = listenForDownload(socket, downloadId, {
-                    onProgress: (d) => setRun((r) => r && applyProgress(r, d, Date.now())),
-                    onReady: (data) => { setRun((r) => r && applyReady(r, data)); setDownloadToken(data); },
-                    // The window shows the reason; no toast on top of it.
-                    onFailed: (d) => { setRun((r) => r && applyFailed(r, d)); stopProgress(); },
-                });
-            }
-
-            const formData = new FormData(); formData.append("download_id", downloadId);
-            // The all scope sends no project or vendor; the server reads the selection as the user.
-            if (isAll) formData.append("all_scope", "1"); else formData.append(kind, id);
-            let endpoint = "";
-
+        const rate = isProjectManager ? false : withRate;
+        // The all scope sends no project or vendor; the server reads the selection as the user.
+        const scopeArgs: Record<string, unknown> = isAll ? { all_scope: 1 } : { [kind]: id };
+        const names = JSON.stringify(selectedIds);
+        const attachments = (urls: (string | null | undefined)[]) => JSON.stringify(urls);
+        const [endpoint, args]: [string, Record<string, unknown>] = (() => {
             switch (docType) {
-                case "PO":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_pos";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    formData.append("with_rate", (isProjectManager ? false : withRate) ? "1" : "0");
-                    break;
-                case "WO":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_wos";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    formData.append("with_rate", (isProjectManager ? false : withRate) ? "1" : "0");
-                    break;
-                case "DN":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_dns";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    break;
-                case "Invoice":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify(filteredInvoiceItems(invoiceSubType).filter(i => selectedIds.includes(i.name)).map(i => i.invoice_attachment!)));
-                    formData.append("doc_type", invoiceSubType);
-                    break;
+                case "PO": return ["download_selected_pos", { names, with_rate: rate ? 1 : 0 }];
+                case "WO": return ["download_selected_wos", { names, with_rate: rate ? 1 : 0 }];
+                case "DN": return ["download_selected_dns", { names }];
+                case "Invoice": return ["download_selected_attachments", {
+                    doc_type: invoiceSubType,
+                    attachment_names: attachments(filteredInvoiceItems(invoiceSubType).filter(i => selectedIds.includes(i.name)).map(i => i.invoice_attachment)),
+                }];
                 case "DC":
-                case "MIR":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify((docType === "DC" ? dcItems : mirItems).filter(d => selectedIds.includes(d.name)).map(d => d.nirmaan_attachment!)));
-                    formData.append("doc_type", docType);
-                    break;
-                case "ClientInvoice":
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify(projectInvoiceItems.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
-                    formData.append("doc_type", "Client Invoices");
-                    break;
-                case "MTC":
-                    // MTC names, not file URLs: the server reads each certificate back itself.
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_mtcs";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    break;
-                case "POPaymentVoucher":
-                    // Payment names: the server keeps the Paid ones and generates each voucher.
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_po_payment_vouchers";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    break;
-                case "WOPaymentVoucher":
-                    // Payment names, not file URLs: the server reads each uploaded voucher back itself.
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_wo_payment_vouchers";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    break;
-                case "PorterInvoice":
-                    // Invoice numbers, not file URLs: the server reads each invoice's own PDF back itself.
-                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_porter_invoices";
-                    formData.append("names", JSON.stringify(selectedIds));
-                    break;
+                case "MIR": return ["download_selected_attachments", {
+                    doc_type: docType,
+                    attachment_names: attachments((docType === "DC" ? dcItems : mirItems).filter(d => selectedIds.includes(d.name)).map(d => d.nirmaan_attachment)),
+                }];
+                case "ClientInvoice": return ["download_selected_attachments", {
+                    doc_type: "Client Invoices",
+                    attachment_names: attachments(projectInvoiceItems.filter(p => selectedIds.includes(p.name)).map(p => p.attachment)),
+                }];
+                // MTC names, not file URLs: the server reads each certificate back itself.
+                case "MTC": return ["download_selected_mtcs", { names }];
+                // Payment names: the server keeps the Paid ones and generates each voucher.
+                case "POPaymentVoucher": return ["download_selected_po_payment_vouchers", { names }];
+                // Payment names, not file URLs: the server reads each uploaded voucher back itself.
+                case "WOPaymentVoucher": return ["download_selected_wo_payment_vouchers", { names }];
+                // Invoice numbers, not file URLs: the server reads each invoice's own PDF back itself.
+                case "PorterInvoice": return ["download_selected_porter_invoices", { names }];
             }
-
-            const res = await fetch(endpoint, { method: "POST", headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" }, body: formData });
-            if (!res.ok) throw new Error(await readFrappeError(res, `Failed to start ${label} download (Status: ${res.status})`));
-        } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); detach(); setLoading(false); setRun(null); }
+        })();
+        // A refusal shows its reason in the progress window.
+        await download.start(
+            `nirmaan_stack.api.pdf_helper.bulk_download.${endpoint}`,
+            { ...scopeArgs, ...args },
+            {
+                type: docType,
+                details: runDetails(docType, {
+                    selected: selectedIds.length,
+                    withRate: rate,
+                    invoiceType: docType === "Invoice" ? invoiceSubType : undefined,
+                }),
+            },
+        );
     };
-
-    /** Ends the job's side (file, failure or refusal) and drops this download's listeners; the window
-     *  keeps its outcome. It never moves to the Done step: a failed download keeps its selection, and
-     *  only a delivered file counts as done. */
-    const stopProgress = useCallback(() => {
-        setLoading(false);
-        detach();
-    }, [detach]);
-
-    /** The finished window's Close. */
-    const closeProgress = useCallback(() => setRun(null), []);
-
-    /** The progress window's Cancel: close it, stop the job, and stay on the selection (it is kept). */
-    const cancelDownload = useCallback(() => {
-        const activeId = activeIdRef.current;
-        detach();
-        setLoading(false); setRun(null); setDownloadToken(null);
-        if (activeId) cancelBulkDownload(activeId);
-        toast({ title: "Download cancelled" });
-    }, [detach, toast]);
-
-    // The file is ready: hand it to the browser and show the Done step. This is the ONLY way to Done --
-    // `progress` proves nothing (the previous download leaves it at 100, and the failure listener
-    // holds the values of the render in which Download was clicked).
-    useEffect(() => {
-        if (!loading || !downloadToken) return;
-        triggerDownload(downloadToken.token, downloadToken.filename);
-        stopProgress();
-        // The file's own count when the server sends it: a document that failed is not in the file.
-        setDownloadedCount(downloadToken.included ?? (selectedIds.length || 1));
-        setDownloadedLabel(docType ? DONE_LABEL[docType] ?? docType : "batch");
-        setStep(3);
-    }, [downloadToken, loading, triggerDownload, stopProgress, selectedIds, docType]);
 
     return {
         step, docType, selectedIds, toggleId, selectAll, deselectAll, selectMultipleCriticalTaskPOs, goToStep2, goBack, resetToTypeSelection,
         downloadedCount, downloadedLabel, poList, posLoading, woList, wosLoading, dnList,
         invoicesLoading, dcItems, mirItems, poDeliveryDocsLoading, criticalTasks, dnCriticalTasks, criticalTasksLoading,
         withRate, setWithRate, itemCounts, invoiceSubType, setInvoiceSubType, filteredInvoiceItems,
-        loading, showProgress, run, closeProgress, handleDownload,
-        downloadToken,
-        triggerDownload,
-        stopProgress,
-        cancelDownload,
+        loading: showProgress, showProgress, run, closeProgress: download.close, handleDownload,
+        cancelDownload: download.cancel,
         projectInvoiceItems,
         projectInvoicesLoading,
         poVoucherPayments,

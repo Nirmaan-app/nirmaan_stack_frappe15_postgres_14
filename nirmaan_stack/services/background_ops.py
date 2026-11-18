@@ -147,14 +147,18 @@ def _peak_memory_mb():
     return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
 
 
-def set_progress(percent, message=None):
+def set_progress(percent, message=None, detail=None):
     """Record the work's progress, from inside the work. Every change is in the record at once; the owner is told
-    to read it now at most every READ_NOW_EVERY_SECONDS while it changes (the screen polls in between)."""
+    to read it now at most every READ_NOW_EVERY_SECONDS while it changes (the screen polls in between).
+
+    `detail` is the flow's own JSON (counts, the item in hand) for a screen that shows more than a bar."""
     op_id = getattr(frappe.local, "background_op_id", None)
     record = _read(op_id) if op_id else None
     if not record:
         return
     progress = {"percent": int(percent), "message": message}
+    if detail is not None:
+        progress["detail"] = detail
     if record["progress"] == progress:
         return
     record["progress"] = progress

@@ -521,14 +521,6 @@
       "count": 4
     }
   },
-  "src/hooks/useBulkPdfDownload.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 3
-    }
-  },
   "src/hooks/useCEOHoldGuard.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -943,7 +935,7 @@
       "count": 1
     },
     "typescript/no-explicit-any": {
-      "count": 13
+      "count": 11
     }
   },
   "src/pages/BulkDownload/usePorterInvoices.ts": {
@@ -964,17 +956,6 @@
   "src/pages/CommissionReport/commission-report-list.tsx": {
     "typescript/no-explicit-any": {
       "count": 7
-    }
-  },
-  "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "no-restricted-properties": {
-      "count": 2
-    },
-    "typescript/no-explicit-any": {
-      "count": 2
     }
   },
   "src/pages/CommissionReport/components/BulkApprovalDialog.tsx": {
@@ -5409,16 +5390,6 @@
     },
     "typescript/no-explicit-any": {
       "count": 2
-    }
-  },
-  "src/utils/bulkDownload/bulkDownloadEvents.test.ts": {
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/utils/bulkDownload/bulkDownloadEvents.ts": {
-    "typescript/no-explicit-any": {
-      "count": 5
     }
   },
   "src/utils/downloadPrintFormatPdf.ts": {

@@ -74,7 +74,7 @@ describe("while the job runs", () => {
 
 describe("the outcome", () => {
     it("a complete file shows its name and closes itself after 2 s", () => {
-        show(applyReady(preparing(), { token: "t", filename: "Tower_A_All_POs.pdf", included: 34, total: 34 }));
+        show(applyReady(preparing(), { filename: "Tower_A_All_POs.pdf", included: 34, total: 34 }));
         expect(text()).toContain("Procurement Orders ready");
         expect(text()).toContain("Tower_A_All_POs.pdf · downloading");
         expect(buttons()).toEqual(["Close"]);
@@ -85,7 +85,7 @@ describe("the outcome", () => {
     });
 
     it("a file missing documents says so and waits to be closed", () => {
-        show(applyReady(preparing(), { token: "t", filename: "f.pdf", included: 33, total: 34 }));
+        show(applyReady(preparing(), { filename: "f.pdf", included: 33, total: 34 }));
         expect(text()).toContain("Procurement Orders ready, 1 missing");
         expect(text()).toContain("33 of 34 documents included");
         expect(text()).toContain("1 document could not be added.");

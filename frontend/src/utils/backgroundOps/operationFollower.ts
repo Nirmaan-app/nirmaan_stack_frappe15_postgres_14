@@ -26,6 +26,8 @@ export type OpState = "queued" | "running" | "finished" | "failed" | "lost";
 export interface OpProgress {
   percent: number;
   message: string | null;
+  /** The work's own figures (`set_progress(..., detail=...)`), for a screen that shows more than a bar. */
+  detail?: Record<string, unknown>;
 }
 
 /** The status record as `api/background_ops.get_status` returns it (times are server epoch seconds). */
@@ -86,8 +88,12 @@ export function parseOpStatus(value: unknown): OpStatus | null {
   if (!isRecord(value) || typeof value.op_id !== "string") return null;
   const state = STATES.find((s) => s === value.state);
   if (!state) return null;
-  const progress = isRecord(value.progress) && typeof value.progress.percent === "number"
-    ? { percent: value.progress.percent, message: stringOrNull(value.progress.message) }
+  const progress: OpProgress | null = isRecord(value.progress) && typeof value.progress.percent === "number"
+    ? {
+      percent: value.progress.percent,
+      message: stringOrNull(value.progress.message),
+      ...(isRecord(value.progress.detail) ? { detail: value.progress.detail } : {}),
+    }
     : null;
   return {
     op_id: value.op_id,

@@ -215,3 +215,4 @@ nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses
 nirmaan_stack.patches.v3_0.card_credits_to_unpaired_refunds
 nirmaan_stack.patches.v3_0.create_open_collect_payment_expenses
 nirmaan_stack.patches.v3_0.create_open_cashbook_refund_expenses
+nirmaan_stack.patches.v3_0.remove_temp_downloads_folder

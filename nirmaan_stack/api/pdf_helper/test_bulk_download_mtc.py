@@ -14,8 +14,8 @@ What must hold:
      assigned means nothing -- stricter than Frappe's default. The rule itself is pinned by the MTC
      module's tests; here it is forced through `mtc_allowed_projects` to prove Bulk Download obeys it.
 
-⚠️ RUNS AGAINST THE LIVE SITE DATABASE, read-only: nothing is enqueued (`frappe.enqueue` replaced),
-no file is fetched (`_fetch_attachment_content` replaced), events are captured. A site with no
+⚠️ RUNS AGAINST THE LIVE SITE DATABASE, read-only: nothing is queued (the module's start is
+recorded), no file is fetched (`_fetch_attachment_content` replaced), and the work runs in-process. A site with no
 MTCs skips these tests with the reason.
 """
 
@@ -26,6 +26,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.material_test_certificates import mtc_api
 from nirmaan_stack.api.pdf_helper import bulk_download as bd
+from nirmaan_stack.api.pdf_helper import test_bulk_download_job as job_tests
 
 ORDER = "order by certificate_date asc, creation asc"
 
@@ -47,14 +48,7 @@ class TestBulkDownloadMTC(FrappeTestCase):
     def setUp(self):
         if not self.vendor:
             self.skipTest("this site has no Material Test Certificate with a file")
-        self.enqueued, self.events = [], []
-        for target, attr, fn in (
-            (frappe, "enqueue", lambda method, **kw: self.enqueued.append(kw)),
-            (frappe, "publish_realtime", lambda event, data=None, **kw: event.startswith("bulk_download") and self.events.append((event, data))),
-        ):
-            p = patch.object(target, attr, side_effect=fn)
-            p.start()
-            self.addCleanup(p.stop)
+        self.enqueued = job_tests.record_starts(self)
 
     def tearDown(self):
         frappe.set_user("Administrator")
@@ -117,9 +111,10 @@ class TestBulkDownloadMTC(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError):
                 bd.download_selected_mtcs(names=empty, vendor=self.vendor)
         self.assertEqual(self.enqueued, [])
-        out = bd.download_selected_mtcs(names='["MTC-X"]', vendor=self.vendor, download_id="mtc-download-01")
+        op_id = job_tests.new_op_id()
+        out = bd.download_selected_mtcs(names='["MTC-X"]', vendor=self.vendor, op_id=op_id)
         job = self.enqueued[-1]
-        self.assertEqual((job["doc_type"], job["names"], job["download_id"], out["download_id"]), (bd.MTCS, '["MTC-X"]', "mtc-download-01", "mtc-download-01"))
+        self.assertEqual((job["doc_type"], job["names"], job["op_id"], out["op_id"]), (bd.MTCS, '["MTC-X"]', op_id, op_id))
         self.assertTrue(job["custom_filename"].endswith("_Selected_MTCs.pdf"))
 
     def test_the_file_url_endpoint_refuses_mtcs(self):
@@ -127,13 +122,12 @@ class TestBulkDownloadMTC(FrappeTestCase):
             bd.download_selected_attachments(attachment_names='["/files/x.png"]', doc_type=bd.MTCS, vendor=self.vendor)
         self.assertEqual(self.enqueued, [])
 
-    def test_the_job_fetches_the_certificates_in_order_and_stamps_the_download_id(self):
+    def test_the_work_fetches_the_certificates_in_order(self):
         names = _sql_list(f'''select name from "tabMaterial Test Certificate" where vendor = %s {ORDER}''', self.vendor)
         fetched = []
         with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)):
-            bd.run_bulk_download_job(doc_type=bd.MTCS, vendor=self.vendor, names=frappe.as_json(names), user="Administrator", download_id="mtc-job-0001")
+            job_tests.run_work(doc_type=bd.MTCS, vendor=self.vendor, names=frappe.as_json(names))
         self.assertEqual(fetched, bd._mtc_files("vendor", self.vendor, names))
-        self.assertTrue(self.events and all(d["download_id"] == "mtc-job-0001" for _, d in self.events))
 
     # --- 3. the MTC project rule ------------------------------------------------------------------
 

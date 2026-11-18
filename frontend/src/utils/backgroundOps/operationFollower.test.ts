@@ -62,6 +62,22 @@ describe("OperationFollower", () => {
     expect(f.last()).toEqual({ phase: "running", opId: A, progress: { percent: 40, message: "Item 4" } });
   });
 
+  it("hands the screen the work's own progress detail", async () => {
+    const f = fakeEdge();
+    const follower = new OperationFollower(f.edge);
+    await follower.start(async () => undefined);
+
+    f.serverSays({
+      state: "running", started_at: 1000, timeout: 600,
+      progress: { percent: 50, message: "2 of 4", detail: { done: 2, total: 4, current: "PO-7" } },
+    });
+    await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_DOWN);
+    expect(f.last()).toEqual({
+      phase: "running", opId: A,
+      progress: { percent: 50, message: "2 of 4", detail: { done: 2, total: 4, current: "PO-7" } },
+    });
+  });
+
   it("polls about every 10 s while the socket is up and every 3 s while it is down", async () => {
     let up = true;
     const f = fakeEdge({ socketUp: () => up });

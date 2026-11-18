@@ -2,23 +2,28 @@
 // Lists the Submitted (approved, awaiting client-signature) Field reports, lets the user pick
 // any subset, and exports them as ONE merged PDF.
 //
-// ASYNC by design (does NOT block the site for other users): Export enqueues a background job
-// (nirmaan_stack.api.commission_report.bulk_download_reports.enqueue_commission_reports) that
-// renders + merges on the `long` queue, streams progress over Socket.IO, and hands back a
-// temp-file token we download via the shared bulk_download.fetch_temp_file endpoint.
+// The export is a background operation (ADR 0047, #1664): Export starts
+// nirmaan_stack.api.commission_report.bulk_download_reports.start_commission_reports, which renders + merges on
+// the `long` queue; the shared hook follows the operation's own status record (so another export's file never
+// reaches this dialog, and a dropped socket or a reload still ends in the file) and the PDF is collected by
+// operation id, which only the user who started it can do.
 // (Vendor reports and non-Submitted tasks are intentionally out of scope.)
 
-import React, { useContext, useMemo, useRef, useState } from 'react';
-import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
+import React, { useMemo, useState } from 'react';
 import { Loader2, Download } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/components/ui/use-toast';
+import { collectResultFile, useBackgroundOperation } from '@/hooks/useBackgroundOperation';
+import { parseResultFile } from '@/utils/backgroundOps/operationFollower';
+import { commissionExportOf, commissionExportOutcome } from '@/utils/commissionBulkExport';
 
 import type { CommissionReportTask } from '../types';
 import { masterMapKey, type MasterTaskInfo } from './FillReportButton';
+
+const START_METHOD = 'nirmaan_stack.api.commission_report.bulk_download_reports.start_commission_reports';
 
 interface Props {
     open: boolean;
@@ -30,117 +35,48 @@ interface Props {
     masterMap: Map<string, MasterTaskInfo>;
 }
 
-// Safety net: if the job never emits a terminal event (worker died before publish),
-// stop showing the spinner after this long. The server-side lock has its own TTL.
-const EXPORT_TIMEOUT_MS = 5 * 60 * 1000;
-
 export const ApprovedReportsDialog: React.FC<Props> = ({
-    open, onOpenChange, trackerId, projectName, reports, masterMap,
+    open, onOpenChange, trackerId, reports, masterMap,
 }) => {
-    const { socket } = useContext(FrappeContext) as FrappeConfig;
-
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
-    const [exporting, setExporting] = useState(false);
-    const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // The job_id of the export THIS dialog started; events not matching it are ignored so a
-    // second open dialog never reacts to our progress/ready (F4).
-    const activeJobRef = useRef<string | null>(null);
 
-    const clearSafetyTimeout = () => {
-        if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-        }
-    };
+    const op = useBackgroundOperation({
+        storageKey: `commission_bulk:${trackerId}`,
+        onFinished: async (result, _context, opId) => {
+            try {
+                const blob = await collectResultFile(opId);
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', parseResultFile(result)?.filename ?? 'Commission_Reports.pdf');
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (e) {
+                toast({ title: 'Failed', description: e instanceof Error ? e.message : 'Could not download the PDF.', variant: 'destructive' });
+                op.reset();
+                return;
+            }
+            toast(commissionExportOutcome(result));
+            op.reset();
+            onOpenChange(false);
+        },
+        onFailed: (ended) => {
+            toast({ title: 'Failed', description: ended.error, variant: 'destructive' });
+            op.reset();
+        },
+    });
+    const { exporting, queued, progress } = commissionExportOf(op.view);
 
-    const resetRun = () => {
-        clearSafetyTimeout();
-        activeJobRef.current = null;
-        setExporting(false);
-        setProgress(null);
-    };
-
-    // Clear a pending safety timer if the dialog unmounts mid-export (F3) — otherwise it
-    // fires ~5 min later and calls setState/toast on an unmounted component.
-    React.useEffect(() => () => clearSafetyTimeout(), []);
-
-    // (Re)arm the "no events at all" safety net. Re-armed on every progress tick, so a large
-    // job (60, 100, … reports) that keeps reporting progress NEVER falsely times out — only a
-    // genuinely stuck job (no event for EXPORT_TIMEOUT_MS) trips it.
-    const armSafetyTimeout = () => {
-        clearSafetyTimeout();
-        timeoutRef.current = setTimeout(() => {
-            toast({ title: 'Still working…', description: 'This is taking longer than expected. Please try again.', variant: 'destructive' });
-            resetRun();
-        }, EXPORT_TIMEOUT_MS);
-    };
-
-    const triggerDownload = (token: string, filename: string) => {
-        const url = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file?token=${token}&filename=${encodeURIComponent(filename)}`;
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', filename);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-    };
-
-    // Fresh state each time the dialog opens.
+    // Fresh selection each time the dialog opens (an export in flight keeps going).
     React.useEffect(() => {
         if (open) {
             setSelected(new Set());
             setCategoryFilter('all');
-            resetRun();
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
-
-    // Socket listeners live while the dialog is open. The job is user-targeted server-side,
-    // so we only ever receive our own events.
-    React.useEffect(() => {
-        if (!socket || !open) return;
-
-        // Ignore events from an export this dialog didn't start (F4). If job_id is absent
-        // (older payload), fall through and handle it.
-        const isMine = (d: { job_id?: string }) => !d.job_id || d.job_id === activeJobRef.current;
-
-        const onProgress = (d: { job_id?: string; done: number; total: number }) => {
-            if (!isMine(d)) return;
-            setProgress({ done: d.done, total: d.total });
-            armSafetyTimeout(); // keep-alive: a progress tick means the job is running
-        };
-
-        const onReady = (d: { job_id?: string; token: string; filename: string; rendered?: number; failed?: number; total?: number }) => {
-            if (!isMine(d)) return;
-            triggerDownload(d.token, d.filename);
-            const failed = d.failed ?? 0;
-            toast(
-                failed > 0
-                    ? { title: 'Exported with issues', description: `${d.rendered ?? '?'} of ${d.total ?? '?'} report(s) downloaded; ${failed} could not be generated.`, variant: 'destructive' }
-                    : { title: 'Exported', description: 'Your merged PDF is downloading.', variant: 'success' },
-            );
-            resetRun();
-            onOpenChange(false);
-        };
-
-        const onFailed = (d: { job_id?: string; message?: string }) => {
-            if (!isMine(d)) return;
-            toast({ title: 'Failed', description: d?.message || 'Could not generate the reports.', variant: 'destructive' });
-            resetRun();
-        };
-
-        socket.on('commission_bulk_progress', onProgress);
-        socket.on('commission_bulk_ready', onReady);
-        socket.on('commission_bulk_failed', onFailed);
-        return () => {
-            socket.off('commission_bulk_progress', onProgress);
-            socket.off('commission_bulk_ready', onReady);
-            socket.off('commission_bulk_failed', onFailed);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [socket, open]);
 
     // Distinct categories present (for the filter chips), with counts.
     const categories = useMemo(() => {
@@ -174,50 +110,18 @@ export const ApprovedReportsDialog: React.FC<Props> = ({
         });
 
     const handleExport = async () => {
-        if (selected.size === 0) return;
-        setExporting(true);
-        // Don't seed progress with selected.size — the backend re-gates and streams the
-        // authoritative total on the first tick (F5); the button shows a spinner until then.
-        try {
-            const tasks = reports
-                .filter((r) => selected.has(r.name))
-                .map((r) => {
-                    const info = masterMap.get(masterMapKey(r.commission_category, r.task_name));
-                    return { name: r.name, landscape: !!info?.isLandscape };
-                });
-
-            const res = await fetch(
-                '/api/method/nirmaan_stack.api.commission_report.bulk_download_reports.enqueue_commission_reports',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Frappe-CSRF-Token': (window as any).csrf_token || '',
-                    },
-                    body: JSON.stringify({ tracker: trackerId, tasks }),
-                },
-            );
-            if (!res.ok) {
-                // Surface the server message (e.g. "already in progress", size cap).
-                let msg = 'Failed to start the export.';
-                try {
-                    const j = await res.json();
-                    if (j?._server_messages) msg = JSON.parse(JSON.parse(j._server_messages)[0]).message || msg;
-                } catch { /* keep default */ }
-                throw new Error(msg);
-            }
-            // Remember which job is ours so we only react to its events (F4).
-            const j = await res.json();
-            activeJobRef.current = j?.message?.job_id ?? null;
-            // Enqueued: wait for the commission_bulk_* events (re-armed on each progress tick).
-            armSafetyTimeout();
-        } catch (e: any) {
-            toast({ title: 'Error', description: e?.message || 'Failed to start the export.', variant: 'destructive' });
-            resetRun();
-        }
+        if (selected.size === 0 || exporting) return;
+        // The server re-gates the selection and reports the authoritative total once it starts.
+        const tasks = reports
+            .filter((r) => selected.has(r.name))
+            .map((r) => {
+                const info = masterMap.get(masterMapKey(r.commission_category, r.task_name));
+                return { name: r.name, landscape: !!info?.isLandscape };
+            });
+        await op.start(START_METHOD, { tracker: trackerId, tasks });
     };
 
-    // Block closing while a job is in flight (keeps the socket listener alive for the download).
+    // Block closing while an export is in flight, so its outcome shows here.
     const handleOpenChange = (o: boolean) => {
         if (!o && exporting) return;
         onOpenChange(o);
@@ -297,6 +201,9 @@ export const ApprovedReportsDialog: React.FC<Props> = ({
                     </div>
                 )}
 
+                {queued && (
+                    <div className="px-1 pt-1 text-[11px] text-gray-500">Waiting in the queue… it starts on its own.</div>
+                )}
                 {exporting && progress && (
                     <div className="px-1 pt-1">
                         <div className="flex justify-between text-[11px] text-gray-500 mb-1">
@@ -315,7 +222,7 @@ export const ApprovedReportsDialog: React.FC<Props> = ({
                     </Button>
                     <Button size="sm" className="gap-1" onClick={handleExport} disabled={selected.size === 0 || exporting}>
                         {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                        {exporting ? 'Preparing…' : `Export${selected.size > 0 ? ` (${selected.size})` : ''}`}
+                        {queued ? 'Queued…' : exporting ? 'Preparing…' : `Export${selected.size > 0 ? ` (${selected.size})` : ''}`}
                     </Button>
                 </DialogFooter>
             </DialogContent>

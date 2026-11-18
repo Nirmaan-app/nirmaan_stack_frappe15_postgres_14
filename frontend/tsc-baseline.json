@@ -234,7 +234,6 @@
     ["src/pages/CashflowPlanTracker/components/CashflowPlanProjectCard.tsx","TS6133","'CircleDollarSign' is declared but its value is never read.",1],
     ["src/pages/CommissionReport/commission-report-list.tsx","TS6133","'Button' is declared but its value is never read.",1],
     ["src/pages/CommissionReport/commission-report-list.tsx","TS6133","'isRestrictedAssigneeRole' is declared but its value is never read.",1],
-    ["src/pages/CommissionReport/components/ApprovedReportsDialog.tsx","TS6133","'projectName' is declared but its value is never read.",1],
     ["src/pages/CommissionReport/project-commission-report-details.tsx","TS6133","'DOCTYPE' is declared but its value is never read.",1],
     ["src/pages/CommissionReport/project-commission-report-details.tsx","TS6133","'format' is declared but its value is never read.",1],
     ["src/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster.tsx","TS6133","'LinkMilestonesDialog' is declared but its value is never read.",1],

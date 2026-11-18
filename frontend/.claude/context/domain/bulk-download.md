@@ -128,6 +128,7 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 | The "All … / Critical POs" tabs shared by the PO and DN steps | `src/pages/BulkDownload/steps/CriticalTasksTab.tsx` |
 | Every type's names; the invoice choices; the vendor-type rule (also used by the vendor page's tabs) | `TYPE_INFO`, `INVOICE_SUB_TYPES`, `vendorHandlesMaterial` / `vendorHandlesService` in `bulkDownloadTypes.ts` |
 | Quick Download menu | `src/components/common/BulkPdfDownloadButton.tsx`, `src/hooks/useBulkPdfDownload.ts` |
+| Following one download (start, window, collect, Cancel), shared by Quick Download and the wizard | `src/hooks/useBulkDownloadOperation.ts` over `hooks/useBackgroundOperation.ts` |
 | The progress window (one, for Quick Download and the wizard), and what it shows per event | `src/components/common/BulkDownloadProgressDialog.tsx`, `src/utils/bulkDownload/bulkDownloadRun.ts` |
 | Each type's icon and colour (cards and the window's icon tile) | `TYPE_STYLE` in `src/utils/bulkDownload/bulkDownloadStyle.ts` |
 | Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_po_voucher_payments`, `_wo_voucher_files`, `_mtc_files`) |
@@ -141,28 +142,26 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 - Every endpoint takes **exactly one** of `project=` or `vendor=`. `_scope` refuses both or neither.
 - Cards, the Quick menu and the voucher query all come from `allowedBulkTypes`. Do not add a second role check
   somewhere else.
-- **Every download has its own id.** The browser makes it (`newDownloadId`) and sends it as `download_id`; every
-  event the job publishes carries it; each tab listens only for its own (`listenForDownload` in
-  `utils/bulkDownload/bulkDownloadEvents.ts`) and removes only its own listeners — never `socket.off(event)`.
-  Never call it `job_id`: `frappe.enqueue` takes that keyword for itself.
+- **Every download is its own background operation (ADR 0047, #1664).** The shared hook makes its `op_id` and
+  follows its status record; the PDF is kept privately and collected by `op_id`, only by the user who started it.
+  Nothing is written to a served folder. A reload of the tab picks the download up again (sessionStorage), and
+  leaving the page no longer cancels it.
 - **An empty selection is refused** by the "Selected" endpoints, and the job reads an explicit empty list as
   nothing. Only a "Download All" leaves the list out.
-- **The job never ends silently:** any failure publishes `bulk_download_failed` (and writes an Error Log). The
-  progress window's **Cancel download** calls `cancel_bulk_download`; the job checks a per-user Redis flag
-  (`frappe.cache.exists`, never `get_value`, which caches per process) before each document.
-- **Only a delivered file reaches the wizard's Done step** (the `bulk_download_all_ready` token). A failure keeps
-  the selection and leaves the window open on the server's reason (no toast); a cancel closes the window and keeps
-  the selection. Never decide "done" from `progress`: the previous download leaves it at 100, and the failure
-  listener holds the values of the render in which Download was clicked.
-- **The window counts FINISHED documents.** The job publishes `bulk_download_progress` before each document with
+- **The work never ends silently:** a refusal fails the operation in its own words; anything else fails it with a
+  logged error. The progress window's **Cancel download** calls `cancel_bulk_download(op_id)` (owner only); the
+  work checks a per-operation Redis flag (`frappe.cache.exists`, never `get_value`, which caches per process)
+  before each document.
+- **Only a delivered file reaches the wizard's Done step** (the collected file). A failure, a refused start included,
+  keeps the selection and leaves the window open on the server's reason (no toast); a cancel closes the window and
+  keeps the selection. Never decide "done" from progress.
+- **The window counts FINISHED documents.** The work reports progress before each document with the detail
   `done` (finished so far), `total` and `current` (the PO / WO number, for PO, WO and DN only), then once with
-  `stage: "merging"` while it writes the file; `bulk_download_all_ready` carries `included` / `total`, so a
-  document that failed shows as missing instead of vanishing. The window reads these only through
-  `bulkDownloadRun.ts`, which also accepts an older worker's events (no counts). It cannot be dismissed while the
-  job runs (leaving the page cancels the job); there is deliberately no "run in background".
-- **A refused start shows Frappe's own reason.** Read it with `readFrappeError(response, fallback)`
-  (`src/utils/frappeErrors.ts`, which wraps `getFrappeError`), never `res.json().message`: Frappe puts the reason in
-  `_server_messages` / `exception`, and an HTML error page is not JSON.
+  `stage: "merging"` while it writes the file; its result carries `included` / `total`, so a document that failed
+  shows as missing instead of vanishing. The window reads these only through `bulkDownloadRun.followRun`. It
+  cannot be dismissed while the download runs.
+- **A refused start shows Frappe's own reason** in the window: the shared hook reads `_server_messages` /
+  `exception`, never `res.json().message`, and an HTML error page is not JSON.
 - **The DN step's Critical POs tab uses `dnCriticalTasks`**: each task's links narrowed to POs with deliveries, so
   a task's chips, its count and what ticking it queues all agree. Ticking selects from the current step's own list.
 
