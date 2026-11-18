@@ -18,10 +18,11 @@ import urllib.parse
 from typing import Any
 
 from psycopg2.errors import SerializationFailure
+from rq.timeouts import JobTimeoutException
 
 import frappe
 
-from nirmaan_stack.services import operation_marker
+from nirmaan_stack.services import background_ops, operation_marker
 from nirmaan_stack.services.boq_parser.config import (
     GlobalSettings,
     MappingConfig,
@@ -106,15 +107,28 @@ def _clear_all_sheet_parse_markers(boq_name: str) -> None:
     )
 
 
-# Fallback status cache: _publish_parse_event records the terminal outcome here keyed
-# by RQ job id so the hub can poll get_parse_status() if it misses the (room-targeted,
-# non-replayed) boq:parse_run_done realtime event. Mirrors upload_file's pattern.
-_PARSE_STATUS_CACHE_PREFIX = "boq_parse_status"
-_PARSE_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
+# The savepoint each sheet's writes run in (see _run_parse_worker Step 5).
+_SHEET_SAVEPOINT = "boq_parse_sheet"
 
+# The parse is a background operation (ADR 0047; spec #1654, #1668): its kind in the log line, and its time limit,
+# counted from when it starts running.
+OPERATION_KIND = "boq_parse"
+_PARSE_TIMEOUT_SEC = 600
 
-def _parse_status_key(job_id):
-    return f"{_PARSE_STATUS_CACHE_PREFIX}::{job_id}"
+# What the hub shows when a parse fails: the operation's `error`. A parse with no eligible sheet is not a failure;
+# it finishes with status "nothing_to_parse".
+MISSING_FILE_MESSAGE = (
+    "The source file for this BoQ could not be found. It may have been moved or deleted."
+)
+FETCH_FAILED_MESSAGE = (
+    "Could not retrieve the source file. Please try again; if it persists, the file storage may be unavailable."
+)
+PARSE_FAILED_MESSAGE = (
+    "The parser could not process this workbook. The file may be malformed or in an unexpected format."
+)
+INTERNAL_MESSAGE = (
+    "An unexpected error occurred during parsing. Please try again or contact support if it continues."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +516,9 @@ def flatten_parsed_boq(parsed_boq: ParsedBoq, boq_name: str) -> list[dict[str, A
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist(methods=["POST"])
-def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
+def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False, op_id=None):
     """
-    Enqueue a background parse worker.  Returns immediately.
+    Start the parse of a BoQ as a background operation (ADR 0047; spec #1654, #1668). Returns at once.
 
     sheet_names=None  -> parse all eligible Config Done/Parsed sheets.
     sheet_names=[...] -> parse only the named subset (per-sheet re-parse).
@@ -512,12 +526,18 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     force_reparse=False (default) -> normal parse path; "Finalized"
         sheets stay ineligible exactly as before.
     force_reparse=True -> Force Re-parse; "Finalized" sheets become
-        eligible data parse targets (see assemble_mapping_config). The frontend
-        sets this only for a deliberate, warned re-parse of an already-checked
-        sheet (a later slice wires the button).
+        eligible data parse targets (see assemble_mapping_config).
+
+    `op_id` is the browser-made operation id (a lowercase UUID). The reply is the operation's status record; the hub
+    follows it with `api/background_ops.get_status`. The finished record's `result` is the parse's outcome (see
+    _run_parse_worker); a parse that fails ends the operation failed, with the server's words in its `error`. The
+    same user repeating an `op_id` gets the existing record back and nothing is queued again.
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse
     """
+    earlier = background_ops.started_before(op_id)
+    if earlier:
+        return earlier
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
     if not frappe.db.exists("BOQs", boq_name):
@@ -555,12 +575,6 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     # inline notice in ParseRunDialog (Live pricer named from get_boq_downstream_state)
     # instead of a server confirm_orphan gate. directional_guard.py is unchanged.
 
-    # Raw (un-namespaced) job id. frappe.enqueue namespaces it internally to
-    # "{site}::{id}"; get_job_status re-namespaces on read, so we MUST store the
-    # RAW id -- storing job.id (already namespaced) would double-namespace and
-    # always read None (Recon #2 Q4).
-    raw_job_id = frappe.generate_hash(length=32)
-
     # Superset marking (#164): flag every sheet that COULD parse this run. If a
     # subset was named, those; otherwise every sheet whose wizard_status is
     # Rule-3-admissible (mirrors assemble_mapping_config). The worker reconciles
@@ -579,13 +593,15 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
             if (d.wizard_status or "") in admissible
         ]
 
-    # CLAIM the BoQ BEFORE the enqueue (#1660): the flag is set only when it is clear, so of two
-    # starts that both read it clear only one queues. The loser either finds the flag already set
-    # (no row updated) or, its snapshot being older than the winner's commit (REPEATABLE READ),
-    # fails to serialize; both are "a parse is already running". Raw SQL skips doc hooks, as the
-    # set_value below always did: these lifecycle columns feed no derived field. The flag + job id
-    # + timestamp + the per-sheet superset markers land in one commit, BEFORE the queue call, so
-    # the job finds them committed; a failed queue call clears them again.
+    # CLAIM the BoQ BEFORE the operation is queued (#1660): the flag is set only when it is clear, so of two
+    # starts that both read it clear only one queues. The loser either finds the flag already set (no row
+    # updated) or, its snapshot being older than the winner's commit (REPEATABLE READ), fails to serialize; both
+    # are "a parse is already running". Raw SQL skips doc hooks, as the set_value below always did: these
+    # lifecycle columns feed no derived field. The flag + the operation id (also its raw rq job id) + timestamp +
+    # the per-sheet superset markers land in this request's commit, which is also what queues the operation
+    # (background_ops.start), so the work finds them committed. A start whose queue call fails ends its operation
+    # failed; the flag then names a job rq never had, which the next start heals after
+    # operation_marker.ENQUEUE_GRACE_SEC.
     try:
         claimed = frappe.db.sql(
             """update "tabBOQs" set parse_in_progress = 1
@@ -599,26 +615,19 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
         _throw_parse_in_progress()
     frappe.db.set_value("BOQs", boq_name, {
         "parse_in_progress": 1,
-        "parse_job_id": raw_job_id,
+        "parse_job_id": op_id,
         "parse_enqueued_at": frappe.utils.now(),
     })
     _set_sheet_parse_markers(boq_name, target_sheets, 1)
-    frappe.db.commit()
-    try:
-        job = frappe.enqueue(
-            "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
-            queue="long",
-            timeout=600,
-            job_id=raw_job_id,
-            user=frappe.session.user,
-            boq_name=boq_name,
-            sheet_names=sheet_names,
-            force_reparse=force_reparse,
-        )
-    except Exception:
-        _clear_parse_state(boq_name)
-        raise
-    return {"status": "queued", "job_id": job.id if job else None}
+    return background_ops.start(
+        OPERATION_KIND,
+        "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
+        op_id=op_id,
+        timeout=_PARSE_TIMEOUT_SEC,
+        boq_name=boq_name,
+        sheet_names=sheet_names,
+        force_reparse=force_reparse,
+    )
 
 
 def _throw_parse_in_progress():
@@ -708,39 +717,63 @@ def check_parse_status(boq_name: str = None) -> dict:
     return {"state": _maybe_self_heal_parse_state(boq_name)}
 
 
-@frappe.whitelist()
-def get_parse_status(job_id=None):
-    """Polling fallback for a parse-run outcome, keyed by RQ job id.
-
-    The hub normally learns the result via the realtime boq:parse_run_done event,
-    but that event is room-targeted and not replayed -- a client that missed it
-    (e.g. socket not joined yet right after login) would otherwise hang on
-    "Parsing...". _publish_parse_event records its terminal outcome here; this
-    returns it.
-
-    Shapes (mirrors the realtime payload so the client reuses one handler):
-      {"state": "pending"}                                       -- still running / unknown
-      {"state": "done", "status": "success", "boq_name": "<name>",
-       "parsed_sheets": [...], "not_parsed_sheets": [...], "failed_sheets": [...]}
-      {"state": "done", "status": "error", "boq_name": "<name>", "error_code": "<code>"}
-
-    URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.get_parse_status
+def _run_parse_worker(boq_name: str, sheet_names=None, force_reparse: bool = False) -> dict:
     """
-    if not job_id:
-        frappe.throw("job_id is required.", title="Missing field: job_id")
+    The parse operation's work (runs as its owner, under `background_ops.run`; spec #1654, #1668): fetch
+    workbook -> assemble config -> parse -> insert BoQ Review Rows. Returns the outcome as the operation's result,
+    or raises, so the operation ends failed in the server's words (the hub shows them).
 
-    cached = frappe.cache().get_value(_parse_status_key(job_id))
-    if not cached:
-        return {"state": "pending"}
-
-    return {"state": "done", **cached}
-
-
-def _run_parse_worker(
-    boq_name: str, sheet_names=None, user: str = None, force_reparse: bool = False
-) -> None:
+    The BoQ's "already running?" flag and its per-sheet markers are released on every exit, in their own commit,
+    but only while the flag still names this operation: a duplicate ending late frees nothing.
     """
-    Background worker: fetch workbook -> assemble config -> parse -> insert BoQ Review Rows.
+    op_id = getattr(frappe.local, "background_op_id", None)
+    try:
+        return _parse(boq_name, sheet_names, force_reparse)
+    except (frappe.ValidationError, JobTimeoutException):
+        _rollback_quietly()
+        raise
+    except Exception as exc:
+        # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write would fail
+        # with it (#1657). A rollback that fails (dead connection) must not skip the log.
+        _rollback_quietly()
+        frappe.log_error(
+            title=f"BoQ parse worker: unhandled error for {boq_name}",
+            message=frappe.get_traceback(),
+        )
+        frappe.db.commit()
+        raise frappe.ValidationError(INTERNAL_MESSAGE) from exc
+    finally:
+        _release_parse_state(boq_name, op_id)
+
+
+def _rollback_quietly() -> None:
+    try:
+        frappe.db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _release_parse_state(boq_name: str, op_id: str | None) -> None:
+    """Clear the BoQ's parse flag, job id, enqueue timestamp and every per-sheet marker, and commit -- only while
+    the flag still names `op_id` (None: a worker called outside an operation, which only ever finds no id). Never
+    raises: a failed release must not hide the parse's own outcome; the next start heals the flag."""
+    try:
+        released = frappe.db.sql(
+            """update "tabBOQs" set parse_in_progress = 0, parse_job_id = null, parse_enqueued_at = null
+            where name = %s and parse_job_id is not distinct from %s returning name""",
+            (boq_name, op_id),
+        )
+        if released:
+            _clear_all_sheet_parse_markers(boq_name)
+        frappe.db.commit()
+    except Exception:  # noqa: BLE001
+        _rollback_quietly()
+        frappe.log_error(title=f"BoQ parse: releasing the parse flag of {boq_name} failed")
+
+
+def _parse(boq_name: str, sheet_names, force_reparse: bool) -> dict:
+    """
+    The parse itself (see _run_parse_worker).
 
     force_reparse is threaded straight into assemble_mapping_config (the ONLY place
     it changes eligibility); default False keeps the normal parse path unchanged.
@@ -756,13 +789,14 @@ def _run_parse_worker(
     Master-preamble text: extracted by parse_boq and written to BOQs.master_preamble when
     non-empty. Falsy result does NOT blank an existing value.
 
-    Event published (user-targeted): 'boq:parse_run_done'
-      success: {status, boq_name, parsed_sheets, not_parsed_sheets, failed_sheets}
-      error:   {status, boq_name, error_code}
+    Returns (the operation's result):
+      {status: "success", boq_name, parsed_sheets, not_parsed_sheets, failed_sheets, checks,
+       revision_carry (a revision parse that carried something only)}
+        checks: {sheet_name: op_id} -- the automatic check started for each parsed sheet, each its own
+        background operation (the S2 seam below); the hub follows each by that id.
+      {status: "nothing_to_parse", boq_name} -- no sheet was eligible (advisory, not a failure).
+    Raises frappe.ValidationError with MISSING_FILE_MESSAGE / FETCH_FAILED_MESSAGE / PARSE_FAILED_MESSAGE.
     """
-    if user:
-        frappe.set_user(user)
-
     # S2 (parse start): heal this BoQ's stale Claude runs; note which sheets were parsed before.
     ai_prior_parsed = ai_run_log.on_parse_start(boq_name)
 
@@ -775,15 +809,14 @@ def _run_parse_worker(
         # Step 1: Fetch the workbook file (S3 or local)
         source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
         if not source_file_url:
-            _publish_parse_event(boq_name, "error", user=user, error_code="missing_file")
-            return
+            raise frappe.ValidationError(MISSING_FILE_MESSAGE)
 
         try:
             tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
         except Exception:
             frappe.log_error(title="BoQ parse: file fetch failed", message=frappe.get_traceback())
-            _publish_parse_event(boq_name, "error", user=user, error_code="fetch_failed")
-            return
+            frappe.db.commit()
+            raise frappe.ValidationError(FETCH_FAILED_MESSAGE)
 
         # Step 2: Assemble mapping config (applies FIX: sheet_name injection in Rule 3)
         # force_reparse admits "Finalized" sheets here and nowhere else.
@@ -791,8 +824,8 @@ def _run_parse_worker(
             config, not_eligible = assemble_mapping_config(boq_name, force_reparse=force_reparse)
         except frappe.ValidationError as exc:
             logger.error("BoQ %s: assemble_mapping_config failed: %s", boq_name, exc)
-            _publish_parse_event(boq_name, "error", user=user, error_code="no_eligible_sheets")
-            return
+            frappe.db.commit()  # Rule 3's config-stale reasons (_record_parse_failure) ride this commit
+            return {"status": "nothing_to_parse", "boq_name": boq_name}
 
         # Step 3: If sheet_names subset given, narrow config (skip/master_preamble pass through)
         if sheet_names is not None:
@@ -844,8 +877,7 @@ def _run_parse_worker(
                     "parse_failure_at": failed_at,
                 })
             frappe.db.commit()
-            _publish_parse_event(boq_name, "error", user=user, error_code="parse_failed")
-            return
+            raise frappe.ValidationError(PARSE_FAILED_MESSAGE) from exc
 
         # Step 5: Persist results per-sheet.
         # Read-site 2: query child table for general-specs sheet names to gate the
@@ -874,6 +906,10 @@ def _run_parse_worker(
             # removed originals). Stays None for every non-revision sheet, and the status write
             # below then omits the field entirely so that path is byte-identical.
             sheet_change_summary = None
+            # Each sheet's writes run inside their own savepoint (#1657): a DATABASE error aborts the whole
+            # transaction, so without it one sheet's error would take every other sheet's rows down with it.
+            # Rolling back to it undoes only this sheet's writes and makes the transaction usable again.
+            frappe.db.savepoint(_SHEET_SAVEPOINT)
             try:
                 # Re-parse safety: delete existing rows before inserting.
                 # On failure the compensating delete in the except block cleans up partials.
@@ -942,9 +978,11 @@ def _run_parse_worker(
                         )
                     _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields=parsed_fields)
 
+                frappe.db.release_savepoint(_SHEET_SAVEPOINT)
                 parsed_sheets.append(sheet_name)
 
             except Exception as exc:
+                frappe.db.rollback(save_point=_SHEET_SAVEPOINT)
                 err = frappe.log_error(
                     title=f"BoQ parse: sheet '{sheet_name}' insert failed",
                     message=frappe.get_traceback(),
@@ -992,40 +1030,24 @@ def _run_parse_worker(
         if parsed_sheets:
             frappe.db.set_value("BOQs", boq_name, "parsed_at", frappe.utils.now())
 
-        # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids race conditions)
+        # Commit the parse before its checks are queued (they read its rows).
         frappe.db.commit()
 
-        # S2 (the ONE seam): the parse is committed -- queue the automatic Claude check, one job
-        # per sheet that ended "Parsed". Never raises; never runs the check inside this job.
-        ai_run_log.enqueue_after_parse(boq_name, parsed_sheets, user, ai_prior_parsed)
+        # S2 (the ONE seam): the parse is committed -- queue the automatic Claude check, one background
+        # operation per sheet that ended "Parsed". Never raises; never runs the check inside this job.
+        checks = ai_run_log.enqueue_after_parse(boq_name, parsed_sheets, ai_prior_parsed)
 
-        # Step 8: Publish result targeted to the enqueueing user
-        # `revision_carry` is OMITTED entirely on a non-revision parse, so the payload shape is
-        # byte-identical there and the frontend's optional read simply stays undefined (W5/A8).
-        _publish_parse_event(
-            boq_name,
-            "success",
-            user=user,
-            parsed_sheets=parsed_sheets,
-            not_parsed_sheets=not_eligible,
-            failed_sheets=failed_sheets,
+        # Step 8: the outcome. `revision_carry` is OMITTED entirely on a non-revision parse, so the result shape
+        # is identical there and the frontend's optional read simply stays undefined (W5/A8).
+        return {
+            "status": "success",
+            "boq_name": boq_name,
+            "parsed_sheets": parsed_sheets,
+            "not_parsed_sheets": not_eligible,
+            "failed_sheets": failed_sheets,
+            "checks": checks,
             **({"revision_carry": revision_carry_by_sheet} if revision_carry_by_sheet else {}),
-        )
-
-    except Exception:
-        # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write and the
-        # publish below would fail with it, leaving the hub on "Parsing..." (#1657). A rollback that fails (dead
-        # connection) must not skip them.
-        try:
-            frappe.db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-        frappe.log_error(
-            title=f"BoQ parse worker: unhandled error for {boq_name}",
-            message=frappe.get_traceback(),
-        )
-        _publish_parse_event(boq_name, "error", user=user, error_code="internal")
-        raise
+        }
 
     finally:
         if tempfile_path:
@@ -1190,50 +1212,3 @@ def _reason_with_ref(reason: str, error_log_doc: Any) -> str:
     if name:
         return f"{reason} (ref: Error Log {name})"
     return reason
-
-
-def _publish_parse_event(
-    boq_name: str,
-    status: str,
-    user: str | None = None,
-    **kwargs: Any,
-) -> None:
-    """Publish boq:parse_run_done targeted to the enqueueing user (if known)."""
-    # CLEAR all transient parse-lifecycle state with its own independent commit.
-    # Every completion path funnels through here, so one choke-point clears uniformly.
-    # Critically, the "internal" error path calls frappe.db.rollback() BEFORE calling
-    # this function; that rollback is already done, so the set_value + commit below
-    # starts a brand-new transaction that is NOT subject to any prior rollback.
-    # The per-sheet clear is a BLANKET clear (#164) -- correct on every exit path,
-    # including the top-level-exception path whose rollback discarded loop state.
-    frappe.db.set_value("BOQs", boq_name, {
-        "parse_in_progress": 0,
-        "parse_job_id": None,
-        "parse_enqueued_at": None,
-    })
-    _clear_all_sheet_parse_markers(boq_name)
-    frappe.db.commit()
-    payload = {"status": status, "boq_name": boq_name, **kwargs}
-
-    # Record the outcome for the polling fallback, keyed by RQ job id. The realtime
-    # event below is room-targeted and NOT replayed, so a client that wasn't joined
-    # when this fires (e.g. right after login) never hears it and hangs on
-    # "Parsing..."; get_parse_status() reads this entry so the hub can recover by
-    # polling. Best-effort: it lives in Redis (independent of the DB transaction, so
-    # it survives the internal-error rollback the caller may have done) and must
-    # never fail the job.
-    try:
-        from rq import get_current_job  # noqa: PLC0415
-
-        job = get_current_job()
-        if job is not None:
-            frappe.cache().set_value(
-                _parse_status_key(job.id), payload, expires_in_sec=_PARSE_STATUS_TTL_SEC
-            )
-    except Exception:
-        pass
-
-    publish_kwargs: dict[str, Any] = {}
-    if user:
-        publish_kwargs["user"] = user
-    frappe.publish_realtime("boq:parse_run_done", payload, **publish_kwargs)

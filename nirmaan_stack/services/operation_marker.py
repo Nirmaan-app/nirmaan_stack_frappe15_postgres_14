@@ -8,7 +8,8 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
 
 * The marker is claimed, set only when absent, BEFORE the operation is queued, so two start requests that both read
   "no marker" cannot both queue (`claim`; hub parse claims its BoQ row the same way). A start whose queue call fails
-  removes its marker again.
+  ends its background operation failed; its marker then names a job rq never had, which the next start heals after
+  ENQUEUE_GRACE_SEC (below).
 * Two readers that both judge one marker stale must not both clear it: the second would clear the first's new
   claim. `heal` deletes a stale marker only while it still holds the value that was read (compare-and-delete).
 * The claim's key expires after CLAIM_TTL_SEC, a day: rq keeps a queued job until a worker takes it, so the marker
@@ -49,17 +50,6 @@ def heal(key, marker, stale_seconds) -> str:
     if state != "running":
         _delete_if_unchanged(key, marker)
     return state
-
-
-def enqueue_claimed(key, method, **kwargs):
-    """Commit, then queue `method` (the job reads only committed rows). A queue call that raises removes the marker
-    `key` this start claimed, so nothing is left stuck."""
-    frappe.db.commit()
-    try:
-        return frappe.enqueue(method, **kwargs)
-    except Exception:
-        frappe.cache().delete_value(key)
-        raise
 
 
 def release(key, job_id):

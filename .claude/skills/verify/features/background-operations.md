@@ -1,7 +1,7 @@
 # Background operations
 
 A screen that starts work the server finishes later (a TDS export, the handover binder, a commission or bulk PDF
-download, a BoQ upload or template seed) follows that **background operation** through its owner-only status record
+download, a BoQ upload or template seed, a BoQ hub parse and its automatic checks) follows that **background operation** through its owner-only status record
 (ADR 0047): it shows "Waiting in the queue" apart from running, picks the operation up after a reload, ends in the
 file of its own operation (never another tab's), and shows the server's words when it fails or is lost. Production
 runs N `long` workers, 2 or more, set by instance capacity, so operations overlap: two that write rows of the same
@@ -60,6 +60,16 @@ and reads each operation's outcome where the screen reads it):
   and follows its status record; the modal shows "Waiting in the queue" until it runs. A complete suggest's result
   names the match operation it queued (`match.op_id`, made by the server); the page then follows that one (slot
   `boq_rate_match:<boq>::<sheet>`), whose phase in the modal reads "waiting in the queue" until it runs (#1667).
+
+- The hub parse: a BoQ's hub (`/upload-boq/hub/<boq>`, reached from `Upload BoQ` -> the BoQ) -> `Parse workbook`
+  (or `Re-parse`) -> confirm. The hub starts the parse as a background operation (`run_parse` with a browser-made
+  `op_id`, slot `boq_parse:<boq>`): the button reads "Waiting in the queue..." until it runs, then "Parsing..."; a
+  failed or lost parse ends the wait with the server's words. The finished result names the automatic check started
+  for each parsed sheet (`checks`, server-made ids); the hub follows each (slot `boq_ai_check:<boq>::<sheet>`) and
+  the card chip reads "Waiting to check rows…" until it runs, then "Checking rows…" (#1668).
+- The review-screen check: a parsed sheet's card -> `Review` (`/upload-boq/hub/<boq>/review/<sheet>`). In the tab
+  that parsed, the page picks the check up from the same slot; otherwise it asks `ai_assist.get_check_operation` for
+  the caller's own live check and follows it. Its chip reads "Waiting to check rows…" while queued (#1668).
 
 ## Driving it with drive.py
 

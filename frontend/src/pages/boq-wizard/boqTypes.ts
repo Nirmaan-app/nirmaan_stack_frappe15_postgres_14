@@ -6,7 +6,6 @@
 import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
 // W5: the revision-carry REPORT shapes live with the pure copy helpers that consume them
 // (revisionCarryReport.ts imports nothing from here -> one-directional, no cycle).
-import type { RevisionCarryBySheet } from "./revisionCarryReport";
 
 /**
  * Friendly display labels for all 21 parser role values.
@@ -225,38 +224,6 @@ export interface BoQGeneralSpecsSheetRow {
   source_sheet_name: string;
   /** Preamble text extracted by the parse worker. Empty until parsed. */
   preamble_text?: string;
-}
-
-/** Payload of the "boq:parse_run_done" socket event (parse_run.py _publish_parse_event). */
-export interface ParseRunDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  // success fields
-  parsed_sheets?: string[];
-  not_parsed_sheets?: string[];
-  failed_sheets?: string[];
-  // error fields
-  error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
-  /**
-   * W5: per-sheet revision review-carry counts, keyed by VERBATIM sheet_name (#152). OMITTED
-   * entirely on a non-revision parse, so the payload stays byte-identical there. Rides the
-   * get_parse_status poll too (_publish_parse_event caches the whole payload it publishes).
-   */
-  revision_carry?: RevisionCarryBySheet;
-}
-
-/**
- * Payload of the `boq:ai_pass_done` realtime event (ai_assist._publish_ai_event): the automatic
- * check of a sheet ended. User-targeted and not replayed -- a client that misses it recovers via
- * get_ai_pass_status polling. The review screen reads only WHICH sheet it is for and then reloads;
- * it shows no text for either outcome (S4a).
- */
-export interface AiPassDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  sheet_name: string;
-  count?: number;
-  error_code?: string;
 }
 
 export interface BOQsDoc {

@@ -13,8 +13,8 @@ Anthropic API call is made anywhere in this suite.
   T5  worker writes back classification + real-parent suggestions (status Pending)
   T6  worker stores the -1 sentinel level (the pass no longer outputs a level)
   T7  worker clears stale prior suggestions before applying new ones
-  T8  publish clears ai_in_progress on success
-  T9  publish clears ai_in_progress on error + worker re-raises
+  T8  the check clears ai_in_progress on success
+  T9  the check clears ai_in_progress on error + ends its operation failed
   T10 cache hit applies cached suggestions + skips enqueue
   T11 cache miss after a re-parse (bumped last_parsed_at) enqueues fresh
   T12 classification-only suggestion leaves ai_suggested_parent at the -1 default
@@ -29,6 +29,7 @@ R2 (ADR-0005) chunking, pure service tests + a FAKE Anthropic client (no live ca
                           resolves; a forward-reference parent is dropped.
 """
 import json
+import uuid
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -38,7 +39,6 @@ from nirmaan_stack.api.boq.wizard import ai_assist
 from nirmaan_stack.api.boq.wizard.ai_assist import (
     _ai_cache_key,
     accept_ai_suggestion,
-    get_ai_pass_status,
     reject_ai_suggestion,
     revert_ai_acceptance,
     run_ai_pass,
@@ -178,13 +178,13 @@ class TestAIAssist(FrappeTestCase):
     def test_endpoint_rejects_when_ai_disabled(self):
         disabled = {**_enabled_settings(), "enabled": False}
         with patch(_SETTINGS, return_value=disabled):
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertEqual(result, {"ok": False, "error": "ai_disabled"})
 
     def test_endpoint_rejects_when_no_api_key(self):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value=None):
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertEqual(result, {"ok": False, "error": "no_api_key"})
 
     # --- T4: enqueue + flag ------------------------------------------------
@@ -195,61 +195,25 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue", return_value=fake_job) as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["enqueued"])
-        self.assertTrue(mock_enq.called, "the worker must be enqueued")
-        kwargs = mock_enq.call_args.kwargs
-        self.assertEqual(kwargs["boq_name"], self.boq_name)
-        self.assertEqual(kwargs["sheet_name"], _AI_SHEET)
-        self.assertEqual(kwargs["user"], frappe.session.user)
-        self.assertEqual(kwargs["queue"], "long")
+        self.assertTrue(mock_enq.called, "the check must be queued")
+        queued = mock_enq.call_args.kwargs  # the background_ops wrapper (#1668): the check's work is inside it
+        self.assertEqual(queued["work"], "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker")
+        self.assertEqual(queued["op_id"], result["op_id"])
+        self.assertEqual(queued["work_kwargs"]["boq_name"], self.boq_name)
+        self.assertEqual(queued["work_kwargs"]["sheet_name"], _AI_SHEET)
+        self.assertEqual(queued["queue"], "long")
         self.assertEqual(self._ai_in_progress(_AI_SHEET), 1,
                          "ai_in_progress must be set to 1 after a successful enqueue")
-
-    def test_enqueue_clears_stale_status_payload(self):
-        # Regression (parity with run_gemini_pass): a re-run after a failure must NOT re-show the
-        # previous run's error banner. The enqueue invalidates the cached terminal payload so the
-        # frontend poll (get_ai_pass_status) resolves THIS pass, not the last one's outcome. Repro:
-        # seed a stale "error" payload (as _publish_ai_event records after a failure), re-enqueue.
-        key = ai_assist._ai_status_key(self.boq_name, _AI_SHEET)
-        frappe.cache().set_value(
-            key,
-            {"status": "error", "boq_name": self.boq_name,
-             "sheet_name": _AI_SHEET, "error_code": "internal"},
-        )
-        self.addCleanup(frappe.cache().delete_value, key)
-        self.addCleanup(self._restore_draft, _AI_SHEET, {"ai_in_progress": 0})
-
-        # Sanity: before the re-run the stale payload is readable (this is what re-showed the error).
-        self.assertEqual(
-            get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)["status"],
-            "error",
-        )
-
-        fake_job = MagicMock()
-        fake_job.id = "job-rerun"
-        with patch(_SETTINGS, return_value=_enabled_settings()), \
-             patch(_API_KEY, return_value="sk-test"), \
-             patch("frappe.enqueue", return_value=fake_job):
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
-
-        self.assertTrue(result["ok"])
-        self.assertIsNone(
-            frappe.cache().get_value(key),
-            "enqueue must invalidate the prior run's cached status payload",
-        )
-        # The poll now sees an in-progress idle shape, NOT the stale error.
-        status = get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)
-        self.assertEqual(status["status"], "idle_or_unknown")
-        self.assertEqual(status["ai_in_progress"], 1)
 
     # --- T5/T6/T12/T13: write-back ----------------------------------------
 
     def _run_worker_with(self, suggestions):
         with patch(_SERVICE, return_value=suggestions) as mock_svc:
-            ai_assist._run_ai_pass_worker(self.boq_name, _AI_SHEET, user=None)
+            ai_assist._run_ai_pass_worker(self.boq_name, _AI_SHEET)
         return mock_svc
 
     def test_worker_writes_back_suggestions(self):
@@ -407,19 +371,19 @@ class TestAIAssist(FrappeTestCase):
 
     # --- T8/T9: in-progress lifecycle -------------------------------------
 
-    def test_publish_clears_in_progress_on_success(self):
+    def test_the_check_clears_in_progress_on_success(self):
         self._set_draft(_AI_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
         self._run_worker_with([])
         self.assertEqual(self._ai_in_progress(_AI_SHEET), 0,
                          "a successful pass must clear ai_in_progress")
 
-    def test_publish_clears_in_progress_on_error(self):
+    def test_the_check_clears_in_progress_on_error(self):
         self._set_draft(_AI_SHEET, {"ai_in_progress": 1})
         frappe.db.commit()
         with patch(_SERVICE, side_effect=_NonRetryable("boom")):
-            with self.assertRaises(_NonRetryable):
-                ai_assist._run_ai_pass_worker(self.boq_name, _AI_SHEET, user=None)
+            with self.assertRaises(frappe.ValidationError):  # its operation ends failed
+                ai_assist._run_ai_pass_worker(self.boq_name, _AI_SHEET)
         self.assertEqual(self._ai_in_progress(_AI_SHEET), 0,
                          "an errored pass must still clear ai_in_progress")
 
@@ -441,7 +405,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue") as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
 
         self.assertFalse(mock_enq.called, "a cache hit must NOT enqueue a fresh pass")
         self.assertTrue(result["ok"])
@@ -463,20 +427,11 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue", return_value=MagicMock()) as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
 
         self.assertTrue(mock_enq.called,
                         "a bumped last_parsed_at must miss the stale cache and enqueue fresh")
         self.assertTrue(result.get("enqueued"))
-
-    # --- status endpoint (recovery) ---------------------------------------
-
-    def test_status_returns_idle_shape_when_no_fallback(self):
-        # No fallback recorded -> idle shape with the live flag.
-        frappe.cache().delete_value(ai_assist._ai_status_key(self.boq_name, _AI_SHEET))
-        status = get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)
-        self.assertEqual(status["status"], "idle_or_unknown")
-        self.assertIn("ai_in_progress", status)
 
     # --- AI-3c-2d: run_ai_pass freeze + parsing pre-flight gates -----------
 
@@ -498,7 +453,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue") as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertEqual(result, {"ok": False, "error": "frozen"})
         self.assertFalse(mock_enq.called, "a frozen sheet must NOT enqueue an AI pass")
         self.assertEqual(self._row(1)["ai_suggestion_status"], "Accepted",
@@ -511,7 +466,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue", return_value=fake_job) as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertTrue(result["ok"])
         self.assertTrue(result.get("enqueued"))
         self.assertTrue(mock_enq.called,
@@ -525,7 +480,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue") as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertEqual(result, {"ok": False, "error": "parsing"})
         self.assertFalse(mock_enq.called, "a parsing sheet must NOT enqueue an AI pass")
 
@@ -586,7 +541,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue", return_value=MagicMock()) as mock_enq:
-            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
 
         self.assertTrue(mock_enq.called, "the old prompt's result must not be served")
         self.assertTrue(result.get("enqueued"))
@@ -604,7 +559,7 @@ class TestAIAssist(FrappeTestCase):
         with patch(_SETTINGS, return_value=_enabled_settings()), \
              patch(_API_KEY, return_value="sk-test"), \
              patch("frappe.enqueue", return_value=MagicMock()) as mock_enq:
-            run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+            run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET, op_id=str(uuid.uuid4()))
         self.assertEqual(mock_enq.call_args.kwargs["timeout"], 1200)
 
     def test_gemini_and_parse_job_limits_stay_ten_minutes(self):
@@ -612,10 +567,10 @@ class TestAIAssist(FrappeTestCase):
         import inspect
 
         from nirmaan_stack.api.boq.wizard import gemini_assist, parse_run
-        for module in (gemini_assist, parse_run):
-            source = inspect.getsource(module)
-            self.assertEqual(source.count("timeout=600"), 1, module.__name__)
-            self.assertNotIn("timeout=1200", source, module.__name__)
+        source = inspect.getsource(gemini_assist)
+        self.assertEqual(source.count("timeout=600"), 1)
+        self.assertNotIn("timeout=1200", source)
+        self.assertEqual(parse_run._PARSE_TIMEOUT_SEC, 600)
 
     # -- the worker hands the guidance to the service ---------------------------------
 

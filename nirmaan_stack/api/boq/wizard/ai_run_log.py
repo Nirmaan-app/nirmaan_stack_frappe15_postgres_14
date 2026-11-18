@@ -10,16 +10,18 @@ One "BoQ AI Run Log" record per Claude review run, manual or automatic:
   started more than RUN_STALE_SEC ago, and a Queued run whose job has left the queue, is marked
   Failed "worker stopped or timed out" and its sheet's ai_in_progress flag is cleared. An in-progress
   flag (Claude or Gemini) with no run record and no live job is cleared by the same pass. Called by
-  the 5-minute scheduler entry (heal_stale_runs_task) and ON READ: the status endpoint, a run start,
-  a parse start.
-* AUTO-RUN (on_parse_start / enqueue_after_parse) -- the two calls parse_run.py makes: one Claude job
-  per sheet that ended "Parsed", enqueued only after the parse transaction has committed.
+  the 5-minute scheduler entry (heal_stale_runs_task) and ON READ: the review screen's check read
+  (ai_assist.get_check_operation), a run start, a parse start.
+* AUTO-RUN (on_parse_start / enqueue_after_parse) -- the two calls parse_run.py makes: one Claude check
+  per sheet that ended "Parsed", each its own background operation (ADR 0047; spec #1654, #1668), started only
+  after the parse transaction has committed. The record's job_id is the operation's id.
 
 The record never holds the API key: every failure message goes through boq_ai_assist.scrub_keys and
 is capped. Nothing here calls the AI or loads the examples library.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import frappe
@@ -29,7 +31,7 @@ from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
     get_boq_ai_settings,
 )
-from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services import background_ops, boq_ai_assist
 
 _RUN_LOG = "BoQ AI Run Log"
 _SHEET_DRAFT = "BoQ Sheet Draft"
@@ -199,6 +201,16 @@ def fail_run(run_name: str | None, category: str, message: Any, *, error_log: st
     )
 
 
+def live_check_operation(boq_name: str, sheet_name: str, owner: str) -> str | None:
+    """The operation id of `owner`'s newest queued or running check of this sheet, or None."""
+    return frappe.db.get_value(
+        _RUN_LOG,
+        {"boq": boq_name, "sheet_name": sheet_name, "status": ["in", _LIVE_STATUSES], "owner": owner},
+        "job_id",
+        order_by="creation desc",
+    ) or None
+
+
 def other_live_run(boq_name: str, sheet_name: str, run_name: str | None) -> bool:
     filters: dict = {"boq": boq_name, "sheet_name": sheet_name, "status": ["in", _LIVE_STATUSES]}
     if run_name:
@@ -257,10 +269,8 @@ def _live_sheet_jobs() -> set | None:
             wrapped = job.kwargs or {}
             if wrapped.get("site") != frappe.local.site:
                 continue
-            method = wrapped.get("method")
-            if not isinstance(method, str):
-                method = f"{getattr(method, '__module__', '')}.{getattr(method, '__name__', '')}"
-            inner = wrapped.get("kwargs") or {}
+            # A check queued as a background operation is inside its wrapper (#1668).
+            method, inner = background_ops.queued_work(wrapped)
             live.add((method, inner.get("boq_name"), inner.get("sheet_name")))
         return live
     except Exception:
@@ -292,11 +302,9 @@ def _fail_stale(run: dict, reason: str) -> None:
     if other_live_run(run.boq, run.sheet_name, run.name):
         frappe.db.commit()
         return
-    # The worker's own choke-point: clears ai_in_progress, commits, records the poll payload and
-    # publishes boq:ai_pass_done, so an open Review screen drops its "AI pass running" chip.
-    ai_assist._publish_ai_event(
-        run.boq, run.sheet_name, "error", user=run.owner, error_code="stale"
-    )
+    # Clears ai_in_progress (own commit), so an open Review screen drops its "Checking rows..." chip on its next
+    # read. A dead worker's operation reads lost to its owner's screen (background_ops.status).
+    ai_assist._end_check(run.boq, run.sheet_name)
 
 
 def _clear_orphan_flags(boq_name: str | None, sheet_name: str | None) -> tuple[int, int]:
@@ -503,12 +511,13 @@ def _auto_run_allowed() -> bool:
     return not frappe.flags.in_test
 
 
-def enqueue_after_parse(boq_name: str, parsed_sheets, user: str | None = None,
-                        prior_parsed=frozenset()) -> list:
-    """Called AFTER the parse transaction has committed: queue one Claude review job for every
-    sheet that ended "Parsed". Returns the run names. Never raises into the parse."""
+def enqueue_after_parse(boq_name: str, parsed_sheets, prior_parsed=frozenset()) -> dict:
+    """Called AFTER the parse transaction has committed, inside the parse operation (as its owner): start one
+    Claude check, its own background operation, for every sheet that ended "Parsed". Returns
+    {sheet_name: op_id} for the checks started, which the parse's result hands to the hub. Never raises into the
+    parse."""
     try:
-        return _enqueue_after_parse(boq_name, list(parsed_sheets or []), user, prior_parsed)
+        return _enqueue_after_parse(boq_name, list(parsed_sheets or []), prior_parsed)
     except Exception:
         frappe.db.rollback()
         frappe.log_error(
@@ -516,19 +525,18 @@ def enqueue_after_parse(boq_name: str, parsed_sheets, user: str | None = None,
             message=frappe.get_traceback(),
         )
         frappe.db.commit()
-        return []
+        return {}
 
 
-def _enqueue_after_parse(boq_name: str, parsed_sheets: list, user: str | None,
-                         prior_parsed) -> list:
+def _enqueue_after_parse(boq_name: str, parsed_sheets: list, prior_parsed) -> dict:
     from nirmaan_stack.api.boq.wizard import ai_assist
 
     if not parsed_sheets or not _auto_run_allowed():
-        return []
+        return {}
     # A template-origin BoQ has no source workbook and is never parsed; refused here as well so
     # the rule does not depend on that.
     if frappe.db.get_value("BOQs", boq_name, "origin") == "template":
-        return []
+        return {}
     general_specs = set(frappe.get_all(
         "BoQ General Specs Sheet", filters={"parent": boq_name, "parenttype": "BOQs"},
         pluck="source_sheet_name",
@@ -552,7 +560,7 @@ def _enqueue_after_parse(boq_name: str, parsed_sheets: list, user: str | None,
         if s in drafts and drafts[s].wizard_status == "Parsed" and s not in general_specs
     ]
     if not eligible:
-        return []
+        return {}
 
     unavailable = None
     if not get_boq_ai_settings().get("enabled"):
@@ -560,45 +568,19 @@ def _enqueue_after_parse(boq_name: str, parsed_sheets: list, user: str | None,
     elif not get_boq_ai_api_key():
         unavailable = "no API key is configured in BOQ Upload Review AI Settings"
 
-    user = user or frappe.session.user
-    runs: list = []
+    checks: dict = {}
     for d in eligible:
         trigger = TRIGGER_REPARSE if d.sheet_name in prior_parsed else TRIGGER_AUTO
         if unavailable:
-            runs.append(create_run(
+            create_run(
                 boq_name, d.sheet_name, trigger, status="Failed",
                 last_parsed_at=d.last_parsed_at, finished_at=now_datetime(),
                 failure_category=CATEGORY_UNAVAILABLE, failure_message=unavailable,
-            ))
-            continue
-        job_id = frappe.generate_hash(length=32)
-        run_name = create_run(
-            boq_name, d.sheet_name, trigger, job_id=job_id, last_parsed_at=d.last_parsed_at
-        )
-        frappe.db.commit()      # the worker reads this record: it must exist before the job can start
-        try:
-            frappe.enqueue(
-                _CLAUDE_WORKER,
-                queue="long",
-                timeout=CLAUDE_JOB_TIMEOUT_SEC,
-                job_id=job_id,
-                user=user,
-                boq_name=boq_name,
-                sheet_name=d.sheet_name,
-                run_name=run_name,
             )
-        except Exception as exc:
-            fail_run(run_name, CATEGORY_INTERNAL, f"enqueue failed: {type(exc).__name__}: {exc}")
-            frappe.db.commit()
-            runs.append(run_name)
             continue
-        ai_assist._set_ai_in_progress(boq_name, d.sheet_name, 1)
-        frappe.db.commit()
-        # The previous run's outcome must not answer the page's first poll for THIS run.
-        try:
-            frappe.cache().delete_value(ai_assist._ai_status_key(boq_name, d.sheet_name))
-        except Exception:
-            pass
-        runs.append(run_name)
+        # The server makes the id: the check starts inside the parse operation, not from a screen.
+        op_id = str(uuid.uuid4())
+        ai_assist.start_check(boq_name, d.sheet_name, trigger, op_id, d.last_parsed_at)
+        checks[d.sheet_name] = op_id
     frappe.db.commit()
-    return runs
+    return checks
