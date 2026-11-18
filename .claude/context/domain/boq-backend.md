@@ -26,7 +26,7 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
 - **A BoQ is created only under the BoQ series lock (#1659, ADR 0048):** BoQ numbers keep their counter
   (`BOQ-.YY.-.#####`, users see them), so every code path that inserts a `BOQs` doc holds
   `services/series_lock.series_lock(boq_series())` around it: the template create request around its shell insert, and
-  the upload worker for its whole operation, together with its attachment's `attachment_series(project)` lock. The
+  the upload worker for its whole operation (its Nirmaan Attachments row is named by `hash` since #1719). The
   lock is a session advisory lock taken between two commits, so the holder's transaction starts after the grant; a
   lock inside the transaction does not work. A new path that inserts a BoQ takes it the same way, or it fails (or
   fails another) on the counter when two creations overlap.

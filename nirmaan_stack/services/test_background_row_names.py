@@ -49,16 +49,18 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
-    def assert_overlapping_inserts_both_commit(self, doctype, fields, on_boq=True):
+    def assert_overlapping_inserts_both_commit(self, doctype, fields, on_boq=True, ignore_links=False):
         """Insert one `doctype` row on each of two overlapping transactions; assert both commit.
 
         `fields(n)` gives the n-th row's own fields, beside `boq` and `sheet_name` when `on_boq` (a doctype
-        that does not hang off a BoQ passes `on_boq=False` and gives all its fields)."""
+        that does not hang off a BoQ passes `on_boq=False` and gives all its fields). `ignore_links` lets the
+        fields name made-up records (a statement line, an Expense) the case does not need to build."""
         made = []
         base = {"boq": self.boq, "sheet_name": SHEET} if on_boq else {}
 
         def insert(n):
             doc = frappe.get_doc({"doctype": doctype, **base, **fields(n)})
+            doc.flags.ignore_links = ignore_links
             doc.insert(ignore_permissions=True)
             frappe.db.commit()
             made.append(doc.name)
@@ -119,11 +121,43 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
             on_boq=False,
         )
 
+    # #1719: the import and upload operations' rows. Their names are made up here: no statement line, batch or
+    # Expense is built, as the clash is in the name alone.
+    def test_two_overlapping_outflow_row_match_inserts_both_commit(self):
+        """The card import's Create and the Cashbook import write these, as do web reconciles."""
+        self.assert_overlapping_inserts_both_commit(
+            "Outflow Row Match",
+            lambda n: {"import_row": f"OFR-CLASH-{n}", "import_batch": "OFI-CLASH",
+                       "transfer_id": f"row-names-clash-{frappe.generate_hash(length=10)}-{n}",
+                       "target_doctype": "Non Project Expenses", "target_name": f"NPE-CLASH-{n}",
+                       "target_amount": 100, "match_kind": "Settled", "match_basis": "Manual"},
+            on_boq=False, ignore_links=True,
+        )
+
+    def test_two_overlapping_expense_bill_inserts_both_commit(self):
+        """The Cashbook import writes these when it attaches bills."""
+        self.assert_overlapping_inserts_both_commit(
+            "Expense Bill",
+            lambda n: {"expense_doctype": "Non Project Expenses", "expense": f"NPE-CLASH-{n}", "is_latest": 1,
+                       "bill_file": f"/private/files/bill_clash_{n}.pdf", "status": "Pending",
+                       "bill_check": "Not checked"},
+            on_boq=False, ignore_links=True,
+        )
+
+    def test_two_overlapping_attachment_inserts_on_one_project_both_commit(self):
+        """The BoQ upload writes these, as do many web requests; one project, so today one counter."""
+        self.assert_overlapping_inserts_both_commit(
+            "Nirmaan Attachments",
+            lambda n: {"project": self.project.name, "attachment_type": "boq",
+                       "attachment": f"/private/files/att_clash_{n}.xlsx"},
+            on_boq=False,
+        )
+
 
 class TestBoqNumbersStayCounted(FrappeTestCase):
     """BoQ numbers keep their counter (`BOQ-.YY.-.#####`, users see them), so two operations that create BoQs
     must not clash on it: each takes the BoQ series lock and starts its transaction after the lock is granted
-    (ADR 0048, #1659). The upload operation's lock also covers its Nirmaan Attachments row (`ATT-<project>-`)."""
+    (ADR 0048, #1659). The upload's Nirmaan Attachments row is named by `hash` since #1719."""
 
     @classmethod
     def setUpClass(cls):
@@ -175,7 +209,7 @@ class TestBoqNumbersStayCounted(FrappeTestCase):
         self.assert_counted(self.assert_overlapping_uploads_both_commit(*self.projects))
 
     def test_two_overlapping_uploads_on_one_project_both_commit(self):
-        """Same project, so both uploads also take a number from the one `ATT-<project>-` counter."""
+        """Same project: both uploads write a Nirmaan Attachments row for it (counted `ATT-<project>-` before #1719)."""
         project = self.projects[0]
         self.assert_counted(self.assert_overlapping_uploads_both_commit(project, project))
         atts = frappe.get_all("Nirmaan Attachments", filters={"project": project, "associated_doctype": "BOQs"},

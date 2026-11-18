@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "EB-.YYYY.-.#####",
+ "autoname": "hash",
  "creation": "2026-11-07 15:32:59.673104",
  "description": "The bill of a wallet spend or a card spend, with its Bill check and approval (GLOSSARY Expense bills, ADR-0045).",
  "doctype": "DocType",
@@ -227,11 +227,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-07 22:52:16.428860",
+ "modified": "2026-11-18 23:04:27.990924",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Bill",
- "naming_rule": "Expression",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
