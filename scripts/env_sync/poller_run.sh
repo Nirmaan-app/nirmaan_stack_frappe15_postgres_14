@@ -46,6 +46,8 @@ TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_tur
 LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
 B1_EVERY="${POLLER_B1_MINUTES:-13}"      # under the task's 15 minutes, so every scheduled run that finds work takes a B1
 LOCK_STALE_MIN="${POLLER_LOCK_STALE_MIN:-180}"
+B2_RETRY_MIN="${POLLER_B2_RETRY_MIN:-60}"          # a failed database copy is tried again for the same point after this long
+B2_MIN_FREE_MB="${POLLER_B2_MIN_FREE_MB:-3000}"    # no database copy is started with less free memory than this on the laptop
 mkdir -p "$(dirname "$HB")" "$(dirname "$LOG")"
 
 now() { date '+%F %T'; }
@@ -122,7 +124,22 @@ fi
 if [ -n "$POINT" ]; then
   pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$POINT")" +%s 2>/dev/null || echo 0)
   rec=$(last_b2); rec_epoch=$( [ -n "$rec" ] && date -d "$rec" +%s 2>/dev/null || echo 0)
+  # No tight retry (CKP-3 P5; found in AC5, 2026-11-18: a failed B2 was tried again at every 15-minute run, a desktop backup
+  # each time): after a failure the SAME point is tried again only after B2_RETRY_MIN. And a copy is not started while the
+  # laptop is short of memory - both AC5 failures were the laptop's Docker falling over with ~2 GB free.
+  B2_WAIT=""
   if [ "$pt_epoch" -gt "$rec_epoch" ]; then
+    if [ -f "$ST/b2_failed.txt" ] && [ "$(sed -n 1p "$ST/b2_failed.txt")" = "$POINT" ]; then
+      fail_age=$(( ($(date +%s) - $(stat -c %Y "$ST/b2_failed.txt")) / 60 ))
+      [ "$fail_age" -lt "$B2_RETRY_MIN" ] && B2_WAIT="B2 PENDING (the copy failed $fail_age min ago; next try after $B2_RETRY_MIN min)"
+    fi
+    if [ -z "$B2_WAIT" ]; then
+      free_mb="${POLLER_FREE_MB:-$(powershell.exe -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)" 2>/dev/null | tr -d '\r')}"
+      if [ -n "$free_mb" ] && [ "$free_mb" -lt "$B2_MIN_FREE_MB" ] 2>/dev/null; then B2_WAIT="B2 PENDING (the laptop has only $free_mb MB of memory free, under $B2_MIN_FREE_MB; tried again at the next run)"; fi
+    fi
+    [ -n "$B2_WAIT" ] && RESULT="$RESULT + $B2_WAIT"
+  fi
+  if [ "$pt_epoch" -gt "$rec_epoch" ] && [ -z "$B2_WAIT" ]; then
     say "B2 due: $POINT (the last copy: ${rec:-none})"
     turn_before=$(head -1 "$TURN_FILE" 2>/dev/null)
     engine_was=up; "$DOCKER" info > /dev/null 2>&1 || engine_was=down
@@ -131,17 +148,22 @@ if [ -n "$POINT" ]; then
       if [ -n "${POLLER_ENGINE_START:-}" ]; then "$POLLER_ENGINE_START"          # tests: a stub, never the real Docker Desktop
       else cmd.exe //c start "" "$(cygpath -w "$DOCKER_DESKTOP_EXE" 2>/dev/null || echo "$DOCKER_DESKTOP_EXE")" > /dev/null 2>&1; fi
       for _ in $(seq 1 "${POLLER_ENGINE_WAIT:-60}"); do "$DOCKER" info > /dev/null 2>&1 && break; sleep 5; done
+      # A Docker Desktop that has only just answered still drops large requests (AC5, 2026-11-18: a 277 MB docker cp
+      # got "502 Bad Gateway" 3 minutes after the start): let it settle before the copy.
+      "$DOCKER" info > /dev/null 2>&1 && sleep "${POLLER_ENGINE_SETTLE:-45}"
     fi
     running_before=""
     for c in $LAPTOP_CONTAINERS; do [ "$("$DOCKER" inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && running_before+=" $c"; done
     if "$DOCKER" info > /dev/null 2>&1; then
       find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null   # a lock left by an earlier pull fails the migrate
       out=$(bash "$ENVSYNC" catch-up --slice "$SLICE" --name "$NAME" --yes 2>&1); rc=$?
+      printf '%s
+' "$(now) B2 for $SLICE (rc $rc)" "$out" > "$ST/b2_last_output.txt"     # the whole output of the last B2, for a failure
       rec2=$(last_b2); rec2_epoch=$( [ -n "$rec2" ] && date -d "$rec2" +%s 2>/dev/null || echo 0)
-      if [ "$rec2_epoch" -ge "$pt_epoch" ]; then RESULT="$RESULT + B2 OK (covers: $(one_line 80 <<< "$POINT"))"
-      else RESULT="$RESULT + FAILED B2 (rc $rc): $(tail -3 <<< "$out" | one_line 200)"; fi
+      if [ "$rec2_epoch" -ge "$pt_epoch" ]; then RESULT="$RESULT + B2 OK (covers: $(one_line 80 <<< "$POINT"))"; rm -f "$ST/b2_failed.txt"
+      else RESULT="$RESULT + FAILED B2 (rc $rc): $(tail -3 <<< "$out" | one_line 200)"; echo "$POINT" > "$ST/b2_failed.txt"; fi
     else
-      RESULT="$RESULT + FAILED B2: Docker did not start on the laptop"
+      RESULT="$RESULT + FAILED B2: Docker did not start on the laptop"; echo "$POINT" > "$ST/b2_failed.txt"
     fi
     # Put the laptop back as it was: stop the main containers that were not running, free a turn-file claim a failed
     # copy left behind, and quit Docker Desktop if it was off. Never dev2.

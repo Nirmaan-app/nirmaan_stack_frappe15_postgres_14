@@ -284,7 +284,7 @@ EOF
 chmod +x "$PW/bin/"*
 prun() {   # one poller run against the stubs (POLLER_ENGINE_START: the real Docker Desktop is never started by a test)
   PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
-  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_START="$PW/bin/engine_start" \
+  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_ENGINE_START="$PW/bin/engine_start" \
   ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
   bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
 }
@@ -330,6 +330,18 @@ check "B2 WITH STANDBY: a DBCOPY-POINT newer than the last copy -> Docker Deskto
   grep -q "^last good B2:  *2026-11-18 15:31:10" "$PW/hb.txt" && ! grep -q "dev2" "$PW/calls.log" && grep -q "^free" "$PW/turn.txt"'
 preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 15:30:00 a paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; prun
 check "B2 is not repeated once the copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
+
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; echo 2 > "$PW/es_rc"; prun
+check "B2 FAILURE: a failed copy is one heartbeat + log line, the containers and Docker are still put back" '
+  [[ "$(hb)" == *"+ FAILED B2 (rc 2)"* ]] && [ "$(grep -c "FAILED B2" "$PW/poller.log")" = 1 ] && grep -q "^docker desktop stop" "$PW/calls.log" && grep -q "another paid run" "$PW/state/b2_failed.txt"'
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+check "NO TIGHT RETRY: the next run does not try the same failed copy again (B2 PENDING), and starts nothing" '
+  [[ "$(hb)" == *"B2 PENDING (the copy failed"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ]'
+rm -f "$PW/state/b2_failed.txt"
+preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_FREE_MB=1500 prun
+check "LOW MEMORY: with too little free memory on the laptop no copy is started (B2 PENDING), and it is not counted as a failure" '
+  [[ "$(hb)" == *"B2 PENDING (the laptop has only 1500 MB"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ]'
+echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup z)" > "$PW/pull_record"
 
 preset; date '+%F %T' > "$PW/state/paused"; prun
 check "PAUSE: the off switch -> heartbeat PAUSED, nothing asked, nothing copied" '[[ "$(hb)" == PAUSED* ]] && [ "$(calls .)" = 0 ]'
