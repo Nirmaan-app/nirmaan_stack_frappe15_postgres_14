@@ -6,6 +6,7 @@ Stdlib only, like the check itself (J1's tests also need node and frontend/node_
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,7 @@ from residence_check import (  # noqa: E402
 from residence_check import (  # noqa: E402  (D1, #1705)
     EVERY_RULE,
     rules_the_config_turns_on,
+    disable_comment_sources,
     disable_comment_texts,
     disable_counts,
     disable_directive,
@@ -579,6 +581,45 @@ class DisableComments(unittest.TestCase):
         src = ("export const C = () => (<div>// eslint-disable-next-line x\n"
                "  {/* eslint-disable-next-line y */}\n  <b title=\"// eslint-disable z\" />\n</div>);\n")
         self.assertEqual(self.comments(src, "src/c.tsx"), ["/* eslint-disable-next-line y */"])
+
+    def test_reads_js_and_jsx_files_as_jsx_and_mts_cts_files_as_typescript(self):
+        jsx = ("export const C = () => (<div>// eslint-disable-next-line x\n"
+               "  {/* eslint-disable-next-line y */}\n</div>);\n")
+        for path in ("src/c.jsx", "src/c.js", "src/c.mjs", "src/c.cjs"):
+            self.assertEqual(self.comments(jsx, path), ["/* eslint-disable-next-line y */"], path)
+        ts = "const a = <T,>(x: T): T => x; // eslint-disable-line z\n"
+        for path in ("src/c.mts", "src/c.cts"):
+            self.assertEqual(self.comments(ts, path), ["// eslint-disable-line z"], path)
+
+    def frontend_tree(self, files):
+        """A made-up frontend/ folder in git, holding ``files`` ({path: text}), with the real oxlint config."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        files = {".oxlintrc.json": (REPO / "frontend/.oxlintrc.json").read_text(), **files}
+        for path, text in files.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        return root
+
+    DISABLE = "// eslint-disable-next-line typescript/no-explicit-any\nexport const a: any = 1;\n"
+
+    def test_reads_every_file_type_oxlint_lints(self):
+        # Measured on oxlint 1.94 (`oxlint src`): it lints these, and not .css, .json, .md or .html.
+        linted = ["src/f.ts", "src/f.tsx", "src/f.mts", "src/f.cts", "src/f.js", "src/f.jsx", "src/f.mjs",
+                  "src/f.cjs", "src/f.d.ts"]
+        root = self.frontend_tree({p: self.DISABLE for p in linted + ["src/f.css", "src/f.json", "src/f.md",
+                                                                       "src/f.html"]})
+        sources, unreadable = disable_comment_sources(root)
+        self.assertEqual(sorted(sources), sorted(linted))
+        self.assertEqual(unreadable, [])
+
+    def test_a_vue_svelte_or_astro_file_holding_disable_text_is_unreadable(self):
+        # oxlint lints their script blocks; D1's TypeScript parser cannot read them, so each is a finding.
+        root = self.frontend_tree({"src/f.vue": "<script>// eslint-disable</script>", "src/f.svelte": "",
+                                   "src/f.astro": "---\n// oxlint-disable\n---\n"})
+        self.assertEqual(disable_comment_sources(root)[1], ["src/f.astro", "src/f.vue"])
 
     def frozen_file(self, frozen):
         tmp = tempfile.TemporaryDirectory()

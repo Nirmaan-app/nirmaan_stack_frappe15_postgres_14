@@ -560,7 +560,7 @@ DISABLE_COMMENT_PARSER = "frontend/scripts/disable_comments.mjs"
 
 
 def disable_comment_texts(sources: dict[str, str]) -> dict[str, list[str]]:
-    """The comments of each TS/TSX source that hold `-disable` (TypeScript's parser), keyed as given."""
+    """The comments of each source oxlint lints that hold `-disable` (TypeScript's parser), keyed as given."""
     return run_ts_parser(DISABLE_COMMENT_PARSER, sources)
 
 
@@ -607,17 +607,36 @@ DISABLE_SUPPRESSIONS = "frontend/disable-comment-suppressions.json"
 PRUNE_FLAG = "--prune-disable-comments"
 
 
-def disable_comments_found() -> dict[str, dict]:
-    """D1's counts over frontend/src, in oxlint's suppressions shape, keyed by paths relative to frontend/.
+# The files `oxlint src` lints, by extension (measured on oxlint 1.94, #1705): D1's parser reads these. A `.d.ts`
+# ends in `.ts`. oxlint also lints the script blocks of OTHER_LINTED_SUFFIXES, which TypeScript's parser cannot read.
+LINTED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+OTHER_LINTED_SUFFIXES = (".vue", ".svelte", ".astro")
+
+
+def disable_comment_sources(frontend: Path) -> tuple[dict[str, str], list[str]]:
+    """(sources, unreadable) under ``frontend``/src, keyed by paths relative to ``frontend``: each file oxlint lints
+    whose text holds `-disable` (a file without it holds no directive; the parser is the slow part), and each such
+    file D1's parser cannot read (OTHER_LINTED_SUFFIXES)."""
+    sources, unreadable = {}, []
+    for p in sorted((frontend / "src").rglob("*")):
+        if not p.is_file() or SKIP_DIRS & set(p.parts):
+            continue
+        rel = p.relative_to(frontend).as_posix()
+        if p.suffix in LINTED_SUFFIXES and "-disable" in (src := read(p)):
+            sources[rel] = src
+        elif p.suffix in OTHER_LINTED_SUFFIXES and "-disable" in read(p):
+            unreadable.append(rel)
+    return sources, unreadable
+
+
+def disable_comments_found() -> tuple[dict[str, dict], list[str]]:
+    """D1's counts over frontend/src, in oxlint's suppressions shape, keyed by paths relative to frontend/, and the
+    files holding disable text that D1 cannot read.
 
     Raises TsParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
-    sources = {}
-    for p in iter_files("frontend/src", (".ts", ".tsx")):
-        src = read(p)
-        if "-disable" in src:  # a file without the text holds no directive; the parser is the slow part
-            sources[p.relative_to(REPO_ROOT / "frontend").as_posix()] = src
+    sources, unreadable = disable_comment_sources(REPO_ROOT / "frontend")
     rules = rules_the_config_turns_on(parse_jsonc(read(REPO_ROOT / CONFIG)))
-    return disable_counts(disable_comment_texts(sources), rules)
+    return disable_counts(disable_comment_texts(sources), rules), unreadable
 
 
 def _rule_label(rule: str) -> str:
@@ -661,14 +680,17 @@ def disable_comments_unfrozen() -> list[str]:
         return [f"D1 could not count disable comments: {e}"]
     except ValueError as e:
         return [f"D1 could not list ADR-0049's rules: {e}"]
+    found, unreadable = found
     over, under = disable_drift(found, _read_disable_suppressions())
-    return over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
+    return (over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
+            + [f"frontend/{path}: holds disable text in a file D1 cannot parse (oxlint lints its script blocks)"
+               for path in unreadable])
 
 
 def prune_disable_comments() -> int:
     """Lower DISABLE_SUPPRESSIONS to today's counts (a file or rule at 0 goes); never raise one. 0 = done."""
     try:
-        found = disable_comments_found()
+        found, _ = disable_comments_found()
     except (TsParserError, ValueError) as e:
         print(f"✗ {PRUNE_FLAG}: D1 could not count disable comments: {e}", file=sys.stderr)
         return 1

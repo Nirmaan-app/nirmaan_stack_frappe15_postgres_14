@@ -1,18 +1,24 @@
-// D1's parser (scripts/residence_check.py, #1705): the comments in TS/TSX sources that may hold a disable directive,
+// D1's parser (scripts/residence_check.py, #1705): the comments in the sources oxlint lints that may hold a directive,
 // found with TypeScript's own parser. A comment is the trivia between two tokens, as the compiler reads it, so text
 // in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is. residence_check.py
 // reads each comment's directive; this only keeps the comments whose text holds `-disable`.
 //
-//   stdin:  {"<path>": "<source>", ...}      a path ending in .tsx is parsed as TSX
+//   stdin:  {"<path>": "<source>", ...}      parsed by extension (SCRIPT_KINDS)
 //   stdout: {"<path>": ["<comment>", ...], ...}
 import { realpathSync } from "node:fs";
 import ts from "typescript";
 
+// How each file oxlint lints is parsed: JavaScript files may hold JSX, as oxlint reads them.
+const SCRIPT_KINDS = {
+  ".tsx": ts.ScriptKind.TSX, ".jsx": ts.ScriptKind.JSX, ".js": ts.ScriptKind.JS, ".mjs": ts.ScriptKind.JS,
+  ".cjs": ts.ScriptKind.JS,
+};
+
 /** The comments of one source that hold `-disable`, in source order, each with its `//` or `/* *\/`. */
 export function disableComments(path, source) {
-  const tsx = path.endsWith(".tsx");
-  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, tsx ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, tsx ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard);
+  const kind = SCRIPT_KINDS[path.slice(path.lastIndexOf("."))] ?? ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, kind);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, file.languageVariant);
   const found = [];
   const triviaBefore = (token) => {
     const start = token.getStart(file);
