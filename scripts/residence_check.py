@@ -540,20 +540,32 @@ def json_calls_unfrozen() -> list[str]:
 # reason); a rule matches by its last `/` segment, whatever the plugin prefix. Comments only: a string, template or
 # regex literal holding the text switches nothing off (frontend/scripts/disable_comments.mjs reads the comments).
 
-_DISABLE_DIRECTIVE = re.compile(r"(?:eslint|oxlint)-disable(?:-next-line|-line)?(?=\s|$)")
+_DISABLE_DIRECTIVE = re.compile(r"(?:eslint|oxlint)-disable(-next-line|-line)?(?=\s|$)")
+
+
+def _directive(comment: str) -> tuple[re.Match, str] | None:
+    """The directive match in a comment and the comment's trimmed text, or None when it is no disable directive."""
+    body = (comment[2:-2] if comment.startswith("/*") else comment[2:]).strip()
+    found = _DISABLE_DIRECTIVE.match(body)
+    return (found, body) if found else None
 
 
 def disable_directive(comment: str) -> list[str] | None:
     """The rules a comment's disable directive names ([] = every rule), or None when it is no disable directive.
 
     ``comment`` is the whole comment, with its `//` or `/* */`."""
-    body = comment[2:-2] if comment.startswith("/*") else comment[2:]
-    body = body.strip()
-    found = _DISABLE_DIRECTIVE.match(body)
-    if not found:
+    directive = _directive(comment)
+    if directive is None:
         return None
+    found, body = directive
     rules = body[found.end():].split("--", 1)[0]
     return [rule for rule in re.split(r"[\s,]+", rules) if rule]
+
+
+def is_file_wide(comment: str) -> bool:
+    """A disable directive with no `-next-line` or `-line`: it holds from there to the end of the file."""
+    directive = _directive(comment)
+    return directive is not None and directive[0].group(1) is None
 
 
 DISABLE_COMMENT_PARSER = "frontend/scripts/disable_comments.mjs"
@@ -566,6 +578,9 @@ def disable_comment_texts(sources: dict[str, str]) -> dict[str, list[str]]:
 
 # The rule key of a comment that names no rule: it switches off every rule, ADR-0049's included.
 EVERY_RULE = "every-rule"
+# Added to a rule key for a file-wide comment (`/* eslint-disable x */`): it switches the rule off from there to the
+# end of the file, so swapping a frozen line comment for one is a new entry, not the same count.
+FILE_WIDE = " (file-wide)"
 
 
 def rules_the_config_turns_on(config: dict) -> dict[str, str]:
@@ -588,8 +603,9 @@ def rules_the_config_turns_on(config: dict) -> dict[str, str]:
 
 def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dict[str, dict]:
     """The disable comments per file that can switch off one of ``rules`` (rules_the_config_turns_on), in oxlint's suppressions
-    shape ({path: {rule key: {"count": n}}}); a comment naming no rule counts under EVERY_RULE. A comment counts once
-    per rule it names, however many of that rule's names it gives. Files with none are left out."""
+    shape ({path: {rule key: {"count": n}}}); a comment naming no rule counts under EVERY_RULE, and a file-wide one
+    under its key plus FILE_WIDE. A comment counts once per rule it names, however many of that rule's names it gives.
+    Files with none are left out."""
     out: dict[str, dict] = {}
     for path, texts in comments.items():
         for text in texts:
@@ -597,7 +613,8 @@ def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dic
             if named is None:
                 continue
             keys = {rules[rule_name(r)] for r in named if rule_name(r) in rules} if named else {EVERY_RULE}
-            for key in keys:
+            suffix = FILE_WIDE if is_file_wide(text) else ""
+            for key in (key + suffix for key in keys):
                 entry = out.setdefault(path, {}).setdefault(key, {"count": 0})
                 entry["count"] += 1
     return out
@@ -650,7 +667,7 @@ def disable_comments_found() -> tuple[dict[str, dict], list[str]]:
 
 
 def _rule_label(rule: str) -> str:
-    return f"{rule} (names no rule)" if rule == EVERY_RULE else rule
+    return f"{rule} (names no rule)" if rule.startswith(EVERY_RULE) else rule
 
 
 def disable_drift(found: dict[str, dict], frozen: dict[str, dict]) -> tuple[list[str], list[str]]:

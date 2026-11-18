@@ -37,6 +37,7 @@ from residence_check import (  # noqa: E402
 )
 from residence_check import (  # noqa: E402  (D1, #1705)
     EVERY_RULE,
+    FILE_WIDE,
     rules_the_config_turns_on,
     disable_comment_sources,
     disable_comment_texts,
@@ -556,13 +557,23 @@ class DisableComments(unittest.TestCase):
                          "// oxlint-disable-next-line typescript/no-explicit-any",
                          "// eslint-disable-next-line no-explicit-any, @typescript-eslint/no-explicit-any",
                          "// eslint-disable-next-line react-hooks/rules-of-hooks",
-                         "/* eslint-disable */"],
+                         "// eslint-disable-line"],
             "src/b.tsx": ["// eslint-disable-next-line react-hooks/exhaustive-deps", "// a note", "/** eslint-disable */"],
         }
         self.assertEqual(disable_counts(comments, rules), {
             "src/a.ts": {"typescript/no-explicit-any": {"count": 3}, "react/rules-of-hooks": {"count": 1},
                          EVERY_RULE: {"count": 1}},
         })
+
+    def test_a_file_wide_comment_counts_apart_from_a_line_comment_for_the_same_rule(self):
+        rules = {"no-explicit-any": "typescript/no-explicit-any"}
+        comments = {"src/a.ts": ["// eslint-disable-next-line typescript/no-explicit-any",
+                                 "/* eslint-disable @typescript-eslint/no-explicit-any */",
+                                 "// oxlint-disable no-explicit-any -- why", "/* eslint-disable */",
+                                 "// eslint-disable-next-line"]}
+        self.assertEqual(disable_counts(comments, rules), {"src/a.ts": {
+            "typescript/no-explicit-any": {"count": 1}, f"typescript/no-explicit-any{FILE_WIDE}": {"count": 2},
+            EVERY_RULE: {"count": 1}, f"{EVERY_RULE}{FILE_WIDE}": {"count": 1}}})
 
     def comments(self, src, path="src/a.ts"):
         return disable_comment_texts({path: src})[path]
@@ -664,7 +675,14 @@ class DisableComments(unittest.TestCase):
         rc, out, _ = self.run_d1({"src/a.ts": [self.ANY], "src/b.ts": [self.ANY], "src/c.ts": ["/* eslint-disable */"]},
                                  self.FROZEN, "--check")
         self.assertEqual(rc, 1, out)
-        self.assertIn(f"frontend/src/c.ts: 1 disable comments for {EVERY_RULE} (names no rule), 0 frozen", out)
+        self.assertIn(f"frontend/src/c.ts: 1 disable comments for {EVERY_RULE}{FILE_WIDE} (names no rule), 0 frozen",
+                      out)
+
+    def test_a_frozen_line_comment_widened_to_the_whole_file_fails(self):
+        rc, out, _ = self.run_d1({"src/a.ts": ["/* eslint-disable @typescript-eslint/no-explicit-any */"],
+                                  "src/b.ts": [self.ANY]}, self.FROZEN, "--check")
+        self.assertEqual(rc, 1, out)
+        self.assertIn(f"frontend/src/a.ts: 1 disable comments for typescript/no-explicit-any{FILE_WIDE}, 0 frozen", out)
 
     def test_a_new_exhaustive_deps_comment_passes(self):
         rc, out, _ = self.run_d1({"src/a.ts": [self.ANY, "// eslint-disable-next-line react-hooks/exhaustive-deps"],
