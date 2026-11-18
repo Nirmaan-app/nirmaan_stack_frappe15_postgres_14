@@ -138,4 +138,4 @@ class TestReviewListsCollectPaymentsWithTheSpends(FrappeTestCase):
         self.assertNotIn("collect_payments", preview)
         created = {row["transfer_id"] for group in preview["groups"] for row in group["rows"]}
         self.assertLessEqual({COLLECT_WITH_LINK, COLLECT_NO_LINK}, created)
-        self.assertNotIn(COLLECT_NO_LINK, {line["transfer_id"] for line in preview["open_lines"]})
+        self.assertNotIn("open_lines", preview)  # #1720: the plan opens no line

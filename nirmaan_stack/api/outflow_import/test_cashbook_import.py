@@ -357,10 +357,8 @@ class TestTheWorker(CashbookImportCase):
     def test_the_batch_status_follows_its_rows(self):
         self.assertEqual(frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Draft")
         cb._cashbook_worker(self.batch, "Administrator")
-        # #1594: the sample's wallet credit stays open for a person, so the batch is not Completed yet.
-        self.assertEqual(
-            frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Partially Settled"
-        )
+        # #1720: the sample's wallet credit is created too, so nothing is left open and the batch is Completed.
+        self.assertEqual(frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Completed")
 
 
 class TestStatus(CashbookImportCase):
