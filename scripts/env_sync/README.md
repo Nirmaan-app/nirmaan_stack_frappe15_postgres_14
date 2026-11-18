@@ -263,3 +263,17 @@ copy on the laptop failed in WSL or for want of memory, never in the copy itself
 
 `ENV_SYNC_LOCATION=office|away`, `ENV_SYNC_WAKE_AGE=<seconds>`, `ENV_SYNC_FREE_MB`, `ENV_SYNC_ENGINE_START` (a stub
 start), `ENV_SYNC_DOCKER`, `ENV_SYNC_WSL`, `ENV_SYNC_ENGINE_KILL`, `ENV_SYNC_ENGINE_WAIT`, `ENV_SYNC_PENDING_ROOT`.
+
+### Found in the live rehearsals (2026-11-19) and built in
+
+- **The held folder's name is the backup FILE's stamp, in local time.** The desktop's backup folder is stamped in UTC by
+  its container (a fresh 01:08 backup read `20261118_193802`), which looked a day old. Every hold makes a NEW desktop
+  backup first; none is ever reused.
+- **The scratch fingerprint writes timestamps the way `db_fingerprint.py` does** (all six microsecond digits, or none):
+  psql drops trailing zeros, so the two texts differed by one character on an identical database.
+- **Restoring a held copy takes its "how it was copied" line from the copy's own record.** The first live restore
+  stopped on an unset variable while writing the pull record, after the database had been replaced.
+- **A command that ends early puts the laptop back** (`at_exit`): the containers and the Docker Desktop that run started
+  are stopped and the turn file is freed, unless a takeover has just made the laptop the master.
+- **Measured** (laptop at home): "leaving" 159 s; an away copy 149 s; the takeover rehearsal 133 s (scratch load 64 s);
+  a real load of a held copy 311 s, during which free memory fell from 6.0 GB to 0.7 GB.
