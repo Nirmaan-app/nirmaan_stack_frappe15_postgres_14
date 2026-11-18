@@ -278,6 +278,7 @@ def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
     for name in rejected:
         pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
         pay.status = PAYMENT_REJECTED
+        pay.rejection_reason = reason  # the reason the screens show; the timeline comment stays too
         pay.flags.bulk_approval = True
         pay.flags[DECIDING_FLAG] = cheque
         pay.save(ignore_permissions=True)

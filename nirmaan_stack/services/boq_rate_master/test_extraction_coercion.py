@@ -2329,7 +2329,14 @@ class TestItemListSlice4(FrappeTestCase):
         # whose rules RUN, and reaches extraction through the same generic arm -- EXACTLY three now.
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE
         # `assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping"])` -- VRF joins through the same generic arm
-        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf"])
+        # INVERTED at VP-1 (HVAC v66; owner VR1 -- the Valve Package is read by the model, VP-2 runs it) by mechanical authority: BEFORE
+        # `assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf"])` -- the Valve Package joins through the
+        # same generic arm; Misc (borrow-only, owner QR-1 Q5 (a)) does NOT
+        # INVERTED at DU-1 Part B (HVAC v71; owner DR1-DR18 -- Ducting is read by the model) by mechanical authority: BEFORE
+        # `assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_valve_package", "hvac_vrf"])` -- Ducting joins
+        # through the same generic arm; Misc (borrow-only) still does NOT
+        self.assertEqual(eligible, ["hvac_adp", "hvac_ducting", "hvac_insulation", "hvac_piping", "hvac_valve_package", "hvac_vrf"])
+        self.assertNotIn("hvac_misc", eligible)
         pip = self.cfgs[("HVAC", "hvac_piping")]
         self.assertEqual(pip.get("pipelines"), {})                        # the Insulation shape: no dead top-level entry
         # INVERTED by SLICE 12e-3a under mechanical authority (owner Q2, 2026-10-11: the model is asked "Insulated"
@@ -2352,8 +2359,20 @@ class TestItemListSlice4(FrappeTestCase):
         # `assertFalse(config_is_eligible(vrf))` -- the switch is gone and the request IS sent
         self.assertNotIn("calculator_only", vrf)
         self.assertTrue(extraction.config_is_eligible(vrf))
+        # INVERTED at VP-1 (HVAC v66; mechanical authority): BEFORE the exemption tuple held adp / insulation / piping / vrf only --
+        # the Valve Package's spec IS built and it is eligible (pinned above). Borrow-only Misc's spec is built too (its list_spec
+        # is what the Valve Package's Misc section borrows) but it is NOT eligible (owner QR-1 Q5 (a)), so no request is ever sent
+        # for a Misc row -- the VRF-at-v56 shape
+        self.assertIsNotNone(extraction.build_items_spec(self.cfgs[("HVAC", "hvac_valve_package")]))
+        self.assertTrue(extraction.config_is_eligible(self.cfgs[("HVAC", "hvac_valve_package")], self.cfgs))
+        misc = self.cfgs[("HVAC", "hvac_misc")]
+        self.assertIsNotNone(extraction.build_items_spec(misc))
+        self.assertFalse(extraction.config_is_eligible(misc, self.cfgs))
+        # INVERTED at DU-1 Part B (HVAC v71; mechanical authority): BEFORE the exemption tuple ended at hvac_misc -- Ducting's spec IS
+        # built and it is eligible
+        self.assertTrue(extraction.config_is_eligible(self.cfgs[("HVAC", "hvac_ducting")], self.cfgs))
         for key in self.cfgs:
-            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_vrf")):
+            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_vrf"), ("HVAC", "hvac_valve_package"), ("HVAC", "hvac_misc"), ("HVAC", "hvac_ducting")):
                 self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
         self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
 
@@ -3547,7 +3566,7 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v55.json"`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v56.json"`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v57.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v65.json"   # VRF-9: v65 (BEFORE: v64, VRF-8)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v75.json"   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
@@ -3596,6 +3615,14 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # VRF-1: v55's data-only `hvac_vrf` config, normalised out on the NEW side the same way, NAMED (BEFORE: no second filter)
         self.assertIn(("HVAC", "hvac_vrf"), c33)
         c33 = {k: v for k, v in c33.items() if k[1] != "hvac_vrf"}
+        # VP-1: v66's `hvac_valve_package` and borrow-only `hvac_misc` configs, normalised out on the NEW side the same way, NAMED
+        # (BEFORE: no third filter)
+        self.assertIn(("HVAC", "hvac_valve_package"), c33)
+        self.assertIn(("HVAC", "hvac_misc"), c33)
+        c33 = {k: v for k, v in c33.items() if k[1] not in ("hvac_valve_package", "hvac_misc")}
+        # DU-1 Part B: v71's `hvac_ducting` config, normalised out on the NEW side the same way, NAMED (BEFORE: no fourth filter)
+        self.assertIn(("HVAC", "hvac_ducting"), c33)
+        c33 = {k: v for k, v in c33.items() if k[1] != "hvac_ducting"}
         self.assertEqual(set(c32), set(c33))
         payload = [extraction._ai_item(self._row())]
         checked = []

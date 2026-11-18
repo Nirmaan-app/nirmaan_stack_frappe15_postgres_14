@@ -52,6 +52,9 @@ import {
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
 import { isHeldQueueRow } from "./queueRowActions";
+import { Link } from "react-router-dom";
+import { orderPageHref } from "../components/poRoute";
+import { rejectionReasonText } from "../components/rejectionReason";
 
 /** The tabs whose Against cell carries the cheque chip under the PO / WO id (spec #1407). The later tabs
  *  show it in UTR / Ref instead. */
@@ -116,6 +119,12 @@ export interface ApprovalColumnCtx {
    */
   onUploadInvoice?: (row: ApprovalQueueRow) => void;
   canUploadInvoice?: (row: ApprovalQueueRow) => boolean;
+  /**
+   * "Payment Raised By Me → Rejected" (2026-11-12): the Against cell of a PO / WO payment adds an
+   * "Open PO" / "Open WO" link to the order's page, where the rejected payment shows its reason and
+   * can be deleted to free its term.
+   */
+  linkOrderPage?: boolean;
 }
 
 const daysSince = (iso?: string | null): number | null => {
@@ -460,7 +469,14 @@ const REGISTRY: Record<
             <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
           </span>
         ) : null;
-        if (r.bank_line_count <= 0 && !chip) return documentCard;
+        // Its own line too, outside the document card's trigger: a link inside the trigger's button is invalid.
+        const orderHref = ctx.linkOrderPage ? orderPageHref(r.document_name, r.document_type) : null;
+        const orderLink = orderHref ? (
+          <Link to={orderHref} className="mt-0.5 block text-[11px] text-primary underline underline-offset-2">
+            {r.document_type === "Service Requests" ? "Open WO" : "Open PO"}
+          </Link>
+        ) : null;
+        if (r.bank_line_count <= 0 && !chip && !orderLink) return documentCard;
         // A payment bank lines settle gets the same Bank lines card as an expense — on its OWN
         // trigger line, because the PO / WO number already opens the document's card. For a
         // payment a part payment split, the count and the card are the whole request's.
@@ -481,6 +497,7 @@ const REGISTRY: Record<
               </ExpenseBankLinesPopover>
             )}
             {chip}
+            {orderLink}
           </span>
         );
       }
@@ -890,6 +907,32 @@ const REGISTRY: Record<
     cell: ({ row }) => (row.original.payment_by ? <span className="block max-w-[130px] truncate" title={row.original.payment_by}>{row.original.payment_by}</span> : <Blank />),
     meta: { exportHeaderName: "Payment By", exportValue: (r: ApprovalQueueRow) => r.payment_by },
   }),
+
+  // Why a PO / WO payment was rejected (2026-11-12): the 30-day rule's reason or the one the rejecter typed.
+  // "—" on every row with none (any other status, an expense, a reject from before the field). Two lines,
+  // the whole text one hover away.
+  rejection_reason: () => ({
+    id: "rejection_reason",
+    accessorKey: "rejection_reason",
+    header: "Reason",
+    size: 220,
+    enableSorting: false,
+    cell: ({ row }) => {
+      // Shown only while the payment is Rejected (`rejectionReasonText`), as on the PO / WO page.
+      const reason = rejectionReasonText(row.original);
+      if (!reason) return <Blank />;
+      return (
+        <span className="line-clamp-2 max-w-[210px] break-words text-xs text-muted-foreground" title={reason}>
+          {reason}
+        </span>
+      );
+    },
+    meta: { exportHeaderName: "Rejection Reason", exportValue: (r: ApprovalQueueRow) => rejectionReasonText(r) ?? "" },
+  }),
+
+  // "Payment Raised By Me → Rejected": when the row was rejected. Its id is the union's `modified` (what the
+  // sort sends): nothing changes a Rejected payment after the reject but a delete.
+  rejected_on: () => ({ ...dateCol("rejected_on", "modified", "Rejected on"), id: "modified" }),
 
   // All tab only — the only tab where status varies. On a single-status tab it is
   // one word repeated down the page.

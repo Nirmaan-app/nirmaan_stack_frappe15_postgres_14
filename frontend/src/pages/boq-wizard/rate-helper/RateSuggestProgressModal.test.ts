@@ -16,6 +16,7 @@ import {
   suggestAiStatusWarning,
   deriveSuggestModalPhase,
   suggestPercent,
+  serverRefusalText,
   SUGGEST_BADGES_LINE,
   type SuggestModalSummary,
 } from "./RateSuggestProgressModal";
@@ -210,5 +211,64 @@ describe("adding pass_attempted_count leaves the three already-correct shapes UN
     // ...while a complete scoped run ignores it entirely
     expect(suggestOutcomeCounts({ ...scopedComplete, pass_attempted_count: 1 }))
       .toEqual(suggestOutcomeCounts({ ...scopedComplete, pass_attempted_count: 3 }));
+  });
+});
+
+// SLICE SR-1 C10: a FIRST selected run (nothing carried) read its rows for the first time -- the line says "read" and
+// how many eligible rows are still unread; a later selected run keeps the re-extracted / carried wording.
+describe("SR-1 C10 the completion line on a first selected run", () => {
+  it("POSITIVE: 5 rows read, 115 of the 120-row population still unread", () => {
+    const first: SuggestModalSummary = { status: "success", run_status: "complete", results: doc(5), scoped_row_count: 5,
+      attempted_count: 5, population_count: 120, pass_attempted_count: 5, first_selected_run: true };
+    expect(suggestCompletionLine(first)).toBe("5 rows read. 115 rows on this sheet have not been read yet.");
+  });
+  it("every eligible row selected -> only 'N rows read.' (the unread part left out at 0)", () => {
+    const all: SuggestModalSummary = { status: "success", run_status: "complete", results: doc(3), scoped_row_count: 3, population_count: 3, first_selected_run: true };
+    expect(suggestCompletionLine(all)).toBe("3 rows read.");
+  });
+  it("NEGATIVE: a later selected run over a live run keeps 're-extracted' + 'carried forward unchanged'", () => {
+    const later: SuggestModalSummary = { status: "success", run_status: "complete", results: doc(94), scoped_row_count: 4, population_count: 94, first_selected_run: false };
+    expect(suggestCompletionLine(later)).toBe("4 rows re-extracted. 90 rows carried forward unchanged.");
+    // a later run that ticked every row is NOT a first run: still "re-extracted" (the key, not a guess from the counts)
+    expect(suggestCompletionLine({ ...later, results: doc(4) })).toBe("4 rows re-extracted.");
+  });
+});
+
+// SLICE SR-1 C9: the error modal shows the server's own refusal text instead of the generic line.
+describe("SR-1 C9 serverRefusalText", () => {
+  it("reads frappe's _server_messages (a JSON list of JSON strings), HTML stripped", () => {
+    const err = { _server_messages: JSON.stringify([JSON.stringify({ message: "These rows are not part of this sheet's suggestion population: 99. <b>Reload</b> and try again.", title: "Rows not eligible" })]) };
+    expect(serverRefusalText(err)).toBe("These rows are not part of this sheet's suggestion population: 99. Reload and try again.");
+  });
+  it("falls back to message, then exception (without the Python class prefix)", () => {
+    expect(serverRefusalText({ message: "A suggestion run is already in progress for this sheet." })).toBe("A suggestion run is already in progress for this sheet.");
+    expect(serverRefusalText({ exception: "frappe.exceptions.ValidationError: AI extraction is off" })).toBe("AI extraction is off");
+  });
+  it("NEGATIVE: nothing readable -> null (the modal keeps its generic line)", () => {
+    expect(serverRefusalText(null)).toBeNull();
+    expect(serverRefusalText("boom")).toBeNull();
+    expect(serverRefusalText({ _server_messages: "not json" })).toBeNull();
+    expect(serverRefusalText({})).toBeNull();
+  });
+});
+
+// SR-1 C10 (found in the AC5 cert, step C2): SheetPricingPage copies the done payload FIELD BY FIELD into the modal's
+// summary, so the live modal said "3 rows re-extracted." although the server sent first_selected_run=true. Source pin.
+// SR-1 K4 (review R1): the same field-by-field copy also dropped pass_attempted_count (QR-1 call 6). The page now passes
+// the WHOLE done payload through, so a future additive worker key cannot be dropped the same way.
+describe("SR-1 K3/K4 the page passes the whole done payload to the modal", () => {
+  it("SheetPricingPage hands the done payload through whole, not field by field", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
+    expect(src).toContain("setSuggestSummary({ ...msg });");
+    // the old field-by-field copy is gone (it began with `status: msg.status,`)
+    expect(src).not.toContain("status: msg.status,");
+  });
+  it("the status response type declares first_selected_run and pass_attempted_count", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
+    const block = src.slice(src.indexOf("interface SuggestStatusResponse {"), src.indexOf("interface PartialSuggestRun"));
+    expect(block).toContain("first_selected_run?: boolean;");
+    expect(block).toContain("pass_attempted_count?: number;");
   });
 });

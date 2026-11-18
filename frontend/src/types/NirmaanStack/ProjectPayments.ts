@@ -65,6 +65,9 @@ export interface ProjectPayments{
 	payment_date?: string
 	approval_date?: string
 	status: string
+	/**	Rejection Reason : Small Text (read-only; shown only when Rejected). Why it was rejected: the 30-day
+	 *  rule's reason or the one the rejecter typed (2026-11-12). Blank on a reject from before the field. */
+	rejection_reason?: string
 	/**	CEO Approval Date : Date	*/
 	ceo_approval_date?: string
 	/**	Auto Approved : Check	*/

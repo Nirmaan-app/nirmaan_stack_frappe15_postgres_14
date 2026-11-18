@@ -151,7 +151,9 @@ export interface ScaleStep {
 export interface RoundupStep {
   step: "roundup";
   target: string;
-  params: { digits: number };
+  /** DU-1 (owner QR-1 (c), 2026-11-15 12:15 "ok wiuth a+c"): `mode: "half_up"` rounds half up (Excel ROUND), the round-duct
+   *  per-metre cost's step; ABSENT => ROUNDUP (away from zero), every earlier step unchanged. */
+  params: { digits: number; mode?: "half_up" };
   explain?: string;
 }
 export interface ComponentStep {

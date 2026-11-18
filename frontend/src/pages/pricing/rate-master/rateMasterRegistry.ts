@@ -17,6 +17,13 @@ export interface RateMasterCategoryEntry {
    * page -- `rateMasterPageEntry` filters it out there. Absent => today: an item category.
    */
   holds_items?: false;
+  /**
+   * VP-1 (N6, owner QR-2 Q2 (a) 2026-11-12 "2a is fine for now. when we build misc category we will build properly"): `true`
+   * marks a BORROW-ONLY category -- FETCHED (another category's panel prices its items under its own rules through
+   * `list_spec.sections`) but listed NEITHER in the calculator's category list (`calculatorEntry`) NOR on the Rate Master page
+   * (`rateMasterPageEntry`). Absent => listed as before.
+   */
+  fetch_only?: true;
 }
 
 export interface RateMasterDisciplineEntry {
@@ -34,7 +41,17 @@ export const RATE_MASTER_ROUTE = "/rate-master";
  */
 export function rateMasterPageEntry<T extends RateMasterDisciplineEntry | undefined>(entry: T): T {
   if (!entry) return entry;
-  const kept = entry.categories.filter((c) => c.holds_items !== false);
+  const kept = entry.categories.filter((c) => c.holds_items !== false && c.fetch_only !== true);
+  return (kept.length === entry.categories.length ? entry : { ...entry, categories: kept }) as T;
+}
+
+/**
+ * VP-1 (N6). The discipline entry AS THE CALCULATOR LISTS IT: every category except a borrow-only one (`fetch_only`). PURE.
+ * Returns the SAME object when nothing is filtered, so every entry without one is reference-identical.
+ */
+export function calculatorEntry<T extends RateMasterDisciplineEntry | undefined>(entry: T): T {
+  if (!entry) return entry;
+  const kept = entry.categories.filter((c) => c.fetch_only !== true);
   return (kept.length === entry.categories.length ? entry : { ...entry, categories: kept }) as T;
 }
 
@@ -124,6 +141,17 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // Electrical's. Its config carries no pipelines and no attribute definitions, so it can never
       // price a BoQ row.
       { category_id: "hvac_pricing_inputs", label: "Pricing Inputs" },
+      // VP-1 (2026-11-13, HVAC v66; owner VR1-VR12, QR-1 / QR-2 / ANSWER 3): the Valve Package -- 124 SKUs of the owner's ruled
+      // valve sheet, priced on the panel and in the calculator. It holds items, so the Rate Master page lists it (VP-1 QR-2:
+      // recommendation (a), the owner's answer pending at build). APPENDED, so every earlier category keeps its calculator sentinel row.
+      { category_id: "hvac_valve_package", label: "Valve Package" },
+      // VP-1 (N6, owner QR-1 Q5 (a) / QR-2 Q2 (a) "2a is fine for now. when we build misc category we will build properly"): Misc
+      // is BORROW-ONLY -- fetched so the Valve Package panel and calculator price its 4 instruments under Misc's own rules, listed
+      // neither in the calculator nor on the Rate Master page.
+      { category_id: "hvac_misc", label: "Misc", fetch_only: true },
+      // DU-1 Part B (DU-D0 + the owner's rulings DR1-DR18): Ducting -- its own panel, calculator and Rate Master tab; it borrows
+      // Insulation (live) and Misc (Paint / Fire Retardant / Air Balancing) through its sections. Appended LAST: no entry moves.
+      { category_id: "hvac_ducting", label: "Ducting" },
     ],
   },
 ];

@@ -41,7 +41,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
+import { RATE_MASTER_DISCIPLINES, calculatorEntry } from "./rate-master/rateMasterRegistry";
 import type { RateCategoryConfig } from "./rate-master/rateMasterTypes";
 import {
   RATE_MASTER_CONFIG_TARGETS,
@@ -430,7 +430,7 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
             <SelectValue placeholder="Pick a category to price" />
           </SelectTrigger>
           <SelectContent>
-            {(entry?.categories ?? []).map((c) => {
+            {(calculatorEntry(entry)?.categories ?? []).map((c) => {
               const cfg = configsByCategory.get(c.category_id);
               return (
                 <SelectItem key={c.category_id} value={c.category_id}>

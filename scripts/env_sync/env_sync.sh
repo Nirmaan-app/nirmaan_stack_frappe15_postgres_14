@@ -6,13 +6,33 @@
 #   env_sync.sh status [--no-data]     code and data on both machines, and a verdict
 #   env_sync.sh to-desktop             fast-forward the desktop to the laptop's commits, then destale it
 #   env_sync.sh from-desktop           fast-forward the laptop to the desktop's commits, then destale it
-#   env_sync.sh db-pull --yes          replace the laptop's database with a fresh backup of the desktop's (the master)
+#   env_sync.sh db-pull --yes [--covers STEP] [--chunked]
+#                                      replace the laptop's database with a fresh, PROVED backup of the desktop's (the
+#                                      master); STEP is written into the pull record (which step the copy covers). The normal
+#                                      copy is tried once on any network; if it fails, the resumable chunked copy takes
+#                                      over (--chunked forces it)
 #   env_sync.sh db-push --yes [--discard-desktop-writes]
 #                                      after a desktop drop (the laptop was the master): replace the DESKTOP's database
 #                                      with a fresh backup of the laptop's, after a proved desktop backup
 #   env_sync.sh reports               copy new or newer files from the desktop's Desktop to the laptop's Desktop
 #   env_sync.sh watch [--logs NAME]    one monitoring snapshot: desktop commits, changes, servers, Claude sessions
 #   env_sync.sh print                  the settings this checkout resolves to (env.local included); runs nothing
+#
+# Checkpoints - keep the laptop close behind the desktop, over this SSH route only, never a cloud drive
+# (CKP-1 / CKP-2; scripts/env_sync/README.md):
+#   env_sync.sh checkpoint-code --slice S [--name N] [--if-older MIN]
+#                                      B1: the desktop's commits (fast-forward, as after a commit) + its UNCOMMITTED work
+#                                      + a resume note into frappe-bench\envsync\checkpoints\<slice>\<stamp>\ on the
+#                                      laptop (local disk); never applied
+#   env_sync.sh checkpoint --slice S [--name N] --yes
+#                                      B3 "leaving": a local ckpt/<slice>-<stamp> commit on the desktop, its code and a
+#                                      proved database copy on the laptop, both verified; prints CHECKPOINT READY
+#   env_sync.sh catch-up --slice S [--name N]
+#                                      B4 back home: a fresh B1 checkpoint of everything the desktop made since, then
+#                                      CAUGHT-UP with the age of the last database copy (and any copy still pending)
+#   env_sync.sh resume-on-laptop --slice S [--name N] [--dry-run | --takeover --yes]
+#                                      B5: desktop up -> report only; down -> on the owner's word, rebuild the newest
+#                                      checkpoint on the laptop and make the laptop the master
 #
 # Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
 # Scheduler, so no SSH connection has to stay open):
@@ -59,6 +79,31 @@ PING_H=(); D_PING=""                                   # a Host header only for 
 [ "$SITE" != localhost ] && PING_H=(-H "Host: $SITE") && D_PING=" -H 'Host: $SITE'"
 # The desktop's fingerprint as of the laptop's last db-pull (db-pull writes it, db-push checks it, db-push refreshes it).
 PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/$STAGE/last_pull_fingerprint.txt}"
+# Checkpoints (CKP-2): NO cloud drive anywhere - code checkpoints on the laptop's LOCAL disk (envsync/checkpoints), env_sync's
+# database backups on each machine's local disk (envsync/backups, never sites/<site>/private/backups), the master record.
+# The relay folder (where the laptop session's to_chat.md lives) is only READ, for the resume note's last relay id.
+CKPT_ROOT="${ENV_SYNC_CKPT_ROOT:-$BENCH_HOST/$STAGE/checkpoints}"
+RELAY_ROOT="${ENV_SYNC_RELAY_ROOT:-$L_REPORTS/BoQ main lane/_relay}"
+# The network a database copy runs on is RECORDED, not gated (owner 2026-11-17 18:52: "even at home first we should try normal
+# copy and resort to chunked copy only when it fails"). Tailscale says how it reaches the desktop: "via <private LAN address>"
+# = direct on a LAN; "via DERP(...)" = the relay; a public address = direct over the internet. (The desktop's LAN address
+# changes - it was 192.168.1.3, on 2026-11-17 it is 192.168.0.210 - so no fixed address is trusted.) Without Tailscale, a TCP
+# probe of ENV_SYNC_DESKTOP_LAN is the fallback.
+TAILSCALE="${ENV_SYNC_TAILSCALE:-/c/Program Files/Tailscale/tailscale.exe}"
+DESKTOP_TS="${ENV_SYNC_DESKTOP_TS:-nitesh-desktop}"
+DESKTOP_LAN="${ENV_SYNC_DESKTOP_LAN:-}"
+DESKTOP_LAN_PORT="${ENV_SYNC_DESKTOP_LAN_PORT:-22}"
+# The chunked route (rule 16, the VRF-6 lesson): parts of CHUNK_MB in envsync/chunks on each machine, each part sha-checked and
+# re-sent alone up to CHUNK_TRIES times; the normal copy gets one try of at most COPY_TIMEOUT seconds per file.
+CHUNK_MB="${ENV_SYNC_CHUNK_MB:-50}"
+CHUNK_TRIES="${ENV_SYNC_CHUNK_TRIES:-4}"
+COPY_TIMEOUT="${ENV_SYNC_COPY_TIMEOUT:-3600}"
+CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept per slice
+BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
+MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
+TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_turn.txt}"
+GITBASH="${ENV_SYNC_DESKTOP_GITBASH:-C:/Program Files/Git/bin/bash.exe}"   # the desktop host's Git Bash (hrun)
+LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
 SSHO=(-o BatchMode=yes -o ConnectTimeout=20)
@@ -73,6 +118,8 @@ TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 ensure_stage() {
   [ -n "${STAGED:-}" ] && return 0
   mkdir -p "$BENCH_HOST/$STAGE" && cp "$HERE"/remote/* "$BENCH_HOST/$STAGE/" || die "cannot stage scripts on the laptop"
+  # resume-on-laptop must work with the desktop gone: stage the laptop only
+  [ "${STAGE_LAPTOP_ONLY:-0}" = 1 ] && { STAGED=1; return 0; }
   dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/$STAGE/desktop', '$SDIR' | Out-Null" > /dev/null
   "$SCP" -q "${SSHO[@]}" "$HERE"/remote/* "$DESKTOP:$D_BENCH/$STAGE/" || die "cannot reach the desktop over SSH ($DESKTOP)"
   "$SCP" -q "${SSHO[@]}" "$HERE"/desktop/*.ps1 "$DESKTOP:$D_BENCH/$STAGE/desktop/" || die "cannot stage the desktop launch scripts"
@@ -189,7 +236,8 @@ cmd_status() {
     printf '%s\n' "$df" | sed 's/^fp_/  desktop  /; 1s/$/   (master)/'
     if [ "$lf" = "$df" ]; then echo "  verdict  SAME"
     else echo "  verdict  DIFFERENT: the laptop's copy is not the master's. Run env_sync.sh db-pull --yes before laptop work that needs live data."; fi
-    echo "  master   the desktop; after a desktop drop the laptop, until db-push (docs/agents/environments.md, Desktop drop)"
+    if [ -f "$MASTER_REC" ]; then echo "  master   THE LAPTOP ($(head -1 "$MASTER_REC")) - resume-on-laptop took over; db-push hands it back to the desktop"
+    else echo "  master   the desktop; after a desktop drop the laptop, until db-push (docs/agents/environments.md, Desktop drop)"; fi
   fi
   case $VERDICT in IN_SYNC) return 0;; LAPTOP_AHEAD) return 10;; DESKTOP_AHEAD) return 11;; *) return 20;; esac
 }
@@ -226,29 +274,158 @@ cmd_from_desktop() {
   echo "the laptop is $ahead commit(s) ahead of origin/$L_BRANCH. The owner pushes to GitHub by hand."
 }
 
-cmd_db_pull() {
-  [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
-  local out prefix db
-  echo "desktop: backing up ..."
-  out=$(rrun desktop bash backup.sh); prefix=$(kv prefix "$out")
-  [ -n "$prefix" ] || die "the desktop backup failed:\n$out"
-  mkdir -p "$BENCH_HOST/sites/$(dirname "$prefix")"
+# ---- db-pull with proofs (CKP-1, B2) -----------------------------------------------------------------------------
+# d_counts: the desktop database's table + key row counts (db_counts.sh in its postgres container).
+d_counts() {
+  local db="$1" out
+  out=$(d_cp_to_pg "$D_BENCH/$STAGE" db_counts.sh /tmp/envsync_db_counts.sh); grep -q '^error=' <<< "$out" && { echo "$out"; return 1; }
+  dps "docker exec $PG_C bash /tmp/envsync_db_counts.sh $db" | grep '^count_'
+}
+
+# counts_check <before> <after> <copy>: every count of the copy lies between the desktop's counts just before and just
+# after its backup (the dump is a snapshot taken in between). 0 = all within.
+counts_check() {
+  local k s b a lo hi bad=0
+  while IFS='=' read -r k s; do
+    case "$k" in count_*) ;; *) continue;; esac
+    b=$(kv "$k" "$1"); a=$(kv "$k" "$2")
+    if [[ "$b" =~ ^[0-9]+$ && "$a" =~ ^[0-9]+$ && "$s" =~ ^[0-9]+$ ]]; then
+      lo=$(( b < a ? b : a )); hi=$(( b > a ? b : a ))
+      if [ "$s" -ge "$lo" ] && [ "$s" -le "$hi" ]; then echo "  ${k#count_} desktop $b..$a copy $s OK"; continue; fi
+    fi
+    echo "  ${k#count_} desktop $b..$a copy $s DIFF"; bad=1
+  done <<< "$3"
+  [ -n "$3" ] || { echo "  no counts from the copy"; bad=1; }
+  return $bad
+}
+
+# prune_local <dir> <keep>: keep the newest <keep> stamp-named folders under <dir> on the laptop; the rest by name.
+prune_local() {
+  [ -d "$1" ] || return 0
+  ls -1d "$1"/[0-9]*_[0-9]* 2>/dev/null | sort | head -n -"$2" | while read -r old; do rm -rf -- "$old" && echo "laptop: pruned $(basename "$old")"; done
+}
+
+# pull_backup: back up the desktop into its envsync/backups and prove it. Sets PB_PREFIX, PB_DB, PB_BEFORE, PB_AFTER,
+# PB_SHA (file=... sha256=... lines) and PB_TOOK. The desktop keeps working throughout: only the backup itself loads it.
+pull_backup() {
+  local out t
+  PB_DB=$(kv db_name "$(rrun desktop bash get_db_name.sh)"); [ -n "$PB_DB" ] || die "cannot read the desktop's database name"
+  PB_BEFORE=$(d_counts "$PB_DB") || die "cannot count the desktop's rows:\n$PB_BEFORE"
+  echo "desktop: backing up into envsync/backups (local disk) ..."
+  t=$(date +%s)
+  out=$(rrun desktop bash backup_local.sh "$BACKUP_KEEP"); PB_PREFIX=$(kv prefix "$out")
+  [ -n "$PB_PREFIX" ] || die "the desktop backup failed; the laptop is unchanged:\n$out"
+  PB_TOOK=$(( $(date +%s) - t ))
+  grep '^pruned=' <<< "$out" | sed 's/^pruned=/desktop: pruned /'
+  PB_AFTER=$(d_counts "$PB_DB") || die "cannot count the desktop's rows after the backup"
+  out=$(rrun desktop bash prove_backup.sh "$PB_PREFIX"); printf '%s\n' "$out" | sed 's/^/  /'
+  [ "$(kv proof "$out")" = ok ] || die "the desktop backup did not prove whole (sizes, sha256, gzip -t, tar); the laptop is unchanged"
+  PB_SHA=$(grep '^file=' <<< "$out")
+  echo "desktop: backup $(basename "$PB_PREFIX") proved, $PB_TOOK s"
+}
+
+# pull_copy_prove_restore <covers>: copy PB_PREFIX's files to the laptop (sha256 + size equal), load the dump into a
+# SCRATCH database on the laptop and check its counts against the desktop's, and only then replace the laptop's database
+# (the replaced one stays as <db>_envsync_prev). Writes the pull record with what the copy covers.
+# want_of <file name>: "<sha256> <size>" of a proved desktop backup file (PB_SHA).
+want_of() { grep -F "file=$1 " <<< "$PB_SHA" | sed 's/.* size=\([0-9]*\) sha256=\([0-9a-f]*\)/\2 \1/'; }
+got_of() { echo "$(sha256sum < "$1" | cut -c1-64) $(stat -c %s "$1")"; }
+
+# copy_normal: each backup file in one scp (one try, COPY_TIMEOUT each), sha256 + size checked. 0 = all three whole.
+copy_normal() {
+  local suf f
   for suf in -database.sql.gz -files.tar -private-files.tar; do
-    "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/sites/$prefix$suf" "$BENCH_HOST/sites/$prefix$suf" || die "copying $prefix$suf failed"
+    f="$BENCH_HOST/sites/$PB_PREFIX$suf"
+    timeout "$COPY_TIMEOUT" "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/sites/$PB_PREFIX$suf" "$f" || { COPY_WHY="scp of $(basename "$f") failed or timed out"; return 1; }
+    [ "$(want_of "$(basename "$f")")" = "$(got_of "$f")" ] || { COPY_WHY="$(basename "$f") differs (desktop $(want_of "$(basename "$f")"), laptop $(got_of "$f"))"; return 1; }
+    echo "  copied   $(basename "$f")  $(got_of "$f" | cut -c1-16) $(stat -c %s "$f")"
   done
-  echo "laptop: copied $(basename "$prefix") ($(du -h "$BENCH_HOST/sites/$prefix-database.sql.gz" | cut -f1) database)"
+}
+
+# copy_chunked: the resumable route. The desktop splits each file into CHUNK_MB parts (envsync/chunks, local disk); each part
+# is copied and sha-checked, a failed part is re-sent alone (CHUNK_TRIES); the laptop reassembles and checks the whole file
+# (sha256 + size, and gzip -t for the dump). The parts are removed on both machines after the proved restore (chunks_cleanup).
+copy_chunked() {
+  local suf name f out parts p psize psha try ok cdir ldir
+  CHUNK_STAMP=$(date +%Y%m%d_%H%M%S); CHUNK_PARTS=0; CHUNK_RESENT=0
+  for suf in -database.sql.gz -files.tar -private-files.tar; do
+    name="$(basename "$PB_PREFIX")$suf"; f="$BENCH_HOST/sites/$PB_PREFIX$suf"
+    cdir="$C_BENCH/$STAGE/chunks/$CHUNK_STAMP/$suf"; ldir="$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP/$suf"
+    out=$(rrun desktop bash chunk_split.sh "$C_BENCH/sites/$PB_PREFIX$suf" "$cdir" "$CHUNK_MB")
+    parts=$(kv parts "$out"); [ -n "$parts" ] || die "the desktop could not split $name; the laptop database is unchanged:
+$out"
+    mkdir -p "$ldir"
+    while read -r line; do
+      p=$(sed -n 's/^part=\([^ ]*\) .*/\1/p' <<< "$line"); [ -n "$p" ] || continue
+      psize=$(sed -n 's/.* size=\([0-9]*\) .*/\1/p' <<< "$line"); psha=$(sed -n 's/.* sha256=\([0-9a-f]*\)$/\1/p' <<< "$line")
+      ok=0
+      for try in $(seq 1 "$CHUNK_TRIES"); do
+        timeout 900 "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/$STAGE/chunks/$CHUNK_STAMP/$suf/$p" "$ldir/$p" 2>/dev/null &&
+          [ "$(got_of "$ldir/$p")" = "$psha $psize" ] && { ok=1; break; }
+        CHUNK_RESENT=$((CHUNK_RESENT + 1)); echo "  part $suf/$p try $try failed; re-sending that part only"; sleep 5
+      done
+      [ "$ok" = 1 ] || die "the chunked copy failed at $name $p after $CHUNK_TRIES tries; the laptop database is unchanged (parts kept in $ldir for a later resume)"
+      CHUNK_PARTS=$((CHUNK_PARTS + 1))
+    done <<< "$(grep '^part=' <<< "$out")"
+    cat "$ldir"/part_* > "$f" || die "reassembling $name failed; the laptop database is unchanged"
+    [ "$(want_of "$name")" = "$(got_of "$f")" ] || die "the reassembled $name differs (desktop $(want_of "$name"), laptop $(got_of "$f")); the laptop database is unchanged"
+    case "$suf" in *.gz) gzip -t "$f" 2>/dev/null || die "the reassembled $name fails gzip -t; the laptop database is unchanged";; esac
+    echo "  chunked  $name  $parts part(s)  $(got_of "$f" | cut -c1-16) $(stat -c %s "$f")"
+  done
+}
+chunks_cleanup() {
+  [ -n "${CHUNK_STAMP:-}" ] || return 0
+  rm -rf -- "$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP"
+  dps "Remove-Item -LiteralPath '$D_BENCH/$STAGE/chunks/$CHUNK_STAMP' -Recurse -Force" > /dev/null
+  echo "chunks: removed $CHUNK_STAMP on both machines (after the proved restore)"
+}
+
+pull_copy_prove_restore() {
+  local covers="$1" db out
+  mkdir -p "$BENCH_HOST/sites/$(dirname "$PB_PREFIX")"
+  on_lan > /dev/null 2>&1; COPY_NET="${LAN_PATH:-unknown}"; is_lan_path "$COPY_NET" && COPY_NET="office LAN ($COPY_NET)" || COPY_NET="not the office LAN ($COPY_NET)"
+  echo "network: $COPY_NET"
+  local tc; tc=$(date +%s); COPY_ROUTE=normal
+  if [ "${FORCE_CHUNKED:-0}" = 1 ]; then
+    echo "copy: the chunked route (forced with --chunked)"; COPY_ROUTE="chunked (forced)"; copy_chunked
+  elif ! copy_normal; then
+    echo "copy: the normal copy failed ($COPY_WHY) - switching to the chunked route (no second normal try)"; COPY_ROUTE="chunked (after a failed normal copy: $COPY_WHY)"; copy_chunked
+  fi
+  COPY_SECS=$(( $(date +%s) - tc ))
+  echo "copy: $COPY_ROUTE, $COPY_SECS s$( [ -n "${CHUNK_PARTS:-}" ] && echo ", ${CHUNK_PARTS} part(s), ${CHUNK_RESENT:-0} re-sent")"
+  prune_local "$BENCH_HOST/$STAGE/backups" "$BACKUP_KEEP"
   db=$(kv db_name "$(rrun laptop bash get_db_name.sh)"); [ -n "$db" ] || die "cannot read the laptop's database name"
+  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$BENCH_HOST/sites/$PB_PREFIX-database.sql.gz")" "$PG_C:/tmp/envsync_restore.sql.gz" || die "docker cp of the dump failed"
+  for s in restore_db.sh scratch_counts.sh db_counts.sh; do
+    MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$HERE/remote/$s")" "$PG_C:/tmp/$s" > /dev/null || die "docker cp of $s failed"
+  done
+  echo "laptop: test-restoring the copy into a scratch database ..."
+  out=$(MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/scratch_counts.sh "$db" /tmp/envsync_restore.sql.gz)
+  grep -qx 'load=ok' <<< "$out" || die "the copy did not load into the scratch database; the laptop database is unchanged:\n$out"
+  counts_check "$PB_BEFORE" "$PB_AFTER" "$(grep '^count_' <<< "$out")" || die "the copy's counts are not the desktop's; the laptop database is unchanged"
+  echo "laptop: scratch restore PASS; replacing the laptop database ..."
   rrun laptop bash stop_bench.sh > /dev/null
-  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$BENCH_HOST/sites/$prefix-database.sql.gz")" "$PG_C:/tmp/envsync_restore.sql.gz" || die "docker cp of the dump failed"
-  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$HERE/remote/restore_db.sh")" "$PG_C:/tmp/envsync_restore_db.sh" || die "docker cp of restore_db.sh failed"
-  echo "laptop: restoring the database ..."
-  MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/envsync_restore_db.sh "$db" /tmp/envsync_restore.sql.gz || die "the database restore failed (bench is stopped)"
-  rrun laptop bash restore_files.sh "$prefix" || die "files or migrate failed (bench is stopped)"
+  out=$(MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/restore_db.sh "$db" /tmp/envsync_restore.sql.gz 2>&1)
+  grep -q "^restored $db" <<< "$out" || die "the database restore failed (bench is stopped):\n$out"
+  rrun laptop bash restore_files.sh "$PB_PREFIX" | sed 's/^/  /' || die "files or migrate failed (bench is stopped)"
   start_services laptop
   # The laptop now holds exactly the desktop's backup: its fingerprint is the desktop's as of this pull. db-push
   # refuses later if the desktop has moved away from it (writes the laptop never saw).
-  { echo "# desktop fingerprint at the laptop's last db-pull ($(date '+%F %T'), backup $(basename "$prefix"))"; fp_of laptop; } > "$PULL_RECORD"
-  echo "laptop: recorded the pulled fingerprint in $PULL_RECORD"
+  { echo "# desktop fingerprint at the laptop's last db-pull ($(date '+%F %T'), backup $(basename "$PB_PREFIX"))"
+    echo "# covers: ${covers:-a db-pull on request}"
+    echo "# backup: $PB_PREFIX"
+    echo "# copy: $COPY_ROUTE, $COPY_SECS s; network: $COPY_NET"
+    fp_of laptop; } > "$PULL_RECORD"
+  echo "laptop: recorded the pulled fingerprint in $PULL_RECORD (covers: ${covers:-a db-pull on request})"
+  chunks_cleanup
+}
+
+cmd_db_pull() {
+  [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
+  local t0; t0=$(date +%s)
+  pull_backup
+  pull_copy_prove_restore "${COVERS:-}"
+  echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s)"
   NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
 }
 
@@ -277,7 +454,7 @@ cmd_db_push() {
 
   db=$(kv db_name "$(rrun desktop bash get_db_name.sh)"); [ -n "$db" ] || die "cannot read the desktop's database name"
   echo "desktop: backing up (the safety copy) ..."
-  out=$(rrun desktop bash backup.sh); dprefix=$(kv prefix "$out")
+  out=$(rrun desktop bash backup_local.sh "$BACKUP_KEEP"); dprefix=$(kv prefix "$out")
   [ -n "$dprefix" ] || die "the desktop backup failed; nothing changed:\n$out"
   out=$(rrun desktop bash prove_backup.sh "$dprefix"); printf '%s\n' "$out" | sed 's/^/  /'
   [ "$(kv proof "$out")" = ok ] || die "the desktop backup did not prove whole; nothing changed"
@@ -290,7 +467,7 @@ cmd_db_push() {
   grep -qx 'check=PASS' <<< "$out" || die "the desktop backup's test restore did not pass; nothing changed"
 
   echo "laptop: backing up ..."
-  out=$(rrun laptop bash backup.sh); lprefix=$(kv prefix "$out")
+  out=$(rrun laptop bash backup_local.sh "$BACKUP_KEEP"); lprefix=$(kv prefix "$out")
   [ -n "$lprefix" ] || die "the laptop backup failed; nothing changed on the desktop:\n$out"
   out=$(rrun laptop bash prove_backup.sh "$lprefix")
   [ "$(kv proof "$out")" = ok ] || die "the laptop backup did not prove whole; nothing changed on the desktop:\n$out"
@@ -327,7 +504,7 @@ cmd_db_push() {
   { echo "# env_sync db-push - $(date '+%F %T')"; echo
     echo "- started $t0, ended $(date '+%F %T')"
     echo "- code: IN_SYNC at $(lgit rev-parse --short=9 HEAD) on $L_BRANCH"
-    echo "- desktop safety backup (proved by a scratch restore, kept): $(basename "$dprefix") in sites/$SITE/private/backups"
+    echo "- desktop safety backup (proved by a scratch restore, kept): $(basename "$dprefix") in frappe-bench/envsync/backups"
     echo "- laptop backup restored on the desktop: $(basename "$lprefix")"
     echo "- the desktop's previous database: ${db}_envsync_prev (file folders *.envsync_prev)"
     if [ "${DISCARD:-0}" = 1 ]; then echo "- --discard-desktop-writes was given"; fi
@@ -336,6 +513,7 @@ cmd_db_push() {
     echo "| after | $(printf '%s' "$lfp2" | tr '\n' ';') | $(printf '%s' "$dfp2" | tr '\n' ';') |"
   } > "$run"
   echo "run record: $run"
+  if [ -f "$MASTER_REC" ]; then rm -f "$MASTER_REC" && echo "master: the desktop again (the laptop's master record is removed)"; fi
   NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
 }
 
@@ -392,6 +570,292 @@ if not rows: print("  none")'
     echo "--- claude logs $LOGS (last ${LINES_N:-40} lines)"
     dps "claude logs '$LOGS'" | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\x1b\][^\x07]*\x07//g' | grep -v '^\s*$' | tail -n "${LINES_N:-40}"
   fi
+}
+
+# ---- checkpoints (CKP-1): keep the laptop close behind the desktop -----------------------------------------------
+need_slice() { [[ "${SLICE:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,40}$ ]] || die "--slice takes letters, digits and dashes (got '${SLICE:-}')"; }
+ckpt_dir() { echo "$CKPT_ROOT/$SLICE"; }
+# on_lan: 0 when the laptop reaches the desktop DIRECTLY over a private LAN address; prints the path it saw (LAN_PATH).
+on_lan() {
+  local out
+  if [ -x "$TAILSCALE" ]; then
+    out=$(timeout 20 "$TAILSCALE" ping -c 1 "$DESKTOP_TS" 2>&1 | tr -d '\r' | tail -1)
+    LAN_PATH="${out:-no answer from tailscale ping}"
+    is_lan_path "$out"
+  elif [ -n "$DESKTOP_LAN" ]; then
+    LAN_PATH="tcp $DESKTOP_LAN:$DESKTOP_LAN_PORT"
+    timeout 5 bash -c "exec 3<>/dev/tcp/$DESKTOP_LAN/$DESKTOP_LAN_PORT" 2>/dev/null
+  else
+    LAN_PATH="no tailscale and no ENV_SYNC_DESKTOP_LAN"; return 1
+  fi
+}
+# is_lan_path <tailscale ping line>: a direct path over an RFC 1918 address (10/8, 172.16/12, 192.168/16); DERP = relay.
+is_lan_path() { grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$1"; }
+# ckfail: a checkpoint failure NEVER stops or blocks the slice (owner 2026-11-17 19:11, F1 / F2). It is logged ONCE - in
+# checkpoints/<slice>/failures.log and as ONE entry in the slice's relay to_chat.md - with the last good checkpoint and its
+# age; during B3 a session waiting at its safe point is released at once ("CHECKPOINT FAILED ... carry on"); B1 / B2 / B4 are
+# simply tried again at the next mark. Nothing is retried in a loop.
+ckfail() {
+  local msg good relay
+  msg="CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $(printf '%b' "$*" | head -3 | tr '\n' ' ')"
+  good=$(ls -1d "$(ckpt_dir)"/[0-9]*_[0-9]* 2>/dev/null | sort | tail -1)
+  [ -n "$good" ] && good="last good checkpoint $(basename "$good") ($(sed -n 's/^kind=//p' "$good/ckpt.txt" 2>/dev/null)), $(( ($(date +%s) - $(stat -c %Y "$good")) / 60 )) min old" || good="no earlier checkpoint"
+  echo "$msg" >&2; echo "  $good; the slice is not affected; next try at the next mark" >&2
+  mkdir -p "$(ckpt_dir)" 2>/dev/null && echo "$msg | $good" >> "$(ckpt_dir)/failures.log"
+  relay="$RELAY_ROOT/$SLICE/to_chat.md"
+  [ -f "$relay" ] && printf '\n=== %s | %s | UPDATE | id %s-CKPFAIL ===\n- %s\n- %s; the slice carries on (a checkpoint failure never blocks it); next try at the next mark.\n' "$(date '+%F %H:%M')" "$SLICE" "$SLICE" "$msg" "$good" >> "$relay"
+  [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ] && tell_session "CHECKPOINT FAILED $(date '+%F %H:%M') | $good | carry on" && echo "  the waiting session was released (CHECKPOINT FAILED ... carry on)" >&2
+  laptop_down >&2; exit 3
+}
+# test_fail <point>: forces a failure at a named point for the rehearsals (ENV_SYNC_TEST_FAIL=b1|b3-capture|b3-copy|b3-silent).
+# b3-silent stands for the laptop dying mid-checkpoint: it exits WITHOUT releasing the session, so the session's own ceiling
+# must bring it back (F2).
+test_fail() {
+  [ "${ENV_SYNC_TEST_FAIL:-}" = "$1" ] || return 0
+  if [ "$1" = b3-silent ]; then echo "TEST: laptop silent at $1 (exit without telling the session)" >&2; laptop_down >&2; exit 5; fi
+  ckfail "TEST failure forced at $1 (ENV_SYNC_TEST_FAIL)"
+}
+
+# laptop_up / laptop_down: the laptop's containers only for a database copy (owner 2026-10-26 / CKP-1 Q3), through the
+# laptop's turn file (shared with the dev2 lane): claim it first, free it after. Refuses while another lane holds it.
+laptop_up() {
+  local t c; t=$(head -1 "$TURN_FILE" 2>/dev/null)
+  case "$t" in free*|"main "*) ;; "") die "the laptop turn file $TURN_FILE is missing; ask the owner";; *) die "the laptop turn file says '$t'; wait until it is free";; esac
+  case "$t" in "main "*) LAPTOP_TURN_OURS=0;; *) echo "main $SLICE $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=1;; esac
+  LAPTOP_STARTED=""
+  for c in $LAPTOP_CONTAINERS; do
+    [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { docker start "$c" > /dev/null || die "cannot start $c"; LAPTOP_STARTED+="$c "; }
+  done
+  [ -n "$LAPTOP_STARTED" ] && { echo "laptop: started $LAPTOP_STARTED"; sleep 5; }
+  return 0
+}
+laptop_down() {
+  [ -n "${LAPTOP_STARTED:-}" ] && { docker stop $LAPTOP_STARTED > /dev/null; echo "laptop: stopped $LAPTOP_STARTED"; LAPTOP_STARTED=""; }
+  [ "${LAPTOP_TURN_OURS:-0}" = 1 ] && { echo "free $(date '+%F %T')" > "$TURN_FILE"; echo "laptop: turn file free"; LAPTOP_TURN_OURS=0; }
+  return 0
+}
+
+# resume_note <file> <kind>: the RESUME NOTE beside a code checkpoint - where the slice stands and what is open, read from
+# the desktop session's own files (status file, newest line first; the resume note it keeps) and the laptop's relay file.
+# Read-only on the desktop.
+resume_note() {
+  local f="$1" kind="$2" st="" rs="" relay last
+  if [ -n "${NAME:-}" ]; then
+    st=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -LiteralPath '$SDIR/$NAME.status.md' -TotalCount 40 }")
+    rs=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.resume.md') { Get-Content -LiteralPath '$SDIR/$NAME.resume.md' }")
+  fi
+  relay="$RELAY_ROOT/$SLICE/to_chat.md"
+  last=$([ -f "$relay" ] && grep -o "id $SLICE-[0-9]*" "$relay" | tail -1)
+  { echo "# RESUME NOTE - $SLICE - $kind checkpoint $(date '+%F %T')"; echo
+    echo "- desktop: ${D_BRANCH:-?} @ ${D_HEAD:0:9}; session: ${NAME:-none named}"
+    echo "- last relay entry from the laptop: ${last:-none found} ($relay)"
+    echo "- open questions (QUESTION-READY lines in the status file; check each for a later ANSWER READ):"
+    printf '%s\n' "$st" | grep '^QUESTION-READY' | sed 's/^/    /'
+    printf '%s\n' "$st" | grep '^ANSWER [0-9]* READ' | sed 's/^/    answered: /'
+    echo; echo "## The session's own resume note (${NAME:-?}.resume.md)"; echo
+    if [ -n "$rs" ]; then printf '%s\n' "$rs"; else echo "(none written)"; fi
+    echo; echo "## The session's status file, newest line first (first 40 lines)"; echo
+    if [ -n "$st" ]; then printf '%s\n' "$st" | sed 's/^/    /'; else echo "(none)"; fi
+  } > "$f"
+}
+
+# hrun <script> [plain-token args...]: run a staged script with the DESKTOP HOST's Git Bash, not in its container. git on
+# the container's Windows bind mount takes ~51 s per status (measured CKP-1) against ~2 s on the host, and a checkpoint
+# scans the tree several times. The checkpoint scripts leave the host's git config alone (they touch it only in a container).
+hrun() {
+  local s="$1"; shift
+  ensure_stage
+  dps "& '$GITBASH' '$D_BENCH/$STAGE/$s' $*"
+}
+
+# make_code_ckpt <kind> [<commit>]: build a code checkpoint on the desktop host, copy it to the laptop's slice folder, check
+# every file's sha256 on both sides, add the resume note and ckpt.txt. Sets CK_DIR, CK_TREE, CK_SIZE, CK_OUT, D_HEAD, D_BRANCH.
+make_code_ckpt() {
+  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum
+  stamp=$(date +%Y%m%d_%H%M%S)
+  [ "$kind" = B1 ] && test_fail b1
+  hdir="$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
+  L_HEAD=$(lgit rev-parse HEAD)
+  CK_OUT=$(hrun ckpt_code.sh "$D_BENCH/apps/nirmaan_stack" "$hdir" "$L_HEAD" "$commit")
+  [ -n "$(kv ckpt "$CK_OUT")" ] || ckfail "the desktop could not make the code checkpoint:\n$CK_OUT"
+  CK_TREE=$(kv tree "$CK_OUT"); D_HEAD=$(kv head "$CK_OUT"); D_BRANCH=$(kv branch "$CK_OUT")
+  [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
+  mkdir -p "$(ckpt_dir)" || ckfail "cannot create $(ckpt_dir)"
+  "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$hdir" "$(ckpt_dir)/" || ckfail "copying the checkpoint to the laptop failed"
+  dsum=$(dps "Get-ChildItem -LiteralPath '$hdir' -File | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath \$_.FullName).Hash.ToLower() + ' ' + \$_.Name }" | sort)
+  lsum=$( (cd "$ldir" && sha256sum -- *) | sed 's/ \*/ /; s/  */ /' | sort)
+  [ -n "$dsum" ] && [ "$dsum" = "$lsum" ] || ckfail "the laptop copy differs from the desktop's:\ndesktop:\n$dsum\nlaptop:\n$lsum"
+  resume_note "$ldir/resume.md" "$kind"
+  CK_SIZE=$(du -sb "$ldir" | cut -f1); CK_DIR="$ldir"
+  { echo "kind=$kind"; echo "slice=$SLICE"; echo "session=${NAME:-}"; echo "made=$(date '+%F %T')"
+    echo "desktop_head=$D_HEAD"; echo "laptop_head=$L_HEAD"; echo "tree=$CK_TREE"; echo "size=$CK_SIZE"; } > "$ldir/ckpt.txt"
+  # keep the newest CKPT_KEEP on both machines
+  prune_local "$(ckpt_dir)" "$CKPT_KEEP"
+  dps "Get-ChildItem -LiteralPath '$D_BENCH/$STAGE/ckpt_out/$SLICE' -Directory | Sort-Object Name | Select-Object -SkipLast $CKPT_KEEP | Remove-Item -Recurse -Force" > /dev/null
+}
+
+cmd_checkpoint_code() {
+  need_slice
+  local t0 newest age
+  if [ -n "${IF_OLDER:-}" ]; then
+    newest=$(ls -1td "$(ckpt_dir)"/[0-9]*_[0-9]* "$(ckpt_dir)/.last_attempt" 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+      age=$(( ($(date +%s) - $(stat -c %Y "$newest")) / 60 ))
+      [ "$age" -lt "$IF_OLDER" ] && { echo "checkpoint not due: the newest ($(basename "$newest")) is $age min old (< $IF_OLDER)"; return 0; }
+    fi
+  fi
+  t0=$(date +%s)
+  mkdir -p "$(ckpt_dir)" && touch "$(ckpt_dir)/.last_attempt"
+  make_code_ckpt B1
+  echo "CHECKPOINT CODE $SLICE: $CK_DIR"
+  echo "  desktop ${D_HEAD:0:9}, tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
+  # the desktop's commits come across as after every commit (fast-forward only, no restart: nothing is served from
+  # here). Only when the desktop is ahead - its git_state check in the container is the slow part.
+  if [ "$D_HEAD" != "$L_HEAD" ] && [ "$(kv base_is_ancestor "$CK_OUT")" = 1 ]; then
+    if [ -z "$(lgit status --porcelain --untracked-files=no)" ]; then
+      ( ALLOW_DIRTY=1 NO_RESTART=1 cmd_from_desktop ) 2>&1 | sed 's/^/  /' || true
+    else
+      echo "  the desktop is ahead but the laptop has uncommitted changes: commits not fast-forwarded (they are in the checkpoint's bundle)"
+    fi
+  fi
+}
+
+# tell_session <text>: append an ANSWER-style entry to the desktop session's message file (never overwrites).
+tell_session() {
+  [ -n "${NAME:-}" ] || return 0
+  printf '\n=== %s ===\n' "$1" > "$TMPD/msg"
+  "$SCP" -q "${SSHO[@]}" "$TMPD/msg" "$DESKTOP:$SDIR/$NAME.msg_append.tmp" &&
+    dps "Get-Content -LiteralPath '$SDIR/$NAME.msg_append.tmp' | Add-Content -LiteralPath '$SDIR/$NAME.message.md'; Remove-Item -LiteralPath '$SDIR/$NAME.msg_append.tmp'" > /dev/null
+}
+
+cmd_checkpoint() {
+  need_slice
+  [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
+  local t0 t_code stamp out br commit parent tree lfp gottree
+  t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
+  CK_RELEASE_ON_FAIL=1          # until CHECKPOINT TAKEN, a failure releases the waiting session at once (F2)
+  test_fail b3-silent; test_fail b3-capture
+  echo "desktop: checkpoint commit on a local branch (temporary index; the session's tree is not touched) ..."
+  out=$(hrun ckpt_branch.sh "$D_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
+  br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
+  [ -n "$commit" ] || ckfail "the checkpoint commit failed:\n$out"
+  echo "  $br = ${commit:0:9} (parent ${parent:0:9}, tree ${tree:0:12})"
+  laptop_up
+  pull_backup
+  t_code=$(( $(date +%s) - t0 ))
+  tell_session "CHECKPOINT TAKEN $(date '+%F %H:%M') | $br ${commit:0:9} + database backup $(basename "$PB_PREFIX") | carry on"
+  echo "desktop: the code and the database are captured ($t_code s); the session may carry on"
+  CK_RELEASE_ON_FAIL=0
+  test_fail b3-copy
+  make_code_ckpt B3 "$commit"
+  { echo "ckpt_branch=$br"; echo "ckpt_commit=$commit"; echo "backup=$PB_PREFIX"; } >> "$CK_DIR/ckpt.txt"
+  pull_copy_prove_restore "CHECKPOINT $SLICE $stamp ($br ${commit:0:9})"
+  lfp=$(fp_of laptop); printf '%s\n' "$lfp" | sed 's/^/fingerprint=/' >> "$CK_DIR/ckpt.txt"
+  # verify: the code (the bundle rebuilds the checkpoint commit's tree on the laptop), the data, the resume note
+  git -C "$REPO" fetch -q "$CK_DIR/commits.bundle" "+refs/heads/$br:refs/ckpt/$br" 2>/dev/null || ckfail "the checkpoint bundle does not fetch on the laptop"
+  gottree=$(git -C "$REPO" rev-parse "refs/ckpt/$br^{tree}")
+  { [ "$gottree" = "$tree" ] && [ "$CK_TREE" = "$tree" ]; } || ckfail "code hash mismatch: desktop $tree, bundle $gottree, checkpoint $CK_TREE"
+  [ "$(grep '^fp_' "$PULL_RECORD")" = "$lfp" ] || ckfail "the laptop's data fingerprint is not the pulled one"
+  grep -q "^# RESUME NOTE - $SLICE" "$CK_DIR/resume.md" || ckfail "the resume note is not readable"
+  laptop_down
+  echo "CHECKPOINT READY $SLICE $(date '+%F %H:%M'): code $br ${commit:0:9} (tree ${tree:0:12} = bundle = checkpoint), data $(basename "$PB_PREFIX") restored on the laptop (fingerprint recorded), resume note $CK_DIR/resume.md; took $(( $(date +%s) - t0 )) s (desktop captured in $t_code s)"
+}
+
+# ---- back home (CKP-2, B4) -----------------------------------------------------------------------------------
+cmd_catch_up() {
+  need_slice
+  local st last
+  st=$(desktop_alive) || { echo "NOT CAUGHT UP: the desktop does not answer over SSH (laptop offline, or the desktop is down - then see resume-on-laptop)"; return 3; }
+  echo "desktop answers: $(printf '%s' "$st" | tr '\n' ' ')"
+  IF_OLDER="" cmd_checkpoint_code
+  last=$(sed -n 's/^# desktop fingerprint at the laptop.s last db-pull (\([^,]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null | head -1)
+  echo "CAUGHT-UP $SLICE $(date '+%F %H:%M'): code = the checkpoint above; data = the last db-pull ${last:-never} ($(sed -n 's/^# covers: //p' "$PULL_RECORD" 2>/dev/null | head -1))"
+  if [ -n "$last" ]; then echo "  the laptop's data is $(( ($(date +%s) - $(date -d "$last" +%s)) / 60 )) min behind that copy's moment (the desktop may have written since)"; fi
+  # B4 data: a DBCOPY-POINT (paid run, catalogue load, migrate) newer than the last copy -> bring the data up to date too
+  local lastpt pt_epoch rec_epoch
+  lastpt=$([ -n "${NAME:-}" ] && dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -LiteralPath '$SDIR/$NAME.status.md' | Select-String -Pattern '^DBCOPY-POINT' | Select-Object -First 1 | ForEach-Object { \$_.Line } }")
+  if [ -n "$lastpt" ]; then
+    pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$lastpt")" +%s 2>/dev/null || echo 0)
+    rec_epoch=$( [ -n "$last" ] && date -d "$last" +%s || echo 0)
+    if [ "$pt_epoch" -gt "$rec_epoch" ]; then
+      echo "  the last costly step is newer than the last data copy: $lastpt"
+      if [ "${YES:-0}" = 1 ]; then echo "  bringing the data up to date (normal copy first, then chunked) ..."; COVERS="catch-up after: $lastpt"; laptop_up; pull_backup; pull_copy_prove_restore "$COVERS"; laptop_down
+      else echo "  re-run with --yes to bring the data up to date (it replaces the laptop's database after the proofs)"; fi
+    else echo "  data: no costly step after the last copy"; fi
+  fi
+}
+
+# ---- resume on the laptop (CKP-1, B5) ----------------------------------------------------------------------------
+desktop_alive() {   # prints the session's state lines; 0 when the desktop answers over SSH
+  local out ps
+  ps="\$s='$SDIR/${NAME:-none}.status.md'; 'ssh=ok'; if (Test-Path -LiteralPath \$s) { 'status=' + (Get-Item -LiteralPath \$s).LastWriteTime.ToString('HH:mm:ss') + ' ' + (Get-Content -LiteralPath \$s -TotalCount 1) }; Get-ChildItem (Join-Path \$env:USERPROFILE '.claude/jobs') -Directory -ErrorAction SilentlyContinue | ForEach-Object { \$j = Get-Content (Join-Path \$_.FullName 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; if (\$j.name -eq '${NAME:-none}') { 'job=' + \$_.Name + ' ' + \$j.state } }"
+  out=$(timeout 30 "$SSH" "${SSHO[@]}" "$DESKTOP" "$ps" 2>&1 | tr -d '\r')
+  grep -q '^ssh=ok' <<< "$out" || return 1
+  printf '%s\n' "$out" | grep -v '^ssh=ok'
+  return 0
+}
+
+cmd_resume_on_laptop() {
+  need_slice
+  local st b3 snaps s prev target fp want mode=report
+  [ "${DRY_RUN:-0}" = 1 ] && mode=dry-run
+  [ "${TAKEOVER:-0}" = 1 ] && mode=takeover
+  if st=$(desktop_alive); then
+    echo "DESKTOP UP: it answers over SSH. $(printf '%s' "$st" | tr '\n' ' ')"
+    [ "$mode" = takeover ] && die "refusing the takeover: the desktop is up, so work continues there (owner 2026-11-17 14:13)"
+    [ "$mode" = report ] && { echo "nothing done: the desktop stays the master"; return 0; }
+  else
+    echo "DESKTOP DOWN: no SSH answer in 30 s"
+  fi
+  b3=$(grep -l '^kind=B3' "$(ckpt_dir)"/*/ckpt.txt 2>/dev/null | sort | tail -1)
+  [ -n "$b3" ] || die "no B3 checkpoint for $SLICE in $(ckpt_dir); a takeover needs one"
+  b3=$(dirname "$b3")
+  snaps="$b3"
+  for s in $(ls -1d "$(ckpt_dir)"/[0-9]*_[0-9]* 2>/dev/null | sort); do
+    [[ "$(basename "$s")" > "$(basename "$b3")" ]] && grep -q '^kind=B1' "$s/ckpt.txt" 2>/dev/null && snaps+=$'\n'"$s"
+  done
+  echo "checkpoints to rebuild, in order:"
+  while read -r s; do echo "  $(basename "$s") $(sed -n 's/^kind=//p' "$s/ckpt.txt") tree $(sed -n 's/^tree=//p' "$s/head.txt" | cut -c1-12)"; done <<< "$snaps"
+  want=$(sed -n 's/^fingerprint=//p' "$b3/ckpt.txt")
+  if [ "$mode" = report ]; then echo "nothing done: re-run with --takeover --yes on the owner's word (or --dry-run to rehearse)"; return 3; fi
+  [ "$mode" = takeover ] && [ "${YES:-0}" != 1 ] && die "the takeover makes the laptop the master; re-run with --yes"
+
+  # data: the laptop must hold the B3 copy (the checkpoint restored it); a takeover never overwrites a database itself
+  laptop_up
+  fp=$(fp_of laptop)
+  if [ "$fp" = "$want" ]; then echo "data: the laptop holds the checkpoint's copy (fingerprint equal)"
+  elif [ "$mode" = dry-run ]; then echo "data: DIFFERENT from the checkpoint's copy - a takeover would stop and ask for $(sed -n 's/^backup=//p' "$b3/ckpt.txt") to be restored first"
+  else
+    laptop_down
+    die "the laptop's data is not the checkpoint's. Restore $(sed -n 's/^backup=//p' "$b3/ckpt.txt") first (the runbook's restore, with a proved backup of the laptop's current data), then re-run"
+  fi
+
+  # code: rebuild every checkpoint in order on the checkout (or, for a dry run, on a throw-away clone)
+  if [ "$mode" = dry-run ]; then
+    target="$TMPD/clone"; git clone -q --shared --branch "$(lgit rev-parse --abbrev-ref HEAD)" "$REPO" "$target" || die "cannot make the dry-run clone"
+    # the rehearsal starts from the laptop as it was when the B3 checkpoint was taken (the owner leaving), not from any
+    # commit made on the laptop since (a real takeover refuses a checkout that is ahead of the checkpoint)
+    local lh; lh=$(sed -n 's/^laptop_head=//p' "$b3/ckpt.txt")
+    if [ -n "$lh" ] && git -C "$target" cat-file -e "$lh^{commit}" 2>/dev/null; then git -C "$target" reset -q --hard "$lh"; echo "dry run: the clone starts at the laptop's head when B3 was taken (${lh:0:9})"; fi
+  else target="$REPO"; fi
+  prev=""
+  while read -r s; do
+    if [ -n "$prev" ]; then bash "$HERE/remote/ckpt_apply.sh" undo "$target" "$prev" | sed 's/^/  /'; fi
+    echo "applying $(basename "$s") ..."
+    bash "$HERE/remote/ckpt_apply.sh" apply "$target" "$s" > "$TMPD/apply.out" 2>&1; local rc=$?
+    sed 's/^/  /' "$TMPD/apply.out"
+    [ "$rc" = 0 ] || { laptop_down; die "STOPPED at $(basename "$s") (see above); $target is left as it is"; }
+    prev="$s"
+  done <<< "$snaps"
+  echo "code: $target = $(basename "$prev") (tree $(sed -n 's/^tree=//p' "$prev/head.txt" | cut -c1-12)); data fingerprint $( [ "$(fp_of laptop)" = "$want" ] && echo equal || echo DIFFERENT)"
+  if [ "$mode" = dry-run ]; then
+    laptop_down
+    echo "DRY RUN done: the checkout, the database and the master are unchanged; the desktop stays the master"; return 0
+  fi
+  echo "laptop $SLICE $(date '+%F %T') (resume-on-laptop from $(basename "$prev"))" > "$MASTER_REC"
+  LAPTOP_TURN_OURS=0; echo "main $SLICE MASTER $(date '+%F %T')" > "$TURN_FILE"
+  echo "RESUMED-ON-LAPTOP $SLICE $(date '+%F %H:%M'): the laptop is the master; continue from $prev/resume.md:"
+  sed -n '1,12p' "$prev/resume.md" | sed 's/^/  /'
 }
 
 # ---- delegated desktop sessions ---------------------------------------------------------------------------------
@@ -509,6 +973,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
     --discard-desktop-writes) DISCARD=1;;
+    --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
+    --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
     --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
@@ -516,13 +982,15 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*) ensure_stage;; esac   # once, outside any $(...)
+case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint) ensure_stage;; esac   # once, outside any $(...)
+[ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # catch-up stages lazily too: it must first say whether the desktop answers   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
+  checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;; resume-on-laptop) cmd_resume_on_laptop;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
-  *) sed -n "2,28p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
+  *) sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 1;;
 esac
 exit
 }

@@ -21,7 +21,7 @@ interface ProcurementRequestState {
     // --- Actions ---
     initialize: (
         mode: 'create' | 'edit' | 'resolve',
-        projectId?: string,
+        projectId: string | undefined,
         prId: string | undefined,
         wpSpecificInitialMakes: CategoryMakesMap | undefined,
         initialPrData?: { procList: ProcurementRequestItem[], categories: CategorySelection[] }

@@ -40,7 +40,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 // the SAME spec reader `isItemListConfig` is built on -- imported rather than re-tested here,
 // so "is this category item-list" has one definition. Taken from `itemListPricing` directly so
 // this module keeps no edge back to `pricingInputExact`, which imports a type from here.
-import { itemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
+import { itemListPricingSpec, type ItemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
 // the SHARED "does this row carry the axes the rules ladder on" predicate. `pricingInputExact`
 // imports only TYPES from this module, so this value import creates no runtime cycle.
 import { skuCarriesGeometry } from "./pricingInputExact";
@@ -324,6 +324,17 @@ function narrowAdditiveByBranch(
 }
 
 /**
+ * A config whose `list_spec.pricing` is an object. Looser than `itemListPricingSpec()`, which also wants `kind`,
+ * `unit_classes`, `families` and `numbers`: `unitsConvertUses` reads a partial block, guarding every field it reads.
+ */
+function hasListSpecPricing(cfg: unknown): cfg is { list_spec: { pricing: Partial<ItemListPricingSpec> } } {
+  if (!cfg || typeof cfg !== "object" || !("list_spec" in cfg)) return false;
+  const ls = cfg.list_spec;
+  if (!ls || typeof ls !== "object" || !("pricing" in ls)) return false;
+  return !!ls.pricing && typeof ls.pricing === "object";
+}
+
+/**
  * VRF-2b (owner R-INPUTS / R-CONV) -- A CAPACITY READER'S CONVERT TABLE READS ITS PRICING INPUTS. One entry per (input,
  * family) where the family's rule needs a number whose reader converts units through that input
  * (`list_spec.pricing.numbers[*].units.convert[*].input`). The input moves no SKU's own rate: it decides WHICH SKU a row
@@ -331,11 +342,11 @@ function narrowAdditiveByBranch(
  * shape. The Python twin is `csv_exporter._units_convert_uses`. PURE; never throws on a malformed config.
  */
 export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: string }> {
-  const pr = (cfg as any)?.list_spec?.pricing;
-  if (!pr || typeof pr !== "object") return [];
+  if (!hasListSpecPricing(cfg)) return [];
+  const pr = cfg.list_spec.pricing;
   const byInput = new Map<string, Set<string>>();
-  for (const [nid, rd] of Object.entries<any>(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    for (const c of Object.values<any>(rd?.units?.convert ?? {})) {
+  for (const [nid, rd] of Object.entries(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    for (const c of Object.values(rd?.units?.convert ?? {})) {
       const id = c?.input;
       if (typeof id === "string" && id) (byInput.get(id) ?? byInput.set(id, new Set<string>()).get(id)!).add(nid);
     }
@@ -344,10 +355,10 @@ export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: s
   for (const id of [...byInput.keys()].sort()) {
     const nids = byInput.get(id)!;
     for (const fam of Object.keys(pr.families ?? {}).sort()) {
-      const fd = pr.families[fam];
+      const fd = pr.families?.[fam];
       if (!fd || typeof fd !== "object") continue;
       const needs = new Set<string>(Array.isArray(fd.needs) ? fd.needs : []);
-      for (const u of Object.values<any>(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
+      for (const u of Object.values(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
       if ([...nids].some((n) => needs.has(n))) out.push({ input: id, family: fam });
     }
   }
@@ -384,6 +395,25 @@ const inputFactor = (items: readonly RateMasterItem[] | null | undefined, id: st
  * sizes: a band's cells reach the units of its role whose capacity, after conversion, falls in the band; the
  * communication cable and the lengths reach every unit that carries extras. PURE; [] for a config without `extras`.
  */
+/**
+ * VP-1 (N1, owner VR9 / QR-2 Q1 (a) "we will follow the same practice for all categories"): a category WITHOUT `extras` whose
+ * pricing declares its own `scope` (Valve Package) reads its installation-only uplift input -- reaching every SKU of the
+ * category's kind(s): any of them can be priced on an installation-only row. VRF's own uplift stays with `extrasUses`. PURE.
+ */
+export function scopeUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {
+  const pr = pricingOf(cfg);
+  if (pr.extras) return [];
+  const sc = loose(pr.scope);
+  // DU-3 (R1, owner 2026-11-16 16:38 "make this 90% thershold a pricing input"): the per-sheet duct-insulation check reads its
+  // coverage threshold from a Pricing Input too -- "used by" names the category (the server twin: config_validation.extras_input_ids)
+  const si = loose(pr.sheet_insulation);
+  const ids = [sc.uplift_input, si.threshold_input].filter((x): x is string => typeof x === "string" && x !== "");
+  if (!ids.length) return [];
+  const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
+  const skus = (items ?? []).filter((it) => kinds.has(String(it.kind ?? ""))).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+  return ids.map((input) => ({ input, skus: [...new Set(skus)].sort() }));
+}
+
 export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {
   const pr = pricingOf(cfg);
   const ex = loose(pr.extras);
@@ -634,7 +664,8 @@ export function computePricingInputReach(
     for (const u of unitsConvertUses(cfg)) (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
     // VRF-3b: VRF's extras read their inputs (one per table cell) -- read by this category, reaching the units they size;
     // the convert inputs reach the units whose capacity they convert (owner: "now at 0 items")
-    for (const u of extrasUses(cfg, items)) {
+    // VP-1 (N1): a pricing-level scope's installation-only uplift (Valve Package) -- read by this category, every SKU of its kind
+    for (const u of [...extrasUses(cfg, items), ...scopeUses(cfg, items)]) {
       (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
       const set = assemblySkus.get(u.input) ?? assemblySkus.set(u.input, new Set<string>()).get(u.input)!;
       for (const s of u.skus) set.add(s);

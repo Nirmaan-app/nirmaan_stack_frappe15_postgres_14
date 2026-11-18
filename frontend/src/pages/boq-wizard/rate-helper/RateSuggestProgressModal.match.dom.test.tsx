@@ -149,11 +149,11 @@ describe("DEV2-B8 the matching part counts the rows that need a new card", () =>
     expect(matchWaitEstimate(206, DEV2, 0).matchMin).toBe(3);
   });
 
-  it("suggestReadRows: the ticked rows + the never-read ones, or the whole eligible set; sorted, no repeats", () => {
+  it("suggestReadRows (SR-1): exactly the ticked rows - never the never-read ones - or the whole eligible set; sorted", () => {
     const eligible = new Set([5, 1, 3, 9]);
-    expect(suggestReadRows(new Set(), [{ excel_row: 7 }], eligible)).toEqual([1, 3, 5, 9]);
-    expect(suggestReadRows(new Set([9, 3]), [{ excel_row: 7 }, { excel_row: 3 }], eligible)).toEqual([3, 7, 9]);
-    expect(suggestReadRows(new Set(), [], new Set())).toEqual([]);
+    expect(suggestReadRows(new Set(), eligible)).toEqual([1, 3, 5, 9]);
+    expect(suggestReadRows(new Set([9, 3]), eligible)).toEqual([3, 9]);
+    expect(suggestReadRows(new Set(), new Set())).toEqual([]);
   });
 });
 

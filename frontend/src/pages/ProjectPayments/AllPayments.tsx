@@ -24,6 +24,12 @@ import {
     ApprovalTab,
     TAB_COLUMNS,
     TAB_DEFAULT_SORT,
+    BY_ME_VIEWS,
+    BY_ME_VIEW_COLUMNS,
+    BY_ME_VIEW_SORT,
+    ByMeView,
+    byMeViewFilters,
+    byMeViewStateTab,
 } from "./config/approvalsTable.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "./config/approvalColumns";
 import { useApprovalQueueExport } from "./hooks/useApprovalQueueExport";
@@ -82,6 +88,8 @@ interface AllPaymentsProps {
     /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
      *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
     refetchRef?: RefetchRef;
+    /** "Payment Raised By Me" only: the view open inside it (`ByMeViews`). All when absent. */
+    byMeView?: ByMeView;
 }
 
 // --- Constants ---
@@ -148,8 +156,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     projectId,
     customerId,
     refetchRef,
+    byMeView,
     contextKey = "all" // Default context for URL key
 }) => {
+    // "Payment Raised By Me" → All / Paid / Rejected (2026-11-12). Every other tab is unaffected.
+    const isByMe = tab === PP_TABS.PAYMENT_BY_ME;
+    const view: ByMeView = isByMe ? (byMeView ?? BY_ME_VIEWS.ALL) : BY_ME_VIEWS.ALL;
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
     const editableStatuses = useExpenseEditAccess();
@@ -188,7 +200,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // ⚠️ Built by the SHARED helper, not inline. Outside screens deep-link into these tables by
     // constructing `<key>_q` / `<key>_searchBy`, so the format has to have one owner -- a second
     // copy would fail silently (an unfiltered table) rather than error.
-    const urlSyncKey = useMemo(() => buildPaymentsUrlSyncKey(contextKey, tab), [contextKey, tab]);
+    // Paid and Rejected get their own key, so a filter set in one view does not leak into another; All keeps
+    // the tab's own (`byMeViewStateTab`).
+    const urlSyncKey = useMemo(
+        () => buildPaymentsUrlSyncKey(contextKey, isByMe ? byMeViewStateTab(tab, view) : tab),
+        [contextKey, tab, isByMe, view],
+    );
 
 
     // --- Supporting Data Fetches (for lookups, calculations, and initial filtering if customerId is present) ---
@@ -256,6 +273,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
         const getTabBasedFilters = getProjectPaymentsStaticFilters(tab)
         filters.push(...getTabBasedFilters);
+        // The view's status, on top of the tab's own `raised_by = @me`.
+        if (isByMe) filters.push(...byMeViewFilters(view));
         // if (tab === "Payments Done") {
         //     filters.push(["status", "=", PAYMENT_STATUS.PAID]);
         // } else if (tab === "Payments Pending") {
@@ -271,7 +290,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             filters.push(["project", "in", ["__NON_EXISTENT_PROJECT__"]]);
         }
         return filters;
-    }, [tab, projectId, customerId, projects, projectsLoading]);
+    }, [tab, isByMe, view, projectId, customerId, projects, projectsLoading]);
 
 
     // --- Fields to Fetch for the Main DataTable ---
@@ -373,6 +392,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         onUploadInvoice: canUploadInvoices && (tab === PP_TABS.PAYMENTS_DONE || tab === PP_TABS.PAYMENT_BY_ME)
             ? setInvoiceRow : undefined,
         canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
+        // Raised By Me → Rejected: the PO / WO page is where a rejected payment is deleted to free its term.
+        linkOrderPage: isByMe && view === BY_ME_VIEWS.REJECTED,
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -381,13 +402,13 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             notifications.find((n) => n.docname === row.name && n.seen === "false")
         ),
     }), [
-        tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
+        tab, isByMe, view, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
         getPoAmountDelivered, canWork, canUploadInvoices, role, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
 
     const columns = useMemo(() => {
-        const ids = TAB_COLUMNS[tab as ApprovalTab];
+        const ids = isByMe ? BY_ME_VIEW_COLUMNS[view] : TAB_COLUMNS[tab as ApprovalTab];
         // On the settled and mixed-status tabs the Actions column holds ONLY the expense Edit
         // pencil (plus, on the Paid tab, Upload Invoice -- Admin, Accounts and HR, `canUploadInvoiceRow`),
         // so for anyone who cannot edit it would be an empty column with a header. Drop it
@@ -411,7 +432,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         // the caller for everyone (`CURRENT_USER_TOKEN`), so every row is the viewer's own
         // and a column repeating their name on each one says nothing.
         return buildApprovalColumns(visibleIds, columnCtx);
-    }, [tab, isAdmin, role, canWork, canUploadInvoices, columnCtx]);
+    }, [tab, isByMe, view, isAdmin, role, canWork, canUploadInvoices, columnCtx]);
 
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
@@ -436,7 +457,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         fetchFields: APPROVAL_FETCH_FIELDS,
         searchableFields: APPROVAL_SEARCHABLE_FIELDS,
         urlSyncKey: urlSyncKey,
-        defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
+        defaultSort: isByMe ? BY_ME_VIEW_SORT[view] : TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
@@ -451,13 +472,15 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         projectLabels: projectMap,
         vendorLabels: vendorLabelMap,
         userLabels: userLabelMap,
-        includeStatus: ([PP_TABS.PAYMENTS_PENDING, PP_TABS.ALL_PAYMENTS, PP_TABS.PAYMENT_BY_ME] as string[]).includes(tab),
+        // Not in Raised By Me's Paid / Rejected views: their status is one value.
+        includeStatus: ([PP_TABS.PAYMENTS_PENDING, PP_TABS.ALL_PAYMENTS] as string[]).includes(tab)
+            || (isByMe && view === BY_ME_VIEWS.ALL),
     });
 
     // Full-table CSV. Replaces the table's built-in `'default'` handler rather than
     // extending it: the default exports only the RENDER columns, three of which carry
     // no `exportValue` and so came out blank. See `approvalExportColumns.ts`.
-    const exportFileName = `${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`;
+    const exportFileName = `${byMeViewStateTab(tab, view).replace(/\s+/g, '_')}_${formatDate(new Date())}`;
     const { exportAll, isExportingAll } = useApprovalQueueExport({
         exportAllRows,
         columnCtx,

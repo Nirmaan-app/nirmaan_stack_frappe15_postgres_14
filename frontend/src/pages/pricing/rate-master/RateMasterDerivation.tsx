@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
 import { isPricingInputConfig } from "./rateMasterSpec";
 import { PRICING_WORKBOOKS } from "../pricingWorkbooks";
+import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
 
 /**
  * PURE. The computed value a derived attribute displays, read out of the pipeline traces (the ctx
@@ -86,10 +87,20 @@ export function aliasLeadLine(discipline: string, target: RateCategoryConfig): s
   return `Priced exactly as ${discipline} -> ${name}: the same rules and the same Pricing Inputs.`;
 }
 
-/** ELR-4b -- PURE. The tab's rules list: the item-list order where the category has one, else the attribute path's. */
-function ruleOrderOf(config: RateCategoryConfig, items: RateMasterItem[]): RuleOrderLine[] {
-  const list = itemListRuleOrder(config, items);
+/** ELR-4b -- PURE. The tab's rules list: the item-list order where the category has one, else the attribute path's.
+ *  DU-1 FIX-4: `sectionConfigs` (the configs the category's delegated sections borrow) nests each section's own rules. */
+function ruleOrderOf(config: RateCategoryConfig, items: RateMasterItem[], sectionConfigs?: Readonly<Record<string, RateCategoryConfig>>): RuleOrderLine[] {
+  const list = itemListRuleOrder(config, items, sectionConfigs);
   return list.length ? list : attributeRuleOrder(config, items);
+}
+
+/** DU-1 FIX-4 -- PURE. The BORROW-ONLY categories a config's delegated sections borrow (`list_spec.sections[].category_id` whose
+ *  registry entry is `fetch_only` -- no Rate Master page of its own, so its rules are said under the borrower's section line), in
+ *  order. A section borrowing a category that has its own page (Piping -> Insulation) keeps its line alone. */
+export function delegatedSectionIds(config: RateCategoryConfig | null | undefined): string[] {
+  const secs = ((config as { list_spec?: { sections?: Array<{ category_id?: unknown }> } } | null | undefined)?.list_spec?.sections ?? []);
+  const borrowOnly = new Set(RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.filter((c) => c.fetch_only === true).map((c) => c.category_id)));
+  return [...new Set(secs.map((s) => s?.category_id).filter((x): x is string => typeof x === "string" && !!x && borrowOnly.has(x)))];
 }
 
 /** The page's own two reads (RateMasterPage ITEMS_METHOD / CONFIG_METHOD), under the page's own SWR keys, so the
@@ -113,6 +124,20 @@ function RuleOrderCard({ lines }: { lines: RuleOrderLine[] }) {
               <span>
                 {r.title}
                 {r.detail ? <span className="text-muted-foreground"> &mdash; {r.detail}</span> : null}
+                {/* DU-1 FIX-4: a borrowed category's own rules, nested under its section line */}
+                {r.sub && r.sub.length > 0 && (
+                  <ol className="mt-2 space-y-1.5 border-l pl-3" data-testid="rate-master-section-rules">
+                    {r.sub.map((s) => (
+                      <li key={s.n} className="flex gap-2 text-xs">
+                        <span className="shrink-0 font-medium text-muted-foreground">{r.n}.{s.n}</span>
+                        <span>
+                          {s.title}
+                          {s.detail ? <span className="text-muted-foreground"> &mdash; {s.detail}</span> : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </span>
             </li>
           ))}
@@ -120,6 +145,22 @@ function RuleOrderCard({ lines }: { lines: RuleOrderLine[] }) {
       </CardContent>
     </Card>
   );
+}
+
+/** DU-1 FIX-4: reads the delegated sections' configs ONE per level (a fixed hook count per mount), then hands the map on. Only a
+ *  category with delegated sections mounts it, so no other tab gains a fetch. */
+function WithSectionConfigs({ discipline, ids, acc, children }: {
+  discipline: string; ids: string[]; acc: Record<string, RateCategoryConfig>;
+  children: (configs: Record<string, RateCategoryConfig>) => JSX.Element;
+}) {
+  const id = ids[0];
+  const { data } = useFrappeGetCall<{ message: { config?: RateCategoryConfig | null } }>(
+    CONFIG_METHOD, { discipline, category_id: id }, `rate-master-config-${discipline}-${id}`);
+  const cfg = data?.message?.config ?? null;
+  const next = cfg ? { ...acc, [id]: cfg } : acc;
+  return ids.length > 1
+    ? <WithSectionConfigs discipline={discipline} ids={ids.slice(1)} acc={next}>{children}</WithSectionConfigs>
+    : children(next);
 }
 
 /**
@@ -149,19 +190,32 @@ interface Props {
   config: RateCategoryConfig;
   /** The sidebar label of the pricing page whose Calculator prices this discipline (`calculatorPageLabel`). */
   calculatorPage: string | null;
+  /** DU-1 FIX-4: the delegated sections' configs (category_id -> config); absent -> read from the endpoint. */
+  sectionConfigs?: Readonly<Record<string, RateCategoryConfig>>;
 }
 
-export function RateMasterDerivation({ items, config, calculatorPage }: Props) {
+export function RateMasterDerivation({ items, config, calculatorPage, sectionConfigs }: Props) {
   const alias = aliasTarget(config);
-  return alias ? <AliasDerivation alias={alias} /> : <OwnDerivation items={items} config={config} calculatorPage={calculatorPage} />;
+  if (alias) return <AliasDerivation alias={alias} />;
+  // DU-1 FIX-4: a category with delegated sections reads their configs first (their own rules nest under the section line); a
+  // caller may pass them (tests); every category without sections renders exactly as before
+  const ids = delegatedSectionIds(config);
+  if (!sectionConfigs && ids.length) {
+    return (
+      <WithSectionConfigs discipline={String((config as { discipline?: string }).discipline ?? "HVAC")} ids={ids} acc={{}}>
+        {(map) => <OwnDerivation items={items} config={config} calculatorPage={calculatorPage} sectionConfigs={map} />}
+      </WithSectionConfigs>
+    );
+  }
+  return <OwnDerivation items={items} config={config} calculatorPage={calculatorPage} sectionConfigs={sectionConfigs} />;
 }
 
-function OwnDerivation({ items, config, calculatorPage }: Props) {
+function OwnDerivation({ items, config, calculatorPage, sectionConfigs }: Props) {
   // SLICE 12c / ACCEPTANCE 5: the resolution order, read from `list_spec.pricing`. PURE and unit-tested,
   // so this component stays thin over it (ADR-0010 F4); [] for a category that is not item-list.
   // ELR-1 (owner R-DERIV, "1 ok"): a category priced from row-level attributes lists its rules from its pipelines
   // (`attributeRuleOrder`, wiring & cabling first); every other attribute-path category returns [] there.
-  const ruleOrder = useMemo(() => ruleOrderOf(config, items), [config, items]);
+  const ruleOrder = useMemo(() => ruleOrderOf(config, items, sectionConfigs), [config, items, sectionConfigs]);
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(

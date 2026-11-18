@@ -372,8 +372,14 @@ def _population_rows(boq, sheet_name):
     """The excel_row set the suggest run ACCEPTS -- assemble_population's own output, read (never
     re-derived). This is the ONE server definition the tick boxes follow; the editor's badge set
     (rate-editable) is deliberately WIDER and must never be used for selection."""
+    return set(_population_categories(boq, sheet_name))
+
+
+def _population_categories(boq, sheet_name):
+    """SLICE SR-1: the same population as `_population_rows`, with each row's category -- {excel_row: category_id} --
+    so `get_active_suggestion_run` reads the population ONCE for both `eligible_rows` and `never_read_rows`."""
     _cv, rows = extraction.assemble_population(boq, sheet_name)
-    return {int(r["excel_row"]) for r in rows}
+    return {int(r["excel_row"]): (r.get("category_id") or "") for r in rows}
 
 
 def _carry_source_run(boq, sheet_name, committed_version):
@@ -401,26 +407,32 @@ def _carry_source_run(boq, sheet_name, committed_version):
     return run
 
 
-def _never_read_rows(boq, sheet_name, cv):
-    """SLICE 12e-5b (owner R8, "option a", 2026-10-15) -- the rows this sheet's suggest run accepts TODAY that the
-    run a selected-row pass would carry forward never read: {excel_row: category_id}. Empty where there is no
-    carry source (no selected-row run can start then anyway) or where that run read every row.
+def _selected_carry_source(boq, sheet_name, committed_version):
+    """SLICE SR-1 (owner 2026-11-17 13:09 / QR-1 "option a" / QR-2 Q3 (a)) -- what a SELECTED-ROW pass carries its
+    untouched rows forward from, and which kind of source it is:
 
-    WHY IT EXISTS. A selected-row pass carries the active run's rows forward and completes only when the
-    population minus everything attempted is empty. A row that became eligible AFTER that run (re-classified,
-    or its category gained a rate config) was never attempted by anyone, so the pass ended "partial" on rows
-    nobody had picked -- BOQ-26-00231 in 12e-5 (42 such rows). `start_suggest` now adds these rows to the
-    selection, and `get_active_suggestion_run` names them so the confirmation can say so before any call."""
-    source = _carry_source_run(boq, sheet_name, cv)
-    if not source:
-        return {}
-    attempted = {int(x) for x in _parse_json(source.get("attempted_rows"), [])}
-    _cv, rows = extraction.assemble_population(boq, sheet_name)
-    return {
-        int(r["excel_row"]): (r.get("category_id") or "")
-        for r in rows
-        if int(r["excel_row"]) not in attempted
-    }
+        ("live", run)    the sheet's COMPLETE active run at the current committed version (`_carry_source_run`);
+        ("partial", run) else the newest PARTIAL run at the current version -- a selected run on a sheet whose only
+                         run is a halted one keeps the rows that run already read (QR-2 Q3 (a): nothing already
+                         paid for is lost);
+        (None, None)     else a FIRST run: it starts empty and reads ONLY the selected rows (13:09 / QR-1 (a)).
+
+    Version-pinned like `_carry_source_run`: a run made against an earlier committed version is never carried.
+    The row dicts hold `results` and `attempted_rows` (the carry and the unread count both read them)."""
+    live = _carry_source_run(boq, sheet_name, committed_version)
+    if live:
+        return "live", live
+    rows = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "status": "partial",
+                 "committed_version": committed_version},
+        fields=["name", "run_id", "status", "committed_version", "results", "attempted_rows"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if rows:
+        return "partial", rows[0]
+    return None, None
 
 
 def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
@@ -455,12 +467,8 @@ def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
             title="AI is off",
         )
 
-    if not _carry_source_run(boq, sheet_name, cv):
-        frappe.throw(
-            "There is no completed suggestion run for this sheet to carry the untouched rows "
-            "forward from. Run the whole sheet once first, then re-run individual rows.",
-            title="Nothing to carry forward",
-        )
+    # SLICE SR-1 (owner 2026-11-16 10:34 / 2026-11-17 13:09): NO "nothing to carry forward" refusal any more. A FIRST
+    # run may be a selected-row run -- it reads only the selected rows and carries nothing (_selected_carry_source).
 
     population = _population_rows(boq, sheet_name)
     unknown = sorted(set(only) - population)
@@ -510,14 +518,11 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     # Normalise FIRST: an empty selection is indistinguishable from none, and both mean
     # "whole sheet" -- so the guards below never run on the unscoped path (G6).
     only = normalize_only_rows(only_rows)
-    never_read_added = []
     if only is not None:
         _guard_only_rows(boq, sheet_name, cv, only, resume_run_id)
-        # SLICE 12e-5b (owner R8 "option a"): rows no run has read yet join the selection, so the pass can
-        # complete -- the confirmation already named them and counted them (get_active_suggestion_run)
-        never_read_added = sorted(set(_never_read_rows(boq, sheet_name, cv)) - set(only))
-        if never_read_added:
-            only = sorted(set(only) | set(never_read_added))
+        # SLICE SR-1 (owner QR-1 "option a", 2026-11-17 14:33): a selected-row run reads ONLY the selected rows. The
+        # 12e-5b auto-add of never-read rows (2026-10-15, 9311c83a9) is RETIRED; those rows stay unread and the
+        # confirmation names them for information only (get_active_suggestion_run `never_read_rows`).
 
     if resume_run_id:
         _validate_resume_target(boq, sheet_name, cv, resume_run_id)
@@ -552,8 +557,9 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
         # Echo the ACCEPTED selection so the caller can prove the server agreed with its ticks.
         "only_rows": only,
         "scoped_row_count": len(only) if only is not None else None,
-        # SLICE 12e-5b: the rows no run had read that joined the selection (empty when none did)
-        "never_read_added": never_read_added,
+        # SLICE 12e-5b key, ALWAYS EMPTY since SR-1 retired the auto-add; kept for one release (additive, readers
+        # tolerate empty) so a cached older page does not break
+        "never_read_added": [],
     }
 
 
@@ -662,7 +668,9 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=No
     # carries the rows it inherited (and stays active=0, so the prior run keeps serving the editor).
     carried_results, carried_attempted = [], []
     if only_rows:
-        source = _carry_source_run(boq, sheet_name, cv)
+        # SLICE SR-1: the live complete run, else the newest partial at this version (QR-2 Q3 (a)), else nothing -- a
+        # FIRST selected run starts empty and its scope is just the selection.
+        _kind, source = _selected_carry_source(boq, sheet_name, cv)
         if source:
             carried_results = _parse_json(source.get("results"), [])
             carried_attempted = _parse_json(source.get("attempted_rows"), [])
@@ -796,6 +804,24 @@ def pass_attempted_count(env):
     return len(env.get("attempted_rows") or [])
 
 
+def run_is_complete(env, population, acc_attempted, scope):
+    """SLICE SR-1 (recon D4 C4 "way 1", owner QR-1 (a)) -- does this pass make the run COMPLETE (= it becomes the live run)?
+
+      * a WHOLE-SHEET pass, or the resume of one (`scope` is None): unchanged -- every population row attempted;
+      * a SELECTED-ROW pass, or the resume of one: every row of ITS scope attempted BY THIS PASS (`env["attempted_rows"]`
+        is the pass's own set). A carried row can never make a selected run complete by itself, and the rows nobody
+        selected no longer hold it back -- before SR-1 a selected run could only complete on top of a run that had
+        read every row, which is what kept a first run from being a selected one.
+    `env["complete"]` (the extractor's own halt flag) still wins: a halted pass is never complete. A halted selected run
+    stays partial and resumable exactly as before. Pure -- unit-tested."""
+    if not bool(env.get("complete", True)):
+        return False
+    # an envelope WITHOUT the pass's own rows (older shape / test doubles) keeps the pre-SR-1 population test
+    if scope is None or "attempted_rows" not in env:
+        return not (set(population) - set(acc_attempted))
+    return set(scope) <= {int(x) for x in env.get("attempted_rows") or []}
+
+
 def _mark_run_failed(run_name, halt_reason):
     """An unexpected failure. The run KEEPS its checkpointed rows (active stays 0)."""
     frappe.db.set_value(
@@ -901,7 +927,7 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         # behaviour rather than being silently downgraded to a partial. run_extraction itself
         # always sets it explicitly.
         population = {int(x) for x in env.get("population_rows") or []}
-        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
+        complete = run_is_complete(env, population, acc_attempted, scope)
         merged = [acc_results[k] for k in sorted(acc_results)]
 
         _finalise_run(
@@ -947,6 +973,9 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             # of degrading to "the split is unknown". See pass_attempted_count for why the
             # document-level `attempted_count` cannot answer that question.
             "pass_attempted_count": pass_attempted_count(env),
+            # SLICE SR-1 C10: a FRESH selected run that carried nothing = a FIRST selected run, so the editor says "N rows
+            # read. M rows on this sheet have not been read yet." instead of "re-extracted". ADDITIVE; informational.
+            "first_selected_run": bool(scope is not None and not resume_run_id and not prior_results),
         }
         # DEV2-B4 SEQUENCE (owner G1): historical matching follows a COMPLETE run -- after the commit above, outside
         # this run's transaction, before the done payload. Switch OFF -> None and the payload is untouched.
@@ -1002,21 +1031,23 @@ def get_suggest_status(boq=None, sheet_name=None):
     return {"state": "idle"}
 
 
-def _partial_is_superseded(boq, sheet_name, committed_version, created_at):
+def _partial_is_superseded(boq, sheet_name, committed_version, created_at, partial=None):
     """Has some LATER run already completed the work this partial left pending?
 
-    TRUE iff a run for the same sheet exists at status="complete", at the SAME committed_version,
-    created more recently than this partial.
+    SLICE SR-1 (recon D4 C5 + owner QR-1 Q1 (a), 2026-11-17 20:17). Since SR-1 a SELECTED-ROW run completes on its own
+    selection (`run_is_complete`), so "a later complete run exists" no longer means "every row was read". TRUE iff a
+    run for the same sheet at status="complete", at the SAME committed_version, created more recently than this
+    partial, EITHER
+      (C5)  attempted every row the partial still had pending (its stored `scope_rows`, else population - attempted),
+      OR (Q1 (a)) holds every row the partial read -- it carried them forward (QR-2 Q3 (a)), so the partial's work is
+            in the live run and its Resume strip must go: resuming would make the OLD run live and push the newer one
+            off the page. The partial's unread rows then show as "not read yet" in the confirm box like any other.
+    `partial` is the partial's row dict (`attempted_rows`, `scope_rows`). Without it (a caller that has none) the
+    pre-SR-1 rule applies: any newer complete run at the same version.
 
-    ⚠️ WHY A LATER COMPLETE RUN SETTLES IT, RATHER THAN MERELY SUGGESTING IT. `complete` is not
-    "the pass finished"; the worker computes it as
-
-        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
-
-    -- i.e. EVERY POPULATION ROW WAS ATTEMPTED. It is the whole population, never the pass's scope,
-    so a selected-row run cannot reach `complete` on a subset. A later complete run at the same
-    committed version therefore covers, by definition, every row an older partial still had
-    pending: resuming it could only re-spend AI to reproduce results the live run already holds.
+    ⚠️ BEFORE SR-1 the rule was "a newer complete run settles it", because `complete` then meant EVERY POPULATION ROW
+    WAS ATTEMPTED (a selected-row run could not complete on a subset). A whole-sheet complete run still covers every
+    pending row, so the old cases keep their answer under the new rule.
 
     ⚠️ SAME committed_version IS LOAD-BEARING. A complete run at a DIFFERENT version says nothing
     about this partial -- its rows may have changed underneath -- which is the same reason
@@ -1031,7 +1062,7 @@ def _partial_is_superseded(boq, sheet_name, committed_version, created_at):
     volunteering a stale partial; the write path's contract is unchanged."""
     if committed_version is None or created_at is None:
         return False
-    return bool(frappe.get_all(
+    newer = frappe.get_all(
         RUN_DOCTYPE,
         filters={
             "boq": boq,
@@ -1040,9 +1071,25 @@ def _partial_is_superseded(boq, sheet_name, committed_version, created_at):
             "committed_version": committed_version,
             "creation": [">", created_at],
         },
-        pluck="name",
-        limit=1,
-    ))
+        fields=["attempted_rows"],
+        order_by="creation desc",
+    )
+    if not newer:
+        return False
+    if partial is None:
+        return True
+    read = {int(x) for x in _parse_json(partial.get("attempted_rows"), [])}
+    stored_scope = _parse_json(partial.get("scope_rows"), None)
+    pending = {int(x) for x in stored_scope} if isinstance(stored_scope, list) else None
+    for run in newer:
+        attempted = {int(x) for x in _parse_json(run.get("attempted_rows"), [])}
+        if read <= attempted:
+            return True
+        if pending is None:
+            pending = _population_rows(boq, sheet_name) - read
+        if pending <= attempted:
+            return True
+    return False
 
 
 @frappe.whitelist()
@@ -1102,7 +1149,7 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     # Checking ONLY the newest partial is sufficient, not a shortcut: a complete run newer than the
     # newest partial is newer than every older one too, so if this one is superseded they all are.
     if partials and _partial_is_superseded(
-        boq, sheet_name, partials[0].get("committed_version"), partials[0].get("creation")
+        boq, sheet_name, partials[0].get("committed_version"), partials[0].get("creation"), partial=partials[0]
     ):
         partials = []
     if partials:
@@ -1132,17 +1179,23 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     # 164 / 139 / 94. A client-side copy would be a fifth definition, free to drift from the run's
     # actual acceptance the first time eligibility changes -- and the drift would present as ticks
     # the run silently ignores. Additive key; a client that ignores it is unaffected.
-    out["eligible_rows"] = sorted(_population_rows(boq, sheet_name))
-    # SLICE 12e-5b (owner R8): the eligible rows the run a selected-row pass would carry forward never read --
-    # a selected-row run reads them too, and the confirmation names and counts them first. Additive key.
-    # Only where the ACTIVE run (already read above) can be carried: complete, on the current committed version --
-    # the condition `_carry_source_run` applies. No active run -> no further query.
-    never = {}
-    if out["run"] is not None and out["run"]["status"] == "complete":
-        cv_now = _resolve_committed_version(boq, sheet_name)
-        if cv_now is not None and out["run"].get("committed_version") == cv_now:
-            never = _never_read_rows(boq, sheet_name, cv_now)
+    pop = _population_categories(boq, sheet_name)
+    out["eligible_rows"] = sorted(pop)
+    # SLICE SR-1 (recon D4 C6, owner QR-1 (a) + QR-1 Q2 (a)): `never_read_rows` is INFORMATION ONLY now -- the eligible
+    # rows the run a selected-row pass WOULD CARRY has not read (a selected run no longer reads them: the 12e-5b auto-add
+    # is retired). `carry_source` says what that run is, so the confirm box can word itself honestly:
+    #   "live"    the complete active run at the current version   -> its unread rows
+    #   "partial" else the newest partial at the current version   -> the rows that halted run has not read
+    #   None      no run to carry (a first run)                     -> every eligible row
+    # Same key, same shape; `carry_source` is additive. No committed version -> nothing to name.
+    never, carry_kind = {}, None
+    cv_now = _resolve_committed_version(boq, sheet_name)
+    if cv_now is not None:
+        carry_kind, source = _selected_carry_source(boq, sheet_name, cv_now)
+        read = {int(x) for x in _parse_json(source.get("attempted_rows"), [])} if source else set()
+        never = {row: cat for row, cat in pop.items() if row not in read}
     out["never_read_rows"] = [{"excel_row": k, "category_id": v} for k, v in sorted(never.items())]
+    out["carry_source"] = carry_kind
     return out
 
 

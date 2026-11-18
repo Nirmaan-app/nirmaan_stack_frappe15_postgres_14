@@ -753,6 +753,15 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   cannot launch a full re-extraction. The copy lives in the pure `suggestConfirmCopy` so both
   branches are unit-testable; the selected-row branch carries NO warning because it has no such
   consequence.
+  **SR-1 (2026-11-17): four cases** from `carry_source`: selected + first run ("Only the N rows you selected will be read.
+  This sheet has no suggestions yet; the other M eligible rows will not be read and will have no suggestions." + "Not in
+  this run: K rows (by category: ...). Select them, or clear the selection to run the whole sheet."); selected + later run
+  (live or a halted partial: "... carried forward unchanged." + "K rows on this sheet have not been read yet ... They are not
+  in this run ..."); nothing selected + no live run ("Suggest rates for the whole sheet (N rows)?", "Run all N rows", NO
+  OVERWRITES line, still destructive-styled); nothing selected + live run (today's re-extract text + "M of these rows already
+  have suggestions from an earlier run; they will be read again."). The action counts ONLY the ticked rows
+  (`suggestReadRows`); a refused press shows the server's own text (`serverRefusalText` -> `halt_reason`); a first
+  selected run ends "N rows read. M rows on this sheet have not been read yet." (`first_selected_run`).
 - **Matching a stated value to a dropdown option must never discard meaning the pricer reads (layers, compositions); option matching runs only on values the pricer would read the same way** (12d-6, owner-locked: `computeItemList` skips `matchStatedToOption` for any value `readLayers` accepts -- the panel used to hand the pricer the option "19" for a model-read "Double layer of 19 mm" and price one layer).
 - **A pipe row's figure is two ROUNDUPs with the accessories share read from a per-family Pricing Input
   (owner "option b, yes", 2026-10-10, slice 12e-2).** The Piping block's working reads, in order, the family's

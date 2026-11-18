@@ -633,6 +633,10 @@ export interface RateHelperRowContext {
   /** VRF-6 (owner Q6): the notes of EVERY heading above the row, nearest first (`rowAncestorNotes`) -- read only by the VRF-6
    *  reading rules (`extras.prepare`). Absent where the page's rows were not passed. */
   ancestorNotes?: string[];
+  /** VP-4 (T2, owner QR-1 Q2 (a)): the parent heading's notes as `headingNotes`, but only the note rows with NO line item between
+   *  the heading and the note (the heading's own note block; its appended / own notes always) -- read only by the Valve Package /
+   *  Misc notes (`rowOwnHeadingNotes`). Absent where the page's rows were not passed. */
+  ownHeadingNotes?: string[];
   /** VRF-7 (A1 / B8, owner 01:36 / 01:53): the row's chain NEAREST FIRST, each text with the excel row it sits on and what it
    *  is ("this row", "note row n", "heading row n", "sheet note row n") -- read only by the VRF-7 rules (`rowChainOf`) */
   chainRows?: ReadonlyArray<{ row: number; where: string; text: string }>;
@@ -657,7 +661,28 @@ export interface RateHelperRowContext {
     /** VRF-6 (F4): a rate-editable Preamble (kept only where the run read it); the row's category; its item 1's scope answer */
     preamble?: boolean; category?: string | null; scope1?: string;
     /** VRF-8 (D10): item 1's capacity and the make answers an installation-only row follows (only with `prepare.install_follows`) */
-    cap1?: string; attrs1?: Record<string, string> }>;
+    cap1?: string; attrs1?: Record<string, string>;
+    /** DU-1 (DR7 / G-3): the row's unit and its nearest heading, as the page shows them */
+    unit?: string; heading?: string; headings?: readonly string[] }>;
+  /**
+   * DU-1 (DR7 / G-3, owner 2026-11-13 21:06 + 2026-11-15 13:15-13:18): the sheet's own duct-insulation rows (with their quantities)
+   * and its insulated duct rows (with their areas), built by the helper for a config declaring `pricing.sheet_insulation`. Read ONLY
+   * by that check. The calculator never has it.
+   */
+  sheetInsulation?: {
+    /** DU-3 (R1 / R2): the counted separate duct-insulation rows; `qty` in sq.m (a quantity of 0 counts as 0 whatever its unit, QR-1
+     *  Q4), null when it cannot be read as an area; `why` = what made it count (its words / a heading / a plain Insulation heading) */
+    rows: ReadonlyArray<{ row: number; qty: number | null; unit: string | null; why: "words" | "heading" | "plain_heading" }>;
+    ducts: ReadonlyArray<{ row: number; area: number | null }>;
+    /** DU-3: insulation rows NOT counted and why (running metres / pipe / AHU / building ...) -- the Insulation 90% tab only */
+    excluded?: ReadonlyArray<{ row: number; why: string }>;
+  };
+  /**
+   * VP-1 (N5, QR-1 Q1): the category of every row of this sheet, by excel row, as the PAGE shows it (the grid's own category
+   * map, not the run's) -- read ONLY by a config's `sheet_heading_notes` ("this sheet prices valves on their own rows ...").
+   * OPTIONAL: the calculator and any context built without the page's categories omit it, and the line is then not shown.
+   */
+  sheetCategories?: Readonly<Record<number, string>>;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

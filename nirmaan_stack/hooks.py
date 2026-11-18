@@ -739,7 +739,10 @@ scheduler_events = {
 			"nirmaan_stack.api.boq.rate_match.daily_pool_rebuild"
 		],
 		"0 2 * * *": [
-			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
+			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile",
+			# The 30-day rule: an Online payment still Requested / CEO Pending more than 30 days after its
+			# request is rejected, with its reason in `rejection_reason` (services/stale_payment_reject.py).
+			"nirmaan_stack.services.stale_payment_reject.run_nightly",
 		],
 		# Monthly asset audit (tasks/asset_audit.py): the 28th opens next month's audit for everyone up to
 		# date; the 7th records last month's unsent audits as Missed and opens this month's for late senders.

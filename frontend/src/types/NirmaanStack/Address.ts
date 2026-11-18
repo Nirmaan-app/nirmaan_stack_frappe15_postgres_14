@@ -9,14 +9,14 @@ export interface Address {
   parentfield?: string
   parenttype?: string
   idx?: number
-  address_title?: string
+  address_title?: string | null
   address_type: string
   address_line1: string
-  address_line2?: string
+  address_line2?: string | null
   city: string
-  state?: string
+  state?: string | null
   country: string
-  pincode?: string
-  email_id?: string
-  phone?: string
+  pincode?: string | null
+  email_id?: string | null
+  phone?: string | null
 }

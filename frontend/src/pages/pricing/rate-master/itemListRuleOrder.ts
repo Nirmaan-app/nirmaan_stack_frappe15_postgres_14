@@ -35,6 +35,10 @@ export interface RuleOrderLine {
   title: string;
   detail?: string;
   reason?: string;
+  /** DU-1 FIX-3: the code rule a DECLARED line (`list_spec.pricing.rule_lines`) states -- the coverage guard's key. */
+  rule?: string;
+  /** DU-1 FIX-4: a delegated section's OWN rules (generated from that category's config), nested under its section line. */
+  sub?: RuleOrderLine[];
 }
 
 /**
@@ -296,7 +300,8 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
-import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel } from "../../boq-wizard/rate-helper/itemListPricing";
+import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, oneSizeMessage, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel,
+         type AccessorySpec, type CapacityUnits, type CountedSpec, type DefaultSpec, type ItemListPricingSpec, type MaterialText } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
 
 /**
@@ -333,17 +338,26 @@ export function extractionRulesCardShown(config: unknown): boolean {
 const famWordRaw = (f: string) => String(f).trim();
 
 /** VRF-2b (QR-3 A): the unit the line-1 refusal example quotes -- "nos", unless the category prices "nos". PURE. */
-function refusalExampleUnit(pr: any): string {
+/** VP-1 (G2). PURE. Whether a category's unstocked words are INSULATION materials (XLPE among them) -- the XLPE alias refusal
+ *  and the stocked-alternative rule are insulation rules and run only then. */
+export function insulationMaterialWords(words: unknown): boolean {
+  return Array.isArray(words) && words.some((w) => /\bxlpe\b/i.test(String(w)));
+}
+
+function refusalExampleUnit(pr: ItemListPricingSpec): string {
   // VRF-3a K2: a whole-lot spelling has its own refusal, so it is never this sentence's example; "Mtr" follows the three
   // only where all three are known or lot units (VRF from v58) -- every earlier pick is unchanged
-  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
-  return ["nos", "Set", "Lot", ...(pr?.lot_units ? ["Mtr"] : [])].find((u) => !known.has(u.toLowerCase())) ?? "nos";
+  const known = new Set([...Object.values(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  // VP-1 (G3): where the category knows all four (Valve Package prices Nos and Set, refuses Lot / Mtr with its own bar), the
+  // example is a unit it does not know ('Sqm', 'Kg') -- never a spelling it prices; every earlier pick is unchanged
+  return ["nos", "Set", "Lot", ...(pr?.lot_units ? ["Mtr"] : [])].find((u) => !known.has(u.toLowerCase()))
+    ?? ["Sqm", "Kg"].find((u) => !known.has(u.toLowerCase())) ?? "nos";
 }
 
 /** VRF-2b (QR-3 A): the line-13 examples of a unit the catalogue does not know -- 'Lot', 'Nos/Ro', with a known one
  * swapped for 'Set'. Unchanged ('Lot', 'Nos/Ro') for every category that knows neither. PURE. */
-function unknownUnitExamples(pr: any): string {
-  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+function unknownUnitExamples(pr: ItemListPricingSpec): string {
+  const known = new Set([...Object.values(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
   const pick = ["Lot", "Nos/Ro", "Set", ...(pr?.lot_units ? ["Mtr", "Sqm"] : [])].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
   return pick.map((u) => `'${u}'`).join(", ");
 }
@@ -351,13 +365,16 @@ function unknownUnitExamples(pr: any): string {
 /** VRF-2b (QR-3 A): a block pricing SEVERAL item kinds (`extra_kinds`) in several unit classes, each family in exactly
  * ONE class (VRF: the units per Nos, the Misc per Nos or per Kg). Keyed on `extra_kinds`, so every category that declares
  * none -- Insulation and Piping in every version -- keeps its lines byte for byte. PURE. */
-function oneClassPerKind(pr: any): boolean {
-  const fams = Object.values<any>(pr?.families ?? {});
+function oneClassPerKind(pr: ItemListPricingSpec): boolean {
+  const fams = Object.values(pr?.families ?? {});
   return Array.isArray(pr?.extra_kinds) && pr.extra_kinds.length > 0
     && Object.keys(pr?.unit_classes ?? {}).length > 1 && fams.length > 0 && fams.every((f) => Object.keys(f?.units ?? {}).length === 1);
 }
 
-export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = []): RuleOrderLine[] {
+export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = [],
+  /** DU-1 FIX-4: the configs a delegated section borrows (category_id -> config), so the section's own rules nest under its line.
+   *  Absent (every earlier caller) -> no nested lines. A nested list never nests again. */
+  sectionConfigs?: Readonly<Record<string, unknown>>): RuleOrderLine[] {
   const inputLabel = (id: string): string => pricingInputLabel(id, items);
   const ls = (config as any)?.list_spec;
   const pr = ls?.pricing;
@@ -422,12 +439,15 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   add("The row's unit decides which kind of rate applies",
       // ADP-4a (R6 / block 38): on the plain wording the units are the pricer's words, never the class ids
       // VRF-2b (owner QR-1 U7 A): a category whose every kind is priced in ONE of several classes names them in its words too
-      [classes.length ? `the units it knows: ${list(plain || oneClassPerKind(pr) ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
+      [classes.length ? `the units it knows: ${list(plain || oneClassPerKind(pr) || (Array.isArray(pr.rule_lines) && pr.rule_lines.length) ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
        factors.length ? `${list(factors, 4)} convert to the catalogue's own unit` : "",
        // VRF-10 (F1; the rules ride v65's `scope.panel_pick`): on that config a row with NO unit refuses instead
-       classes.length ? ((pr.extras as { scope?: { panel_pick?: unknown } } | undefined)?.scope?.panel_pick
+       // VP-1 (N2): the same on a config declaring `blank_unit_refuses` (Valve Package)
+       classes.length ? ((pr.extras as { scope?: { panel_pick?: unknown } } | undefined)?.scope?.panel_pick || pr.blank_unit_refuses === true
          ? "a row with no unit is refused 'no unit on this row' -- never priced by assuming a unit; a rate-only unit (R/O, QRO) is priced in the item's own unit and says so; a row stating several units refuses, naming them"
          : "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them") : "",
+       // DU-1 FIX-2 (VP-DRV R04; VP-3 D6, every category -- `pricingSheetHelper.descriptionUnitOf`): read BEFORE the no-unit rule above
+       classes.length ? `first, a row with no unit whose description ends in a unit is priced in that unit -- 'Unit read from the description: <unit>'; only the description's last ' | ' piece counts, never a unit word inside a sentence or a size, and never in the calculator` : "",
        // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words
        // VRF-2b (owner QR-3 A): a spelling the config prices with a line ("'Nos/Ro' is read as Nos")
        pr.unit_lines && typeof pr.unit_lines === "object" && Object.keys(pr.unit_lines).length
@@ -444,8 +464,22 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   add("The item's own kind decides which products can price it",
       [fams.length ? `${fams.length} kind${fams.length === 1 ? "" : "s"} in the catalogue` : "",
        // ADP-4a (R1 defect): the alias names the kind it prices as, under its shown name
-       aliases.length ? (plain ? list(aliases.map((a) => `${famShown(a)} prices as ${famWord(String(pr.family_alias[a]))}`)) : `${list(aliases, 3)} price as another kind`) : ""]
+       // DU-2 (CH-DU2-5 W3): an alias OFFERED in the kind list is said once, plainly -- its own choice, priced from its target's rate
+       (() => {
+         const offered = new Set(Array.isArray(pr.family_alias_offered) ? pr.family_alias_offered.map(String) : []);
+         const rest = aliases.filter((a) => !offered.has(a));
+         return rest.length ? (plain ? list(rest.map((a) => `${famShown(a)} prices as ${famWord(String(pr.family_alias[a]))}`)) : `${list(rest, 3)} price as another kind`) : "";
+       })(),
+       // DU-1: an alias OFFERED in the kind list is a choice of its own there, priced as the kind it names
+       Array.isArray(pr.family_alias_offered) && pr.family_alias_offered.length
+         ? list(pr.family_alias_offered.map((a: unknown) => `${famShown(String(a))} is its own choice in the kind list, priced from the ${famWord(String(pr.family_alias?.[String(a)] ?? a))} rate (its per-metre rule is below)`)) : ""]
         .filter(Boolean).join("; ") || undefined, "kind");
+  // DU-2 (finding a): an alias that reads only some of its target's numbers -- each its own line
+  for (const [a, needs] of Object.entries((pr.family_alias_needs ?? {}) as Record<string, unknown>)) {
+    if (!Array.isArray(needs) || !needs.length) continue;
+    add(`${famShown(a)} reads only its ${list(needs.map((n: unknown) => name(String(n))))}`,
+        `the other ways ${famWord(String(pr.family_alias?.[a] ?? a))} prices by are not used for it, and their boxes are not shown`, "family_alias_needs");
+  }
 
   // ── 2b. SLICE 12e-2 (owner Q16 / Q15 / Q18): a kind written as the BoQ writes it ─────────────────
   const famAttrId = String(ls?.family_attribute_id ?? "family");
@@ -458,7 +492,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     const refuses = ((ft.refuse ?? []) as any[]).filter((r) => r?.from && r?.refuse);
     add(`A ${name(famAttrId)} the catalogue does not stock refuses by name`,
-        [...refuses.map((r) => `${String(r.from)}: ${plainSentence(r.refuse)}`), "any other spelling: no SKU in the catalogue for it -- the pricer decides"].join("; "));
+        [...refuses.map((r, i) => {
+          // DU-3 (W1, Case 12): a spelling refused twice -- the first carries `unless`; say when each applies
+          const twice = refuses.some((o, j) => j !== i && String(o.from) === String(r.from));
+          const when = !twice ? "" : r.unless ? ` (the words do not name a duct)` : ` (the words name a duct / ducting)`;
+          return `${String(r.from)}${when}: ${plainSentence(r.refuse)}`;
+        }), "any other spelling: no SKU in the catalogue for it -- the pricer decides"].join("; "));
     if (ft.from_row && typeof ft.from_row === "object" && ft.from_row.refuse) {
       add(`A row naming one ${name(famAttrId)} prices as it; two different ones with none chosen refuse`,
           `the names in the row's own text, read through the same map; ${plainSentence(String(ft.from_row.refuse).replace("{types}", "the names found"))}`);
@@ -486,7 +525,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const fwn = pr.family_when_none;
   if (fwn && typeof fwn === "object") {
     const byClass = Object.entries<any>(fwn.by_unit_class ?? {}).map(([cls, f]) => `per ${pr.unit_words?.[cls] ?? cls}: ${famWord(f)}`);
-    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}`);
+    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}${typeof w.rule === "string" && w.rule.trim() ? `, with the note '${plainSentence(w.rule)}'` : ""}${w.existing_work_only ? ` -- on a removal / refixing row only${typeof w.otherwise_refuse === "string" && w.otherwise_refuse.trim() ? `; any other row naming them is not priced, '${plainSentence(w.otherwise_refuse)}'` : ""}` : ""}`);
     add("A row that names no material takes the kind its row implies",
         [...byClass, ...byWords].join("; ") + " -- shown as assumed, never silently");
   }
@@ -516,17 +555,40 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           `no ${famWord(pufFam)} is stocked per ${list(unpriced.map((cls) => String(pr.unit_words?.[cls] ?? cls)))}: 'No SKU in the catalogue for RPUF - price this row by hand', where no material was answered; an answered material stands`);
     }
   }
+  // VP-1 (N4, owner ANSWER 3 2026-11-12 13:46 / VR3): a material-text entry deciding the kind BY SIZE (only such entries: the
+  // other material-text maps keep the lines they have)
+  for (const e of (pr.material_text?.map ?? []) as MaterialText["map"]) {
+    const z = e.to_by_size;
+    if (!z) continue;
+    add(`A ${quoteList((e.all_of ?? []).flat().map(String), 4)} with no type the catalogue stocks is priced by its size`,
+        `${name(String(z.attr))} ${String(z.at_most)} ${pr.numbers?.[z.attr]?.unit ?? "mm"} and below -> ${famWord(String(z.small))}, above -> ${famWord(String(z.large))}, with an amber line saying so; any other word in the ${name(String(pr.material_text.from_attr ?? ""))} keeps the refusal by name; no size stated -> refused for the missing size; a type the model answered always wins`);
+  }
+  // DU-1 FIX-1 (VP-DRV R15; owner 2026-11-15 13:30 "we need to make sutre that the derivatrion screen captures all th erules"):
+  // EVERY other material-text map entry by its own rule (VR3 the drain valve -> the ball valve of its size). An entry deciding by size
+  // keeps its line above; a config without `material_text` (or with only size entries) adds nothing here.
+  type MtEntry = { to_by_size?: unknown; to?: unknown; to_by_unit_class?: Record<string, unknown>; all_of?: unknown[][]; line?: unknown };
+  for (const e of (((pr.material_text?.map ?? []) as MtEntry[]).filter((x) => x && !x.to_by_size))) {
+    const tos = [...new Set([...Object.values(e.to_by_unit_class ?? {}), ...(e.to ? [e.to] : [])].map(String))];
+    const where = pr.material_text?.from_attr ? ` in the ${name(String(pr.material_text.from_attr))}` : "";
+    add(`A ${quoteList((e.all_of ?? []).flat().map(String), 4)}${where} with no type the catalogue stocks is priced as the ${list(tos.map(famWord))}`,
+        typeof e.line === "string" && e.line.trim() ? `with a line: '${plainSentence(String(e.line).replace("{to}", tos.map(famWord).join(" / ")))}'` : "with a line saying so", "material_text");
+  }
   const um = pr.unstocked_materials;
   if (um && Array.isArray(um.words) && um.words.length) {
     add("A material the catalogue does not stock refuses by name, whatever kind was picked",
-        `${quoteList(um.words, 12)} in the row's own text${um.from_attr ? ` or in the ${name(String(um.from_attr))}` : ""}`);
-    // SLICE 12e-6 (owner R1 / R3 / R5 / R8; U9): ADDED
-    if (pr.no_sku_named_by) {
-      add("A material written with an alternative prices the stocked one",
-          "an unstocked material beside a stocked one ('nitrile rubber/XLPE', 'rockwool/glasswool') prices the stocked one; two stocked ones ('open-cell acoustic foam / fiberglass board') price the lower cost -- with a line saying so");
+        `${quoteList(um.words, 12)} in the row's own text${um.from_attr ? ` or in the ${name(String(um.from_attr))}` : ""}`
+        // DU-1 (VP-DRV R11 / R12 / R13; VP-1 per_item, VP-4 T5, VP-3 C3 -- `itemListPricing` per_item): said where the key is on
+        + (um.per_item ? "; on a row of several items only the item whose own words name it refuses, and the other items are read without that word; several unstocked items on one row are all named; the row names first an item that cannot be priced at all (unstocked, above the largest size), then one that only misses a fact" : ""));
+    // SLICE 12e-6 (owner R1 / R3 / R5 / R8; U9): ADDED. VP-1 (G2): the insulation-material lines only where the category's
+    // unstocked words are insulation materials (XLPE among them) -- the code they describe is gated the same way
+    if (insulationMaterialWords(um.words)) {
+      if (pr.no_sku_named_by) {
+        add("A material written with an alternative prices the stocked one",
+            "an unstocked material beside a stocked one ('nitrile rubber/XLPE', 'rockwool/glasswool') prices the stocked one; two stocked ones ('open-cell acoustic foam / fiberglass board') price the lower cost -- with a line saying so");
+      }
+      add("Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name",
+          "before closed cell polyethylene could be read as nitrile: 'No SKU in the catalogue for <the words as written> - price this row by hand'");
     }
-    add("Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name",
-        "before closed cell polyethylene could be read as nitrile: 'No SKU in the catalogue for <the words as written> - price this row by hand'");
   }
 
   // ── 3. the rule for the unit, the facts it needs ──────────────────────────────────────────────────
@@ -544,7 +606,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           // VRF-2b (owner QR-3 A): several classes, but every kind priced in exactly ONE of them (VRF: Nos or Kg)
           : oneClassPerKind(pr)
             ? `a kind is priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} - each kind has one rule, for the unit it is stocked in`
-            : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
+            // DU-2 (CH-DU2-5 W5): a category with declared rule lines (Valve Package, Misc, Ducting) names ITS units
+            : Array.isArray(pr.rule_lines) && pr.rule_lines.length
+              ? `a kind priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} has a rule for each`
+              : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
   // SLICE 12e-6 (AC5; U9): ADDED
   const byKind = Object.entries<any>(fwn?.by_unit_class ?? {});
   if (byKind.length >= 2) {
@@ -692,6 +757,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       }
     } else if (rd?.typed_only && rd?.length_from && rd?.face_side) {
       // ADP-3b: a face side is said by its own group, LAST (below), so no earlier line moves
+    } else if (rd?.typed_only && rd?.length_from && Array.isArray(rd.offered) && rd.offered.length) {
+      // DU-1 (DR17 + NOTE 3): a box offering the sheet's own values (the round diameters) with "Other..."
+      const u = rd.unit ? ` ${String(rd.unit)}` : "";
+      add(`A ${name(attr)} is picked from '${String(rd.label ?? name(attr))}' or typed under 'Other...', else read from the ${name(String(rd.length_from))}`,
+          `the list offers ${list(rd.offered.map((n: unknown) => `${String(n)}${u}`), 12)} (the sheet's own rows); any other value is typed under 'Other...' and priced the same way; a picked or typed value always wins`, "offered");
     } else if (rd?.typed_only && rd?.length_from && rd?.unit !== "m") {
       // ADP-2 (owner H7 / Q3, "should be priced at max"; U6): ADDED
       add(`An ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}${rd.range === "max" ? ", at its largest value" : ""}`,
@@ -716,7 +786,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (rd?.typed_entry === "one_size") {
       add(`A typed ${name(attr)} is one size, in ${rd.unit ?? "mm"} or inches`,
           // SLICE 12e-3b (owner 2026-10-11): two or more sizes price the higher / highest (REPLACES "refuses naming the two sizes")
-          "a number (an NB number is mm) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: Type one pipe size, in mm or inches; two or more sizes written with a slash take the higher ('25/32' prices 32, '25/32/40' prices 40, 1\"/2\" prices 2\"), typed or read from the BoQ, with a line saying so; a slash is an inch fraction only when its top number is 16 or less and its bottom is 2, 4, 8, 16, 32 or 64");
+          // VP-1 (G7): the refusal names the reader's own axis ("Type one valve size"); a reader declaring `typed_dn` takes "DN 50"
+          `a number (an NB number is mm${rd.typed_dn ? "; a DN number is mm" : ""}) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: ${oneSizeMessage(rd.name)}; two or more sizes written with a slash take the higher ('25/32' prices 32, '25/32/40' prices 40, 1\"/2\" prices 2\"), typed or read from the BoQ, with a line saying so; a slash is an inch fraction only when its top number is 16 or less and its bottom is 2, 4, 8, 16, 32 or 64`);
     }
   }
 
@@ -830,7 +901,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         `${list(defaultLines, 6)} -- shown as assumed, never silently`);
   }
   // VRF-2b (owner R-BRAND (a)): a stated value the attribute does not list prices as the default, naming the row's words
-  for (const [a, d] of Object.entries<any>(pr.defaults ?? {})) {
+  for (const [a, d] of Object.entries<DefaultSpec>(pr.defaults ?? {})) {
     if (!d?.unlisted || typeof d.value !== "string") continue;
     // owner QR-1b (2026-11-04 01:26, fix 1): "... priced as Blue Star, naming the row's words" -- one sentence, a comma
     add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}, naming the row's words`,
@@ -891,8 +962,99 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   for (const r of (pr.read_notes ?? []) as any[]) {
     if (!r?.line) continue;
-    add(`A ${list((r.families ?? []).map(famWord), 2)} row stating its own figure in the ${name(String(r.from_attr ?? ""))} carries a line saying what was priced`,
+    // VP-1 (G4): an entry carrying its own `rule_line` (the config's words for what the line is) is shown by it
+    add(typeof r.rule_line === "string" && r.rule_line.trim() ? plainSentence(r.rule_line)
+      : `A ${list((r.families ?? []).map(famWord), 2)} row stating its own figure in the ${name(String(r.from_attr ?? ""))} carries a line saying what was priced`,
         `'${String(r.line).replace("{match}", "<the stated figure>").replace("{family}", (r.families ?? []).map(famWord).join(" / "))}'${r.unless ? ` (not when the figure is ${String(r.unless)})` : ""}`);
+  }
+  // DU-1 FIX-1 (VP-DRV R18 / R21 / R22; owner QR-1 Q1 (a) 2026-11-15 15:47: generic, every category): EVERY `text_notes` entry is
+  // its own line -- the note a row's own words (or its headings) bring onto its item, quoted. An entry may carry its own
+  // `rule_line` (the `read_notes.rule_line` precedent, VP-1 G4); else the title says where the words are read.
+  {
+    const allFams = Object.keys(pr.families ?? {});
+    type TnEntry = { line?: unknown; families?: unknown; from_text?: unknown; rule_line?: unknown; unless?: { attr?: unknown; equals?: unknown; own_words?: unknown } };
+    for (const t of (Array.isArray(pr.text_notes) ? pr.text_notes : []) as TnEntry[]) {
+      if (typeof t?.line !== "string" || !t.line.trim()) continue;
+      const fams: string[] = Array.isArray(t.families) ? t.families.map(String) : [];
+      const every = fams.length === 0 || allFams.every((f) => fams.includes(f));
+      const where = t.from_text === "own_and_headings" ? "own words or its headings" : t.from_text === "headings" ? "headings" : "own words";
+      const title = typeof t.rule_line === "string" && t.rule_line.trim() ? plainSentence(t.rule_line)
+        : `A ${every ? "row" : `${list(fams.map(famWord))} row`} whose ${where} call for it carries a note`;
+      const unless = t.unless && typeof t.unless === "object" && t.unless.attr
+        ? `; not on an item read with ${name(String(t.unless.attr))} ${String(t.unless.equals)}${t.unless.own_words ? " unless the row's own words name it" : ""}` : "";
+      add(title, `'${plainSentence(String(t.line))}'${!every && typeof t.rule_line === "string" ? ` -- on ${list(fams.map(famWord))}` : ""}${unless}`, "text_notes");
+    }
+  }
+  // DU-1 Part B (the Derivation guard): the Ducting config keys that decide a row, each its own line -- generic, any category
+  // declaring them. `no_sku_refusals`: words that refuse a row with their own sentence (DR13); `existing_work`: removal / refixing
+  // priced as a share of the installation (DR14; ADP's two entries gain their line too); `sheet_insulation`: the per-sheet check of a
+  // borrowed insulation section (DR7 / G-3), with its mode and limits as the config states them.
+  for (const r of (Array.isArray(pr.no_sku_refusals) ? pr.no_sku_refusals : []) as Array<{ words?: unknown; refuse?: unknown }>) {
+    if (!Array.isArray(r?.words) || typeof r.refuse !== "string") continue;
+    // DU-2 (CH-DU2-5 W1): only a row the MODEL reads as none of the kinds is refused by its words -- a duct row naming the same words is
+    // priced as a duct (owner R-DUCT 2026-11-15 23:57), and the line says so
+    add(`A row the model reads as not a duct, whose words name ${list(r.words.map((w: unknown) => `'${String(w)}'`), 3)}, refuses with its re-file sentence`, `'${plainSentence(r.refuse)}'`, "no_sku_refusals");
+  }
+  // DU-2 (R-NOTE-ORDER): the re-file sentence for a not-a-duct row no word above names
+  if (typeof pr.no_sku_refuse_default === "string" && pr.no_sku_refuse_default.trim()) {
+    add("Any other row the model reads as not a duct refuses", `'${plainSentence(String(pr.no_sku_refuse_default).replace("{named}", "<the item as written>"))}'`, "no_sku_refuse_default");
+  }
+  for (const e of (Array.isArray(pr.existing_work) ? pr.existing_work : []) as Array<{ words?: unknown; install_times?: unknown; line?: unknown }>) {
+    if (!Array.isArray(e?.words) || typeof e.install_times !== "number") continue;
+    add(`A row naming ${list(e.words.map((w: unknown) => `'${String(w)}'`), 3)} is priced as ${typeof e.line === "string" ? e.line : "existing work"}`,
+        `no supply; installation = ${String(Math.round(e.install_times * 100) / 100)} x the matched product's installation`, "existing_work");
+  }
+  {
+    // DU-3 (R1 / R2): the 90% rule, its threshold named by its Pricing Input (read live), and which rows count as duct insulation
+    const si = pr.sheet_insulation as { section?: unknown; threshold_input?: unknown } | undefined;
+    if (si && typeof si === "object" && typeof si.threshold_input === "string") {
+      const sec = (Array.isArray(ls?.sections) ? ls.sections : []).find((x: { id?: unknown }) => x?.id === si.section) as { label?: unknown } | undefined;
+      const label = String(sec?.label ?? si.section ?? "insulation").toLowerCase();
+      const thr = items.find((it) => /_pricing_input$/.test(String(it.kind ?? "")) && String((it.attributes as { item?: unknown } | undefined)?.item ?? "") === si.threshold_input);
+      const f = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
+      add(`On a sheet that quotes duct insulation on its own rows, a row's ${label} line is checked against them`,
+          `by the 90% rule below, against the Pricing Input '${pricingInputLabel(String(si.threshold_input), items)}'${Number.isFinite(f) ? ` (${String(Math.round(f * 100))}% today)` : ""}; `
+          + `which rows count is the next line; never in the calculator (it has no sheet)`,
+          "sheet_insulation");
+    } else if (si && typeof si === "object") {
+      // the RETIRED DU-1 G-3 shape (v71-v74): stated as what it now does, so a historical config's tab still names the key
+      add("A historical duct-insulation check (the G-3 shape, retired by DU-3)", "no sheet check runs: the insulation line prices as usual", "sheet_insulation");
+    }
+  }
+  {
+    // DU-3 (Case 5): own words that leave the row unpriced; (Case 4): part-length insulation not added
+    for (const r of (Array.isArray(pr.row_refusals) ? pr.row_refusals : []) as Array<{ line?: unknown; rule_line?: unknown }>) {
+      add(typeof r.rule_line === "string" && r.rule_line.trim() ? plainSentence(r.rule_line) : "A row whose own words name a refused kind is not priced",
+          `the note '${String(r.line ?? "")}'`, "row_refusals");
+    }
+    const ti = pr.two_insulations as { line?: unknown } | undefined;
+    if (ti && typeof ti === "object" && typeof ti.line === "string") {
+      add("A duct row naming two insulations prices the one covering the whole duct",
+          `the thermal insulation at its own thickness (else the default); the second (acoustic) is left out with the note '${ti.line.replace("{t}", "<t>")}'`,
+          "two_insulations");
+    }
+    const pi = pr.partial_insulation as { line?: unknown } | undefined;
+    if (pi && typeof pi === "object" && typeof pi.line === "string") {
+      add("Extra insulation asked only on part of the duct length is not added",
+          `the insulation covering the whole duct is priced; the part-length one is left out with the note '${pi.line.replace("{kind}", "<kind>").replace("{span}", "<the part>")}'`,
+          "partial_insulation");
+    }
+    // DU-3 (Case 8, QR-1 Q5 (a)): a duct-painting row in the 00380 context is the painting of the ducts above it
+    const pw = pr.paint_row as { words?: unknown; family?: unknown; tolerance?: unknown } | undefined;
+    if (pw && typeof pw === "object" && typeof pw.tolerance === "number") {
+      add(`A row whose own words name painting (paint finish, enamel paint) and state no gauge is priced as ${String(pw.family ?? "Paint")}`,
+          `only when it sits right after its sheet's own duct rows (the unbroken run of duct rows directly above it) and its quantity is within ${String(Math.round(pw.tolerance * 100))}% `
+          + `of theirs - the note names those rows; a row failing any test keeps its outcome with a note to price it by hand`, "paint_row");
+    }
+  }
+  // DU-1 FIX-3 (VP-DRV; owner 2026-11-15 13:41 "a derivation coverage check before deployment to ensure all rules (model + code+
+  // anywhere else) are captured"): the rules written in CODE (reading rules over the model's items, sheet-level checks) are stated by
+  // lines the config DECLARES, each naming the code rule it states -- `derivationCoverage` fails a code rule without its line and a
+  // line naming no code rule. A config without `rule_lines` adds nothing.
+  for (const d of (Array.isArray(pr.rule_lines) ? pr.rule_lines : []) as Array<{ title?: unknown; detail?: unknown; rule?: unknown }>) {
+    if (typeof d?.title !== "string" || !d.title.trim()) continue;
+    add(plainSentence(d.title), typeof d.detail === "string" && d.detail.trim() ? plainSentence(d.detail) : undefined, "rule_lines");
+    out[out.length - 1].rule = typeof d.rule === "string" ? d.rule : undefined;
   }
 
   // ── 6b. a second key beside the primary size ─────────────────────────────────────────────────────
@@ -931,6 +1093,24 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   for (const a of ladders) {
     if (plainLadders.includes(a)) continue;
+    // DU-2 (CH-DU2-5 W4): a sheet-gauge axis -- its ladder runs REVERSE (DR2), so the generic size words do not fit it
+    const ga = pr.numbers?.[a]?.gauge;
+    if (ga && typeof ga === "object") {
+      const gs = Object.entries<number>(ga.mm ?? {}).sort((x, y) => x[1] - y[1]);
+      const fams = new Set<string>(Array.isArray(ga.families) ? ga.families.map(String) : []);
+      const stockedMm = [...new Set(items.filter((it) => it.kind === pr.kind && fams.has(String(it.attributes?.[ls?.family_attribute_id ?? "family"] ?? "")))
+        .map((it) => Number(it.attributes?.[a])).filter((n) => Number.isFinite(n)))].sort((x, y) => x - y);
+      const gOf = (mm: number) => gs.find(([, m]) => Math.abs(m - mm) < 1e-9)?.[0];
+      const thin = stockedMm.length ? gOf(stockedMm[0]) : undefined, thick = stockedMm.length ? gOf(stockedMm[stockedMm.length - 1]) : undefined;
+      add(`Fitting the stated ${name(a)} to the catalogue`,
+          [`an unstocked gauge takes the next THICKER stocked gauge`,
+           thin ? `thinner than ${thin}G -> ${thin}G with a note` : "",
+           thick ? `thicker than ${thick}G -> priced by hand` : "",
+           pr.size_match?.dp?.length ? "the same thickness written to a different precision counts as that thickness" : "",
+           `a thickness on a kind read in mm (${list([...new Set(items.filter((it) => it.kind === pr.kind && !fams.has(String(it.attributes?.[ls?.family_attribute_id ?? "family"] ?? ""))).map((it) => famWord(String(it.attributes?.[ls?.family_attribute_id ?? "family"] ?? ""))))].filter(Boolean))}) not stocked takes the next thicker`]
+            .filter(Boolean).join("; "));
+      continue;
+    }
     const bits = ["the stated size, else the next size the catalogue stocks"];
     if (pr.size_match?.dp?.length) bits.push("the same size written to a different precision counts as that size");
     // SLICE 12e-2 (owner Q14a / Q17): the two declared rungs, in the order the ladder tries them
@@ -950,7 +1130,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // VRF-2b (owner R-CONV / CFM / RECON): a value stated in another unit is converted first
     const cu = pr.numbers?.[a]?.units;
     if (cu && typeof cu === "object") {
-      const conv = Object.entries<any>(cu.convert ?? {});
+      const conv = Object.entries<CapacityUnits["convert"][string]>(cu.convert ?? {});
       // owner QR-1b (2026-11-04 01:26, fix 2): the title names every unit, the base first -- "in TR, HP or kW"
       const unitsNamed = [String(cu.base ?? ""), ...Object.keys(cu.words ?? {}).filter((u) => u !== cu.base)].filter(Boolean);
       add(`A ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} that is not the item's own unit is converted first`,
@@ -1082,6 +1262,14 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add(`The ${low} section is priced by ${label}'s rules`,
         [`its own catalogue, pricing inputs, defaults, ladders and refusals -- no rule of it is copied here`,
          Array.isArray(sec.families) && sec.families.length ? `the kinds offered: ${list(sec.families.map(famWord), 6)}` : ""].filter(Boolean).join("; "));
+    // DU-1 FIX-4 (VP-DRV R37; owner 13:34 "the derivation tab is part of rat emaster screen. it needs to be buiult there only"): a
+    // borrowed category with no Rate Master page of its own (Misc is fetch_only) has its rules said HERE, generated from its own
+    // live config -- never a copy -- nested under this line. One level only.
+    const secCfg = sectionConfigs?.[String(sec.category_id)];
+    if (secCfg) {
+      const sub = itemListRuleOrder(secCfg, items);
+      if (sub.length) out[out.length - 1].sub = sub;
+    }
     if (sec.mirror?.from) {
       add(`The ${low} section takes the ${name(String(sec.mirror.from))} its ${ownWord} priced as`,
           [`shown '${String(sec.mirror.tag ?? "")}'`,
@@ -1222,9 +1410,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const cnt = ps.counted;
     const except = cnt && Array.isArray(cnt.families) ? ` (every kind but ${list(cnt.families.map((f: unknown) => famWord(String(f))))})` : "";
     add(`A row priced per Set takes one Set as one piece${except}`,
-        `${quoteList(ps.units.map(String))} are priced as one piece per Set, with an orange bar saying so; '${String(ps.qty_label ?? "")}' starts at 1 and can be changed`);
+        `${quoteList(ps.units.map(String))} are priced as one piece per Set, with an orange bar saying so; '${String(ps.qty_label ?? "")}' starts at 1 and can be changed`
+        // DU-1 (VP-DRV R07; VP-1 VR11 / VR12 -- `itemListPricing` "no items were read on this row")
+        + "; a Set row with no items read refuses 'no items were read on this row'; a kit's listed items are each priced per Set");
     if (cnt && Array.isArray(cnt.families) && Array.isArray(cnt.counts)) {
-      const sides = cnt.counts.map((c: any) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
+      const sides = cnt.counts.map((c: CountedSpec["counts"][number]) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
       add(`A ${list(cnt.families.map((f: unknown) => famWord(String(f))))} on a Set row holds the pieces the system's unit counts give`,
           `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win${
             cnt.from_sheet ? "; on a BoQ row the unit counts are added up from the sheet's VRF rows the model read (each unit x its row's quantity), named in a note, and can be changed" : ""}`);
@@ -1232,7 +1422,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   if (pr.lot_units && Array.isArray(pr.lot_units.units)) {
     add("A row priced per Lot is not priced",
-        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; ${pr.extras?.from_model ? "what the row says a Set or Lot holds is copied by the model for review only" : "what a Lot holds is read at VRF-4"}`);
+        // VP-1 (G6): the VRF-4 clause is VRF's own (a config with `extras`); every other category ends at "by hand"
+        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand${pr.extras?.from_model ? "; what the row says a Set or Lot holds is copied by the model for review only" : pr.extras ? "; what a Lot holds is read at VRF-4" : ""}`
+        // DU-1 (VP-DRV R05; VP-3 C4 `lot_units.bar_by_unit`): a unit with its own bar says it
+        + (pr.lot_units.bar_by_unit && typeof pr.lot_units.bar_by_unit === "object" && Object.keys(pr.lot_units.bar_by_unit).length
+          ? `; ${Object.entries(pr.lot_units.bar_by_unit as Record<string, unknown>).map(([u, b]) => `'${u}' shows '${String(b)}'`).join(", ")}` : ""));
   }
   // ── 13e. VRF-3b (owner O-5 / O-6 / B / SHEETS; 2026-11-05 11:30-14:56, boards 12-15): the extras a unit's price includes
   // -- ADDED LAST (a config without `extras` adds nothing)
@@ -1262,7 +1456,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // in the config (a config without them adds nothing)
   const ex5 = pr.extras && typeof pr.extras === "object" ? pr.extras : null;
   if (ex5 && Array.isArray(ex5.accessories) && ex5.accessories.length) {
-    const accText = ex5.accessories.map((a: any) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
+    const accText = ex5.accessories.map((a: AccessorySpec) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
     add("A unit's price can include its accessories, each as its own line",
         `${accText}; on a BoQ row read PER ITEM from the model's Yes / No answers, and an accessory the model lists as an item of its own on a unit row is folded into that line; the quantity is the BoQ's, else the Pricing Inputs default by the unit's band (outdoor) or per indoor unit; ticked in the calculator; a line that cannot price (no catalogue match, a default not set) shows why and never holds the row`);
   }
@@ -1344,6 +1538,43 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add("A built-in drain pump is still added, with a review point",
           "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it");
     }
+  }
+  // ── VP-1 (N1, owner VR9 / QR-2 Q1 (a)): a PRICING-LEVEL scope (a category without `extras`: Valve Package) -- its own lines,
+  // naming its own uplift input (VRF's lines above are VRF's, unchanged)
+  const ps1 = !ex5 && pr.scope && typeof pr.scope === "object" ? pr.scope : null;
+  if (ps1) {
+    // VP-2 K1 (owner QR-1 Q1 (a), 2026-11-13 10:25): each screen's own options -- the panel's pick drops `install_only_normal`
+    // (pricingSheetHelper's scope picker filters it out); the calculator's 'BoQ scope' offers it as well
+    const ionN = typeof ps1.install_only_normal === "string" && ps1.install_only_normal ? ps1.install_only_normal : null;
+    const panelOpts = (ps1.options ?? []).map((o: unknown) => String(o)).filter((o: string) => o !== ionN);
+    const upl = `the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'`;
+    if (ps1.supply_row && typeof ps1.supply_row === "object") {
+      // DU-1 FIX-2 (VP-DRV R40 / R41 / R42; VP-5 E11 + QR-2 as built in `pricingSheetHelper.withScopeCore` / `VP5_SCOPE`; Ducting DR14 /
+      // O10 / owner QR-1 Q2 + Q3 2026-11-15 15:47): the scope rules of a category that reads the sheet's own supply rows
+      const refix = (Array.isArray(ps1.refix) ? ps1.refix : []) as Array<{ label?: string; factor?: number }>;
+      const iLine = ps1.supply_row.uplift
+        ? `with the item's supply quoted on its own row of the sheet -> the installation x (1 + ${upl}), supply 0, naming that row`
+        : "with the item's supply quoted on its own row of the sheet -> the normal installation rate, supply 0, naming that row";
+      const iiLine = refix.length
+        ? `${refix.map((r) => `${String(r.label ?? "")} -> ${String(r.factor)} x the item's installation`).join("; ")}; both named in the row -> the two added (${refix.reduce((a, r) => a + Number(r.factor ?? 0), 0)} x); no supply, read live from the item, with a note`
+        // DU-2 (CH-DU2-5 W2): a category whose own removal / refixing rule exists (`existing_work`, Ducting DR14) never takes the uplift there
+        : Array.isArray(pr.existing_work) && pr.existing_work.length
+          ? "removal / refixing of existing items -> the removal / refixing lines above (no supply, no insulation; never the uplift)"
+          : `refixing, reinstalling, shifting or relocating the item, or an 'existing' / 'old' item (never a pipe or line; 'lifting, shifting, positioning at site' is material handling) -> the installation x (1 + ${upl}), with a note`;
+      add("The BoQ scope: supply + installation unless the row says otherwise",
+          [`the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it`,
+           "supply only -> install 0 on every line",
+           `installation only: ${iLine}; ${iiLine}; otherwise -> supply + installation, with the note 'BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end)'`,
+           `the calculator's 'BoQ scope' choice prices as picked${ionN ? `, and also offers '${ionN}' (the normal installation rate)` : ""}`].join("; "), "scope");
+      const pairNote = typeof ps1.supply_row?.pair_note === "string" && ps1.supply_row.pair_note.trim() ? String(ps1.supply_row.pair_note) : null;
+      add("A 'Supply of' row whose installation is quoted on its own row of the sheet is priced supply only",
+          pairNote
+            ? `the row's own words start 'Supply of' / 'Supplying of' (or the sheet heading repeated, then 'Supply of') and name no installation, and the same sheet has installation-only rows of the same item -> supply only, with the note '${plainSentence(pairNote.replace("{rows}", "row(s): <the rows>"))}'; the installation is charged once, on its own row(s) (owner Case 1 2026-11-16 15:16; QR-1 Q7 18:06)`
+            : "the row's own words start 'Supply of' / 'Supplying of' and name no installation, and the same sheet has an installation-only row of the same item -> supply only, with only the note 'Installation is quoted on its own row on this sheet, so priced supply only here'; the installation is charged once, on its own row",
+          "scope_pair");
+    } else
+    add("The BoQ scope: supply + installation unless the row says otherwise",
+        `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the calculator's 'BoQ scope' choice does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);
   }
   if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
     add("Supply / installation settled by the sheet's own rows",
@@ -1566,6 +1797,20 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     out.forEach((l, i) => {
       const k = keys[i];
       const why = (k && rulings[k]) || NOT_RECORDED;
+      l.reason = why;
+      l.detail = l.detail ? `${l.detail} -- why: ${why}` : `why: ${why}`;
+    });
+  } else if (Array.isArray(pr.derivation_reasons) && pr.derivation_reasons.length) {
+    // DU-1 (owner 2026-11-15 14:33 "2 ok": Derivation "why" reasons on every Ducting line, ADP's pattern, owner + date per ruling):
+    // a category that DECLARES its reasons in config gets one on every line -- a declared rule line by its rule id, any other line by
+    // the first entry whose `title` pattern matches its title; a line with none says "reason not recorded" (the coverage guard counts
+    // those). A config without the key is unchanged.
+    const rs = pr.derivation_reasons as Array<{ rule?: string; title?: string; why?: string }>;
+    out.forEach((l) => {
+      const hit = rs.find((r) => typeof r?.why === "string" && ((l.rule && r.rule === l.rule)
+        || (!l.rule && typeof r.title === "string" && (() => { try { return new RegExp(r.title, "i").test(l.title); } catch { return false; } })())));
+      // as written: a reason ENDS with "(owner, <date>)" (ADP's DERIVATION_RULINGS shape), which plainSentence would strip
+      const why = hit ? String(hit.why) : NOT_RECORDED;
       l.reason = why;
       l.detail = l.detail ? `${l.detail} -- why: ${why}` : `why: ${why}`;
     });

@@ -39,7 +39,8 @@ desktop's SSH server (scp + git bundles). Nothing in it talks to GitHub.
    residence check first.
 5. **Pull back.** `from-desktop` fast-forwards the laptop and destales it. It refuses while the desktop has
    uncommitted changes, because they would stay behind. `reports` copies the desktop's run reports to the laptop's Desktop.
-   If the work wrote live data, run `db-pull --yes`.
+   The code comes back after EVERY commit; if the work wrote live data, run `db-pull --yes` ONCE, after the slice's last
+   commit -- never after each commit (owner 2026-10-31; see Sync cadence below).
 6. **Push.** The owner pushes to GitHub from the laptop, by hand.
 
 ## Rules
@@ -151,7 +152,7 @@ safety backup instead, in the handover block-50 order. The full hand procedure i
 | `status [--no-data]` | code + data verdicts (exit code 0 in sync, 10 laptop ahead, 11 desktop ahead, 20 stop) |
 | `to-desktop [--allow-dirty] [--no-restart]` | fast-forward the desktop to the laptop's commits, then migrate and destale it as needed |
 | `from-desktop [--allow-dirty] [--no-restart]` | fast-forward the laptop to the desktop's commits, then migrate and destale it as needed |
-| `db-pull --yes` | back up the desktop, restore the backup on the laptop (the replaced database is kept as `<db>_envsync_prev`), and record the pulled fingerprint for `db-push` |
+| `db-pull --yes [--covers STEP]` | back up the desktop (into `envsync/backups`, never `private/backups`), prove the copy (sha256, `gzip -t`, a scratch restore whose counts match the desktop's), restore it on the laptop (the replaced database is kept as `<db>_envsync_prev`), and record the pulled fingerprint and what it covers for `db-push` |
 | `db-push --yes [--discard-desktop-writes]` | after a desktop drop only: copy the laptop's database and files onto the desktop, behind the guards in [Desktop drop](#desktop-drop) |
 | `reports` | copy files on the desktop's Desktop that are new or newer to the laptop's OneDrive Desktop |
 | `watch [--logs NAME] [--lines N]` | one monitoring snapshot: desktop commits, changes, servers, Claude sessions, a session's recent output |
@@ -160,6 +161,7 @@ safety backup instead, in the handover block-50 order. The full hand procedure i
 | `session-send --name N --message FILE` | relay the owner's answer and resume the session |
 | `session-stop --name N` | stop the session (its conversation is kept) |
 | `print` | the settings this checkout resolves to, `env.local` included; runs nothing |
+| `checkpoint-code`, `checkpoint`, `catch-up`, `resume-on-laptop` | keep the laptop close behind the desktop over this SSH route, never a cloud drive (CKP-2): code checkpoints, the "leaving" checkpoint, the catch-up back home and the takeover; usage, the safe-point list and the session's part in [`scripts/env_sync/README.md`](../../scripts/env_sync/README.md) |
 
 Overrides for hosts, paths and container names go in the git-ignored `.claude/state/env.local` (the `ENV_SYNC_*`
 variables at the top of the script). `scripts/env_sync/tests/test_env_sync.sh` (bash and git only; docker, ssh and scp
