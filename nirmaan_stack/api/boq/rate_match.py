@@ -26,8 +26,8 @@ pool.rebuild_pool on `long` (timeout 3600 s). It is not the cron target itself: 
 get_queues_timeout), and a pool build takes ~310 s. Frappe's cron reads the SYSTEM time zone (now_datetime ->
 System Settings time_zone): production must hold Asia/Kolkata for 06:00 to be IST.
 POOL ONLY AT 06:00 (DEV2-B8, owner 2026-11-06 12:41 / 12:42): the 06:00 job is the ONLY automatic build. A user's match
-run never builds the pool and never queues a rebuild (match_run.job_pool); production runs one worker for every queue
-and a build there takes ~20 minutes. The manual entry point stays: `bench --site <site> execute
+run never builds the pool and never queues a rebuild (match_run.job_pool); a build on production takes ~20 minutes
+and holds one of its N `long` workers for that time. The manual entry point stays: `bench --site <site> execute
 nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`, after hours.
 
 THE WAIT ESTIMATE (owner 2026-11-03 11:11: "it should give total estinmate _ suggest rate + historical rates -- with

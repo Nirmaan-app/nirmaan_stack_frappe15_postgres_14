@@ -10,7 +10,8 @@
  * telling the user the real month-end deadline. This component only renders that state.
  */
 import { useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall, useFrappeEventListener } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 import { BellRing, ChevronDown, Check, AlertTriangle, History } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import { cn } from "@/lib/utils";
@@ -104,7 +105,7 @@ export function RemindersSection({ className }: { className?: string } = {}) {
   };
 
   // Real-time listener: refetches the list whenever ANY log is created or updated
-  useFrappeEventListener("list_update", (d: any) => {
+  useSocketEventListener("list_update", (d: any) => {
     if (d?.doctype === "Reminder Schedule Log") {
       mutate();
     }

@@ -20,7 +20,8 @@ import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
 import { Textarea } from "@/components/ui/textarea";
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { formatDate } from "@/utils/FormatDate";
 import { getFrappeErrorText } from "@/utils/frappeErrors";
 import { AMEND_REASON_SUBJECTS } from "../config/workOrderAmendment";
@@ -44,7 +45,7 @@ const ApproveAmendSR = () => {
     if(!srId) return <div>No Service Request ID Provided</div>
     const { data: so_data, isLoading: so_data_loading, error: so_data_error, mutate: so_data_mutate } = useFrappeGetDoc("Service Requests", srId, `Service Requests ${srId}`);
 
-    useFrappeDocumentEventListener("Service Requests", srId, (event) => {
+    useDocumentEventListener("Service Requests", srId, (event) => {
           console.log("Service Requests document updated (real-time):", event);
           toast({
               title: "Document Updated",

@@ -9,26 +9,33 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import * as frappe from "./frappe";
 import {
   useFrappeCreateDoc,
-  useFrappeEventListener,
   useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappePostCall,
+  useSocketEventListener,
   type FrappeDoc,
 } from "./frappe";
+
+// The SDK's three listener hooks (`useFrappe…EventListener`) are not exported (#1670); the module's own safe
+// listeners stand in their place (frappeListeners.dom.test.tsx).
+const isSdkListener = (name: string) => name.startsWith("useFrappe") && name.endsWith("EventListener");
+const SAFE_LISTENERS = ["useSocketEventListener", "useDocTypeEventListener", "useDocumentEventListener"];
 
 interface Customer {
   customer_name: string;
 }
 
 describe("the typed SDK module", () => {
-  it("exports every SDK value as the SDK's own, unchanged", () => {
+  it("exports every SDK value but the three listener hooks as the SDK's own, unchanged, plus the safe listeners", () => {
     // vitest's node runner loads the SDK's CommonJS build: its namespace lists only `default`, which holds the
     // named exports (named access on `sdk` still works through vitest's interop).
     const sdkDefault = (sdk as unknown as { default?: Record<string, unknown> }).default;
-    const sdkNames = Object.keys(sdkDefault ?? sdk).filter((name) => name !== "default");
+    const allSdkNames = Object.keys(sdkDefault ?? sdk).filter((name) => name !== "default");
+    expect(allSdkNames.filter(isSdkListener)).toHaveLength(3);
+    const sdkNames = allSdkNames.filter((name) => !isSdkListener(name));
     expect(sdkNames.length).toBeGreaterThan(20);
-    expect(Object.keys(frappe).sort()).toEqual(sdkNames.sort());
+    expect(Object.keys(frappe).sort()).toEqual([...sdkNames, ...SAFE_LISTENERS].sort());
     for (const name of sdkNames) {
       expect(frappe[name as keyof typeof frappe], name).toBe(sdk[name as keyof typeof sdk]);
       expect(frappe[name as keyof typeof frappe], name).toBeDefined();
@@ -56,7 +63,7 @@ describe("the typed SDK module", () => {
     expectTypeOf<ReturnType<ReturnType<typeof useCreateDoc>>>().toEqualTypeOf<Promise<FrappeDoc<unknown>>>();
 
     const useListener = () =>
-      useFrappeEventListener("po:new", (eventData) => {
+      useSocketEventListener("po:new", (eventData) => {
         expectTypeOf(eventData).toEqualTypeOf<unknown>();
       });
     void useListener;

@@ -12,6 +12,7 @@ EXACTLY:
 * STOP at once on any 429 or usage-limit error, on a second failure of the same call, or when `burst_failures`
   failures (every failed attempt counts) fall within `burst_window_s` seconds.
 * Any other HTTP error fails that one call (counted toward the burst) and the run goes on.
+* STOP when the site-wide slots (below) cannot be taken because their Redis fails.
 * STOP means: nothing more is sent; calls already in flight finish and are recorded; every request never sent
   is named in `not_sent`.
 
@@ -26,6 +27,12 @@ never stop the run"). A client wrapper that will not send one call (a test budge
 `CallerRefused` from `messages.create`. That call is named in `refused` with reason "caller_refused" and the wrapper's
 words, counts as no failure (no burst, no retry, no stop) and the run goes on. It is never read as a connection
 error: without this, a status-less exception with nothing else landing stopped the whole run (DEV2-B3 T4 run 1).
+
+THE SITE-WIDE LIMIT (#1718, spec #1654). Besides its own `calls_at_once`, every call takes a slot of the site-wide
+limit (`Limits.site_calls_at_once`, the setting match_site_calls_at_once) in the site's cache Redis before it is sent,
+and holds it until the call ends (a retry's wait included), so every run on every worker together stays under it; a
+run waits while the site is full. The lower of the two holds. A slot is a lease the run renews while its call is in
+flight, so a dead worker's slots are freed (site_ai_slots). None (only tests that build Limits by hand) takes no slot.
 
 NO COST CAP (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a guideline...it
 should not be a part of the code or setting"). The runner never reserves, refuses or stops on cost; every attempt's
@@ -46,6 +53,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from nirmaan_stack.services.boq_rate_match import site_ai_slots
+
 # Usage-limit wording, as extraction._TERMINAL_MARKERS names it (its usage subset). A 429 needs no marker.
 USAGE_LIMIT_MARKERS = ("USAGE LIMIT", "USAGE_LIMIT", "QUOTA", "CREDIT BALANCE", "BILLING")
 
@@ -54,6 +63,7 @@ STOP_USAGE_LIMIT = "usage_limit"
 STOP_SECOND_FAILURE = "second_failure_of_a_call"
 STOP_BURST = "burst_of_failures"
 STOP_NOT_LONE = "connection_error_with_nothing_landing"
+STOP_SITE_SLOTS = "site_slots_unreachable"
 REFUSED_TOO_LARGE = "too_large"
 REFUSED_BY_CALLER = "caller_refused"
 
@@ -82,12 +92,14 @@ class Limits:
     burst_failures: int
     burst_window_s: float
     max_request_tokens: int     # the size guard: the setting match_max_request_tokens (no code default)
+    site_calls_at_once: int | None = None   # the site-wide limit (match_site_calls_at_once); None takes no slot
 
     @classmethod
     def from_settings(cls, s: dict) -> "Limits":
         return cls(calls_at_once=int(s["calls_at_once"]), retry_wait_s=float(s["retry_wait_s"]),
                    burst_failures=int(s["burst_failures"]), burst_window_s=float(s["burst_window_s"]),
-                   max_request_tokens=int(s["max_request_tokens"]))
+                   max_request_tokens=int(s["max_request_tokens"]),
+                   site_calls_at_once=int(s["site_calls_at_once"]) if s.get("site_calls_at_once") else None)
 
 
 @dataclass
@@ -162,8 +174,11 @@ def make_client():
 
 
 class _Run:
-    def __init__(self, requests, limits, client, sleep, clock):
+    def __init__(self, requests, limits, client, sleep, clock, slots):
         self.requests = list(requests)
+        self.slots = slots          # the site-wide slots (site_ai_slots.SiteSlots), or None
+        self.held = set()           # tokens of the site slots this run holds, renewed while held
+        self.done = threading.Event()
         self.limits = limits
         self.client = client
         self.sleep = sleep
@@ -185,7 +200,7 @@ class _Run:
 
     # --- one request, on its own thread ------------------------------------------------------------------------
 
-    def _send(self, req: CallRequest):
+    def _send(self, req: CallRequest, token):
         res = CallResult(name=req.name)
         retried = False
         try:
@@ -277,14 +292,55 @@ class _Run:
                 retried = True
                 self.sleep(self.limits.retry_wait_s)
         finally:
+            # the run's bookkeeping first, so a Redis error below can never lose the result or hang the dispatcher
             with self.cv:
+                self.held.discard(token)
                 self.out.results[req.name] = res
                 self.in_flight -= 1
                 self.cv.notify_all()
+            if token is not None:
+                try:
+                    self.slots.give_back(token)
+                except Exception:  # noqa: BLE001 -- a missed give-back only leaves the slot until its lease runs out
+                    pass
+
+    # --- the site-wide slots -----------------------------------------------------------------------------------
+
+    def _take_site_slot(self):
+        """(True, token) once a site slot is free (token None when there is no site limit); (False, None) when the
+        run stopped while it waited."""
+        if self.slots is None:
+            return True, None
+        while True:
+            token = self.slots.try_take()
+            with self.cv:
+                if token is not None:
+                    self.held.add(token)
+                    return True, token
+                if self.out.stop_reason is not None:
+                    return False, None
+                self.cv.wait(site_ai_slots.WAIT_POLL_S)
+
+    def _renew_held(self):
+        while not self.done.wait(site_ai_slots.RENEW_EVERY_S):
+            with self.cv:
+                tokens = list(self.held)
+            try:
+                self.slots.renew(tokens)
+            except Exception:  # noqa: BLE001 -- a missed renewal only lets a lease run out early; the next one retries
+                pass
 
     # --- the dispatcher ----------------------------------------------------------------------------------------
 
     def go(self) -> RunResult:
+        if self.slots is not None:
+            threading.Thread(target=self._renew_held, daemon=True).start()
+        try:
+            return self._dispatch()
+        finally:
+            self.done.set()
+
+    def _dispatch(self) -> RunResult:
         threads = []
         for i, req in enumerate(self.requests):
             est = estimate_tokens(req)
@@ -301,8 +357,20 @@ class _Run:
                     self.out.not_sent = [r.name for r in self.requests[i:]]
                     break
                 self.in_flight += 1
+            try:
+                took, token = self._take_site_slot()
+            except Exception as e:  # noqa: BLE001 -- the site slots' Redis failed: STOP, as a run stops on any limit
+                took, token = False, None
+                with self.cv:
+                    self._stop(STOP_SITE_SLOTS, f"{req.name}: the site-wide slots could not be read: "
+                                                f"{type(e).__name__}: {str(e)[:300]}")
+            with self.cv:
+                if not took:
+                    self.in_flight -= 1
+                    self.out.not_sent = [r.name for r in self.requests[i:]]
+                    break
                 self.out.max_in_flight = max(self.out.max_in_flight, self.in_flight)
-            t = threading.Thread(target=self._send, args=(req,), daemon=True)
+            t = threading.Thread(target=self._send, args=(req, token), daemon=True)
             threads.append(t)
             t.start()
         for t in threads:
@@ -312,13 +380,17 @@ class _Run:
 
 
 def run(requests, *, limits: Limits, client=None,
-        sleep: Callable[[float], Any] = time.sleep, clock: Callable[[], float] = time.monotonic) -> RunResult:
+        sleep: Callable[[float], Any] = time.sleep, clock: Callable[[], float] = time.monotonic,
+        slot_clock: Callable[[], float] = time.time) -> RunResult:
     """Run `requests` (CallRequest) under `limits`. Returns a RunResult with every sent request's CallResult, the
     requests the size guard refused (`refused`; the run went on), the names never sent because the run stopped
     (`not_sent`), the stop reason (None when all ran), every attempt and the spend (tokens, USD). `client` defaults to
-    make_client(); `sleep` and `clock` are seams for tests. Nothing here refuses on cost."""
+    make_client(); `sleep`, `clock` and `slot_clock` (the site slots' wall clock) are seams for tests. Nothing here
+    refuses on cost."""
     if limits.calls_at_once < 1:
         raise ValueError("calls_at_once must be 1 or more")
     if client is None:
         client = make_client()
-    return _Run(requests, limits, client, sleep, clock).go()
+    slots = (site_ai_slots.SiteSlots(limits.site_calls_at_once, clock=slot_clock)
+             if limits.site_calls_at_once is not None else None)
+    return _Run(requests, limits, client, sleep, clock, slots).go()

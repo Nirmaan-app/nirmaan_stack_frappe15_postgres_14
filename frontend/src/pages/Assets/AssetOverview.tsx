@@ -5,8 +5,8 @@ import {
     useFrappeGetDocList,
     useFrappeUpdateDoc,
     useFrappeFileUpload,
-    useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe';
 import ReactSelect from 'react-select';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -376,7 +376,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     };
 
     // Real-time updates
-    useFrappeDocumentEventListener(ASSET_MASTER_DOCTYPE, assetId, () => {
+    useDocumentEventListener(ASSET_MASTER_DOCTYPE, assetId, () => {
         mutate();
         mutateAssignments();
     });

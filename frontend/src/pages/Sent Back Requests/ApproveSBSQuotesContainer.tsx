@@ -7,7 +7,8 @@ import { ApproveSBSQuotesView } from './ApproveSBSQuotesView';
 import { useApproveSBSLogic } from './hooks/useApproveSBSLogic'; // Use SB logic hook
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Adjust path
 import { useVendorsList } from '../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
-import { useFrappeDocumentEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe';
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
@@ -27,7 +28,7 @@ export const ApproveSBSQuotesContainer: React.FC = () => {
     // Use the specific hook for Sent Back Category
     const { data: sbData, isLoading: sbLoading, error: sbError, mutate: sbMutate } = useSentBackCategory(sbId);
 
-    useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
+    useDocumentEventListener("Sent Back Category", sbId, (event) => {
           console.log("Sent Back Category document updated (real-time):", event);
           toast({
               title: "Document Updated",

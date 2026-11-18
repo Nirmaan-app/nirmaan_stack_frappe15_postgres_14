@@ -1,6 +1,5 @@
 import {
   useFrappeCreateDoc,
-  useFrappeDocumentEventListener,
   useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocCount,
@@ -8,6 +7,7 @@ import {
   useFrappePostCall,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { captureApiError } from "@/utils/sentry/captureApiError";
 import { ProjectQueryKeys } from "@/pages/projects/queries";
@@ -145,7 +145,7 @@ export const useProjectDocRealtime = (
     entity_id: projectId,
   });
 
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Projects",
     projectId,
     (event) => {
@@ -175,7 +175,7 @@ export const useProjectCustomerRealtime = (
     entity_id: customerId,
   });
 
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Customers",
     customerId || "",
     (event) => {

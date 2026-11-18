@@ -52,4 +52,6 @@ export interface BOQUploadReviewAISettingsDocType {
 	match_judge_price_in?: number
 	/** Judge model price out (USD / million tokens) : Float */
 	match_judge_price_out?: number
+	/** Calls at once, whole site : Int */
+	match_site_calls_at_once?: number
 }

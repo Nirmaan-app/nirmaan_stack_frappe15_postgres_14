@@ -31,6 +31,8 @@ from residence_check import (  # noqa: E402
     json_call_count,
     json_call_counts,
     json_call_drift,
+    raw_listener_lines,
+    raw_listener_uses,
 )
 
 
@@ -251,12 +253,12 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_seven_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_eight_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
-            "j1_json_calls_unfrozen",
+            "j1_json_calls_unfrozen", "l1_raw_listener_hooks",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):
@@ -432,6 +434,56 @@ class JsonCalls(unittest.TestCase):
         rc, out = 0, io.StringIO()
         with redirect_stdout(out):
             rc = main(["--check", "--only", "J1"])
+        self.assertEqual(rc, 0, out.getvalue())
+
+
+class RawListenerHooks(unittest.TestCase):
+    """L1 (#1670): the SDK's three listener hooks drop other components' listeners and rooms. src/lib/frappe.ts
+    exports safe ones in their place; outside it no file names the raw ones, not even inside an SDK import that
+    oxlint-suppressions.json already freezes for that file."""
+
+    def test_a_raw_hook_added_to_a_frozen_sdk_import_is_found(self):
+        src = ('import { useFrappeGetDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";\n'
+               "const a = 1;\n"
+               'useFrappeDocTypeEventListener("Projects", () => mutate());\n')
+        self.assertEqual(raw_listener_lines(src), [1, 3])
+
+    def test_each_of_the_three_raw_hooks_is_found(self):
+        src = ("useFrappeEventListener('po:new', f);\n"
+               "useFrappeDocumentEventListener('Projects', id, f);\n"
+               "useFrappeDocTypeEventListener('Projects', f);\n")
+        self.assertEqual(raw_listener_lines(src), [1, 2, 3])
+
+    def test_the_safe_listeners_are_not_found(self):
+        src = ('import { useDocTypeEventListener, useDocumentEventListener, useSocketEventListener } '
+               'from "@/lib/frappe";\n')
+        self.assertEqual(raw_listener_lines(src), [])
+
+    def test_its_home_is_exempt_and_every_other_file_is_read(self):
+        with mock.patch("residence_check.read", return_value="useFrappeEventListener('x', f);\n"):
+            found = raw_listener_uses()
+        self.assertNotIn("frontend/src/lib/frappe.ts:1", found)
+        self.assertIn("frontend/src/lib/frappe.test.ts:1", found)
+        self.assertGreater(len(found), 1000)
+
+    def test_l1_passes_at_zero_whatever_the_baseline_file_says(self):
+        with tempfile.TemporaryDirectory() as d:
+            baseline = Path(d) / "baseline.json"
+            baseline.write_text(json.dumps({"l1_raw_listener_hooks": {"count": 5, "rule": "L1"}}))
+            out = io.StringIO()
+            new_file = Path(__file__).resolve().parent.parent / "frontend/src/new.tsx"
+            with mock.patch("residence_check.iter_files", return_value=[new_file]), \
+                    mock.patch("residence_check.read", side_effect=lambda path: (
+                        "\n\nuseFrappeEventListener('x', f);\n" if path == new_file else path.read_text())), \
+                    redirect_stdout(out):
+                rc = main(["--check", "--only", "L1"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("frontend/src/new.tsx:3", out.getvalue())
+
+    def test_the_real_tree_names_no_raw_hook(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "L1"])
         self.assertEqual(rc, 0, out.getvalue())
 
 
