@@ -22,6 +22,7 @@ import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { serverRefusalText } from "@/utils/frappeErrorText";
 
 /* ---------- tiny sub-component for label/value rows --------------- */
 const Row = ({ label, val, labelClass, valClass }: { label: string; val: string | number, labelClass?: string, valClass?: string }) => (
@@ -179,10 +180,10 @@ export default function UpdatePaymentRequestDialog({
           variant: "default",
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: "Auto-fill failed",
-        description: e?.message || "Please enter details manually.",
+        description: serverRefusalText(e) || "Please enter details manually.",
         variant: "destructive",
       });
     } finally {
@@ -246,18 +247,9 @@ export default function UpdatePaymentRequestDialog({
       toast({ title: "Success", description: "Payment fulfilled", variant: "success" });
       invalidateSidebarCounts();
       onSuccess(); toggle(); reset();
-    } catch (e: any) {
-      // const msg = e?.message || "Failed";
-
-      // // friendly duplicate UTR toast
-      // const isDup = /UTR .* already exists/i.test(msg);
-      let err = e._server_messages
-      if(err && typeof err === "object") {
-        err = typeof err[0] === "object" ? err[0].message : JSON.parse(err[0])?.message
-      } else if(err && typeof err === "string") {
-        err = JSON.parse(err)
-        err = typeof err[0] === "object" ? err[0]?.message : JSON.parse(err[0])?.message
-      }
+    } catch (e: unknown) {
+      // The server's own refusal (`frappe.throw`, e.g. a duplicate UTR), read by the one typed accessor (F2).
+      const err = serverRefusalText(e);
 
       toast({
       title: "Error",
@@ -274,8 +266,8 @@ export default function UpdatePaymentRequestDialog({
       toast({ title: "Deleted", variant: "success" });
       invalidateSidebarCounts();
       onSuccess(); toggle(); reset();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message || "Failed", variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: serverRefusalText(e) || "Failed", variant: "destructive" });
     }
   };
 

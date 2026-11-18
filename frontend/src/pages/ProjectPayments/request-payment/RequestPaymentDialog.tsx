@@ -27,6 +27,7 @@ import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approva
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
 import { useTdsForecast } from "../hooks/useTdsForecast";
+import { serverRefusalText } from "@/utils/frappeErrorText";
 import {
   chequeModeOffered, EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
 } from "../paymentMode";
@@ -46,6 +47,10 @@ interface Props {
   vendor      : string;
   onSuccess   ?: () => void;
 }
+/** How the amount is picked: the radio options below. */
+const AMOUNT_MODES = ["custom", "percentage", "full", "exGST", "due"] as const;
+type AmountMode = typeof AMOUNT_MODES[number];
+
 export default function RequestPaymentDialog(p:Props){
   const { requestPaymentDialog:open, toggleRequestPaymentDialog:toggle } = useDialogStore();
 
@@ -60,7 +65,7 @@ export default function RequestPaymentDialog(p:Props){
   const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(open ? p.vendor : undefined);
 
   /* local state */
-  const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
+  const [mode,setMode] = useState<AmountMode>("custom");
   const [custom,setCustom] = useState("");
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
@@ -166,14 +171,9 @@ export default function RequestPaymentDialog(p:Props){
       toggle(); setCustom(""); setPerc(""); setPayMode(EMPTY_PAYMENT_MODE); setPayFor("base");
       toast({title:"Success",description:toAccountant ? "GST payment request sent to Accountant" : "Payment request created",variant:"success"});
       p.onSuccess?.();
-    }catch(e:any){
-      let err = e._server_messages
-      if(err && typeof err === "object") {
-        err = typeof err[0] === "object" ? err[0].message : JSON.parse(err[0])?.message
-      } else if(err && typeof err === "string") {
-        err = JSON.parse(err)
-        err = typeof err[0] === "object" ? err[0]?.message : JSON.parse(err[0])?.message
-      }
+    }catch(e: unknown){
+      // The server's own refusal (`frappe.throw`), read by the one typed accessor (F2).
+      const err = serverRefusalText(e);
       if(err) {
         setWarn(err)
       }
@@ -199,7 +199,7 @@ export default function RequestPaymentDialog(p:Props){
       {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
 
-      <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
+      <RadioGroup value={mode} onValueChange={v=>{ const m = AMOUNT_MODES.find((x) => x === v); if (m) setMode(m); }} className="space-y-3">
 
         <div className="flex items-center gap-2">
           <RadioGroupItem value="custom" id="custom"/>
