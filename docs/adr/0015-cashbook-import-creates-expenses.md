@@ -202,4 +202,4 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
 - *Keep the person's step only for large Collect Payments.* Rejected: no line kind in any other import is held back by amount.
 - *Keep the bill check made on the line at import and carry it to the Expense bill.* Rejected for the patch: 9 bills read once more is cheaper than keeping that path for one run.
 
-**Kept.** Every Cashbook line still stores its statement Type (`Outflow Import Row.row_kind`). The line fields that held an open Collect Payment's bill and its check (`stored_bill`, `bill_check`, the `read_*` fields) stay on the doctype as history; nothing new writes them.
+**Kept.** Every Cashbook line still stores its statement Type (`Outflow Import Row.row_kind`), and an Expense created by hand from any line this import staged still gets the Cashbook marker, so it waits for its invoice like the job's. The line fields that held an open Collect Payment's bill and its check (`stored_bill`, `bill_check`, the `read_*` fields) stay on the doctype as history; nothing new writes them.

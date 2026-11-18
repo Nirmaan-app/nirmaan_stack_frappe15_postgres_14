@@ -55,6 +55,17 @@ def lock_line_if(row_name: str, still: Callable[[dict], bool], columns: str = "*
     return rows[0]
 
 
+def hand_create_marker(line, source: str | None) -> dict:
+    """What a hand Create on the main table (`expenses.create_expense`) adds for a line the Cashbook Statement
+    import staged: the Cashbook marker (`cashbook_batch` = the line's import), so its Expense waits in Pending
+    Invoices Upload -> Cashbook like the job's (an Unreconciled or Error spend line created again by hand). Empty for
+    any other line. Such a line is told apart by its stored statement Type (`row_kind`), which only that import
+    writes: an older Cashbook line has none, and its Expense must never wait (spec #1585 "Which Expenses wait")."""
+    if source == CASHBOOK_SOURCE and (line.get("row_kind") or "").strip():
+        return {"cashbook_batch": line["import_batch"]}
+    return {}
+
+
 def line_values(raw, planned) -> dict:
     """What a staged Cashbook line holds of the plan's decision, whichever batch it is in: `cashbook._stage` writes
     it on a new line, `cashbook_reopen.reopen_lines` on an earlier line it re-opens (#1596)."""

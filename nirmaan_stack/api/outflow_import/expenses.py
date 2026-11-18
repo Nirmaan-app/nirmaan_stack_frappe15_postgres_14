@@ -59,6 +59,7 @@ from typing import NamedTuple
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.cashbook_lines import hand_create_marker
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -1157,6 +1158,8 @@ def create_expense(
             # writes the `From` column, and a reopened Cashbook line created here must match it.
             # Everywhere else `None`, and `create_expense_from_row` keeps the actor.
             payment_by=_statement_spender(doc),
+            # #1592 / #1595: a line staged by the Cashbook Statement import gives the Expense the Cashbook marker.
+            **hand_create_marker(doc, _batch_source(doc["import_batch"])),
         )
         record_settlement(staged, doc, result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
