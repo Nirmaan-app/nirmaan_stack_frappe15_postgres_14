@@ -22,7 +22,10 @@ bash "$(dirname "$0")/db_counts.sh" "$SCRATCH"
 # copy can be compared with the desktop's fingerprint at backup time without touching the laptop's live database.
 if [ "${3:-}" = fp ]; then
   Q() { P -d "$SCRATCH" -c "$1" 2>/dev/null; }
-  echo "fp_rm_items=$(Q "select count(*) || ' (newest ' || coalesce(max(modified)::text, 'None') || ')' from \"tabBoQ Rate Master Item\"")"
+  # Python prints a timestamp with all six microsecond digits (or none when they are zero); psql drops trailing zeros
+  # (found live in CKP-5 AC3: ...38.60228 against ...38.602280). TS writes it Python's way.
+  TS() { echo "case when $1 is null then 'None' when to_char($1, 'US') = '000000' then to_char($1, 'YYYY-MM-DD HH24:MI:SS') else to_char($1, 'YYYY-MM-DD HH24:MI:SS.US') end"; }
+  echo "fp_rm_items=$(Q "select count(*) || ' (newest ' || $(TS "max(modified)") || ')' from \"tabBoQ Rate Master Item\"")"
   echo "fp_rm_snapshot=$(Q "select name from \"tabBoQ Rate Master Snapshot\" order by modified desc limit 1")"
-  echo "fp_versions=$(Q "select count(*) || ' (newest ' || coalesce(max(creation)::text, 'None') || ')' from \"tabVersion\"")"
+  echo "fp_versions=$(Q "select count(*) || ' (newest ' || $(TS "max(creation)") || ')' from \"tabVersion\"")"
 fi

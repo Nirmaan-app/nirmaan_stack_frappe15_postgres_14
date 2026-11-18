@@ -693,7 +693,8 @@ e8reset; touch "$E8/engine_up"; e8 "$FAKES; held_scratch_check() { echo SCRATCH_
 check "db-restore-held --dry-run only loads the copy into a scratch database: nothing is restored, nothing marked" '
   grep -q SCRATCH_CHECK_CALLED "$E8/out" && ! grep -q PROVE_RESTORE_CALLED "$E8/out" && grep -q "^DRY RUN done: the held copy loads, counts and fingerprint equal the desktop.s; nothing real changed$" "$E8/out" && grep -q "^rc=0$" "$E8/out"'
 check "the scratch fingerprint is written in db_fingerprint.py's exact words, so the two can be compared as text" '
-  grep -q "fp_rm_items=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "fp_rm_snapshot=" "$SRC/remote/scratch_counts.sh" && grep -q "fp_versions=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "\"\${3:-}\" = fp" "$SRC/remote/scratch_counts.sh"'
+  grep -q "fp_rm_items=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "fp_rm_snapshot=" "$SRC/remote/scratch_counts.sh" && grep -q "fp_versions=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "\"\${3:-}\" = fp" "$SRC/remote/scratch_counts.sh" &&
+  grep -q "YYYY-MM-DD HH24:MI:SS.US" "$SRC/remote/scratch_counts.sh" && ! grep -q "::text" "$SRC/remote/scratch_counts.sh"'
 check "a takeover loads the newest held copy FIRST; its dry run only rehearses it on a scratch database" '
   grep -q "hd=\$(held_newest unrestored)" "$SRC/env_sync.sh" && grep -q "data: loading the held copy" "$SRC/env_sync.sh" && grep -q "rehearsing it on a scratch database" "$SRC/env_sync.sh"'
 check "the leaving checkpoint holds its database copy by default (--restore asks for the old behaviour and needs --yes)" '
