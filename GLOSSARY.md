@@ -687,6 +687,15 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
   (Owner, 2026-11-08.)
 
+- **Calls at once** — how many AI calls one background operation (a rate match's judge, the spec cards) may have
+  waiting on the AI provider at the same moment; set in the BoQ AI settings. *Avoid*: concurrency, parallelism.
+
+- **Site-wide AI call limit** — how many AI calls every background operation on the site, on every worker, may have
+  waiting on the AI provider together ("Calls at once, whole site" in the BoQ AI settings). An operation's own
+  *calls at once* still applies; the lower of the two holds. An operation that finds the site full waits for a free
+  place; it does not stop. A place held by a worker that died is freed after a short while. *Avoid*: quota, rate
+  limit (the provider's own limit). (#1718, 2026-11-18.)
+
 ## Pasted links
 
 - **Pasted link** — the address of a document kept outside the app (mostly a shared Google Drive file, sheet or
