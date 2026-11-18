@@ -99,10 +99,15 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   a worktree with no `frontend/node_modules`, or a box with no node, can still commit. CI runs J1 with the other
   residence checks, after `yarn install`, and fails there.
 - oxlint honours the existing `eslint-disable` comments, under ESLint's rule names.
-- A disable comment is frozen too (#1705): residence check D1 (`scripts/residence_check.py`) counts, per file and
-  rule, the `eslint-disable` and `oxlint-disable` comments (`-next-line`, `-line` or file-wide) that name a rule
-  `.oxlintrc.json` turns on, under any name oxlint reads as it, or name no rule; it reads the comments with
-  TypeScript's parser (`frontend/scripts/disable_comments.mjs`), so text in a string is not one. Today's 11 are in
+- A disable comment is frozen too (#1705): residence check D1 (`scripts/disable_comment_check.py`, run by
+  `scripts/residence_check.py`) counts, per file and rule, the `eslint-disable` and `oxlint-disable` comments
+  (`-next-line`, `-line` or file-wide) that name a rule `.oxlintrc.json` turns on for that file, under any name oxlint
+  reads as it, or name no rule. Only the files a rule applies to count: a rule on only in an override counts in the
+  files its `files` globs match, and a file `ignorePatterns` or a `.gitignore` names is not read, as oxlint reads
+  neither. It reads every file type `oxlint src` lints (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`,
+  `.cjs`). A file-wide comment counts apart from a line comment for the same rule (its key ends ` (file-wide)`), so
+  widening a frozen line comment to the whole file is a new entry. It reads the comments with TypeScript's parser
+  (`frontend/scripts/disable_comments.mjs`), so text in a string is not one. Today's 11 are in
   `frontend/disable-comment-suppressions.json`; a file off its count fails, in CI and in the commit hooks (which
   skip it with a warning where node cannot run, as J1). A change that removes a comment lowers the frozen count in
   the same change, with `python3 scripts/residence_check.py --prune-disable-comments`; the ratchet check refuses a
