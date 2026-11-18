@@ -135,7 +135,7 @@ def preview_payload(
         # #1707: the lines dated before 1 Apr 2026, left out and not saved; a file of only those is refused with
         # `before_cutoff_message` (then also `duplicate_message`, which the repeat notice does not show at 0 repeats).
         "before_cutoff": plan.before_cutoff,
-        "before_cutoff_note": before_cutoff_note(plan.before_cutoff),
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff, plan.undated),
         "before_cutoff_message": verdict.message if verdict.refuse and plan.before_cutoff == len(parsed.rows) else "",
         "warnings": list(parsed.warnings),
         # #1591: the spends that will create an Expense, by their bills -- 1 file (the invoice as it is),

@@ -94,3 +94,10 @@ class TestTheUploadLeavesOutEarlierLines(FrappeTestCase):
         batch = self._stage(self.mixed)
         period = frappe.db.get_value("Outflow Import Batch", batch, ["period_from", "period_to"])
         self.assertEqual(tuple(str(day) for day in period), ("2026-08-02", "2026-08-04"))
+
+    def test_the_preview_says_or_with_no_date_when_a_line_has_none(self):
+        """Owner, 2026-11-18 (#1707): an undated line is left out, and the preview's note says so. The confirm result
+        already did; the preview missed it (owner, 2026-11-19)."""
+        undated = self._file([self.data[0].replace(AUGUST_1, '""', 1)] + self.data[2:])
+        preview = self._post(cb.preview_cashbook_statement, undated)
+        self.assertEqual(preview["before_cutoff_note"], "1 line before 1 Apr 2026 or with no date left out")
