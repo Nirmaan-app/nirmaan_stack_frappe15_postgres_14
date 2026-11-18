@@ -1,12 +1,12 @@
 #!/bin/sh
-# pre-commit hook: the residence ratchet and ESLint on the staged frontend files (.githooks/checks.sh), so a
+# pre-commit hook: the residence ratchet and oxlint on the staged frontend files (.githooks/checks.sh), so a
 # commit meets the rules a script can check here instead of in code review. pre-merge-commit runs the same.
 #
 # Switched on by `yarn install` in frontend/ (its `prepare` script sets core.hooksPath to .githooks); by hand:
 #   git config core.hooksPath .githooks
 # Bypass for a one-off:        git commit --no-verify ...
 #
-# Silent when everything holds. Rejects (exit 1) when a residence count rises or ESLint finds a new violation,
+# Silent when everything holds. Rejects (exit 1) when a residence count rises or oxlint finds a new violation,
 # printing the rule, where the concept lives, and the violations.
 
 exec sh "$(dirname "$0")/checks.sh" pre-commit

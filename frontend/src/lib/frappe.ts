@@ -1,6 +1,6 @@
 /**
  * The app's one import point for `frappe-react-sdk` (ADR-0049). Import SDK hooks, `FrappeProvider`,
- * `FrappeContext`, `useSWRConfig` and the SDK types from `@/lib/frappe`; ESLint bans importing the SDK anywhere
+ * `FrappeContext`, `useSWRConfig` and the SDK types from `@/lib/frappe`; oxlint bans importing the SDK anywhere
  * else.
  *
  * Every SDK hook is declared `<T = any>`, so a call that passes no type returns `any` that no rule sees. Here each
@@ -128,7 +128,7 @@ export const useFrappeFileUpload: <T = unknown>() => ReturnType<typeof sdk.useFr
 // Event listeners. #1670 (open on 2026-11-12) replaces the SDK's listener hooks with a safe wrapper that removes
 // only its own handler on unmount. When it lands, export that wrapper here, stop exporting the three raw hooks
 // (`useFrappeEventListener` below, `useFrappeDocTypeEventListener` and `useFrappeDocumentEventListener` above), and
-// let this module's ESLint ban stand in for #1670's check-script rule on raw listener imports.
+// let this module's lint ban stand in for #1670's check-script rule on raw listener imports.
 
 /** `useFrappeEventListener` with the event data `T` defaulting to `unknown`. */
 export const useFrappeEventListener: <T = unknown>(

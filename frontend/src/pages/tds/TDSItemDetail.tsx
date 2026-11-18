@@ -504,7 +504,7 @@ export const TDSItemDetail: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAdmin, savingMembers, members]);
 
-    const membersTable = useReactTable({
+    const membersTable = useReactTable<TDSItemMember>({
         data: members,
         columns: memberColumns,
         state: {

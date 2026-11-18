@@ -21,7 +21,7 @@ Usage:
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
-Stdlib only; run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -367,7 +367,7 @@ def payment_sum_copies() -> list[str]:
 
 
 # --- Rules S1, R1: what the code review kept finding by hand (retro of spec #1442) --------------
-# (A1, the `any` count, moved to ESLint's no-explicit-any: ADR-0049.)
+# (A1, the `any` count, moved to the lint's no-explicit-any: ADR-0049; oxlint since #1699.)
 # Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
 
 def _hand_written(p: Path) -> bool:
@@ -453,6 +453,85 @@ def tds_added_to_amount_paid() -> list[str]:
     return sorted(found)
 
 
+# --- Rule J1: the `.json()` ban of ADR-0049 ----------------------------------------
+# `response.json()` returns `any`; parseJson(await response.text()) returns `unknown`. ESLint banned it with
+# no-restricted-syntax, which oxlint does not have (#1699), so it lives here. Its old calls are frozen per file in
+# JSON_CALL_SUPPRESSIONS, in oxlint's suppressions shape, so a new call fails even where another file loses one.
+
+JSON_CALL_SUPPRESSIONS = "frontend/json-call-suppressions.json"
+JSON_CALL_RULE = "no-json-call"
+# The ban's own home, and the generated shadcn/ui primitives the lint does not read either.
+JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui/")
+# J1's parser: TypeScript's own (frontend/scripts/json_calls.mjs), run by node with frontend/node_modules.
+JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
+
+
+class JsonCallParserError(RuntimeError):
+    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
+
+
+def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
+
+    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
+    """
+    try:
+        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
+                             capture_output=True, text=True, encoding="utf-8")
+    except OSError as e:
+        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
+    if run.returncode != 0:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
+                                  f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
+    try:
+        return json.loads(run.stdout)
+    except ValueError as e:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
+
+
+def json_call_count(src: str) -> int:
+    """The `.json()` calls in one TS source's code (not its comments or strings)."""
+    return json_call_counts({"source.ts": src})["source.ts"]
+
+
+def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
+
+    ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
+    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
+    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
+    """
+    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
+    out = []
+    for path in sorted(set(found) | set(allowed)):
+        now, was = found.get(path, 0), allowed.get(path, 0)
+        if now > was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
+        elif now < was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
+                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
+    return out
+
+
+def json_calls_unfrozen() -> list[str]:
+    """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
+
+    When the parser cannot run, that is J1's one finding, so the check fails and says why.
+    """
+    sources = {}
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if not rel.startswith(JSON_CALL_EXEMPT):
+            sources[rel.removeprefix("frontend/")] = read(p)
+    try:
+        found = {path: n for path, n in json_call_counts(sources).items() if n}
+    except JsonCallParserError as e:
+        return [f"J1 could not count .json() calls: {e}"]
+    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
+    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
+    return json_call_drift(found, frozen)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -464,6 +543,8 @@ class Check:
     measure: Callable[[], int]
     # Optional: each counted violation as `path:line`. Printed on failure, and for every check by --list.
     locate: Callable[[], list[str]] | None = None
+    # Set: the count must be at most this, whatever the baseline file says (a PR edits that file too).
+    pass_mark: int | None = None
 
 
 # b2: files containing the state literal, minus the predicate home and test files.
@@ -627,6 +708,19 @@ CHECKS: list[Check] = [
         measure=lambda: len(tds_added_to_amount_paid()),
         locate=tds_added_to_amount_paid,
     ),
+    # ADR-0049's `.json()` ban (#1699), here because oxlint has no no-restricted-syntax. Baseline 0 for good: the
+    # old calls are frozen per file in JSON_CALL_SUPPRESSIONS (the ratchet check guards it), and any file off its
+    # frozen count fails. Its pass mark is 0, not the baseline file's entry, which a PR could raise.
+    Check(
+        id="j1_json_calls_unfrozen",
+        rule="J1",
+        description=f"Frontend files whose .json() calls differ from their frozen count in {JSON_CALL_SUPPRESSIONS}.",
+        route_hint="a new call: use parseJson(await response.text()) from '@/lib/parseJson' (ADR-0049); "
+                   f"fewer calls: lower that file's count in {JSON_CALL_SUPPRESSIONS} (remove it at 0).",
+        measure=lambda: len(json_calls_unfrozen()),
+        locate=json_calls_unfrozen,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -711,7 +805,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
@@ -734,7 +828,7 @@ def do_check(checks: list[Check], baseline_path: Path, list_all: bool = False, t
     for c in checks:
         where = c.locate() if c.locate else None
         current = len(where) if where is not None else c.measure()
-        base_count = baseline.get(c.id, {}).get("count", 0)
+        base_count = c.pass_mark if c.pass_mark is not None else baseline.get(c.id, {}).get("count", 0)
         verdict = compare(c.id, current, base_count)
         mark = "✓" if verdict.ok else "✗"
         message = verdict.message

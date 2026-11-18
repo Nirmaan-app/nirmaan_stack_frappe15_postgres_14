@@ -27,15 +27,9 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
-      # The six residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
-      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data)
-        working-directory: .
-        run: python3 scripts/residence_check.py --check --only ci
-
-      # A PR may shrink frontend/eslint-suppressions.json and raise type-coverage's --at-least; it may not grow a
-      # count, add a file or rule (`eslint --suppress-all`), or lower the threshold. `yarn lint` alone cannot see
+      # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
+      # type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
+      # the threshold. `yarn lint` alone cannot see
       # this: it reads whatever suppressions file the PR brings. The checkout holds only the merge commit made when
       # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
       # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
@@ -55,6 +49,13 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
+      # The seven residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
+      # passes, a count that rose fails. After Install: J1 parses with frontend/node_modules/typescript.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls)
+        working-directory: .
+        run: python3 scripts/residence_check.py --check --only ci
+
       - name: DocType types are current (frontend/src/types/doctypes/ against the DocType JSON)
         working-directory: .
         run: |
@@ -69,8 +70,13 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Lint (typed ESLint; new violations only, against eslint-suppressions.json)
+      - name: Lint (type-aware oxlint; new violations only, against oxlint-suppressions.json)
         run: yarn lint
+
+      # The ratchet counts findings, so they must not change from run to run: oxlint's type-aware results once
+      # did, where a call's inferred type depended on the checker's order (ADR-0049, #1699). About 4 s here.
+      - name: Lint gives one result (the type-aware lint twice on the same tree; names the files that differ)
+        run: node scripts/lint_same_twice.mjs
 
       # Upward only: raise --at-least in package.json in the same PR whenever this percentage rises.
       - name: Type coverage (type-coverage --strict; fails below the threshold in package.json)

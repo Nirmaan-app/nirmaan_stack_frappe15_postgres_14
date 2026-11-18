@@ -167,7 +167,7 @@ export function DataTable<TData, TValue>({
     return combinedString.includes(filterValue.toLowerCase());
   }, []);
 
-  const table = useReactTable({
+  const table = useReactTable<TData>({
     data,
     columns,
     enableRowSelection: true,
