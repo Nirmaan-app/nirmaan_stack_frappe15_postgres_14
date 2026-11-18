@@ -119,3 +119,67 @@ class TestWhatReadsTheCreditExpense(WalletCreditCase):
         frappe.db.commit()
         [credit] = [row for row in cb._build_plan(self.parsed).rows if row.transfer_id == self._id(CREDIT)]
         self.assertEqual((credit.action, credit.reason), ("skip", f"Already booked as Non Project Expenses {self.credit.name}"))
+
+
+class TestThePatchBooksTheCreditsLeftOpen(WalletCreditCase):
+    """`patches/v3_0/create_open_wallet_credit_expenses`: the Wallet Credit lines an import staged open before #1720."""
+
+    def _open_the_credit(self):
+        """The credit line as an import before #1720 staged it: open, with no placement (raw: a test fixture; the line
+        carries no doc_events)."""
+        self.line = self._line(CREDIT).name
+        frappe.db.set_value(
+            "Outflow Import Row",
+            self.line,
+            {
+                "row_status": "Mismatched", "suggested_doctype": None, "suggested_expense_type": None,
+                "resolved_project": None, "match_basis": None, "auto_matched": 0,
+                "outcome_note": "Wallet credit: money paid into the wallet from outside. Decide what it is.",
+            },
+        )
+        frappe.db.commit()
+
+    def setUp(self):
+        super().setUp()
+        self.project = self._won_project()
+        self._remark(CREDIT, f"Scrap sold at {self.project.project_name} site")
+        self._stage_and_run(before_run=self._open_the_credit)
+
+    def _run(self):
+        from nirmaan_stack.patches.v3_0.create_open_wallet_credit_expenses import create_open_wallet_credit_expenses
+
+        return create_open_wallet_credit_expenses([self.line])
+
+    def test_the_open_credit_gets_its_expense_where_its_remark_places_it_and_a_second_run_writes_nothing(self):
+        self.assertEqual(self._line(CREDIT).row_status, "Mismatched")
+        first = self._run()
+        self.assertEqual((first.created["Project Expenses"], first.failed), (1, []))
+        credit = self._expense(CREDIT)
+        self.assertEqual((credit.projects, float(credit.amount), credit.status), (self.project.name, -9000.0, "Paid"))
+        self.assertEqual(credit.cashbook_batch, self.batch)
+        self.assertEqual(self._line(CREDIT).row_status, "Settled")
+
+        second = self._run()
+        self.assertEqual((sum(second.created.values()), second.already_booked, second.failed), (0, 0, []))
+
+    def test_a_credit_already_booked_at_minus_its_credit_is_left_open_and_counted(self):
+        line = self._line(CREDIT)
+        doc = frappe.new_doc("Non Project Expenses")
+        doc.update({
+            "type": "Petty Cash", "status": "Paid", "amount": -line.amount, "payment_date": line.added_on.date(),
+            "payment_ref": self._id(CREDIT), "description": "Hand-keyed wallet credit",
+        })
+        doc.flags.ignore_permissions = True
+        doc.insert()
+        frappe.db.commit()
+        self.extra.append(("Non Project Expenses", doc.name))
+
+        report = self._run()
+        self.assertEqual((sum(report.created.values()), report.already_booked, report.failed), (0, 1, []))
+        self.assertEqual(frappe.db.get_value("Outflow Import Row", self.line, "row_status"), "Mismatched")
+
+    def test_a_line_a_person_decided_is_left_alone(self):
+        frappe.db.set_value("Outflow Import Row", self.line, "confirm_by_hand", 1)  # raw: a test fixture
+        frappe.db.commit()
+        self.assertEqual(sum(self._run().created.values()), 0)
+        self.assertEqual(frappe.db.get_value("Outflow Import Row", self.line, "row_status"), "Mismatched")
