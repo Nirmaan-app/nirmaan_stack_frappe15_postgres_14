@@ -307,12 +307,12 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_seven_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_eight_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
-            "j1_json_calls_unfrozen",
+            "j1_json_calls_unfrozen", "d1_disable_comments_unfrozen",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):
@@ -577,6 +577,85 @@ class DisableComments(unittest.TestCase):
         src = ("export const C = () => (<div>// eslint-disable-next-line x\n"
                "  {/* eslint-disable-next-line y */}\n  <b title=\"// eslint-disable z\" />\n</div>);\n")
         self.assertEqual(self.comments(src, "src/c.tsx"), ["/* eslint-disable-next-line y */"])
+
+    def frozen_file(self, frozen):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "frozen.json"
+        path.write_text(json.dumps(frozen))
+        patcher = mock.patch("residence_check.DISABLE_SUPPRESSIONS", str(path))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return path
+
+    def run_d1(self, comments, frozen, *argv):
+        path = self.frozen_file(frozen)
+        out = io.StringIO()
+        with mock.patch("residence_check.disable_comment_texts", return_value=comments), redirect_stdout(out):
+            rc = main([*argv, "--only", "D1"])
+        return rc, out.getvalue(), json.loads(path.read_text())
+
+    ANY = "// eslint-disable-next-line @typescript-eslint/no-explicit-any"
+    FROZEN = {"src/a.ts": {"typescript/no-explicit-any": {"count": 1}},
+              "src/b.ts": {"typescript/no-explicit-any": {"count": 1}}}
+
+    def test_a_new_disable_comment_fails_naming_the_file_and_rule_even_where_another_file_lost_one(self):
+        rc, out, _ = self.run_d1({"src/a.ts": [self.ANY, "// oxlint-disable-next-line typescript/no-explicit-any"],
+                                  "src/b.ts": []}, self.FROZEN, "--check")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("frontend/src/a.ts: 2 disable comments for typescript/no-explicit-any, 1 frozen", out)
+
+    def test_a_file_wide_disable_comment_fails(self):
+        rc, out, _ = self.run_d1({"src/a.ts": [self.ANY], "src/b.ts": [self.ANY], "src/c.ts": ["/* eslint-disable */"]},
+                                 self.FROZEN, "--check")
+        self.assertEqual(rc, 1, out)
+        self.assertIn(f"frontend/src/c.ts: 1 disable comments for {EVERY_RULE} (names no rule), 0 frozen", out)
+
+    def test_a_new_exhaustive_deps_comment_passes(self):
+        rc, out, _ = self.run_d1({"src/a.ts": [self.ANY, "// eslint-disable-next-line react-hooks/exhaustive-deps"],
+                                  "src/b.ts": [self.ANY]}, self.FROZEN, "--check")
+        self.assertEqual(rc, 0, out)
+
+    def test_a_removed_comment_passes_and_says_how_to_lower_its_count(self):
+        rc, out, after = self.run_d1({"src/a.ts": [self.ANY]}, self.FROZEN, "--check")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("--prune-disable-comments", out)
+        self.assertEqual(after, self.FROZEN)
+
+    def test_prune_lowers_the_frozen_counts_and_drops_empty_files(self):
+        rc, out, after = self.run_d1({"src/a.ts": [self.ANY]}, self.FROZEN, "--prune-disable-comments")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(after, {"src/a.ts": {"typescript/no-explicit-any": {"count": 1}}})
+
+    def test_prune_never_raises_a_count(self):
+        rc, out, after = self.run_d1({"src/a.ts": [self.ANY, self.ANY], "src/b.ts": [self.ANY]}, self.FROZEN,
+                                     "--prune-disable-comments")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(after, self.FROZEN)
+
+    def test_in_the_commit_hook_d1_warns_and_passes_when_node_is_missing(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--hook", "--only", "D1"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("⚠ D1 skipped: node could not run", out.getvalue())
+
+    def test_d1_fails_when_node_is_missing_outside_the_hook(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--check", "--only", "D1"])
+        self.assertEqual(rc, 1, out.getvalue())
+
+    def test_the_real_tree_holds_its_frozen_counts(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "D1"])
+        self.assertEqual(rc, 0, out.getvalue())
+
+    def test_the_frozen_file_counts_only_no_explicit_any_today(self):
+        frozen = json.loads((REPO / "frontend/disable-comment-suppressions.json").read_text())
+        self.assertEqual({rule for rules in frozen.values() for rule in rules}, {"typescript/no-explicit-any"})
+        self.assertEqual(sum(e["count"] for rules in frozen.values() for e in rules.values()), 11)
 
 
 if __name__ == "__main__":

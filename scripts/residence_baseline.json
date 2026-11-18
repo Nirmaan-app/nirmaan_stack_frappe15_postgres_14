@@ -9,6 +9,11 @@
     "description": "Lines that assign workflow_state in api/ + integrations/ (state should be derived, not written ad-hoc).",
     "rule": "B3"
   },
+  "d1_disable_comments_unfrozen": {
+    "count": 0,
+    "description": "Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no rule) than frozen in frontend/disable-comment-suppressions.json.",
+    "rule": "D1"
+  },
   "j1_json_calls_unfrozen": {
     "count": 0,
     "description": "Frontend files whose .json() calls differ from their frozen count in frontend/json-call-suppressions.json.",

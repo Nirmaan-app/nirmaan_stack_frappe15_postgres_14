@@ -21,8 +21,9 @@ Usage:
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
+    python3 scripts/residence_check.py --prune-disable-comments  # D1: lower the frozen disable-comment counts
 
-Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 and D1 (frontend/scripts/json_calls.mjs, disable_comments.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -452,9 +453,9 @@ class JsonCallParserError(RuntimeError):
     """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
 
 
-# Set by --hook: in a commit hook J1 warns and passes when its parser cannot run (a worktree with no
+# Set by --hook: in a commit hook J1 and D1 warn and pass when their parser cannot run (a worktree with no
 # frontend/node_modules, a box with no node); CI and every other run still fail.
-J1_MAY_SKIP = False
+NODE_MAY_SKIP = False
 
 
 def run_ts_parser(parser: str, sources: dict[str, str]):
@@ -518,7 +519,7 @@ def json_calls_unfrozen() -> list[str]:
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
     except JsonCallParserError as e:
-        if J1_MAY_SKIP:
+        if NODE_MAY_SKIP:
             print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
             return []
         return [f"J1 could not count .json() calls: {e}"]
@@ -601,6 +602,83 @@ def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dic
                 entry["count"] += 1
     return out
 
+
+
+DISABLE_SUPPRESSIONS = "frontend/disable-comment-suppressions.json"
+PRUNE_FLAG = "--prune-disable-comments"
+
+
+def disable_comments_found() -> dict[str, dict]:
+    """D1's counts over frontend/src, in oxlint's suppressions shape, keyed by paths relative to frontend/.
+
+    Raises JsonCallParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
+    sources = {p.relative_to(REPO_ROOT / "frontend").as_posix(): read(p) for p in iter_files("frontend/src", (".ts", ".tsx"))}
+    rules = adr0049_rules(parse_jsonc(read(REPO_ROOT / CONFIG)))
+    return disable_counts(disable_comment_texts(sources), rules)
+
+
+def _rule_label(rule: str) -> str:
+    return f"{rule} (names no rule)" if rule == EVERY_RULE else rule
+
+
+def disable_drift(found: dict[str, dict], frozen: dict[str, dict]) -> tuple[list[str], list[str]]:
+    """(over, under): each file and rule with more disable comments than frozen, and each with fewer, one line each.
+
+    Over fails D1, file by file, so a new comment fails even where another file lost one. Under passes: lower the
+    frozen count with PRUNE_FLAG (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request)."""
+    over, under = [], []
+    for path in sorted(set(found) | set(frozen)):
+        now_rules, was_rules = found.get(path, {}), frozen.get(path, {})
+        for rule in sorted(set(now_rules) | set(was_rules)):
+            now, was = now_rules.get(rule, {}).get("count", 0), was_rules.get(rule, {}).get("count", 0)
+            line = f"frontend/{path}: {now} disable comments for {_rule_label(rule)}, {was} frozen"
+            if now > was:
+                over.append(line)
+            elif now < was:
+                under.append(line)
+    return over, under
+
+
+def _read_disable_suppressions() -> dict[str, dict]:
+    path = REPO_ROOT / DISABLE_SUPPRESSIONS
+    return json.loads(read(path)) if path.exists() else {}
+
+
+def disable_comments_unfrozen() -> list[str]:
+    """D1 over the tree: a line per file and rule over its frozen count in DISABLE_SUPPRESSIONS.
+
+    When the parser cannot run, that is D1's one finding, so the check fails and says why."""
+    try:
+        found = disable_comments_found()
+    except JsonCallParserError as e:
+        if NODE_MAY_SKIP:
+            print(f"⚠ D1 skipped: {e}. CI counts disable comments on every pull request.")
+            return []
+        return [f"D1 could not count disable comments: {e}"]
+    except ValueError as e:
+        return [f"D1 could not list ADR-0049's rules: {e}"]
+    over, under = disable_drift(found, _read_disable_suppressions())
+    for line in under:
+        print(f"⚠ D1: {line} -- lock the lower count in: python3 scripts/residence_check.py {PRUNE_FLAG}")
+    return over
+
+
+def prune_disable_comments() -> int:
+    """Lower DISABLE_SUPPRESSIONS to today's counts (a file or rule at 0 goes); never raise one. 0 = done."""
+    try:
+        found = disable_comments_found()
+    except (JsonCallParserError, ValueError) as e:
+        print(f"✗ {PRUNE_FLAG}: D1 could not count disable comments: {e}", file=sys.stderr)
+        return 1
+    over, _ = disable_drift(found, _read_disable_suppressions())
+    if over:
+        print(f"✗ {PRUNE_FLAG} lowers counts only; these rose, so nothing was written:", file=sys.stderr)
+        for line in over:
+            print(f"    {line}", file=sys.stderr)
+        return 1
+    (REPO_ROOT / DISABLE_SUPPRESSIONS).write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"✓ {DISABLE_SUPPRESSIONS} now holds today's counts")
+    return 0
 
 # --- check registry ----------------------------------------------------------
 
@@ -748,6 +826,20 @@ CHECKS: list[Check] = [
         locate=json_calls_unfrozen,
         pass_mark=0,
     ),
+    # ADR-0049's ratchet through a disable comment (#1705): oxlint honours `eslint-disable` and `oxlint-disable`
+    # comments, so one above a new `any` passed `yarn lint`. Frozen per file and rule in DISABLE_SUPPRESSIONS (the
+    # ratchet check guards it); pass mark 0, as J1's.
+    Check(
+        id="d1_disable_comments_unfrozen",
+        rule="D1",
+        description=f"Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no "
+                    f"rule) than frozen in {DISABLE_SUPPRESSIONS}.",
+        route_hint="fix the violation instead of disabling the rule (ADR-0049); a comment removed: lower its count "
+                   f"with python3 scripts/residence_check.py {PRUNE_FLAG}",
+        measure=lambda: len(disable_comments_unfrozen()),
+        locate=disable_comments_unfrozen,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -832,7 +924,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's two
 # counters (B1, B3) run in the local hook only (ADR-0010 amendment, 2026-11-18).
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "D1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
@@ -893,16 +985,20 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
     parser.add_argument("--hook", action="store_true",
-                        help="Run from a commit hook: J1 warns and passes when node or TypeScript cannot run.")
+                        help="Run from a commit hook: J1 and D1 warn and pass when node or TypeScript cannot run.")
+    parser.add_argument(PRUNE_FLAG, action="store_true", dest="prune_disables",
+                        help=f"Lower {DISABLE_SUPPRESSIONS} to today's counts after removing disable comments (D1).")
     args = parser.parse_args(argv)
-    global J1_MAY_SKIP
-    J1_MAY_SKIP = args.hook
+    global NODE_MAY_SKIP
+    NODE_MAY_SKIP = args.hook
     if args.init and args.only:
         print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
               file=sys.stderr)
         return 2
     if args.init:
         return do_init()
+    if args.prune_disables:
+        return prune_disable_comments()
     checks = CHECKS if checks is None else checks
     if args.only:
         try:

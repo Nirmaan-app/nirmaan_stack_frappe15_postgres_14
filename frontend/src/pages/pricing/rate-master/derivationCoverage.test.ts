@@ -16,12 +16,31 @@ import { CODE_RULES, derivationCoverage } from "./derivationCoverage";
 import { itemListRuleOrder } from "./itemListRuleOrder";
 import { readJsonFixture } from "../calculatorPanelParity.harness";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the configs are JSON clones edited in memory
-type Cfg = any;
+/** The parts of a category config these cases read or edit in memory (the asset's JSON holds more). */
+type RuleLine = { rule: string; title: string; detail?: string };
+type Cfg = {
+  category_id: string;
+  list_spec: {
+    pricing: {
+      kind: string;
+      text_notes: Array<{ rule_line?: string }>;
+      material_text: { map: unknown[] };
+      scope: { supply_row?: { uplift?: boolean }; refix?: Array<{ label: string; factor: number }> };
+      unit_classes: Record<string, unknown>;
+      sheet_heading_notes?: unknown;
+      rule_lines?: RuleLine[];
+      derivation_reasons?: Array<{ rule?: string; title?: string; why: string }>;
+    };
+  };
+};
 type Asset = { items: Array<Record<string, unknown>>; category_configs: Cfg[] };
 const DATA = path.resolve(__dirname, "../../../../../nirmaan_stack/services/boq_rate_master/data");
 const V69 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v69.json")));
-const cfg = (id: string): Cfg => structuredClone(V69.category_configs.find((c) => c.category_id === id));
+const cfg = (id: string): Cfg => {
+  const found = V69.category_configs.find((c) => c.category_id === id);
+  if (!found) throw new Error(`no category config ${id} in v69`);
+  return structuredClone(found);
+};
 const VALVE = "hvac_valve_package", MISC = "hvac_misc", ADP = "hvac_adp";
 const titles = (c: Cfg, sec?: Record<string, Cfg>) => itemListRuleOrder(c, V69.items, sec).map((l) => l.title);
 const lines = (c: Cfg, sec?: Record<string, Cfg>) => itemListRuleOrder(c, V69.items, sec);
@@ -75,7 +94,7 @@ describe("DU-1 FIX-2 -- the scope line states VP-5 E11 + the pair rule; line 1 t
   it("POSITIVE: a category's own refix factors and its uplift on the supply-row case (Ducting's config shape) are said from config", () => {
     const c = cfg(VALVE);
     c.list_spec.pricing.scope.refix = [{ label: "removal", factor: 0.5 }, { label: "refixing", factor: 1 }];
-    c.list_spec.pricing.scope.supply_row.uplift = true;
+    c.list_spec.pricing.scope.supply_row!.uplift = true;
     const d = scope(c);
     expect(d).toContain("removal -> 0.5 x the item's installation; refixing -> 1 x the item's installation; both named in the row -> the two added (1.5 x)");
     expect(d).toContain("the installation x (1 + the Pricing Input 'Valve - installation-only uplift'), supply 0, naming that row");
@@ -144,8 +163,8 @@ describe("DU-1 THE GUARD (fixtures) -- MISSING / ORPHAN", () => {
   });
   it("NEGATIVE: a declared line naming no code rule is an ORPHAN; one dropped is MISSING", () => {
     const c = declareAll(cfg(VALVE));
-    c.list_spec.pricing.rule_lines.push({ rule: "Z9", title: "A rule that does not exist" });
-    c.list_spec.pricing.rule_lines.splice(0, 1);
+    c.list_spec.pricing.rule_lines!.push({ rule: "Z9", title: "A rule that does not exist" });
+    c.list_spec.pricing.rule_lines!.splice(0, 1);
     const r = derivationCoverage(c, V69.items, { hvac_misc: declareAll(cfg(MISC)) });
     expect(r.orphan).toEqual(["declared line Z9: names no code rule of hvac_valve_item"]);
     expect(r.missing).toEqual(["code rule D1: no declared line"]);
