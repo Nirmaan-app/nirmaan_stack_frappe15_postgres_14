@@ -29,11 +29,13 @@ jobs:
 
       # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
       # type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
-      # the threshold. `yarn lint` alone cannot see
-      # this: it reads whatever suppressions file the PR brings. The checkout holds only the merge commit made when
+      # the threshold. Nor may it loosen the lint settings (#1702): .oxlintrc.json (ignorePatterns, a rule off or
+      # "warn", an override), a nested oxlint config or ignore file, the `lint` script, or a residence_baseline.json
+      # count CI reads. `yarn lint` alone cannot see
+      # this: it reads whatever suppressions file and settings the PR brings. The checkout holds only the merge commit made when
       # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
       # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
-      - name: Frontend ratchet not loosened (suppressions and --at-least against the PR's base commit)
+      - name: Frontend ratchet not loosened (suppressions, --at-least and lint settings against the PR's base commit)
         if: github.event_name == 'pull_request'
         working-directory: .
         env:

@@ -6,6 +6,12 @@ The ratchet is counts and a number a PR can only tighten:
     or an entry go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all`
     does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
+  - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json
+    (no wider ignorePatterns, no rule removed or turned down to "warn" or "off", at the top level or in an override,
+    no folder taken off the typed path), no nested oxlint config, .eslintignore or .gitignore that hides src files,
+    the `lint` script in frontend/package.json (no path, flag or shell word that narrows it), and the counts of
+    scripts/residence_baseline.json that CI's residence checks read. A tightening passes: a rule switched on, a
+    folder added to the typed path, an ignore pattern dropped, a ban-list entry added.
 
 A base from before the switch to oxlint holds frontend/eslint-suppressions.json instead; both files are then held
 to its counts (from_eslint), so the change that switches cannot loosen the ratchet either.
@@ -14,7 +20,9 @@ CI runs it on every pull request against the PR's base commit (github.event.pull
 
     python3 scripts/frontend_ratchet_check.py --base-ref <base sha>
 
-It compares the working tree's files with the same files at <base-ref> and exits 1 on any loosening.
+It compares the working tree's files with the same files at <base-ref> and exits 1 on any loosening, naming it.
+It reads the settings rather than linting the PR's code with the base's settings: a rule set to "warn" or a
+narrowed path lets no violation through until a later PR, so a lint run would pass the loosening itself.
 Stdlib only.
 """
 
