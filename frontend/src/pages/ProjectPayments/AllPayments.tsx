@@ -163,6 +163,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     // "Payment Raised By Me" → All / Paid / Rejected (2026-11-12). Every other tab is unaffected.
     const isByMe = tab === PP_TABS.PAYMENT_BY_ME;
+    const approvalTab = tab as ApprovalTab;
     const view: ByMeView = isByMe ? (byMeView ?? BY_ME_VIEWS.ALL) : BY_ME_VIEWS.ALL;
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
@@ -378,7 +379,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     }, [projectMap, vendorLabelMap, togglePaymentDialog]);
 
     const columnCtx = useMemo<ApprovalColumnCtx>(() => ({
-        tab: tab as ApprovalTab,
+        tab: approvalTab,
         projectLabels: projectMap,
         vendorLabels: vendorLabelMap,
         userLabels: userLabelMap,
@@ -410,7 +411,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     ]);
 
     const columns = useMemo(() => {
-        const ids = isByMe ? BY_ME_VIEW_COLUMNS[view] : TAB_COLUMNS[tab as ApprovalTab];
+        const ids = isByMe ? BY_ME_VIEW_COLUMNS[view] : TAB_COLUMNS[approvalTab];
         // On the settled and mixed-status tabs the Actions column holds ONLY the expense Edit
         // pencil (plus, on the Paid tab, Upload Invoice -- Admin, Accounts and HR, `canUploadInvoiceRow`),
         // so for anyone who cannot edit it would be an empty column with a header. Drop it
@@ -459,7 +460,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         fetchFields: APPROVAL_FETCH_FIELDS,
         searchableFields: APPROVAL_SEARCHABLE_FIELDS,
         urlSyncKey: urlSyncKey,
-        defaultSort: isByMe ? BY_ME_VIEW_SORT[view] : TAB_DEFAULT_SORT[tab as ApprovalTab],
+        defaultSort: isByMe ? BY_ME_VIEW_SORT[view] : TAB_DEFAULT_SORT[approvalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
