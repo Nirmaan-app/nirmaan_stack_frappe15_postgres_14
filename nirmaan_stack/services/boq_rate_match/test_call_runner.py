@@ -419,3 +419,71 @@ class TestClient(FrappeTestCase):
         with patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings", return_value={"enabled": False}):
             with self.assertRaises(RuntimeError):
                 cr.make_client()
+
+
+class _FakeSiteSlots:
+    """Stands in for site_ai_slots.SiteSlots (no Redis): unlimited slots; `take_fails_at` makes the Nth try_take raise
+    and `give_back_fails` makes every give_back raise, as a Redis error would."""
+
+    def __init__(self, take_fails_at=None, give_back_fails=False):
+        self.take_fails_at = take_fails_at
+        self.give_back_fails = give_back_fails
+        self.taken = 0
+
+    def __call__(self, limit, *, clock=None):        # the runner builds SiteSlots(limit, clock=...)
+        return self
+
+    def try_take(self):
+        self.taken += 1
+        if self.take_fails_at is not None and self.taken >= self.take_fails_at:
+            raise ConnectionError("redis down")
+        return f"t{self.taken}"
+
+    def renew(self, tokens):
+        pass
+
+    def give_back(self, token):
+        if self.give_back_fails:
+            raise ConnectionError("redis down")
+
+
+def _run_with_slots(fake, reqs, calls=4):
+    """cr.run on a thread under the fake slots; (finished, RunResult or the exception it raised)."""
+    box = {}
+    limits = cr.Limits(calls_at_once=calls, retry_wait_s=0, burst_failures=10, burst_window_s=60,
+                       max_request_tokens=100000, site_calls_at_once=2)
+
+    def go():
+        try:
+            box["out"] = cr.run(reqs, limits=limits, client=FakeClient())
+        except Exception as e:  # noqa: BLE001 -- the test asserts on it
+            box["out"] = e
+
+    with patch.object(cr.site_ai_slots, "SiteSlots", fake):
+        t = threading.Thread(target=go, daemon=True)
+        t.start()
+        t.join(10)
+    return not t.is_alive(), box.get("out")
+
+
+class TestSiteSlotsFailing(FrappeTestCase):
+    # #1718 review: the site slots live in Redis; a Redis error must never hang a run or escape it as an exception.
+
+    def test_a_give_back_that_raises_still_lets_the_run_finish_with_every_result(self):
+        finished, out = _run_with_slots(_FakeSiteSlots(give_back_fails=True), [_req(f"G{i}") for i in range(6)],
+                                        calls=2)
+        self.assertTrue(finished, "the run hung: a failed give-back lost the call's bookkeeping")
+        self.assertIsInstance(out, cr.RunResult)
+        self.assertIsNone(out.stop_reason, out.stop_detail)
+        self.assertEqual(sorted(out.results), [f"G{i}" for i in range(6)])
+        self.assertTrue(all(r.ok for r in out.results.values()))
+
+    def test_a_slot_take_that_raises_stops_the_run_cleanly(self):
+        finished, out = _run_with_slots(_FakeSiteSlots(take_fails_at=3), [_req(f"S{i}") for i in range(5)])
+        self.assertTrue(finished, "the run hung")
+        self.assertIsInstance(out, cr.RunResult, f"the Redis error escaped the run: {out!r}")
+        self.assertEqual(out.stop_reason, cr.STOP_SITE_SLOTS)
+        self.assertIn("redis down", out.stop_detail)
+        self.assertEqual(out.not_sent, ["S2", "S3", "S4"])
+        self.assertEqual(sorted(out.results), ["S0", "S1"], "the calls already in flight finish and are recorded")
+        self.assertTrue(all(r.ok for r in out.results.values()))

@@ -22,7 +22,7 @@
  * (they infer `Data` from the fetcher you pass).
  */
 import * as sdk from "frappe-react-sdk";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Listed by name, never `export *`: vitest's node runner loads the SDK's CommonJS build, from which `export *`
 // re-exports nothing, so a unit test would get `undefined` where the app gets the SDK's value.
@@ -151,7 +151,9 @@ function useSocket(): Socket | undefined {
 export function useSocketEventListener<T = unknown>(event: string, handler: (eventData: T) => void): void {
   const socket = useSocket();
   const latest = useRef(handler);
-  useEffect(() => {
+  // A layout effect, not a passive one: an event that arrives after the commit and before passive effects run
+  // still reaches this render's handler.
+  useLayoutEffect(() => {
     latest.current = handler;
   });
   useEffect(() => {

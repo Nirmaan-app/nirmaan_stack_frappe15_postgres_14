@@ -85,8 +85,10 @@ class _Progress:
     """Wraps the judge's client: each landed reply marks its target's rows done (a BoQ's identical rows count as
     one call). The content -> rows map is built from the requests; no model call happens here.
 
-    ⚠️ It only COUNTS. It runs on the call runner's own threads, where frappe.local (frappe.db, the cache, realtime)
-    is not bound: touching it there raised "object is not bound", which the runner read as a connection error and
+    ⚠️ It only COUNTS. `create` runs on the call runner's per-call threads (call_runner._Run._send), which start with
+    a fresh context, so frappe.local (frappe.db, the cache, realtime) is not bound there. (The judge thread that
+    starts them runs in a copy of the job's context, see _judge_with_progress; the per-call threads do not inherit
+    it.) Touching frappe.local there raised "object is not bound", which the runner read as a connection error and
     stopped the run (DEV2-B4 S4 attempt 1). The job's main thread reads `done` and reports it (_judge_with_progress)."""
 
     def __init__(self, client, rows_by_content, done_before):

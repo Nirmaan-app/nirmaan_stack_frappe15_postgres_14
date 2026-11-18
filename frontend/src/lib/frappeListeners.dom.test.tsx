@@ -4,7 +4,7 @@
 // remove every listener of an event when one component unmounts or changes its handler, and leave a document or
 // doctype room for the whole tab when one listener unmounts. Each test mounts real components against a fake socket
 // that keeps socket.io-client's rules: `off(event)` removes every handler of that event, `off(event, fn)` only `fn`.
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -133,6 +133,26 @@ describe("useSocketEventListener", () => {
     render(<Listener event="po:new" onEvent={() => seen.push("first")} />);
     render(<Listener event="po:new" onEvent={() => seen.push("second")} />);
     socket.serverSends("po:new", {});
+
+    expect(seen).toEqual(["second"]);
+  });
+
+  it("an event that arrives after a render commits, before its effects run, reaches that render's handler", () => {
+    const seen: string[] = [];
+    // A layout effect runs after the commit and before any passive effect: the earliest an event can arrive.
+    function SendsOnCommit() {
+      useLayoutEffect(() => {
+        socket.serverSends("po:new", {});
+      });
+      return null;
+    }
+    render(<Listener event="po:new" onEvent={() => seen.push("first")} />);
+    render(
+      <>
+        <Listener event="po:new" onEvent={() => seen.push("second")} />
+        <SendsOnCommit />
+      </>,
+    );
 
     expect(seen).toEqual(["second"]);
   });

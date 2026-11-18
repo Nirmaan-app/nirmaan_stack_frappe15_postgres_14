@@ -12,6 +12,7 @@ EXACTLY:
 * STOP at once on any 429 or usage-limit error, on a second failure of the same call, or when `burst_failures`
   failures (every failed attempt counts) fall within `burst_window_s` seconds.
 * Any other HTTP error fails that one call (counted toward the burst) and the run goes on.
+* STOP when the site-wide slots (below) cannot be taken because their Redis fails.
 * STOP means: nothing more is sent; calls already in flight finish and are recorded; every request never sent
   is named in `not_sent`.
 
@@ -62,6 +63,7 @@ STOP_USAGE_LIMIT = "usage_limit"
 STOP_SECOND_FAILURE = "second_failure_of_a_call"
 STOP_BURST = "burst_of_failures"
 STOP_NOT_LONE = "connection_error_with_nothing_landing"
+STOP_SITE_SLOTS = "site_slots_unreachable"
 REFUSED_TOO_LARGE = "too_large"
 REFUSED_BY_CALLER = "caller_refused"
 
@@ -290,13 +292,17 @@ class _Run:
                 retried = True
                 self.sleep(self.limits.retry_wait_s)
         finally:
-            if token is not None:
-                self.slots.give_back(token)
+            # the run's bookkeeping first, so a Redis error below can never lose the result or hang the dispatcher
             with self.cv:
                 self.held.discard(token)
                 self.out.results[req.name] = res
                 self.in_flight -= 1
                 self.cv.notify_all()
+            if token is not None:
+                try:
+                    self.slots.give_back(token)
+                except Exception:  # noqa: BLE001 -- a missed give-back only leaves the slot until its lease runs out
+                    pass
 
     # --- the site-wide slots -----------------------------------------------------------------------------------
 
@@ -351,7 +357,13 @@ class _Run:
                     self.out.not_sent = [r.name for r in self.requests[i:]]
                     break
                 self.in_flight += 1
-            took, token = self._take_site_slot()
+            try:
+                took, token = self._take_site_slot()
+            except Exception as e:  # noqa: BLE001 -- the site slots' Redis failed: STOP, as a run stops on any limit
+                took, token = False, None
+                with self.cv:
+                    self._stop(STOP_SITE_SLOTS, f"{req.name}: the site-wide slots could not be read: "
+                                                f"{type(e).__name__}: {str(e)[:300]}")
             with self.cv:
                 if not took:
                     self.in_flight -= 1

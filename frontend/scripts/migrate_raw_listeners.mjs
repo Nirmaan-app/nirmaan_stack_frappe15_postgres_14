@@ -51,7 +51,8 @@ export function migrateSource(source, path) {
   const file = ts.createSourceFile(path, renamed, ts.ScriptTarget.Latest, true, kind);
   const edits = []; // [start, end, text], applied from the end
   const moved = [];
-  let insertAt = null; // where a new `@/lib/frappe` import goes: [start, end, replaces the SDK import?]
+  const emptied = []; // SDK imports left with nothing in them, each removed (or the first replaced by the new import)
+  let after = null; // a kept SDK import, after which a new `@/lib/frappe` import goes when none was emptied
   let quote = '"';
   let semi = ";";
 
@@ -64,12 +65,12 @@ export function migrateSource(source, path) {
     semi = decl.getText(file).trimEnd().endsWith(";") ? ";" : "";
     const kept = elements.filter((el) => !safe.includes(el));
     if (!kept.length) {
-      insertAt = [decl.getStart(file), decl.getEnd(), true];
+      emptied.push(decl);
       continue;
     }
     const separator = renamed.slice(elements[0].getEnd(), elements[1].getStart(file));
     edits.push([elements[0].getStart(file), elements.at(-1).getEnd(), kept.map((el) => el.getText(file)).join(separator)]);
-    insertAt ??= [decl.getEnd(), decl.getEnd(), false];
+    after ??= decl;
   }
 
   if (moved.length) {
@@ -79,10 +80,13 @@ export function migrateSource(source, path) {
       const have = new Set(elements.map((el) => el.getText(file)));
       const add = moved.filter((name) => !have.has(name));
       if (add.length) edits.push([elements.at(-1).getEnd(), elements.at(-1).getEnd(), `, ${add.join(", ")}`]);
-      if (insertAt[2]) edits.push([insertAt[0], lineEnd(renamed, insertAt[1]), ""]);
+      for (const decl of emptied) edits.push([decl.getStart(file), lineEnd(renamed, decl.getEnd()), ""]);
     } else {
       const line = `import { ${moved.join(", ")} } from ${quote}${TYPED_SDK}${quote}${semi}`;
-      edits.push(insertAt[2] ? [insertAt[0], insertAt[1], line] : [insertAt[0], insertAt[1], `\n${line}`]);
+      const [first, ...rest] = emptied;
+      if (first) edits.push([first.getStart(file), first.getEnd(), line]);
+      else edits.push([after.getEnd(), after.getEnd(), `\n${line}`]);
+      for (const decl of rest) edits.push([decl.getStart(file), lineEnd(renamed, decl.getEnd()), ""]);
     }
   }
 

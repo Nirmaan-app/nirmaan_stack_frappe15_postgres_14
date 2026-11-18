@@ -66,6 +66,24 @@ describe("migrateSource", () => {
     );
   });
 
+  it("moves two SDK imports that each hold only raw hooks into one `@/lib/frappe` import, leaving neither", () => {
+    const out = migrate(
+      `import { useFrappeEventListener } from "frappe-react-sdk";\n` +
+        `import { useFrappeDocTypeEventListener } from "frappe-react-sdk";\n` +
+        `const x = 1;\n`,
+    );
+    expect(out).toBe(`import { useSocketEventListener, useDocTypeEventListener } from "@/lib/frappe";\n` + `const x = 1;\n`);
+  });
+
+  it("removes both raw-hook-only SDK imports when the file already has an `@/lib/frappe` import", () => {
+    const out = migrate(
+      `import { useFrappeEventListener } from "frappe-react-sdk";\n` +
+        `import { useFrappeGetDoc } from "@/lib/frappe";\n` +
+        `import { useFrappeDocTypeEventListener } from "frappe-react-sdk";\n`,
+    );
+    expect(out).toBe(`import { useFrappeGetDoc, useSocketEventListener, useDocTypeEventListener } from "@/lib/frappe";\n`);
+  });
+
   it("renames a raw hook named in a comment, so no stale name is left", () => {
     expect(migrate(`// useFrappeDocTypeEventListener("Projects", f);\n`)).toBe(
       `// useDocTypeEventListener("Projects", f);\n`,
