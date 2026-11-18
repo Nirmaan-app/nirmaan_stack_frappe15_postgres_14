@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { urlStateManager } from "@/utils/urlStateManager";
 
-import { BY_ME_VIEW_PARAM, BY_ME_VIEWS, ByMeView, parseByMeView } from "../config/approvalsTable.config";
+import { BY_ME_VIEW_PARAM, BY_ME_VIEWS, ByMeView, parseByMeView } from "../config/byMeViews.config";
 
 /**
  * The open view of "Payment Raised By Me" (All / Paid / Rejected), kept in the page's `?by_me_view=` param so a

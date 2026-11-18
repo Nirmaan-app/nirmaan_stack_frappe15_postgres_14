@@ -870,10 +870,11 @@ export function useServerDataTable<TData extends { name: string }>({
         manualPagination: !isClientSideMode,
         manualSorting: !isClientSideMode,
         manualFiltering: !isClientSideMode, // We handle filtering via API call
-        // Page count calculation
-        pageCount: isClientSideMode
-            ? Math.ceil(totalCount / pagination.pageSize) // Use totalCount for client mode
-            : (totalCount > 0 ? Math.ceil(totalCount / pagination.pageSize) : -1), // -1 or server calculated for server mode
+        // Page count from totalCount (the server's total, or clientTotalCount / clientData's length in client mode).
+        // Never -1: TanStack reads -1 as "count unknown" and enables Next / Last,
+        // so an empty table showed "Page 0 of -1" and Last jumped to page index -2. Empty is 0 pages; while loading,
+        // the pager's buttons are already disabled.
+        pageCount: Math.ceil(totalCount / pagination.pageSize),
         // State managed by the hook
         state: {
             pagination,
