@@ -612,7 +612,11 @@ def disable_comments_found() -> dict[str, dict]:
     """D1's counts over frontend/src, in oxlint's suppressions shape, keyed by paths relative to frontend/.
 
     Raises JsonCallParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
-    sources = {p.relative_to(REPO_ROOT / "frontend").as_posix(): read(p) for p in iter_files("frontend/src", (".ts", ".tsx"))}
+    sources = {}
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        src = read(p)
+        if "-disable" in src:  # a file without the text holds no directive; the parser is the slow part
+            sources[p.relative_to(REPO_ROOT / "frontend").as_posix()] = src
     rules = adr0049_rules(parse_jsonc(read(REPO_ROOT / CONFIG)))
     return disable_counts(disable_comment_texts(sources), rules)
 
