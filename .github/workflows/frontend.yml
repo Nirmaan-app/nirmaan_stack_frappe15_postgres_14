@@ -53,7 +53,9 @@ jobs:
 
       # The eight residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
       # ADR-0010's two (B1, B3) stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails. After Install: J1 and D1 parse with frontend/node_modules/typescript.
+      # passes, a count that rose fails. J1 and D1 hold per file against their frozen files instead: a file over or
+      # under its frozen count fails, so a count that fell fails until the change lowers it. After Install: J1 and D1
+      # parse with frontend/node_modules/typescript.
       - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments)
         working-directory: .
         run: python3 scripts/residence_check.py --check --only ci
