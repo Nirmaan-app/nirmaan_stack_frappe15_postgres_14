@@ -28,9 +28,10 @@ past imports by source and month.
   and the import's job creates its Expense (Cashbook marker, `payment_ref` = its Txn Id) with its bills as the
   invoice. Walked by `BIN/walk_cashbook_collect.py` (seed `BIN/cashbook_collect_seed.py`, DB read
   `BIN/cashbook_collect_db.py`), as an Accountant.
-- `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (wallet credits) and `N paired wallet
+- `bit-cashbook-refunds` a Cashbook Review lists `N paired wallet
   refunds …` (a refund giving back a whole Wallet Spend or Collect Payment on the same statement: both lines Skipped,
-  no Expense); after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
+  no Expense). A wallet credit is no longer an open line (#1720, `cashbook-credits.md`); a line unreconciled or
+  re-opened by hand sits on `Not Matched – Inflow` with `Choose`, which
   offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).
   The summary's `Received` counts them (all deposits, all undecided) and its counter matches the Inflow tab: a
   refund's raw status REFUNDED is money that moved, not a failed transfer (story 42).
@@ -40,7 +41,8 @@ past imports by source and month.
   (`N wallet refunds will be booked as minus expenses where their spends are booked`, each with `reduces <spend Txn
   Id> (<its Expense> | no Expense yet | created by this import)`, its ledger, project and type); the header
   (`N expense records`, ₹) counts the spends only. The job books it as a Paid Expense of minus its Credit on the
-  spend's Expense's ledger, project and type, else a Non Project Expense (type from its remark, else Petty Cash). It
+  spend's Expense's ledger, project and type, else where its remark places it (a project it names, else a Non Project
+  Expense typed from it, else Petty Cash; #1720). It
   reads green `−₹…` on Project / Non-Project Expenses -> Paid, has no Upload / Edit Inv on Payment Done (nor does a
   card refund), is not in Pending Invoices Upload -> Cashbook, and Unreconcile (Admin, Accountant Lead) on
   `Settled – Inflow` deletes it and reopens the line on `Not Matched – Inflow`.
