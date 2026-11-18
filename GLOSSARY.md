@@ -693,8 +693,14 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   (Spec #1654.)
 
 - **Finished file** — the file a finished background operation leaves for its owner (a TDS export, the handover
-  binder, a commission or bulk PDF download). Only that user can collect it, by the operation, for a day after it is
+  binder, a commission or bulk PDF download, a Snag List PDF). Only that user can collect it, by the operation, for a day after it is
   made; no link to it works for anyone else. *Avoid*: download token, temp file. (Spec #1654.)
+
+- **One at a time per user** — the rule that a user may have only one background operation of a given kind waiting
+  in the queue or running (a commission reports download, a handover binder, a Snag List PDF), so one user cannot
+  hold every worker. A second start of that kind is refused with words naming the one still being prepared; once that
+  one ends, however it ends, the user may start again. Different kinds do not hold each other back. *Avoid*: lock,
+  per-user lock. (Spec #1654, follow-up on #1663 and #1664, 2026-11-19.)
 
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
