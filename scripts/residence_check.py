@@ -18,8 +18,10 @@ Usage:
     python3 scripts/residence_check.py --init   # (re)generate the baseline file
     python3 scripts/residence_check.py          # check current tree against baseline
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
+    python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
+    python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
-Stdlib only; run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -364,7 +366,8 @@ def payment_sum_copies() -> list[str]:
     return [f"{rel}:{n}" for rel, n in sorted(found)]
 
 
-# --- Rules S1, A1, R1: what the code review kept finding by hand (retro of spec #1442) ----------
+# --- Rules S1, R1: what the code review kept finding by hand (retro of spec #1442) --------------
+# (A1, the `any` count, moved to the lint's no-explicit-any: ADR-0049; oxlint since #1699.)
 # Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
 
 def _hand_written(p: Path) -> bool:
@@ -389,29 +392,6 @@ def oversized_files() -> list[str]:
         if n > MAX_FILE_LINES:
             found.append(f"{p.relative_to(REPO_ROOT).as_posix()} ({n} lines)")
     return sorted(found)
-
-
-# `x: any`, `as any`, `any[]`, `Record<string, any>`. The lookaheads keep prose out ("Note: any value").
-_TS_EXPLICIT_ANY = (
-    re.compile(r":\s*any\b(?=\s*(?:[)\];,=|&>\[]|$))"),
-    re.compile(r"\bas\s+any\b(?=\s*(?:[)\];,.]|$))"),
-    re.compile(r"[<,]\s*any\s*(?=[>,\]])"),
-)
-
-
-def explicit_any_lines_ts(src: str) -> list[int]:
-    """1-based lines of a TS/TSX source that type something as `any`."""
-    return [i + 1 for i, line in enumerate(src.splitlines())
-            if not _is_comment_line(line) and any(p.search(line) for p in _TS_EXPLICIT_ANY)]
-
-
-def explicit_any_copies() -> list[str]:
-    found = []
-    for p in _source_files():
-        if p.suffix in (".ts", ".tsx"):
-            rel = p.relative_to(REPO_ROOT).as_posix()
-            found.extend(f"{rel}:{n}" for n in explicit_any_lines_ts(read(p)))
-    return found
 
 
 # A function that turns a number into "₹1,234" text. The homes stay; every other one is a copy.
@@ -473,6 +453,93 @@ def tds_added_to_amount_paid() -> list[str]:
     return sorted(found)
 
 
+# --- Rule J1: the `.json()` ban of ADR-0049 ----------------------------------------
+# `response.json()` returns `any`; parseJson(await response.text()) returns `unknown`. ESLint banned it with
+# no-restricted-syntax, which oxlint does not have (#1699), so it lives here. Its old calls are frozen per file in
+# JSON_CALL_SUPPRESSIONS, in oxlint's suppressions shape, so a new call fails even where another file loses one.
+
+JSON_CALL_SUPPRESSIONS = "frontend/json-call-suppressions.json"
+JSON_CALL_RULE = "no-json-call"
+# The ban's own home, and the generated shadcn/ui primitives the lint does not read either.
+JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui/")
+# J1's parser: TypeScript's own (frontend/scripts/json_calls.mjs), run by node with frontend/node_modules.
+JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
+
+
+class JsonCallParserError(RuntimeError):
+    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
+
+
+# Set by --hook: in a commit hook J1 warns and passes when its parser cannot run (a worktree with no
+# frontend/node_modules, a box with no node); CI and every other run still fail.
+J1_MAY_SKIP = False
+
+
+def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
+
+    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
+    """
+    try:
+        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
+                             capture_output=True, text=True, encoding="utf-8")
+    except OSError as e:
+        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
+    if run.returncode != 0:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
+                                  f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
+    try:
+        return json.loads(run.stdout)
+    except ValueError as e:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
+
+
+def json_call_count(src: str) -> int:
+    """The `.json()` calls in one TS source's code (not its comments or strings)."""
+    return json_call_counts({"source.ts": src})["source.ts"]
+
+
+def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
+
+    ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
+    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
+    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
+    """
+    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
+    out = []
+    for path in sorted(set(found) | set(allowed)):
+        now, was = found.get(path, 0), allowed.get(path, 0)
+        if now > was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
+        elif now < was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
+                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
+    return out
+
+
+def json_calls_unfrozen() -> list[str]:
+    """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
+
+    When the parser cannot run, that is J1's one finding, so the check fails and says why.
+    """
+    sources = {}
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if not rel.startswith(JSON_CALL_EXEMPT):
+            sources[rel.removeprefix("frontend/")] = read(p)
+    try:
+        found = {path: n for path, n in json_call_counts(sources).items() if n}
+    except JsonCallParserError as e:
+        if J1_MAY_SKIP:
+            print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
+            return []
+        return [f"J1 could not count .json() calls: {e}"]
+    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
+    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
+    return json_call_drift(found, frozen)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -484,6 +551,8 @@ class Check:
     measure: Callable[[], int]
     # Optional: each counted violation as `path:line`. Printed on failure, and for every check by --list.
     locate: Callable[[], list[str]] | None = None
+    # Set: the count must be at most this, whatever the baseline file says (a PR edits that file too).
+    pass_mark: int | None = None
 
 
 # b2: files containing the state literal, minus the predicate home and test files.
@@ -558,8 +627,11 @@ CHECKS: list[Check] = [
         description="Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
         route_hint="writes to shared docs should go through the write-safety seam (useEditingLock) — "
                    "extend it, don't add a raw updateDoc call (ADR-0010 rule F5).",
+        # src/lib/frappe.ts re-exports the SDK hooks with typed defaults (ADR-0049): it names the hook and
+        # writes nothing, so it is not a write site.
         measure=lambda: count_files(
-            iter_files("frontend/src", (".ts", ".tsx")),
+            [p for p in iter_files("frontend/src", (".ts", ".tsx"))
+             if p != REPO_ROOT / "frontend/src/lib/frappe.ts"],
             re.compile(r"useFrappeUpdateDoc|updateDoc\("),
         ),
     ),
@@ -612,7 +684,7 @@ CHECKS: list[Check] = [
         measure=lambda: len(payment_sum_copies()),
         locate=payment_sum_copies,
     ),
-    # The three below are not ADR-0010 rules: they are review findings a script can make, so a change
+    # The two below are not ADR-0010 rules: they are review findings a script can make, so a change
     # meets them at commit time instead of in review (.githooks/pre-commit runs this file).
     Check(
         id="s1_oversized_files",
@@ -622,15 +694,6 @@ CHECKS: list[Check] = [
                    "(CODING_STANDARDS.md § Where code goes, File size).",
         measure=lambda: len(oversized_files()),
         locate=oversized_files,
-    ),
-    Check(
-        id="a1_explicit_any",
-        rule="A1",
-        description="Frontend lines (not tests or components/ui) that type something as `any`.",
-        route_hint="type unknown data as `unknown` and narrow it; `catch (err: unknown)` "
-                   "(frontend/CODING_STANDARDS.md § Writing TypeScript and styling).",
-        measure=lambda: len(explicit_any_copies()),
-        locate=explicit_any_copies,
     ),
     Check(
         id="r1_rupee_formatters",
@@ -652,6 +715,19 @@ CHECKS: list[Check] = [
                    "(api/payments/work_order_tds.get_work_order_tds: withheld, company).",
         measure=lambda: len(tds_added_to_amount_paid()),
         locate=tds_added_to_amount_paid,
+    ),
+    # ADR-0049's `.json()` ban (#1699), here because oxlint has no no-restricted-syntax. Baseline 0 for good: the
+    # old calls are frozen per file in JSON_CALL_SUPPRESSIONS (the ratchet check guards it), and any file off its
+    # frozen count fails. Its pass mark is 0, not the baseline file's entry, which a PR could raise.
+    Check(
+        id="j1_json_calls_unfrozen",
+        rule="J1",
+        description=f"Frontend files whose .json() calls differ from their frozen count in {JSON_CALL_SUPPRESSIONS}.",
+        route_hint="a new call: use parseJson(await response.text()) from '@/lib/parseJson' (ADR-0049); "
+                   f"fewer calls: lower that file's count in {JSON_CALL_SUPPRESSIONS} (remove it at 0).",
+        measure=lambda: len(json_calls_unfrozen()),
+        locate=json_calls_unfrozen,
+        pass_mark=0,
     ),
 ]
 
@@ -722,8 +798,8 @@ def measure_all() -> dict[str, dict]:
     }
 
 
-def write_baseline(data: dict[str, dict]) -> None:
-    BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def write_baseline(data: dict[str, dict], path: Path = BASELINE_PATH) -> None:
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def do_init() -> int:
@@ -735,21 +811,38 @@ def do_init() -> int:
     return 0
 
 
-def do_check(list_all: bool = False) -> int:
-    if not BASELINE_PATH.exists():
-        print(f"No baseline at {BASELINE_PATH} — run with --init first.", file=sys.stderr)
+# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
+# (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
+
+
+def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
+    """The checks a name list picks: each name is a check id or a rule id (a rule picks all its checks).
+    Raises ValueError naming the names that match no check."""
+    unknown = [n for n in names if not any(n in (c.id, c.rule) for c in checks)]
+    if unknown:
+        raise ValueError(", ".join(unknown))
+    return [c for c in checks if c.id in names or c.rule in names]
+
+
+def do_check(checks: list[Check], baseline_path: Path, list_all: bool = False, tighten: bool = True) -> int:
+    if not baseline_path.exists():
+        print(f"No baseline at {baseline_path} — run with --init first.", file=sys.stderr)
         return 2
-    baseline = json.loads(read(BASELINE_PATH))
+    baseline = json.loads(read(baseline_path))
 
     failed = False
     rewrites: dict[str, int] = {}
-    for c in CHECKS:
+    for c in checks:
         where = c.locate() if c.locate else None
         current = len(where) if where is not None else c.measure()
-        base_count = baseline.get(c.id, {}).get("count", 0)
+        base_count = c.pass_mark if c.pass_mark is not None else baseline.get(c.id, {}).get("count", 0)
         verdict = compare(c.id, current, base_count)
         mark = "✓" if verdict.ok else "✗"
-        print(f"{mark} {c.id} (rule {c.rule}): current={current} baseline={base_count} — {verdict.message}")
+        message = verdict.message
+        if verdict.new_baseline is not None and not tighten:
+            message = f"debt retired ({base_count} -> {current}) — check-only, the baseline file is left as it is"
+        print(f"{mark} {c.id} (rule {c.rule}): current={current} baseline={base_count} — {message}")
         if not verdict.ok:
             failed = True
             print(f"    -> {c.route_hint}")
@@ -759,23 +852,48 @@ def do_check(list_all: bool = False) -> int:
         if verdict.new_baseline is not None:
             rewrites[c.id] = verdict.new_baseline
 
-    if rewrites:
+    if rewrites and tighten:
         for cid, new_count in rewrites.items():
             baseline[cid]["count"] = new_count
-        write_baseline(baseline)
+        write_baseline(baseline, baseline_path)
         print(f"Tightened baseline for: {', '.join(sorted(rewrites))}")
 
     return 1 if failed else 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None, checks: list[Check] | None = None,
+         baseline_path: Path = BASELINE_PATH) -> int:
     parser = argparse.ArgumentParser(description="ADR-0010 module-residence ratchet.")
     parser.add_argument("--init", action="store_true",
                         help="Measure all checks and (over)write the baseline file, then exit.")
     parser.add_argument("--list", action="store_true",
                         help="Also print each counted violation (path:line) of the checks that can locate them.")
-    args = parser.parse_args()
-    return do_init() if args.init else do_check(list_all=args.list)
+    parser.add_argument("--only", metavar="NAMES",
+                        help="Comma-separated check ids or rule ids (S1, P1, ...) to run instead of all checks; "
+                             f"'ci' names the checks CI runs ({','.join(CI_SUBSET)}).")
+    parser.add_argument("--check", action="store_true",
+                        help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
+    parser.add_argument("--hook", action="store_true",
+                        help="Run from a commit hook: J1 warns and passes when node or TypeScript cannot run.")
+    args = parser.parse_args(argv)
+    global J1_MAY_SKIP
+    J1_MAY_SKIP = args.hook
+    if args.init and args.only:
+        print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
+              file=sys.stderr)
+        return 2
+    if args.init:
+        return do_init()
+    checks = CHECKS if checks is None else checks
+    if args.only:
+        try:
+            names = [n.strip() for n in args.only.split(",") if n.strip()]
+            names = [x for n in names for x in (CI_SUBSET if n == "ci" else [n])]
+            checks = select_checks(checks, names)
+        except ValueError as e:
+            print(f"--only names no check: {e}", file=sys.stderr)
+            return 2
+    return do_check(checks, baseline_path, list_all=args.list, tighten=not args.check)
 
 
 if __name__ == "__main__":

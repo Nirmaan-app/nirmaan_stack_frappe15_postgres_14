@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { orderDetailPath, poLinkFor } from "./poRoute";
+import { orderDetailPath, orderPageHref, poLinkFor } from "./poRoute";
 
 const PO = "PO/123/00045/25-26";
 
@@ -45,5 +45,22 @@ describe("orderDetailPath", () => {
     expect(orderDetailPath("SR-00190-001071", "/reports")).toBe("/service-requests/SR-00190-001071?tab=approved-sr");
     expect(orderDetailPath("SR-00190-001071", "/projects/P1", "P1")).toBe("/service-requests/SR-00190-001071?tab=approved-sr");
     expect(orderDetailPath("SR-00190-001071", "/somewhere")).toBe("/project-payments/SR-00190-001071");
+  });
+});
+
+describe("orderPageHref (Raised By Me → Rejected's Open PO / Open WO)", () => {
+  it("opens a PO on its own page, the one with Transaction Details", () => {
+    expect(orderPageHref(PO, "Procurement Orders")).toBe("/purchase-orders/PO&=123&=00045&=25-26");
+  });
+
+  it("opens a WO on its approved view", () => {
+    expect(orderPageHref("SR-00190-001071", "Service Requests")).toBe("/service-requests/SR-00190-001071?tab=approved-sr");
+  });
+
+  it("gives no link for a row with no order (an expense) or an unknown parent", () => {
+    expect(orderPageHref("", "Procurement Orders")).toBeNull();
+    expect(orderPageHref(null, null)).toBeNull();
+    expect(orderPageHref(PO, "")).toBeNull();
+    expect(orderPageHref(PO, "Project Expenses")).toBeNull();
   });
 });

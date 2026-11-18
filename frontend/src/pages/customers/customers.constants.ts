@@ -1,9 +1,9 @@
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
-import { Customers as CustomersType } from "@/types/NirmaanStack/Customers";
+import { CustomersDocType } from "@/types/doctypes/Customers";
 
 export const CUSTOMER_DOCTYPE = 'Customers';
 
-export const CUSTOMER_LIST_FIELDS_TO_FETCH: (keyof CustomersType | 'name')[] = [
+export const CUSTOMER_LIST_FIELDS_TO_FETCH: (keyof CustomersDocType)[] = [
     'name', // Customer ID
     'company_name',
     'customer_nickname',

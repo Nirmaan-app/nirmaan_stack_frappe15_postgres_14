@@ -1,0 +1,90 @@
+{
+  // oxlint is the frontend's type ratchet (ADR-0049). Every rule here is an error; the violations that existed when a
+  // rule was switched on are frozen per file and per rule in oxlint-suppressions.json, so a new one fails `yarn lint`.
+  //
+  //   yarn lint                                  exit 1 on a new violation, or on a suppression no longer needed
+  //   yarn lint --prune-suppressions             after fixing old violations: lower their counts, then commit the file
+  //
+  // A rule joins one per change: add it here, then freeze its violations with `yarn lint --suppress-all` and check
+  // that the suppressions file grew by that rule only. oxlint reads the suppressions file from the folder it runs in,
+  // and resolves the globs below from this file's folder, so both live in frontend/.
+  //
+  // The `.json()` ban (ADR-0049) is not here: oxlint has no `no-restricted-syntax`, and its JS plugins are alpha. It
+  // is check J1 of scripts/residence_check.py.
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "react"],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  // shadcn/ui primitives are generated (root CODING_STANDARDS.md § Don't touch). src/types/doctypes/ is generated
+  // too, but by our own script, so it is linted: its output must hold the same rules.
+  "ignorePatterns": ["src/components/ui/**"],
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
+    "react/rules-of-hooks": "error",
+    // The SDK's hooks return `any` unless typed; src/lib/frappe.ts re-declares them to return `unknown`.
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "frappe-react-sdk",
+            "message": "Import SDK hooks and types from '@/lib/frappe': its hooks return `unknown` unless you pass a type (ADR-0049)."
+          }
+        ],
+        "patterns": [
+          {
+            "group": ["frappe-react-sdk/*"],
+            "message": "Import SDK hooks and types from '@/lib/frappe': its hooks return `unknown` unless you pass a type (ADR-0049)."
+          }
+        ]
+      }
+    ],
+    // JSON.parse returns `any`; parseJson() returns `unknown`.
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "JSON",
+        "property": "parse",
+        "message": "Use parseJson() from '@/lib/parseJson' (it returns `unknown`); for a fetch response, parseJson(await response.text()) (ADR-0049)."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      // Folders moved to the typed path (ADR-0049): the `no-unsafe-*` rules are on, with no suppressions. A folder
+      // joins this list in the change that moves it; the list goes when the rules are on for all of src/.
+      // scripts/lint_same_twice.mjs --whole-tree reads this block's rules.
+      "files": ["src/pages/customers/**/*.{ts,tsx}", "src/utils/customers/**/*.{ts,tsx}"],
+      "rules": {
+        "typescript/no-unsafe-argument": "error",
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-call": "error",
+        "typescript/no-unsafe-declaration-merging": "error",
+        "typescript/no-unsafe-enum-assignment": "error",
+        "typescript/no-unsafe-enum-comparison": "error",
+        "typescript/no-unsafe-function-type": "error",
+        "typescript/no-unsafe-member-access": "error",
+        "typescript/no-unsafe-return": "error",
+        "typescript/no-unsafe-type-assertion": "error",
+        "typescript/no-unsafe-unary-minus": "error"
+      }
+    },
+    {
+      // The two homes the bans above point to, and the test that checks the SDK module against the SDK itself.
+      "files": ["src/lib/frappe.ts", "src/lib/frappe.test.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      "files": ["src/lib/parseJson.ts"],
+      "rules": { "no-restricted-properties": "off" }
+    }
+  ]
+}

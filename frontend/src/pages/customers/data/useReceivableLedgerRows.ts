@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import Fuse from "fuse.js";
-import type { Row } from "@tanstack/react-table";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
 import { dateFilterFn } from "@/utils/tableFilters";
@@ -36,10 +35,7 @@ export const buildReceivableLedger = (
   let rows: CustomerLedgerTransaction[] = [...(transactions || [])];
 
   if (dateFilter?.value) {
-    rows = rows.filter(item => {
-      const mockRow = { getValue: (columnId: string) => item[columnId as keyof CustomerLedgerTransaction] };
-      return dateFilterFn(mockRow as unknown as Row<CustomerLedgerTransaction>, 'date', dateFilter, () => { });
-    });
+    rows = rows.filter(item => dateFilterFn({ getValue: () => item.date }, 'date', dateFilter));
   }
   if (searchTerm.trim()) {
     const fuse = new Fuse(rows, { keys: [...searchKeys], threshold: 0.3 });

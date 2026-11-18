@@ -1,8 +1,8 @@
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Customers } from "@/types/NirmaanStack/Customers";
-import { useFrappeDocumentEventListener, useFrappeGetDoc } from "frappe-react-sdk";
+import { CustomersDocType } from "@/types/doctypes/Customers";
+import { useFrappeDocumentEventListener, useFrappeGetDoc } from "@/lib/frappe";
 import { BookOpen, FilePenLine, LayoutDashboard } from "lucide-react";
 // Financials tab temporarily disabled: import { Receipt } from "lucide-react";
 import React, { Suspense, useCallback, useState } from "react";
@@ -19,9 +19,13 @@ const CustomerLedger = React.lazy(() => import("./components/CustomerLedger"));
 // const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
 
 export const Customer : React.FC = () => {
-
   const { customerId } = useParams<{ customerId: string }>();
   if(!customerId) return <div>No Customer ID Provided</div>
+  return <CustomerPage customerId={customerId} />
+};
+
+// The page itself, rendered only with a customer ID, so its hooks run on every render (rules of hooks).
+const CustomerPage : React.FC<{ customerId: string }> = ({ customerId }) => {
   // const [searchParams] = useSearchParams(); 
 
   const [mainTab, setMainTab] = useStateSyncedWithParams<string>("main", "overview") // Default to overview if not specified
@@ -44,7 +48,7 @@ export const Customer : React.FC = () => {
     setEditSheetOpen((prevState) => !prevState);
   }, [setEditSheetOpen]);
 
-  const { data, isLoading, error, mutate } = useFrappeGetDoc<Customers>("Customers", customerId,`Customers ${customerId}`,
+  const { data, isLoading, error, mutate } = useFrappeGetDoc<CustomersDocType>("Customers", customerId,`Customers ${customerId}`,
     {
       revalidateIfStale: false,
     }

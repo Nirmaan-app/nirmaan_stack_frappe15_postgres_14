@@ -61,7 +61,7 @@ DEVENV up                                              # once per checkout; the 
 DEVENV test --module nirmaan_stack.api.outflow_import.test_cashbook_one_expense_race   # about 10 s
 ```
 
-`DEVENV` is the dev-env script named in the local `CLAUDE.md`. `run.sh` downloads FizzBee v0.5.4 once
+`DEVENV` is `scripts/devenv/devenv.sh`, run from the checkout root (as in the `verify` skill). `run.sh` downloads FizzBee v0.5.4 once
 (checked by SHA-256) into `~/.cache/fizzbee/`, needs `curl` and `python3`, and writes nothing in the repo.
 `run.sh phase1 before_1585` runs only the named configs. The configs run in parallel, so the run lasts as long
 as `phase1`: about 4 minutes on an Apple-silicon Mac, about 15 on contabo. Run it in the background.

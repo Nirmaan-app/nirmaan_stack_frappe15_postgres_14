@@ -44,7 +44,6 @@ src/
 └── constants/roles.ts            # shared role-profile lists
 ```
 
-- `src/pages/Retired Components/` holds old implementations, kept for reference only; build new work elsewhere.
 - Page table configs go in the page's `config/*.config.ts`.
 - Vendor reads and writes go through `src/pages/vendors/data/` (`useVendorQueries.ts`, `useVendorMutations.ts`),
   which capture API errors to Sentry.
@@ -87,9 +86,20 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
 
 ## Fetching or mutating data
 
-- **Read and write through `frappe-react-sdk`:** `useFrappeGetDocList`, `useFrappeGetDoc`,
-  `useFrappePostCall`. Call a backend mutation as
-  `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`.
+- **Read and write through `frappe-react-sdk`, imported from `@/lib/frappe`:** `useFrappeGetDocList`,
+  `useFrappeGetDoc`, `useFrappePostCall`. Call a backend mutation as
+  `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
+  that each hook's type defaults to `unknown` instead of `any`: pass the generated DocType type
+  (`useFrappeGetDoc<CustomersDocType>(…)`, with `CustomersDocType` from `@/types/doctypes/Customers` and the hook
+  from `@/lib/frappe`, as `pages/customers/` does) or narrow the result. oxlint bans importing `frappe-react-sdk`
+  anywhere else (ADR-0049); files that did before are frozen in `oxlint-suppressions.json` and move over folder
+  by folder. A folder's move starts with `node scripts/migrate_folder_to_typed.mjs <folder> [--dry-run]` (the
+  imports, `JSON.parse`, `.json()`, `catch (e: any)`); the folder then joins the `no-unsafe-*` block in
+  `.oxlintrc.json`.
+- **Parse JSON text with `parseJson()`** (`src/lib/parseJson.ts`), which returns `unknown` and otherwise behaves as
+  `JSON.parse` (invalid JSON or `""` throws a `SyntaxError`). oxlint bans raw `JSON.parse`, and residence check J1
+  bans new `.json()` calls (old ones are frozen per file in `json-call-suppressions.json`); for a fetch response use
+  `parseJson(await response.text())`.
 - **`useFrappeGetDoc`'s third argument is the SWR key, not options.** Fetch conditionally with
   `useFrappeGetDoc(doctype, id, id ? undefined : null)`; passing `{ enabled: !!id }` there becomes the cache
   key and breaks SWR deduplication. The same `swrKey` slot sits third on `useFrappeGetDocList`.
@@ -220,6 +230,8 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
 - Define an interface for component props. Shared types go in `src/types/`, component-specific ones in the
   component's file.
 - Type unknown data as `unknown`, then narrow it — `any` switches the checker off.
+- Typing an `any` is an enhancement, whoever wrote it: type it in place, in the change that finds it, without
+  asking its author first (owner, 2026-11-17).
 - Add JSDoc comments to exported functions and interfaces.
 - Style with Tailwind utilities and the theme variables in `tailwind.config.js`.
 
