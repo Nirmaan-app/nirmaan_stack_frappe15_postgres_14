@@ -540,6 +540,82 @@ def json_calls_unfrozen() -> list[str]:
     return json_call_drift(found, frozen)
 
 
+# --- Rule N1: no counted names on doctypes background operations write (ADR-0048, #1661) ------------------
+# A counted name takes the next number from one `tabSeries` row under SELECT ... FOR UPDATE; two overlapping
+# transactions that take one fail with SerializationFailure (REPEATABLE READ). These doctypes are written by
+# background operations, so they are named `hash`.
+
+DOCTYPE_DIR = REPO_ROOT / "nirmaan_stack/nirmaan_stack/doctype"
+BACKGROUND_WRITTEN_DOCTYPES = [
+    "BoQ Review Row", "BoQ Row Category",                  # #1656
+    "BoQ Rate Suggestion Run", "BoQ Rate Match Run",       # #1657
+    "BoQ Cell Pricing", "Project Action Item",             # #1658
+    "Outflow Row Match", "Expense Bill", "Nirmaan Attachments",  # #1719
+]
+# The listed doctypes not switched yet, each with the ticket that switches it. It only shrinks: a doctype that
+# switched fails until it leaves this list, and a new entry is a review question.
+COUNTED_NAME_WAITING: dict[str, str] = {}
+
+_COUNTING_CALLS = {"getseries", "make_autoname"}
+
+
+def autoname_counts(autoname: str) -> bool:
+    """Does a doctype's `autoname` take a number from tabSeries? Frappe's `set_name_from_naming_options`:
+    `naming_series:` always counts, and `format:` or a plain pattern counts when it holds `#`. Everything else
+    takes no number: `hash`, empty (hash), `UUID`, `autoincrement` (a DB sequence, no row lock), `field:`, `Prompt`."""
+    lowered = autoname.strip().lower()
+    if lowered.startswith("naming_series:"):
+        return True
+    return "#" in lowered and not lowered.startswith(("field:", "prompt"))
+
+
+def counting_call_lines(src: str) -> list[int]:
+    """1-based lines of a controller's code that call `getseries` or `make_autoname` with anything but the
+    literal "hash" (comments and docstrings are not code). Either call takes a number from tabSeries."""
+    lines = []
+    for n in ast.walk(ast.parse(src)):
+        if not isinstance(n, ast.Call):
+            continue
+        name = n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", None)
+        if name not in _COUNTING_CALLS:
+            continue
+        first = n.args[0] if n.args else None
+        if name == "make_autoname" and isinstance(first, ast.Constant) and first.value == "hash":
+            continue
+        lines.append(n.lineno)
+    return sorted(lines)
+
+
+def counted_names_on_background_doctypes(doctype_dir: Path, doctypes: list[str],
+                                         waiting: dict[str, str]) -> list[str]:
+    """Each listed doctype that takes a counted name (its JSON `autoname`, or its controller `<scrub>.py`), one
+    line each, skipping the ones in ``waiting``; and each ``waiting`` doctype that no longer counts (it must
+    leave the waiting list). A listed doctype with no folder is a finding too (renamed: update the list)."""
+    found = []
+    for doctype in doctypes:
+        scrub = doctype.lower().replace(" ", "_")
+        spec, controller = doctype_dir / scrub / f"{scrub}.json", doctype_dir / scrub / f"{scrub}.py"
+        if not spec.exists():
+            found.append(f"{doctype}: no {scrub}/{scrub}.json (renamed? update BACKGROUND_WRITTEN_DOCTYPES)")
+            continue
+        where = []
+        autoname = json.loads(read(spec)).get("autoname") or ""
+        if autoname_counts(autoname):
+            where.append(f"{doctype}: autoname {autoname!r} in {scrub}/{scrub}.json")
+        if controller.exists():
+            where.extend(f"{doctype}: counted name at {scrub}/{scrub}.py:{n}" for n in counting_call_lines(read(controller)))
+        if doctype in waiting:
+            if not where:
+                found.append(f"{doctype}: no longer counted, remove it from COUNTED_NAME_WAITING ({waiting[doctype]})")
+            continue
+        found.extend(where)
+    return found
+
+
+def counted_names() -> list[str]:
+    return counted_names_on_background_doctypes(DOCTYPE_DIR, BACKGROUND_WRITTEN_DOCTYPES, COUNTED_NAME_WAITING)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -729,6 +805,20 @@ CHECKS: list[Check] = [
         locate=json_calls_unfrozen,
         pass_mark=0,
     ),
+    # ADR-0048 (#1661): the doctypes not yet switched wait in COUNTED_NAME_WAITING, by name, so the pass mark is 0
+    # and a doctype switched back to a counted name fails even where another one switches.
+    Check(
+        id="n1_counted_names_on_background_doctypes",
+        rule="N1",
+        description="Doctypes in BACKGROUND_WRITTEN_DOCTYPES that take a counted name (a tabSeries number from the "
+                    "doctype's autoname or its controller's getseries / make_autoname) and are not in "
+                    "COUNTED_NAME_WAITING.",
+        route_hint="name it `hash` (Naming Rule Random) through the DocType form, never by hand (ADR-0048); a user-seen "
+                   "number keeps its counter behind a session lock per series instead (BoQ numbers, #1659).",
+        measure=lambda: len(counted_names()),
+        locate=counted_names,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -813,7 +903,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "N1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
