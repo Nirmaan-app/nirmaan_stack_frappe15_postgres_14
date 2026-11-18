@@ -140,6 +140,8 @@ const TIER_CLASSES: Record<ApprovalQueueRow["tier"], string> = {
   auto: "bg-green-100 text-green-800",
   l1: "bg-amber-100 text-amber-800",
   l1_l2: "bg-red-100 text-red-800",
+  // An Expense an import created (#1710): no approval level, so no colour of one.
+  system: "bg-gray-100 text-gray-700",
 };
 
 const TierChip = ({ tier }: { tier: ApprovalQueueRow["tier"] }) => (
