@@ -85,12 +85,12 @@ class InvoiceCounts:
 
 
 def invoice_counts(plan: CashbookPlan) -> InvoiceCounts:
-    """Count the spends `plan` creates by their bill links; a *Wallet refund expense* needs no bill (#1709).
+    """Count the spends `plan` creates by their bill links; a refund or credit expense needs no bill (#1709, #1720).
     `plan.split.kept` and `plan.rows` are the same lines in the same order (`CashbookPlan`)."""
     links = [
         len(getattr(kept.row, "bill_links", ()) or ())
         for kept, planned in zip(plan.split.kept, plan.rows, strict=True)
-        if planned.creates and not planned.refunds
+        if planned.creates and not planned.money_in
     ]
     return InvoiceCounts(
         one_file=sum(1 for n in links if n == 1),
@@ -178,24 +178,22 @@ def preview_payload(
         "pairs": [
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
-        # #1594: the lines that will stay open on the main table (wallet credits; an unpaired refund is a
-        # Wallet refund expense since #1709, under `refunds`). A Collect
-        # payment is created like any spend since #1708, so it is listed in `groups`.
+        # #1594: the lines that will stay open on the main table. None since #1720: an unpaired refund (#1709) is under
+        # `refunds`, a wallet credit under `credits`, a Collect payment (#1708) in `groups`.
         "open_lines": [_preview_line(row) for row in plan.opening],
         # #1709 (ADR-0015 Amendment D): each unpaired refund, booked at minus its Credit where its spend is booked, with
         # the spend it reduces (`refund_of`, its Txn Id; `reduces`, its existing Expense, blank when it has none yet).
         "refunds": [
             {
-                **_preview_line(row),
+                **_money_in_line(row),
                 "refund_of": row.refund_of,
                 "reduces": row.reduces,
                 "spend_on_statement": row.spend_on_statement,
-                "ledger": row.ledger,
-                "project_name": row.project_name or row.project or "",
-                "expense_type": row.expense_type,
             }
             for row in plan.refunding
         ],
+        # #1720 (ADR-0015 Amendment E): each Wallet Credit, booked at minus its Credit where its remark places it.
+        "credits": [_money_in_line(row) for row in plan.crediting],
         # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
         # with the import that holds it. Each is also listed above under what it becomes.
         "reopened": [
@@ -214,6 +212,16 @@ def _becomes(row: PlannedRow) -> str:
     if row.creates:
         return "created"
     return "open" if row.opens else "paired"
+
+
+def _money_in_line(row: PlannedRow) -> dict:
+    """A refund or credit the plan books at minus its Credit, with where it goes (#1709, #1720)."""
+    return {
+        **_preview_line(row),
+        "ledger": row.ledger,
+        "project_name": row.project_name or row.project or "",
+        "expense_type": row.expense_type,
+    }
 
 
 def _preview_line(row) -> dict:

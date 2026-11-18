@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_OPEN, ACTION_SKIP, SKIP_ALREADY_BOOKED
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_SKIP, SKIP_ALREADY_BOOKED
 from nirmaan_stack.services.outflow_import.cashbook_refund_expense import (
     RefundPlacement,
     SpendExpense,
@@ -39,6 +39,7 @@ PROJECT_LEDGER = "Project Expenses"
 NON_PROJECT_LEDGER = "Non Project Expenses"
 SPEND = "OBO1781597449301W2WH9D"
 REFUND = "REF-" + SPEND
+NO_PROJECTS = build_project_index([])
 
 
 def _plan(rows, spends=None, booked=None):
@@ -92,9 +93,9 @@ class TestAnUnpairedRefundBooksOnItsSpendsExpense(unittest.TestCase):
         self.assertEqual((refund.ledger, refund.expense_type, refund.reduces), (NON_PROJECT_LEDGER, "Travel Expenses", "9surl50t7h"))
 
     def test_a_refund_whose_spend_has_no_expense_is_a_non_project_expense_typed_from_its_remark(self):
-        refund = _line(_plan([_refund(remarks="Refund for business card printing Telus GIFT City")]), REFUND)
+        # A remark that names a project puts it on that project since #1720 (`test_cashbook_wallet_credit`).
+        refund = _line(_plan([_refund(remarks="Refund for business card printing")]), REFUND)
         self.assertEqual(refund.action, ACTION_CREATE)
-        # Never on a project, though its remark names one (owner decision 2).
         self.assertEqual((refund.ledger, refund.project, refund.expense_type), (NON_PROJECT_LEDGER, None, "Printing & Stationery"))
         self.assertEqual((refund.refund_of, refund.reduces, refund.spend_on_statement), (SPEND, "", False))
 
@@ -110,10 +111,6 @@ class TestWhatStaysAsItWas(unittest.TestCase):
         plan = _plan([spend, _refund()], {SPEND: SpendExpense(NON_PROJECT_LEDGER, "X", None, "", "Petty Cash")})
         for line in plan.rows:
             self.assertEqual((line.action, line.skip_kind), (ACTION_SKIP, SKIP_KIND_CASHBOOK_REFUND_PAIR))
-
-    def test_a_wallet_credit_stays_open(self):
-        credit = _row(transfer_id="PTM9", amount="0", credit="9000", kind="Wallet Credit")
-        self.assertEqual(_plan([credit]).rows[0].action, ACTION_OPEN)
 
     def test_a_refund_already_booked_as_its_negative_expense_is_skipped(self):
         booked = _sightings((REFUND, "-11248", date(2026, 6, 22), "Non Project Expenses NPE-9"))
@@ -164,17 +161,17 @@ class TestThePlacementHasOneShape(unittest.TestCase):
     RULES = {"Non Project": (("flight", "Travel Expenses"),)}
 
     def test_booked_planned_and_neither_each_fill_every_field(self):
-        booked = refund_placement(REFUND, "", SpendExpense(PROJECT_LEDGER, "PE-1", "P-1", "Telus", "Tools"), None, {})
+        booked = refund_placement(REFUND, "", SpendExpense(PROJECT_LEDGER, "PE-1", "P-1", "Telus", "Tools"), None, NO_PROJECTS, {})
         self.assertEqual(
             booked, RefundPlacement(PROJECT_LEDGER, "P-1", "Telus", "Tools", "", SPEND, "PE-1", False)
         )
         planned = {"ledger": NON_PROJECT_LEDGER, "project": None, "project_name": "", "expense_type": "Petty Cash"}
         self.assertEqual(
-            refund_placement(REFUND, "", None, planned, {}),
+            refund_placement(REFUND, "", None, planned, NO_PROJECTS, {}),
             RefundPlacement(NON_PROJECT_LEDGER, None, "", "Petty Cash", "", SPEND, "", True),
         )
         self.assertEqual(
-            refund_placement("CRADJ-7", "flight refund", None, None, self.RULES),
+            refund_placement("CRADJ-7", "flight refund", None, None, NO_PROJECTS, self.RULES),
             RefundPlacement(NON_PROJECT_LEDGER, None, "", "Travel Expenses", "flight", "", "", False),
         )
 

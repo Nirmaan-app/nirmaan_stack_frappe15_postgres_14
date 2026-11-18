@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook_placement import FALLBACK_EXPENSE_TYPE
+from nirmaan_stack.services.outflow_import.cashbook_refunds import WALLET_CREDIT_ROW_KIND
 from nirmaan_stack.services.outflow_import.cashbook_reopen import EarlierWrongSkip
 from nirmaan_stack.services.outflow_import.internal_transfers import CashbookMove
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
@@ -80,10 +81,20 @@ class PlannedRow:
         return self.action == ACTION_OPEN
 
     @property
-    def refunds(self) -> bool:
-        """A *Wallet refund expense* (#1709): a refund the plan creates, at minus its Credit. Every other line the plan
-        creates is a spend."""
+    def money_in(self) -> bool:
+        """A line the plan creates at minus its Credit, needing no bill: a *Wallet refund expense* (#1709) or a
+        *Wallet credit expense* (#1720). Every other line the plan creates is a spend."""
         return self.creates and self.direction == DIRECTION_CREDIT
+
+    @property
+    def refunds(self) -> bool:
+        """A *Wallet refund expense* (#1709)."""
+        return self.money_in and self.row_kind != WALLET_CREDIT_ROW_KIND
+
+    @property
+    def credits(self) -> bool:
+        """A *Wallet credit expense* (#1720): a Wallet Credit, money paid into the wallet from outside."""
+        return self.money_in and self.row_kind == WALLET_CREDIT_ROW_KIND
 
     @property
     def is_fallback_type(self) -> bool:
@@ -108,13 +119,18 @@ class CashbookPlan:
 
     @property
     def spending(self) -> tuple[PlannedRow, ...]:
-        """The spends to create: every created line but a *Wallet refund expense* (#1709)."""
-        return tuple(row for row in self.creating if not row.refunds)
+        """The spends to create: every created line but the money in (#1709, #1720)."""
+        return tuple(row for row in self.creating if not row.money_in)
 
     @property
     def refunding(self) -> tuple[PlannedRow, ...]:
         """The *Wallet refund expenses* to create (#1709), in file order. Review lists them apart from the spends."""
         return tuple(row for row in self.creating if row.refunds)
+
+    @property
+    def crediting(self) -> tuple[PlannedRow, ...]:
+        """The *Wallet credit expenses* to create (#1720), in file order. Review lists them in their own group."""
+        return tuple(row for row in self.creating if row.credits)
 
     @property
     def skipping(self) -> tuple[PlannedRow, ...]:
@@ -127,7 +143,7 @@ class CashbookPlan:
 
     @property
     def opening(self) -> tuple[PlannedRow, ...]:
-        """The open lines (#1594): the wallet credits, in file order (an unpaired refund creates since #1709)."""
+        """The open lines (#1594). Empty since #1720: an unpaired refund (#1709) and a wallet credit (#1720) create."""
         return tuple(row for row in self.rows if row.opens)
 
     @property
@@ -137,9 +153,9 @@ class CashbookPlan:
 
     @property
     def total_value(self) -> Decimal:
-        """What the spends add up to. A refund is not in it (#1709): Review lists the refunds apart."""
+        """What the spends add up to. A refund or a credit is not in it (#1709, #1720): Review lists them apart."""
         return sum((row.amount for row in self.spending), Decimal("0"))
 
     def for_ledger(self, ledger: str) -> tuple[PlannedRow, ...]:
-        """The spends `ledger` gets (Review's groups); refunds are listed apart (#1709)."""
+        """The spends `ledger` gets (Review's groups); refunds and credits are listed apart (#1709, #1720)."""
         return tuple(row for row in self.spending if row.ledger == ledger)

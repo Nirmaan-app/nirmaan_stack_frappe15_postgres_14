@@ -17,9 +17,7 @@ from pathlib import Path
 
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
-    ACTION_OPEN,
     ACTION_SKIP,
-    OPEN_WALLET_CREDIT,
     SKIP_NOT_A_SPEND,
     SKIP_NOT_SUCCESSFUL,
     SKIP_PAIRED_REFUND,
@@ -98,17 +96,18 @@ class TestTheFixturesOpenLines(unittest.TestCase):
         refund = _by_id(self.plan, EARLIER_REFUND)
         self.assertEqual((refund.action, refund.refunds, refund.amount), (ACTION_CREATE, True, Decimal("640")))
 
-    def test_the_wallet_credit_is_an_open_line_with_its_credit_amount(self):
+    def test_the_wallet_credit_is_a_wallet_credit_expense_with_its_credit_amount(self):
+        """CHANGED AT #1720: a Wallet Credit is created at minus its Credit, no longer an open line."""
         credit = _by_id(self.plan, WALLET_CREDIT)
-        self.assertEqual((credit.action, credit.skip_kind, credit.reason), (ACTION_OPEN, None, OPEN_WALLET_CREDIT))
+        self.assertEqual((credit.action, credit.skip_kind, credit.reason), (ACTION_CREATE, None, ""))
         self.assertEqual((credit.amount, credit.direction), (Decimal("9000"), DIRECTION_CREDIT))
 
-    def test_the_only_open_line_is_the_wallet_credit(self):
-        self.assertEqual([r.transfer_id for r in self.plan.opening], [WALLET_CREDIT])
+    def test_no_line_stays_open_and_refunds_and_credits_are_listed_apart(self):
+        self.assertEqual(self.plan.opening, ())
         self.assertEqual(
             [r.transfer_id for r in self.plan.refunding], ["REF-" + PART_SPEND, EARLIER_REFUND]
         )
-        self.assertFalse(set(self.plan.opening) & set(self.plan.skipping))
+        self.assertEqual([r.transfer_id for r in self.plan.crediting], [WALLET_CREDIT])
 
     def test_internal_movements_are_internal_transfers(self):
         """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped as own
@@ -168,7 +167,8 @@ class TestThePairingRule(unittest.TestCase):
 
     def test_a_wallet_credit_never_pairs(self):
         plan = _plan([self._spend(), _row(2, "REF-OBO1", "0", kind="Wallet Credit", credit="500")])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, ACTION_OPEN])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE, ACTION_CREATE])
+        self.assertEqual(plan.pairs, ())
 
     def test_a_refund_with_no_credit_is_skipped_rather_than_opened(self):
         row = _plan([self._refund(credit="0")]).rows[0]

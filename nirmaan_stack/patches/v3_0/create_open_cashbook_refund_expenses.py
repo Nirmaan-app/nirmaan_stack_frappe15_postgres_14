@@ -14,8 +14,8 @@ WHICH LINES
 
 WHAT EACH GETS
     Its placement as the import plans one today (`cashbook_refund_expense.refund_placement`): the spend's Expense as
-    it is now when it has one (`cashbook_refund_spends.spend_expenses`), else a Non Project Expense typed from the
-    refund's remark. `cashbook_open_lines.create_open_lines` then writes its Expense exactly as the job does, in the
+    it is now when it has one (`cashbook_refund_spends.spend_expenses`), else placed from the refund's remark the way a
+    spend is (on a project when it names one, #1720 decision 3). `cashbook_open_lines.create_open_lines` then writes its Expense exactly as the job does, in the
     name of the person who uploaded its import. A refund whose negative Expense is already booked (its Txn Id at minus
     its Credit, `cashbook_open_lines.booked_holder`) is left open and counted.
 
@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from nirmaan_stack.api.outflow_import.cashbook import project_index
 from nirmaan_stack.api.outflow_import.cashbook_open_lines import (
     CreateReport,
     LinePlace,
@@ -47,11 +48,11 @@ def create_open_refund_expenses(lines: list[str] | None = None) -> CreateReport:
     """Book every open wallet refund line (`lines` scopes the run, for a test); return the counts."""
     refunds = open_lines(REFUND_ROW_KINDS, lines)
     spends = spend_expenses(refunded_spend_id(line.transfer_id) for line in refunds)
-    rules = load_expense_rules()
+    index, rules = project_index(), load_expense_rules()
 
     def place_of(line) -> LinePlace:
         place = refund_placement(
-            line.transfer_id, (line.remarks or "").strip(), spends.get(refunded_spend_id(line.transfer_id)), None, rules
+            line.transfer_id, (line.remarks or "").strip(), spends.get(refunded_spend_id(line.transfer_id)), None, index, rules
         )
         return LinePlace(place.ledger, place.project, place.expense_type)
 

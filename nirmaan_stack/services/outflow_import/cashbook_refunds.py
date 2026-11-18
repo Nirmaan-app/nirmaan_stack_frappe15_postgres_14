@@ -10,7 +10,7 @@ refund*, *Wallet credit*.
 A refund (Refund to Wallet, Credit Adjustment) names its spend as `REF-<Txn Id>`. It pairs with that spend only
 when the spend is on the same statement and the refund's Credit equals the spend's Debit exactly; both lines are
 then skipped, each naming the other. Any other refund is a *Wallet refund expense*
-(#1709, `cashbook_refund_expense`); every wallet credit is an open line.
+(#1709, `cashbook_refund_expense`); every wallet credit is a *Wallet credit expense* (#1720), placed from its remark.
 """
 
 from __future__ import annotations
@@ -42,8 +42,6 @@ SKIP_PAIRED_SPEND = (
     "Paired wallet refund: this spend is given back in full by the refund {partner} on this statement. "
     "Neither line becomes a record."
 )
-# What an open wallet credit says on the main table, as its note (#1594). Never a skip reason: the line is open.
-OPEN_WALLET_CREDIT = "Wallet credit: money paid into the wallet from outside. Decide what it is."
 
 
 def row_kind(raw) -> str:

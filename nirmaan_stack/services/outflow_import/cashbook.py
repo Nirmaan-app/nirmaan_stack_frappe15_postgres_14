@@ -62,7 +62,6 @@ from nirmaan_stack.services.outflow_import.cashbook_placement import (
 from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     COLLECT_ROW_KIND,
     CREDIT_ROW_KINDS,
-    OPEN_WALLET_CREDIT,
     REFUND_MOVED_STATUSES,
     REFUND_PREFIX,
     REFUND_ROW_KINDS,
@@ -111,7 +110,6 @@ __all__ = [
     "ACTION_INTERNAL",
     "SKIP_PAIRED_REFUND",
     "SKIP_PAIRED_SPEND",
-    "OPEN_WALLET_CREDIT",
     "SKIP_ALREADY_BOOKED",
     "SKIP_ALREADY_IMPORTED_STATUS_CHANGED",
     "SKIP_REPEATED_IN_FILE_STATUS_CHANGED",
@@ -253,12 +251,15 @@ def plan_statement(
         partner_of[spend_at] = (SKIP_PAIRED_SPEND, bases[refund_at]["transfer_id"])
 
     # Each spend this statement creates, by Txn Id: a part refund of it goes where it goes (#1709).
+    # A Wallet Credit is placed the same way (#1720) but is no spend a refund could name.
     placements = {
         at: _placement(bases[at]["remarks"], index, expense_rules)
         for at, (action, _, _) in enumerate(decisions)
         if action == ACTION_CREATE and at not in partner_of and bases[at]["row_kind"] not in REFUND_ROW_KINDS
     }
-    spends_here = {bases[at]["transfer_id"]: place for at, place in placements.items()}
+    spends_here = {
+        bases[at]["transfer_id"]: place for at, place in placements.items() if bases[at]["row_kind"] in SPEND_ROW_KINDS
+    }
     planned: list[PlannedRow] = []
     for position, (base, (action, reason, skip_kind)) in enumerate(zip(bases, decisions)):
         if position in partner_of:
@@ -270,7 +271,7 @@ def plan_statement(
             spend = refunded_spend_id(base["transfer_id"])
             place = refund_placement(
                 base["transfer_id"], base["remarks"], (refunded_spends or {}).get(spend), spends_here.get(spend),
-                expense_rules,
+                index, expense_rules,
             )
             planned.append(PlannedRow(action=action, reason=reason, **base, **asdict(place)))
         elif action == ACTION_CREATE:
@@ -303,7 +304,8 @@ def _decide(
       * a refund (Refund to Wallet, Credit Adjustment) creates its *Wallet refund expense* (#1709, at minus its
         Credit), unless the same repeat / outcome / amount tests skip it or its negative Expense is already booked.
         Pairing may then turn a refund and its spend into a skip (`pair_refunds`);
-      * a Wallet Credit is an OPEN line, unless the same tests skip it;
+      * a Wallet Credit creates its *Wallet credit expense* (#1720, at minus its Credit), on the same tests as a
+        refund; it never pairs;
       * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when this line says SUCCESS, else Bank refused
         (`repeat_sentence` names an earlier sighting); any other Type is an Unknown Cashbook type skip (#1619).
     """
@@ -324,13 +326,11 @@ def _decide(
         reason, skip_kind = _skip_reason(line, amount, None, moved=moved)
         if reason:
             return ACTION_SKIP, reason, skip_kind
-        if kind in REFUND_ROW_KINDS:
-            # #1709: a refund's Expense is minus its Credit (a wallet credit is never an Expense).
-            record = find_prior_sighting(booked, raw.transfer_id or "", -amount, _row_date(raw))
-            if record:
-                return ACTION_SKIP, SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
-            return ACTION_CREATE, "", None
-        return ACTION_OPEN, OPEN_WALLET_CREDIT, None
+        # #1709, #1720: a refund's or a Wallet Credit's Expense is minus its Credit.
+        record = find_prior_sighting(booked, raw.transfer_id or "", -amount, _row_date(raw))
+        if record:
+            return ACTION_SKIP, SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
+        return ACTION_CREATE, "", None
     return ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind=kind or "blank"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE
 
 
