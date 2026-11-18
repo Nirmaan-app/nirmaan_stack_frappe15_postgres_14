@@ -28,6 +28,7 @@ Stdlib only.
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -106,8 +107,9 @@ def lint_script_loosenings(base_pkg, head_pkg):
 
 
 def lint_words(script):
-    """The shell words of a `lint` script, with `--max-warnings N` written as one word, `--max-warnings=N`."""
-    words = shlex.split(script)
+    """The shell words of a `lint` script, with `--max-warnings N` written as one word, `--max-warnings=N`, and a path
+    in its shortest form (`./src` and `src/` name the files `src` does)."""
+    words = [word if word.startswith("-") else os.path.normpath(word) for word in shlex.split(script)]
     for index in range(len(words) - 2, -1, -1):
         if words[index] == "--max-warnings":
             words[index:index + 2] = [f"--max-warnings={words[index + 1]}"]

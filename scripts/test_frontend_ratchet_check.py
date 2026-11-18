@@ -360,6 +360,18 @@ class LintSettings(LintRepo, unittest.TestCase):
                 self.lint_script(f"oxlint --type-aware {flag} src")
                 self.passes()
 
+    def test_the_lint_path_written_as_dot_src_or_src_slash_passes(self):
+        for script in ("oxlint --type-aware ./src", "oxlint --type-aware src/", "oxlint --type-aware ./src/"):
+            with self.subTest(script):
+                self.lint_script(script)
+                self.passes()
+
+    def test_a_narrower_lint_path_written_with_dot_or_slash_is_refused(self):
+        for script in ("oxlint --type-aware ./src/pages", "oxlint --type-aware src/pages/"):
+            with self.subTest(script):
+                self.lint_script(script)
+                self.refused("lint script", "drops src")
+
     def test_a_lint_script_that_allows_warnings_is_refused(self):
         self.lint_script("oxlint --type-aware --max-warnings 5 src")
         self.refused("lint script", "--max-warnings")
