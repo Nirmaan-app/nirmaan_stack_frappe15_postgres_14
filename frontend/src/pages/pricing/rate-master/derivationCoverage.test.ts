@@ -94,7 +94,9 @@ describe("DU-1 FIX-2 -- the scope line states VP-5 E11 + the pair rule; line 1 t
   it("POSITIVE: a category's own refix factors and its uplift on the supply-row case (Ducting's config shape) are said from config", () => {
     const c = cfg(VALVE);
     c.list_spec.pricing.scope.refix = [{ label: "removal", factor: 0.5 }, { label: "refixing", factor: 1 }];
-    c.list_spec.pricing.scope.supply_row!.uplift = true;
+    const supplyRow = c.list_spec.pricing.scope.supply_row;
+    if (!supplyRow) throw new Error(`no scope.supply_row in ${VALVE}'s v69 config`);
+    supplyRow.uplift = true;
     const d = scope(c);
     expect(d).toContain("removal -> 0.5 x the item's installation; refixing -> 1 x the item's installation; both named in the row -> the two added (1.5 x)");
     expect(d).toContain("the installation x (1 + the Pricing Input 'Valve - installation-only uplift'), supply 0, naming that row");
@@ -163,8 +165,10 @@ describe("DU-1 THE GUARD (fixtures) -- MISSING / ORPHAN", () => {
   });
   it("NEGATIVE: a declared line naming no code rule is an ORPHAN; one dropped is MISSING", () => {
     const c = declareAll(cfg(VALVE));
-    c.list_spec.pricing.rule_lines!.push({ rule: "Z9", title: "A rule that does not exist" });
-    c.list_spec.pricing.rule_lines!.splice(0, 1);
+    const declared = c.list_spec.pricing.rule_lines;
+    if (!declared) throw new Error("declareAll set no rule_lines");
+    declared.push({ rule: "Z9", title: "A rule that does not exist" });
+    declared.splice(0, 1);
     const r = derivationCoverage(c, V69.items, { hvac_misc: declareAll(cfg(MISC)) });
     expect(r.orphan).toEqual(["declared line Z9: names no code rule of hvac_valve_item"]);
     expect(r.missing).toEqual(["code rule D1: no declared line"]);
