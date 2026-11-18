@@ -49,7 +49,6 @@ from nirmaan_stack.services.outflow_import.cashbook_cutoff import is_before_cuto
 from nirmaan_stack.services.outflow_import.cashbook_plan import (
     ACTION_CREATE,
     ACTION_INTERNAL,
-    ACTION_OPEN,
     ACTION_SKIP,
     CashbookPlan,
     PlannedRow,
@@ -106,7 +105,6 @@ __all__ = [
     "FALLBACK_EXPENSE_TYPE",
     "ACTION_CREATE",
     "ACTION_SKIP",
-    "ACTION_OPEN",
     "ACTION_INTERNAL",
     "SKIP_PAIRED_REFUND",
     "SKIP_PAIRED_SPEND",
@@ -123,7 +121,7 @@ __all__ = [
 # Amendment C). Everything else moves money BETWEEN our own balances, and booking it would count a rupee twice.
 SPEND_ROW_KIND = "Wallet Spend"
 SPEND_ROW_KINDS = frozenset({SPEND_ROW_KIND, COLLECT_ROW_KIND})
-# The four actions, `PlannedRow` and `CashbookPlan` live in `cashbook_plan` (#1709, file size).
+# The three actions, `PlannedRow` and `CashbookPlan` live in `cashbook_plan` (#1709, file size).
 
 
 # Every reason a row is not imported. They are constants because the preview groups by them and a
@@ -213,9 +211,8 @@ def plan_statement(
     booked = dict(already_booked or {})
     every_row = list(rows)  # ⚠️ #1707: THE DATE FIRST, AND ONLY HERE. A line before the cutoff is only counted.
     rows = [raw for raw in every_row if not is_before_cutoff(raw)]
-    acted_on = (ACTION_OPEN, ACTION_CREATE)
     claims = claim_wrong_skips(
-        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] in acted_on
+        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] == ACTION_CREATE
     )
 
     # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three places ask
@@ -271,7 +268,7 @@ def plan_statement(
             spend = refunded_spend_id(base["transfer_id"])
             place = refund_placement(
                 base["transfer_id"], base["remarks"], (refunded_spends or {}).get(spend), spends_here.get(spend),
-                index, expense_rules,
+                expense_rules, index,
             )
             planned.append(PlannedRow(action=action, reason=reason, **base, **asdict(place)))
         elif action == ACTION_CREATE:

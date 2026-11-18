@@ -2,9 +2,10 @@
 // it goes. Pure functions; the screen renders these strings.
 import { describe, expect, it } from "vitest";
 
-import { creditLabel, creditsHeading, type CashbookCreditLine } from "./cashbookCredits";
+import { creditLabel, creditsHeading } from "./cashbookCredits";
+import type { CashbookMoneyInLine } from "./cashbookPreview";
 
-const credit = (over: Partial<CashbookCreditLine> = {}): CashbookCreditLine => ({
+const credit = (over: Partial<CashbookMoneyInLine> = {}): CashbookMoneyInLine => ({
     row_number: 20,
     transfer_id: "PTM9000000006",
     amount: 9000,

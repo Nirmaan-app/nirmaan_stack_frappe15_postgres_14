@@ -119,8 +119,6 @@ def reopen_comment(batch: str, actor: str, planned) -> str:
     """The Comment a re-opened line carries: which import re-opened it, who ran it, and what it is now."""
     if planned.creates:
         now = "Its import creates its expense now."
-    elif planned.opens:
-        now = f"Open: {planned.reason}"
     else:
         now = f"Skipped: {planned.reason}"
     return (

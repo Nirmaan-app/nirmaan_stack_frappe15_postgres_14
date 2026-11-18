@@ -116,4 +116,4 @@ class TestReviewListsCreditsInTheirOwnGroup(unittest.TestCase):
             },
         )
         self.assertEqual((payload["creating"], payload["spending"], payload["total_value"]), (2, 1, 500.0))
-        self.assertEqual((payload["refunds"], payload["open_lines"]), ([], []))
+        self.assertEqual(payload["refunds"], [])

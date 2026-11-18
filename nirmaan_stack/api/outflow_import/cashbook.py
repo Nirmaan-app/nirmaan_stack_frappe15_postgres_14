@@ -221,7 +221,6 @@ def confirm_cashbook_import():
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
         # #1623: Cashbook's own moves, staged as Internal Transfer lines.
         "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,

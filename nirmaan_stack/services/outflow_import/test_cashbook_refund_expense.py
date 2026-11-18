@@ -39,7 +39,6 @@ PROJECT_LEDGER = "Project Expenses"
 NON_PROJECT_LEDGER = "Non Project Expenses"
 SPEND = "OBO1781597449301W2WH9D"
 REFUND = "REF-" + SPEND
-NO_PROJECTS = build_project_index([])
 
 
 def _plan(rows, spends=None, booked=None):
@@ -152,7 +151,6 @@ class TestReviewListsRefundsApart(unittest.TestCase):
         self.assertEqual(payload["creating"], 2)
         # The headline's count is the spends only, as `total_value` sums them; the refund is under `refunds`.
         self.assertEqual((payload["spending"], payload["total_value"]), (1, 500.0))
-        self.assertEqual(payload["open_lines"], [])
 
 
 class TestThePlacementHasOneShape(unittest.TestCase):
@@ -161,17 +159,17 @@ class TestThePlacementHasOneShape(unittest.TestCase):
     RULES = {"Non Project": (("flight", "Travel Expenses"),)}
 
     def test_booked_planned_and_neither_each_fill_every_field(self):
-        booked = refund_placement(REFUND, "", SpendExpense(PROJECT_LEDGER, "PE-1", "P-1", "Telus", "Tools"), None, NO_PROJECTS, {})
+        booked = refund_placement(REFUND, "", SpendExpense(PROJECT_LEDGER, "PE-1", "P-1", "Telus", "Tools"), None, {})
         self.assertEqual(
             booked, RefundPlacement(PROJECT_LEDGER, "P-1", "Telus", "Tools", "", SPEND, "PE-1", False)
         )
         planned = {"ledger": NON_PROJECT_LEDGER, "project": None, "project_name": "", "expense_type": "Petty Cash"}
         self.assertEqual(
-            refund_placement(REFUND, "", None, planned, NO_PROJECTS, {}),
+            refund_placement(REFUND, "", None, planned, {}),
             RefundPlacement(NON_PROJECT_LEDGER, None, "", "Petty Cash", "", SPEND, "", True),
         )
         self.assertEqual(
-            refund_placement("CRADJ-7", "flight refund", None, None, NO_PROJECTS, self.RULES),
+            refund_placement("CRADJ-7", "flight refund", None, None, self.RULES),
             RefundPlacement(NON_PROJECT_LEDGER, None, "", "Travel Expenses", "flight", "", "", False),
         )
 

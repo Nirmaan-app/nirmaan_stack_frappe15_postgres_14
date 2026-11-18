@@ -121,7 +121,6 @@ def preview_payload(
         # The spends among them: the count Review's headline shows beside `total_value`, which sums the same rows.
         "spending": len(plan.spending),
         "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
         "total_value": float(plan.total_value),
         # The Cashfree preview's duplicate keys, with the same meanings (ADR-0031): `duplicate_rows`
         # is the exact repeats that will NOT be saved, `new_rows` what will be. `refused` means the
@@ -178,9 +177,6 @@ def preview_payload(
         "pairs": [
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
-        # #1594: the lines that will stay open on the main table. None since #1720: an unpaired refund (#1709) is under
-        # `refunds`, a wallet credit under `credits`, a Collect payment (#1708) in `groups`.
-        "open_lines": [_preview_line(row) for row in plan.opening],
         # #1709 (ADR-0015 Amendment D): each unpaired refund, booked at minus its Credit where its spend is booked, with
         # the spend it reduces (`refund_of`, its Txn Id; `reduces`, its existing Expense, blank when it has none yet).
         "refunds": [
@@ -208,10 +204,8 @@ def preview_payload(
 
 
 def _becomes(row: PlannedRow) -> str:
-    """What a re-opened line becomes (#1596): "created" (a Collect payment, #1708), "open", or "paired"."""
-    if row.creates:
-        return "created"
-    return "open" if row.opens else "paired"
+    """What a re-opened line becomes (#1596): "created" (#1708, #1709, #1720) or "paired"."""
+    return "created" if row.creates else "paired"
 
 
 def _money_in_line(row: PlannedRow) -> dict:
@@ -225,7 +219,7 @@ def _money_in_line(row: PlannedRow) -> dict:
 
 
 def _preview_line(row) -> dict:
-    """One statement line as Review lists it outside the groups: a skip, a pair's line or an open line."""
+    """One statement line as Review lists it outside the groups: a skip, a pair's line, a refund or a credit."""
     return {
         "row_number": row.row_number,
         "transfer_id": row.transfer_id,

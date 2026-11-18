@@ -23,7 +23,7 @@ from typing import Mapping, Sequence
 
 from nirmaan_stack.services.outflow_import.cashbook_placement import placement
 from nirmaan_stack.services.outflow_import.cashbook_refunds import WALLET_CREDIT_ROW_KIND, refunded_spend_id
-from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
+from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 
 __all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description", "money_in_description"]
 
@@ -60,12 +60,15 @@ def refund_placement(
     remarks: str,
     booked: SpendExpense | None,
     planned_spend: Mapping | None,
-    index: ProjectIndex,
     expense_rules: Mapping[str, Sequence[tuple[str, str]]],
+    index: ProjectIndex | None = None,
 ) -> RefundPlacement:
     """Where an unpaired refund's Expense goes. `booked`: its spend's existing Expense, if any; `planned_spend`: the
     placement this plan gives its spend when the spend is created from this statement; else its own remark is placed
-    against `index` and `expense_rules`."""
+    against `index` and `expense_rules`.
+
+    ⚠️ `index=None` PLACES ON NO PROJECT: the #1709 patch `v3_0.create_open_cashbook_refund_expenses` calls without one
+    and, being append-only, keeps the Non-Project rule it was written with. The plan always passes the Won projects."""
     refund_of = refunded_spend_id(transfer_id)
     if booked is not None:
         return RefundPlacement(
@@ -90,7 +93,7 @@ def refund_placement(
             spend_on_statement=True,
         )
     return RefundPlacement(
-        **placement(remarks, index, expense_rules),
+        **placement(remarks, index or build_project_index(()), expense_rules),
         refund_of=refund_of,
         reduces="",
         spend_on_statement=False,

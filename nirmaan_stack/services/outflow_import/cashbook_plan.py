@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""What a Cashbook plan is made of: the four actions, one planned line (`PlannedRow`) and the whole plan
+"""What a Cashbook plan is made of: the three actions, one planned line (`PlannedRow`) and the whole plan
 (`CashbookPlan`).
 
 PURE MODULE, split out of `cashbook.py` (file size, #1709), which re-exports every name here; `cashbook.plan_statement`
@@ -23,8 +23,8 @@ from nirmaan_stack.services.outflow_import.repeats import RepeatSplit
 # The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
 ACTION_CREATE = "create"
 ACTION_SKIP = "skip"
-# An open line (#1594): staged at `Mismatched`, a status the job never takes, and decided on the main table.
-ACTION_OPEN = "open"
+# There is no "open" action any more (#1720): a refund (#1709) and a wallet credit (#1720) create, and only a person
+# (an Unreconcile, a hand reopen) leaves a Cashbook line open on the main table.
 # One of Cashbook's own moves (#1623, spec #1619): staged at `Internal Transfer` with one record, never an expense.
 ACTION_INTERNAL = "internal"
 
@@ -75,10 +75,6 @@ class PlannedRow:
     @property
     def creates(self) -> bool:
         return self.action == ACTION_CREATE
-
-    @property
-    def opens(self) -> bool:
-        return self.action == ACTION_OPEN
 
     @property
     def money_in(self) -> bool:
@@ -140,11 +136,6 @@ class CashbookPlan:
     def internal(self) -> tuple[PlannedRow, ...]:
         """Cashbook's own moves (#1623): staged as Internal Transfer lines, in file order."""
         return tuple(row for row in self.rows if row.action == ACTION_INTERNAL)
-
-    @property
-    def opening(self) -> tuple[PlannedRow, ...]:
-        """The open lines (#1594). Empty since #1720: an unpaired refund (#1709) and a wallet credit (#1720) create."""
-        return tuple(row for row in self.rows if row.opens)
 
     @property
     def reopening(self) -> tuple[PlannedRow, ...]:
