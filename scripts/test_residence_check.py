@@ -32,11 +32,13 @@ from residence_check import (  # noqa: E402
     json_call_count,
     json_call_counts,
     json_call_drift,
-    disable_directive,
-    adr0049_rules,
-    disable_counts,
+)
+from residence_check import (  # noqa: E402  (D1, #1705)
     EVERY_RULE,
+    adr0049_rules,
     disable_comment_texts,
+    disable_counts,
+    disable_directive,
 )
 from oxlint_settings_check import parse_jsonc  # noqa: E402
 
@@ -592,7 +594,7 @@ class DisableComments(unittest.TestCase):
         path = self.frozen_file(frozen)
         out = io.StringIO()
         with mock.patch("residence_check.disable_comment_texts", return_value=comments), redirect_stdout(out):
-            rc = main([*argv, "--only", "D1"])
+            rc = main([*argv] if argv[-1] == "--prune-disable-comments" else [*argv, "--only", "D1"])
         return rc, out.getvalue(), json.loads(path.read_text())
 
     ANY = "// eslint-disable-next-line @typescript-eslint/no-explicit-any"
@@ -616,16 +618,27 @@ class DisableComments(unittest.TestCase):
                                   "src/b.ts": [self.ANY]}, self.FROZEN, "--check")
         self.assertEqual(rc, 0, out)
 
-    def test_a_removed_comment_passes_and_says_how_to_lower_its_count(self):
+    def test_a_removed_comment_without_its_count_lowered_fails_and_names_the_flag(self):
         rc, out, after = self.run_d1({"src/a.ts": [self.ANY]}, self.FROZEN, "--check")
-        self.assertEqual(rc, 0, out)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("frontend/src/b.ts: 0 disable comments for typescript/no-explicit-any, 1 frozen", out)
         self.assertIn("--prune-disable-comments", out)
         self.assertEqual(after, self.FROZEN)
+
+    def test_a_removed_comment_with_its_count_lowered_passes(self):
+        rc, out, _ = self.run_d1({"src/a.ts": [self.ANY]},
+                                 {"src/a.ts": {"typescript/no-explicit-any": {"count": 1}}}, "--check")
+        self.assertEqual(rc, 0, out)
 
     def test_prune_lowers_the_frozen_counts_and_drops_empty_files(self):
         rc, out, after = self.run_d1({"src/a.ts": [self.ANY]}, self.FROZEN, "--prune-disable-comments")
         self.assertEqual(rc, 0, out)
         self.assertEqual(after, {"src/a.ts": {"typescript/no-explicit-any": {"count": 1}}})
+
+    def test_prune_runs_alone_and_never_with_check(self):
+        rc, _, after = self.run_d1({"src/a.ts": [self.ANY]}, self.FROZEN, "--check", "--prune-disable-comments")
+        self.assertEqual(rc, 2)
+        self.assertEqual(after, self.FROZEN)
 
     def test_prune_never_raises_a_count(self):
         rc, out, after = self.run_d1({"src/a.ts": [self.ANY, self.ANY], "src/b.ts": [self.ANY]}, self.FROZEN,

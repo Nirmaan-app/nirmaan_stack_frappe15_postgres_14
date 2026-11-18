@@ -46,6 +46,8 @@ OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
 PACKAGE = "frontend/package.json"
 RESIDENCE = "scripts/residence_baseline.json"
+# The suppressions files an ESLint base holds counts for (D1's came after the switch to oxlint).
+FROM_ESLINT = (OXLINT, JSON_CALLS)
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -217,8 +219,7 @@ def main(argv=None):
     problems = []
     for name in (OXLINT, JSON_CALLS, DISABLES):
         base_supp = read_at(root, args.base_ref, name)
-        # D1's file came after the switch to oxlint: an ESLint base has no counts for it.
-        if base_supp is None and eslint_base is not None and name != DISABLES:
+        if base_supp is None and eslint_base is not None and name in FROM_ESLINT:
             base_supp = from_eslint(eslint_base, name)
         if not (root / name).exists():
             if base_supp is not None:

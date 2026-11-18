@@ -22,8 +22,8 @@ We decided:
 - **Checks run at commit and in CI.** The repo's hooks switch themselves on at `yarn install` (`core.hooksPath`), a
   `pre-merge-commit` hook covers merges, and CI runs the same checks on every pull request, because a local hook can
   always be skipped. In CI: ESLint, the existing `tsc` ratchet (`yarn typecheck`), `type-coverage --strict` (an
-  upward-only percentage that also sees `any` from library defaults), and the six residence checks that are not
-  ADR-0010 rules (S1, R1, both P1, T1, T2). ADR-0010, accepted as amended on 2026-11-18, keeps two counters (B1,
+  upward-only percentage that also sees `any` from library defaults), and the residence checks that are not
+  ADR-0010 rules (S1, R1, both P1, T1, T2; J1 and D1 since, in the Amendment). ADR-0010, accepted as amended on 2026-11-18, keeps two counters (B1,
   B3); they stay local, in the git hook only, and its other rules are review rules (its F5 counter is retired).
 - **SDK calls return `unknown` unless typed.** One module re-exports the frappe-react-sdk hooks with `T` defaulting to
   `unknown`, and a lint rule bans importing `frappe-react-sdk` directly. Callers move one folder per change
@@ -103,10 +103,10 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   rule, the `eslint-disable` and `oxlint-disable` comments (`-next-line`, `-line` or file-wide) that name a rule
   `.oxlintrc.json` turns on, under any name oxlint reads as it, or name no rule; it reads the comments with
   TypeScript's parser (`frontend/scripts/disable_comments.mjs`), so text in a string is not one. Today's 11 are in
-  `frontend/disable-comment-suppressions.json`; a file over its count fails, in CI and in the commit hooks (which
-  skip it with a warning where node cannot run, as J1). A comment removed passes, and
-  `python3 scripts/residence_check.py --prune-disable-comments` lowers the frozen count; the ratchet check refuses
-  a count that rises. Comments for a rule that is off (`react-hooks/exhaustive-deps`) are not counted.
+  `frontend/disable-comment-suppressions.json`; a file off its count fails, in CI and in the commit hooks (which
+  skip it with a warning where node cannot run, as J1). A change that removes a comment lowers the frozen count in
+  the same change, with `python3 scripts/residence_check.py --prune-disable-comments`; the ratchet check refuses a
+  count that rises. Comments for a rule that is off (`react-hooks/exhaustive-deps`) are not counted.
 - ESLint's frozen "rule not found" entry for `jsx-a11y/no-autofocus` (a disable comment for a plugin never loaded)
   has no oxlint counterpart and is gone.
 - `scripts/frontend_ratchet_check.py` guards both files in pull requests. Against a base that holds only

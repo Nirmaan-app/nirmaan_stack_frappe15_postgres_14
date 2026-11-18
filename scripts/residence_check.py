@@ -449,8 +449,8 @@ JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui
 JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
 
 
-class JsonCallParserError(RuntimeError):
-    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
+class TsParserError(RuntimeError):
+    """J1's or D1's parser could not run (no node, or no frontend/node_modules/typescript)."""
 
 
 # Set by --hook: in a commit hook J1 and D1 warn and pass when their parser cannot run (a worktree with no
@@ -461,20 +461,20 @@ NODE_MAY_SKIP = False
 def run_ts_parser(parser: str, sources: dict[str, str]):
     """What node script ``parser`` (J1's or D1's, under frontend/scripts/) prints for ``sources``, read as JSON.
 
-    Raises JsonCallParserError when node or TypeScript is missing: neither check passes by not running.
+    Raises TsParserError when node or TypeScript is missing: neither check passes by not running.
     """
     try:
         run = subprocess.run(["node", str(REPO_ROOT / parser)], input=json.dumps(sources),
                              capture_output=True, text=True, encoding="utf-8")
     except OSError as e:
-        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
+        raise TsParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
     if run.returncode != 0:
-        raise JsonCallParserError(f"{parser} failed (exit {run.returncode}; run 'yarn install' in "
+        raise TsParserError(f"{parser} failed (exit {run.returncode}; run 'yarn install' in "
                                   f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
     try:
         return json.loads(run.stdout)
     except ValueError as e:
-        raise JsonCallParserError(f"{parser} printed no result: {run.stdout.strip()[:2000]}") from e
+        raise TsParserError(f"{parser} printed no result: {run.stdout.strip()[:2000]}") from e
 
 
 def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
@@ -518,7 +518,7 @@ def json_calls_unfrozen() -> list[str]:
             sources[rel.removeprefix("frontend/")] = read(p)
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
-    except JsonCallParserError as e:
+    except TsParserError as e:
         if NODE_MAY_SKIP:
             print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
             return []
@@ -603,7 +603,6 @@ def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dic
     return out
 
 
-
 DISABLE_SUPPRESSIONS = "frontend/disable-comment-suppressions.json"
 PRUNE_FLAG = "--prune-disable-comments"
 
@@ -611,7 +610,7 @@ PRUNE_FLAG = "--prune-disable-comments"
 def disable_comments_found() -> dict[str, dict]:
     """D1's counts over frontend/src, in oxlint's suppressions shape, keyed by paths relative to frontend/.
 
-    Raises JsonCallParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
+    Raises TsParserError when node or TypeScript cannot run, ValueError when the config cannot be listed."""
     sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         src = read(p)
@@ -628,8 +627,9 @@ def _rule_label(rule: str) -> str:
 def disable_drift(found: dict[str, dict], frozen: dict[str, dict]) -> tuple[list[str], list[str]]:
     """(over, under): each file and rule with more disable comments than frozen, and each with fewer, one line each.
 
-    Over fails D1, file by file, so a new comment fails even where another file lost one. Under passes: lower the
-    frozen count with PRUNE_FLAG (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request)."""
+    Both fail D1, file by file: over, so a new comment fails even where another file lost one; under, so the change
+    that removes a comment also lowers its frozen count (PRUNE_FLAG does it), as a stale lint suppression fails
+    `yarn lint`. scripts/frontend_ratchet_check.py refuses a count that rises in a pull request."""
     over, under = [], []
     for path in sorted(set(found) | set(frozen)):
         now_rules, was_rules = found.get(path, {}), frozen.get(path, {})
@@ -649,12 +649,12 @@ def _read_disable_suppressions() -> dict[str, dict]:
 
 
 def disable_comments_unfrozen() -> list[str]:
-    """D1 over the tree: a line per file and rule over its frozen count in DISABLE_SUPPRESSIONS.
+    """D1 over the tree: a line per file and rule off its frozen count in DISABLE_SUPPRESSIONS, as J1's.
 
     When the parser cannot run, that is D1's one finding, so the check fails and says why."""
     try:
         found = disable_comments_found()
-    except JsonCallParserError as e:
+    except TsParserError as e:
         if NODE_MAY_SKIP:
             print(f"⚠ D1 skipped: {e}. CI counts disable comments on every pull request.")
             return []
@@ -662,16 +662,14 @@ def disable_comments_unfrozen() -> list[str]:
     except ValueError as e:
         return [f"D1 could not list ADR-0049's rules: {e}"]
     over, under = disable_drift(found, _read_disable_suppressions())
-    for line in under:
-        print(f"⚠ D1: {line} -- lock the lower count in: python3 scripts/residence_check.py {PRUNE_FLAG}")
-    return over
+    return over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
 
 
 def prune_disable_comments() -> int:
     """Lower DISABLE_SUPPRESSIONS to today's counts (a file or rule at 0 goes); never raise one. 0 = done."""
     try:
         found = disable_comments_found()
-    except (JsonCallParserError, ValueError) as e:
+    except (TsParserError, ValueError) as e:
         print(f"✗ {PRUNE_FLAG}: D1 could not count disable comments: {e}", file=sys.stderr)
         return 1
     over, _ = disable_drift(found, _read_disable_suppressions())
@@ -683,6 +681,7 @@ def prune_disable_comments() -> int:
     (REPO_ROOT / DISABLE_SUPPRESSIONS).write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"✓ {DISABLE_SUPPRESSIONS} now holds today's counts")
     return 0
+
 
 # --- check registry ----------------------------------------------------------
 
@@ -838,8 +837,8 @@ CHECKS: list[Check] = [
         rule="D1",
         description=f"Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no "
                     f"rule) than frozen in {DISABLE_SUPPRESSIONS}.",
-        route_hint="fix the violation instead of disabling the rule (ADR-0049); a comment removed: lower its count "
-                   f"with python3 scripts/residence_check.py {PRUNE_FLAG}",
+        route_hint="a new comment: fix the violation instead of disabling the rule (ADR-0049); a comment removed: "
+                   f"lower its count with python3 scripts/residence_check.py {PRUNE_FLAG}",
         measure=lambda: len(disable_comments_unfrozen()),
         locate=disable_comments_unfrozen,
         pass_mark=0,
@@ -1002,6 +1001,10 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
     if args.init:
         return do_init()
     if args.prune_disables:
+        if args.check or args.only or args.init:
+            print(f"{PRUNE_FLAG} runs alone: it rewrites {DISABLE_SUPPRESSIONS}, which --check promises not to do.",
+                  file=sys.stderr)
+            return 2
         return prune_disable_comments()
     checks = CHECKS if checks is None else checks
     if args.only:
