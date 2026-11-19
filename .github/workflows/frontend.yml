@@ -27,8 +27,9 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
-      # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
-      # type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
+      # A PR may shrink frontend/oxlint-suppressions.json, frontend/json-call-suppressions.json and the frozen raw
+      # enqueues and socket listeners (scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json),
+      # and raise type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
       # the threshold. Nor may it loosen the lint settings (#1702): .oxlintrc.json (ignorePatterns, a rule off or
       # "warn", an override), a nested oxlint config or ignore file, the `lint` script, or a residence_baseline.json
       # count CI reads. `yarn lint` alone cannot see
@@ -51,10 +52,10 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
-      # The eight residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # The eleven residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
       # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails. After Install: J1 parses with frontend/node_modules/typescript.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, N1 counted names)
+      # passes, a count that rose fails. After Install: J1 and L2 parse with frontend/node_modules/typescript.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, L1 raw listener hooks, N1 counted names, Q1 raw enqueues, L2 socket listeners)
         working-directory: .
         run: python3 scripts/residence_check.py --check --only ci
 

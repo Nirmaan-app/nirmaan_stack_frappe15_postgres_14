@@ -2,9 +2,10 @@
 
 The ratchet is counts and a number a PR can only tighten:
   - frontend/oxlint-suppressions.json: the old oxlint violations, per file and rule, and
-    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1). A count may fall
-    or an entry go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all`
-    does both).
+    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1), and the raw job
+    enqueues and socket listeners that are not background operations (residence checks Q1 and L2:
+    scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json). A count may fall or an entry
+    go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all` does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
   - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json,
     compared by oxlint_settings_check.py (no wider ignorePatterns, no rule removed or turned down to "warn" or "off",
@@ -39,6 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from oxlint_settings_check import CONFIG, config_loosenings, parse_jsonc  # noqa: E402
 from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # noqa: E402
 from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
+from residence_check import RAW_ENQUEUE_SUPPRESSIONS as RAW_ENQUEUES  # noqa: E402  (check Q1's file)
+from residence_check import SOCKET_LISTENER_SUPPRESSIONS as SOCKET_LISTENERS  # noqa: E402  (check L2's file)
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
@@ -213,9 +216,9 @@ def main(argv=None):
     root = Path(args.root)
     eslint_base = read_at(root, args.base_ref, ESLINT)
     problems = []
-    for name in (OXLINT, JSON_CALLS):
+    for name in (OXLINT, JSON_CALLS, RAW_ENQUEUES, SOCKET_LISTENERS):
         base_supp = read_at(root, args.base_ref, name)
-        if base_supp is None and eslint_base is not None:
+        if base_supp is None and eslint_base is not None and name in (OXLINT, JSON_CALLS):
             base_supp = from_eslint(eslint_base, name)
         if not (root / name).exists():
             if base_supp is not None:

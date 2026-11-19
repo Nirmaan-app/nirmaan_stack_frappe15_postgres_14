@@ -36,6 +36,12 @@ from residence_check import (  # noqa: E402
     BACKGROUND_WRITTEN_DOCTYPES,
     COUNTED_NAME_WAITING,
     counted_names_on_background_doctypes,
+    raw_enqueue_drift,
+    raw_enqueue_lines,
+    raw_enqueues_found,
+    socket_listener_count,
+    socket_listener_drift,
+    socket_listeners_found,
 )
 
 
@@ -256,12 +262,13 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_nine_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_eleven_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
             "j1_json_calls_unfrozen", "l1_raw_listener_hooks", "n1_counted_names_on_background_doctypes",
+            "q1_raw_enqueues_unfrozen", "l2_socket_listeners_unfrozen",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):
@@ -584,6 +591,191 @@ class CountedNamesOnBackgroundDoctypes(unittest.TestCase):
             rc = main(["--check", "--only", "N1"], baseline_path=baseline)
         self.assertEqual(rc, 1, out.getvalue())
         self.assertIn("Sample Row", out.getvalue())
+
+
+class RawEnqueues(unittest.TestCase):
+    """Q1 (#1671, ADR 0047): a job is queued only by the background-operation module, which writes the status record
+    the screen follows. Every other enqueue is frozen per file in scripts/raw-enqueue-suppressions.json."""
+
+    def test_each_way_of_queuing_a_job_is_found(self):
+        src = ("import frappe\n"
+               "from frappe import enqueue\n"
+               "from frappe.utils.background_jobs import enqueue as queue_it, enqueue_doc\n"
+               "from frappe.utils import background_jobs\n"
+               "frappe.enqueue('m.f', queue='long')\n"
+               "enqueue('m.f')\n"
+               "queue_it('m.f')\n"
+               "enqueue_doc('ToDo', 'x', 'f')\n"
+               "frappe.enqueue_doc('ToDo', 'x', 'f')\n"
+               "background_jobs.enqueue('m.f')\n"
+               "frappe.utils.background_jobs.enqueue('m.f')\n"
+               "get_queue('long').enqueue_call('m.f')\n")
+        self.assertEqual(raw_enqueue_lines(src), [5, 6, 7, 8, 9, 10, 11, 12])
+
+    def test_a_mention_a_patch_or_another_enqueue_is_not_a_job_queued(self):
+        src = ('import frappe\n'
+               '# frappe.enqueue("m.f")\n'
+               '"""frappe.enqueue("m.f")"""\n'
+               'patch.object(frappe, "enqueue", side_effect=jobs.append)\n'
+               'patch("frappe.enqueue")\n'
+               'ai_run_log.enqueue_after_parse(boq, sheets)\n'
+               'enqueue_sheet_cards(boq, sheet, 1)\n'
+               'is_job_enqueued(job_id)\n'
+               'jobs.enqueue("x")\n')
+        self.assertEqual(raw_enqueue_lines(src), [])
+
+    def frozen(self, **entries):
+        return {path.replace("__", "/") + ".py": {"no-raw-enqueue": {"count": n, "reason": "a cron job"}}
+                for path, n in entries.items()}
+
+    def test_the_frozen_counts_hold(self):
+        found = {"nirmaan_stack/a.py": 2, "nirmaan_stack/b.py": 1}
+        self.assertEqual(raw_enqueue_drift(found, self.frozen(nirmaan_stack__a=2, nirmaan_stack__b=1)), [])
+
+    def test_a_new_enqueue_fails_even_where_another_file_lost_one(self):
+        found = {"nirmaan_stack/a.py": 3, "nirmaan_stack/b.py": 0}
+        self.assertEqual(raw_enqueue_drift(found, self.frozen(nirmaan_stack__a=2, nirmaan_stack__b=1)), [
+            "nirmaan_stack/a.py: 3 raw enqueues, 2 frozen "
+            "(a new one: start a background operation with services/background_ops.start)",
+            "nirmaan_stack/b.py: 0 raw enqueues, 1 frozen (fewer: lower its count in scripts/raw-enqueue-suppressions.json)",
+        ])
+
+    def test_an_enqueue_in_a_file_with_none_frozen_fails(self):
+        self.assertEqual(raw_enqueue_drift({"nirmaan_stack/new.py": 1}, {}), [
+            "nirmaan_stack/new.py: 1 raw enqueues, 0 frozen "
+            "(a new one: start a background operation with services/background_ops.start)",
+        ])
+
+    def test_a_frozen_file_must_say_why_it_stays_a_raw_enqueue(self):
+        frozen = {"nirmaan_stack/a.py": {"no-raw-enqueue": {"count": 1, "reason": " "}}}
+        self.assertEqual(raw_enqueue_drift({"nirmaan_stack/a.py": 1}, frozen), [
+            "nirmaan_stack/a.py: frozen with no reason (say in one line why it is not a background operation)",
+        ])
+
+    def test_the_module_is_exempt_and_tests_are_not_read(self):
+        with mock.patch("residence_check.read", return_value="import frappe\nfrappe.enqueue('m.f')\n"):
+            found = raw_enqueues_found()
+        self.assertNotIn("nirmaan_stack/services/background_ops.py", found)
+        self.assertNotIn("nirmaan_stack/services/test_background_ops.py", found)
+        self.assertEqual(found["nirmaan_stack/hooks.py"], 1)
+
+    def test_q1_refuses_a_new_file_whatever_the_baseline_file_says(self):
+        with tempfile.TemporaryDirectory() as d:
+            baseline = Path(d) / "baseline.json"
+            baseline.write_text(json.dumps({"q1_raw_enqueues_unfrozen": {"count": 5, "rule": "Q1"}}))
+            found = raw_enqueues_found() | {"nirmaan_stack/api/new_flow.py": 1}
+            out = io.StringIO()
+            with mock.patch("residence_check.raw_enqueues_found", return_value=found), redirect_stdout(out):
+                rc = main(["--check", "--only", "Q1"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("nirmaan_stack/api/new_flow.py: 1 raw enqueues, 0 frozen", out.getvalue())
+
+    def test_the_statement_imports_stay_raw_by_name_and_say_why(self):
+        frozen = json.loads((Path(__file__).resolve().parent.parent / "scripts/raw-enqueue-suppressions.json")
+                            .read_text())
+        for path in ("nirmaan_stack/api/outflow_import/porter_validation.py",
+                     "nirmaan_stack/api/outflow_import/porter_create.py",
+                     "nirmaan_stack/api/outflow_import/card_import.py",
+                     "nirmaan_stack/api/outflow_import/card_create.py",
+                     "nirmaan_stack/api/outflow_import/cashbook.py"):
+            with self.subTest(path):
+                self.assertTrue(frozen[path]["no-raw-enqueue"]["reason"].strip())
+
+    def test_the_real_tree_holds_its_frozen_counts(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "Q1"])
+        self.assertEqual(rc, 0, out.getvalue())
+
+
+class SocketListeners(unittest.TestCase):
+    """L2 (#1671, ADR 0047): a screen follows a background operation through useBackgroundOperation, never through its
+    own socket listener. Every other listener (locks, notifications, doc changes) is frozen per file, each with its
+    reason, in frontend/socket-listener-suppressions.json."""
+
+    def test_each_socket_listener_is_counted(self):
+        src = (
+            "socket.on('boq:parse_done', onDone);\n"
+            "socket.off('boq:parse_done', onDone);\n"
+            "socket?.on(EV_READY, onReady);\n"
+            "frappe.socket.on('tds_export_ready', f);\n"
+            "(socket.on)('x', f);\n"
+            "handlers.forEach(([e, h]) => socket.on(e, h));\n"
+            "useSocketEventListener('commission_bulk_ready', f);\n"
+        )
+        self.assertEqual(socket_listener_count(src), 7)
+
+    def test_connection_events_and_other_calls_are_not_counted(self):
+        src = (
+            "// socket.on('boq:parse_done', f)\n"
+            "const hint = \"socket.on('x', f)\";\n"
+            "socket.on('connect', onReconnect);\n"
+            "socket.off(\"disconnect\", onDrop);\n"
+            "socket.on(`connect_error`, onError);\n"
+            "socket.emit('x');\n"
+            "emitter.on('x', f);\n"
+            "useDocTypeEventListener('Projects', f);\n"
+            "useDocumentEventListener('Projects', id, f);\n"
+        )
+        self.assertEqual(socket_listener_count(src), 0)
+
+    def test_a_tsx_source_is_read_as_tsx(self):
+        src = "const A = () => <div>{x}</div>;\nuseSocketEventListener('po:new', f);\n"
+        self.assertEqual(socket_listener_count(src, "a.tsx"), 1)
+
+    def frozen(self, **counts):
+        return {path.replace("__", "/") + ".ts": {"no-socket-listener": {"count": n, "reason": "a lock's presence"}}
+                for path, n in counts.items()}
+
+    def test_a_new_listener_fails_even_where_another_file_lost_one(self):
+        found = {"src/a.ts": 3, "src/b.ts": 0}
+        self.assertEqual(socket_listener_drift(found, self.frozen(src__a=2, src__b=1)), [
+            "frontend/src/a.ts: 3 socket listeners, 2 frozen "
+            "(a new one: follow a background operation with useBackgroundOperation)",
+            "frontend/src/b.ts: 0 socket listeners, 1 frozen "
+            "(fewer: lower its count in frontend/socket-listener-suppressions.json)",
+        ])
+
+    def test_a_frozen_file_must_say_why_it_listens(self):
+        frozen = {"src/a.ts": {"no-socket-listener": {"count": 1}}}
+        self.assertEqual(socket_listener_drift({"src/a.ts": 1}, frozen), [
+            "frontend/src/a.ts: frozen with no reason (say in one line why it is not a background operation)",
+        ])
+
+    def test_the_shared_hook_and_the_safe_listeners_home_are_exempt_and_tests_are_not_read(self):
+        with mock.patch("residence_check.socket_listener_counts", side_effect=lambda sources: {p: 1 for p in sources}):
+            found = socket_listeners_found()
+        self.assertNotIn("src/hooks/useBackgroundOperation.ts", found)
+        self.assertNotIn("src/lib/frappe.ts", found)
+        self.assertNotIn("src/lib/frappeListeners.dom.test.tsx", found)
+        self.assertIn("src/services/socketListeners.ts", found)
+
+    def test_l2_refuses_a_new_file_whatever_the_baseline_file_says(self):
+        with tempfile.TemporaryDirectory() as d:
+            baseline = Path(d) / "baseline.json"
+            baseline.write_text(json.dumps({"l2_socket_listeners_unfrozen": {"count": 5, "rule": "L2"}}))
+            found = socket_listeners_found() | {"src/pages/new/useExport.ts": 1}
+            out = io.StringIO()
+            with mock.patch("residence_check.socket_listeners_found", return_value=found), redirect_stdout(out):
+                rc = main(["--check", "--only", "L2"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("frontend/src/pages/new/useExport.ts: 1 socket listeners, 0 frozen", out.getvalue())
+
+    def test_l2_fails_and_says_why_when_node_is_missing_and_only_warns_in_the_commit_hook(self):
+        for argv, rc_wanted, said in ((["--check", "--only", "L2"], 1, "L2 could not count socket listeners: node"),
+                                      (["--hook", "--only", "L2"], 0, "⚠ L2 skipped: node could not run")):
+            with self.subTest(argv):
+                out = io.StringIO()
+                with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+                    rc = main(argv)
+                self.assertEqual(rc, rc_wanted, out.getvalue())
+                self.assertIn(said, out.getvalue())
+
+    def test_the_real_tree_holds_its_frozen_counts(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "L2"])
+        self.assertEqual(rc, 0, out.getvalue())
 
 
 if __name__ == "__main__":

@@ -21,7 +21,8 @@ Usage:
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
-Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 and L2 (frontend/scripts/json_calls.mjs and socket_listeners.mjs, with frontend/node_modules);
+run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -466,32 +467,38 @@ JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui
 JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
 
 
-class JsonCallParserError(RuntimeError):
-    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
+class TsParserError(RuntimeError):
+    """A TypeScript parser (J1's, L2's) could not run (no node, or no frontend/node_modules/typescript)."""
 
 
-# Set by --hook: in a commit hook J1 warns and passes when its parser cannot run (a worktree with no
+# Set by --hook: in a commit hook J1 and L2 warn and pass when their parser cannot run (a worktree with no
 # frontend/node_modules, a box with no node); CI and every other run still fail.
-J1_MAY_SKIP = False
+TS_PARSERS_MAY_SKIP = False
 
 
-def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
-    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
+def ts_parser_counts(parser: str, sources: dict[str, str]) -> dict[str, int]:
+    """What `parser` (a node script under frontend/scripts) counts in each TS/TSX source, keyed as given (a key ending
+    in .tsx is parsed as TSX).
 
-    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
+    Raises TsParserError when node or TypeScript is missing: a check never passes by not running.
     """
     try:
-        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
+        run = subprocess.run(["node", str(REPO_ROOT / parser)], input=json.dumps(sources),
                              capture_output=True, text=True, encoding="utf-8")
     except OSError as e:
-        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
+        raise TsParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
     if run.returncode != 0:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
-                                  f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
+        raise TsParserError(f"{parser} failed (exit {run.returncode}; run 'yarn install' in "
+                            f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
     try:
         return json.loads(run.stdout)
     except ValueError as e:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
+        raise TsParserError(f"{parser} printed no counts: {run.stdout.strip()[:2000]}") from e
+
+
+def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The `.json()` calls in each TS/TSX source, keyed as given."""
+    return ts_parser_counts(JSON_CALL_PARSER, sources)
 
 
 def json_call_count(src: str) -> int:
@@ -499,23 +506,32 @@ def json_call_count(src: str) -> int:
     return json_call_counts({"source.ts": src})["source.ts"]
 
 
-def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
-    """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
+def frozen_count_drift(found: dict[str, int], frozen: dict[str, dict], rule: str, *, what: str, new_hint: str,
+                       frozen_file: str, prefix: str = "", needs_reason: bool = False) -> list[str]:
+    """Each file whose count of ``what`` differs from its frozen count, one line each; empty when all hold.
 
-    ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
-    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
-    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
+    ``frozen`` is in oxlint's suppressions shape ({path: {rule: {"count": n}}}), keyed like ``found``; ``prefix``
+    turns a key into a repo path. A lower count fails too, as a stale lint suppression does, so the file can only
+    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request). With ``needs_reason``,
+    each entry also says why it stays (`"reason"`).
     """
-    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
+    entries = {path: rules[rule] for path, rules in frozen.items() if rule in rules}
     out = []
-    for path in sorted(set(found) | set(allowed)):
-        now, was = found.get(path, 0), allowed.get(path, 0)
+    for path in sorted(set(found) | set(entries)):
+        now, was = found.get(path, 0), entries.get(path, {}).get("count", 0)
         if now > was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
+            out.append(f"{prefix}{path}: {now} {what}, {was} frozen ({new_hint})")
         elif now < was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
-                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
+            out.append(f"{prefix}{path}: {now} {what}, {was} frozen (fewer: lower its count in {frozen_file})")
+        elif needs_reason and path in entries and not str(entries[path].get("reason", "")).strip():
+            out.append(f"{prefix}{path}: frozen with no reason (say in one line why it is not a background operation)")
     return out
+
+
+def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """J1's drift: ``found`` and ``frozen`` keyed by paths relative to frontend/."""
+    return frozen_count_drift(found, frozen, JSON_CALL_RULE, what=".json() calls", new_hint="a new call: use parseJson",
+                              frozen_file=JSON_CALL_SUPPRESSIONS, prefix="frontend/")
 
 
 def json_calls_unfrozen() -> list[str]:
@@ -530,8 +546,8 @@ def json_calls_unfrozen() -> list[str]:
             sources[rel.removeprefix("frontend/")] = read(p)
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
-    except JsonCallParserError as e:
-        if J1_MAY_SKIP:
+    except TsParserError as e:
+        if TS_PARSERS_MAY_SKIP:
             print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
             return []
         return [f"J1 could not count .json() calls: {e}"]
@@ -564,6 +580,64 @@ def raw_listener_uses() -> list[str]:
         if rel != RAW_LISTENER_HOME:
             found.extend(f"{rel}:{n}" for n in raw_listener_lines(read(p)))
     return sorted(found)
+
+
+# --- Rule L2: a socket listener outside the shared hook (ADR 0047, #1671) --------------------------------------------
+# A screen follows a background operation with useBackgroundOperation (src/hooks/useBackgroundOperation.ts), which
+# reads the operation's status record and takes the socket's message only as "read now". A listener of its own is
+# where a screen took another operation's result. The listeners that stay (locks, notifications, doc changes) are
+# frozen per file, each with its reason, in SOCKET_LISTENER_SUPPRESSIONS; scripts/frontend_ratchet_check.py refuses a
+# count that rises in a pull request.
+
+SOCKET_LISTENER_SUPPRESSIONS = "frontend/socket-listener-suppressions.json"
+SOCKET_LISTENER_RULE = "no-socket-listener"
+# The shared hook, and the safe listeners' home (src/lib/frappe.ts: useSocketEventListener's own `socket.on`).
+SOCKET_LISTENER_HOMES = ("frontend/src/hooks/useBackgroundOperation.ts", "frontend/src/lib/frappe.ts")
+SOCKET_LISTENER_PARSER = "frontend/scripts/socket_listeners.mjs"
+
+
+def socket_listener_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The socket listeners in each TS/TSX source, keyed as given."""
+    return ts_parser_counts(SOCKET_LISTENER_PARSER, sources)
+
+
+def socket_listener_count(src: str, path: str = "source.ts") -> int:
+    """The socket listeners in one TS source's code (not its comments or strings)."""
+    return socket_listener_counts({path: src})[path]
+
+
+def socket_listeners_found() -> dict[str, int]:
+    """{path relative to frontend/: socket listeners} over frontend/src, outside SOCKET_LISTENER_HOMES and test files.
+
+    Raises TsParserError when the parser cannot run."""
+    sources = {}
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel not in SOCKET_LISTENER_HOMES and ".test." not in p.name:
+            sources[rel.removeprefix("frontend/")] = read(p)
+    return {path: n for path, n in socket_listener_counts(sources).items() if n}
+
+
+def socket_listener_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """L2's drift, keyed by paths relative to frontend/."""
+    return frozen_count_drift(found, frozen, SOCKET_LISTENER_RULE, what="socket listeners",
+                              new_hint="a new one: follow a background operation with useBackgroundOperation",
+                              frozen_file=SOCKET_LISTENER_SUPPRESSIONS, prefix="frontend/", needs_reason=True)
+
+
+def socket_listeners_unfrozen() -> list[str]:
+    """L2 over the tree: the files whose socket listeners differ from SOCKET_LISTENER_SUPPRESSIONS. When the parser
+    cannot run, that is L2's one finding."""
+    try:
+        found = socket_listeners_found()
+    except TsParserError as e:
+        if TS_PARSERS_MAY_SKIP:
+            print(f"⚠ L2 skipped: {e}. CI counts socket listeners on every pull request.")
+            return []
+        return [f"L2 could not count socket listeners: {e}"]
+    frozen_path = REPO_ROOT / SOCKET_LISTENER_SUPPRESSIONS
+    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
+    return socket_listener_drift(found, frozen)
 
 
 # --- Rule N1: no counted names on doctypes background operations write (ADR-0048, #1661) ------------------
@@ -642,6 +716,82 @@ def counted_names() -> list[str]:
     """N1's findings for this repo: BACKGROUND_WRITTEN_DOCTYPES read from the doctype folders, less
     COUNTED_NAME_WAITING. It reads only the JSON and the controller file, not the DB or hooks."""
     return counted_names_on_background_doctypes(DOCTYPE_DIR, BACKGROUND_WRITTEN_DOCTYPES, COUNTED_NAME_WAITING)
+
+
+# --- Rule Q1: a raw job enqueue outside the background-operation module (ADR 0047, #1671) -------------------------
+# services/background_ops.start queues a job only after writing the status record its owner's screen follows. A raw
+# enqueue has no record, so its screen falls back to hand-written socket code. The old enqueues are frozen per file,
+# each with its reason, in RAW_ENQUEUE_SUPPRESSIONS (oxlint's suppressions shape), so a new one fails even where
+# another file loses one; scripts/frontend_ratchet_check.py refuses a count that rises in a pull request.
+
+RAW_ENQUEUE_HOME = "nirmaan_stack/services/background_ops.py"
+RAW_ENQUEUE_SUPPRESSIONS = "scripts/raw-enqueue-suppressions.json"
+RAW_ENQUEUE_RULE = "no-raw-enqueue"
+_ENQUEUE_CALLS = {"enqueue", "enqueue_doc"}
+_ENQUEUE_MODULES = {"frappe", "frappe.utils.background_jobs"}
+
+
+def _names_background_jobs(node: ast.AST, aliases: set[str]) -> bool:
+    """`frappe`, `frappe.utils.background_jobs`, or a name bound to that module."""
+    if isinstance(node, ast.Name):
+        return node.id == "frappe" or node.id in aliases
+    return isinstance(node, ast.Attribute) and node.attr == "background_jobs"
+
+
+def raw_enqueue_lines(src: str) -> list[int]:
+    """1-based lines of a Python source that queue a job: `frappe.enqueue` / `enqueue_doc`, the same names imported
+    from frappe or frappe.utils.background_jobs (under any alias), and RQ's own `enqueue_call` on a queue."""
+    tree = ast.parse(src)
+    imported, modules = set(), set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module in _ENQUEUE_MODULES:
+            imported.update(a.asname or a.name for a in n.names if a.name in _ENQUEUE_CALLS)
+        if isinstance(n, ast.ImportFrom) and n.module == "frappe.utils":
+            modules.update(a.asname or a.name for a in n.names if a.name == "background_jobs")
+        if isinstance(n, ast.Import):
+            modules.update(a.asname for a in n.names if a.name == "frappe.utils.background_jobs" and a.asname)
+    lines = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        func = n.func
+        if isinstance(func, ast.Name) and func.id in imported:
+            lines.add(n.lineno)
+        elif isinstance(func, ast.Attribute) and (
+                func.attr == "enqueue_call"
+                or (func.attr in _ENQUEUE_CALLS and _names_background_jobs(func.value, modules))):
+            lines.add(n.lineno)
+    return sorted(lines)
+
+
+def raw_enqueues_found() -> dict[str, int]:
+    """{repo path: raw enqueues} over nirmaan_stack/, outside RAW_ENQUEUE_HOME and test files (`test_*.py`)."""
+    found = {}
+    for p in iter_files("nirmaan_stack", (".py",)):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel == RAW_ENQUEUE_HOME or p.name.startswith("test_"):
+            continue
+        try:
+            n = len(raw_enqueue_lines(read(p)))
+        except SyntaxError:
+            n = 0
+        if n:
+            found[rel] = n
+    return found
+
+
+def raw_enqueue_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """Q1's drift, keyed by repo paths."""
+    return frozen_count_drift(found, frozen, RAW_ENQUEUE_RULE, what="raw enqueues",
+                              new_hint="a new one: start a background operation with services/background_ops.start",
+                              frozen_file=RAW_ENQUEUE_SUPPRESSIONS, needs_reason=True)
+
+
+def raw_enqueues_unfrozen() -> list[str]:
+    """Q1 over the tree: the files whose raw enqueues differ from RAW_ENQUEUE_SUPPRESSIONS."""
+    frozen_path = REPO_ROOT / RAW_ENQUEUE_SUPPRESSIONS
+    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
+    return raw_enqueue_drift(raw_enqueues_found(), frozen)
 
 
 # --- check registry ----------------------------------------------------------
@@ -860,6 +1010,34 @@ CHECKS: list[Check] = [
         locate=counted_names,
         pass_mark=0,
     ),
+    # ADR 0047 (#1671): the listeners that stay are frozen per file, each with its reason, so the pass mark is 0.
+    Check(
+        id="l2_socket_listeners_unfrozen",
+        rule="L2",
+        description=f"Frontend files whose socket listeners (socket.on / socket.off for an event other than the "
+                    f"connection's own, useSocketEventListener) outside the shared hook differ from their frozen "
+                    f"count in {SOCKET_LISTENER_SUPPRESSIONS}.",
+        route_hint="follow a background operation with useBackgroundOperation (src/hooks/useBackgroundOperation.ts), "
+                   "which reads its status record; never listen for its result. Fewer listeners: lower that file's "
+                   f"count in {SOCKET_LISTENER_SUPPRESSIONS} (remove it at 0).",
+        measure=lambda: len(socket_listeners_unfrozen()),
+        locate=socket_listeners_unfrozen,
+        pass_mark=0,
+    ),
+    # ADR 0047 (#1671): the old enqueues are frozen per file, each with its reason, in RAW_ENQUEUE_SUPPRESSIONS, so the
+    # pass mark is 0 and a new enqueue fails even where another file loses one.
+    Check(
+        id="q1_raw_enqueues_unfrozen",
+        rule="Q1",
+        description=f"Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc / enqueue_call) outside "
+                    f"{RAW_ENQUEUE_HOME} differ from their frozen count in {RAW_ENQUEUE_SUPPRESSIONS}.",
+        route_hint="queue the work as a background operation: services/background_ops.start (its screen follows it "
+                   "with useBackgroundOperation; CODING_STANDARDS.md § Queuing a background operation). Fewer "
+                   f"enqueues: lower that file's count in {RAW_ENQUEUE_SUPPRESSIONS} (remove it at 0).",
+        measure=lambda: len(raw_enqueues_unfrozen()),
+        locate=raw_enqueues_unfrozen,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -944,7 +1122,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1", "N1"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1", "N1", "Q1", "L2"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
@@ -1005,10 +1183,10 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
     parser.add_argument("--hook", action="store_true",
-                        help="Run from a commit hook: J1 warns and passes when node or TypeScript cannot run.")
+                        help="Run from a commit hook: J1 and L2 warn and pass when node or TypeScript cannot run.")
     args = parser.parse_args(argv)
-    global J1_MAY_SKIP
-    J1_MAY_SKIP = args.hook
+    global TS_PARSERS_MAY_SKIP
+    TS_PARSERS_MAY_SKIP = args.hook
     if args.init and args.only:
         print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
               file=sys.stderr)

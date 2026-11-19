@@ -34,6 +34,11 @@
     "description": "Frontend lines naming the SDK's useFrappeEventListener, useFrappeDocumentEventListener or useFrappeDocTypeEventListener outside src/lib/frappe.ts.",
     "rule": "L1"
   },
+  "l2_socket_listeners_unfrozen": {
+    "count": 0,
+    "description": "Frontend files whose socket listeners (socket.on / socket.off for an event other than the connection's own, useSocketEventListener) outside the shared hook differ from their frozen count in frontend/socket-listener-suppressions.json.",
+    "rule": "L2"
+  },
   "n1_counted_names_on_background_doctypes": {
     "count": 0,
     "description": "Doctypes in BACKGROUND_WRITTEN_DOCTYPES that take a counted name (a tabSeries number from the doctype's autoname or its controller's getseries / make_autoname) and are not in COUNTED_NAME_WAITING.",
@@ -48,6 +53,11 @@
     "count": 0,
     "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
     "rule": "P1"
+  },
+  "q1_raw_enqueues_unfrozen": {
+    "count": 0,
+    "description": "Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc / enqueue_call) outside nirmaan_stack/services/background_ops.py differ from their frozen count in scripts/raw-enqueue-suppressions.json.",
+    "rule": "Q1"
   },
   "r1_rupee_formatters": {
     "count": 9,
