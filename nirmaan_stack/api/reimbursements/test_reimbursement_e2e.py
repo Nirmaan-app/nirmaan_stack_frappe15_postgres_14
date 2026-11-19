@@ -6,8 +6,8 @@ expense decision call (`api/approvals/expense_actions.decide_expenses`, spec #14
 
 `test_reimbursements` pins each rule on its own and moves the expense with a plain save. These walk one claim
 from raise to its ending the way the screens do: the claimant raises it, HR or Admin decides it, the expense
-shows in the Approve Payments queue as a Reimbursement, Admin / the CEO / Accounts move it with
-`decide_expenses`, and the claim follows. Half the cases try to break that: the wrong person, the wrong
+is NOT in the Project Payments queue (ADR-0040 Amendment C: every step is on the Reimbursements page), Admin / the
+CEO / Accounts move it with `decide_expenses` (the call the Reimbursements tabs make), and the claim follows. Half the cases try to break that: the wrong person, the wrong
 status, a missing reason or payment, paying twice, a revived rejection.
 
 ⚠️ LIVE localhost site: the fixtures and the purge are `test_reimbursements`' (`reimb_test_` users, fake
@@ -23,6 +23,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.api.action_items import finance
 from nirmaan_stack.api.approvals import expense_actions, get_approval_queue
 from nirmaan_stack.api.payees import paid_to as paid_to_api
 from nirmaan_stack.api.payments.bulk_actions import MAX_BATCH_SIZE
@@ -94,11 +95,9 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         name, expense = self.approve(HR, amount=1450)
         self.assertEqual(self.expense_status(expense), "Approved")  # HR's approval: the auto band
 
-        row = self.queue_row(ACC, expense)
-        self.assertIsNotNone(row, "Accounts must see the expense in the Approve Payments queue")
-        self.assertEqual((row["source"], row["source_type"]), ("Non-Project", "Reimbursement"))
-        self.assertEqual(flt(row["amount"]), 1450)
-        self.assertEqual(row["raised_by"], PM)  # the claimant, not the approver
+        # Paid from the Reimbursements page, never from Project Payments (ADR-0040 Amendment C).
+        self.assertIsNone(self.queue_row(ACC, expense))
+        self.assertEqual(flt(frappe.db.get_value(NPE, expense, "amount")), 1450)
 
         self.assert_moved(self.decide(ACC, expense, "mark_done"), expense, "Reconciliation Pending")
         self.assertEqual(self.claim(name).status, APPROVED)  # only the endings move a claim
@@ -127,7 +126,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         self.need_ceo()
         name, expense = self.approve(ADMIN, amount=80000)
         self.assertEqual(self.expense_status(expense), "CEO Pending")
-        self.assertEqual(self.queue_row(ADMIN, expense)["source_type"], "Reimbursement")
+        self.assertIsNone(self.queue_row(ADMIN, expense))
 
         # Nobody but the CEO clears it, and it can't be paid before.
         self.assert_refused(self.decide(ADMIN, expense, "ceo_approve"), expense, "CEO")
@@ -153,7 +152,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         self.as_user(HR, review.approve_reimbursement, above, acknowledged=1)
         waiting = convert.expense_of(above)
         self.assertEqual(self.expense_status(waiting), "Requested")
-        self.assertEqual(self.queue_row(ADMIN, waiting)["source_type"], "Reimbursement")
+        self.assertIsNone(self.queue_row(ADMIN, waiting))
         self.assert_refused(self.decide(ACC, waiting, "mark_paid", payment=self.payment()), waiting, "Requested")
 
         self.assert_moved(self.decide(ADMIN, waiting, "l1_approve"), waiting, "Approved")
@@ -264,44 +263,65 @@ class TestReimbursementEndToEnd(_EndToEndCase):
                 self.assertEqual(self.queue_row(ADMIN, doc.name)["source_type"], "Non-Project")
 
 
-class TestTheTypeFilterCountsAReimbursementAsNonProject(_EndToEndCase):
-    """A reimbursement's expense shows as a Non Project Expense with a Reimbursement tag, so the Type filter and
-    its counts treat it as one; "Reimbursement" alone still narrows to claims."""
+class TestReimbursementsAreNotInProjectPayments(_EndToEndCase):
+    """ADR-0040 Amendment C (owner, 2026-11-18): a reimbursement's Non-Project Expense is worked on the Reimbursements
+    page only. The Project Payments queue leaves it out at every status, and with it its counts, Type facet and
+    filter, and Payment Raised By Me; an ordinary Non-Project Expense is still there."""
 
-    def rows(self, expense, op, types):
-        filters = [["name", "=", expense], ["source_type", op, types]]
-        reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue, filters=filters)
-        return [r["name"] for r in reply["data"]]
+    def ordinary(self):
+        doc = frappe.get_doc({"doctype": NPE, "amount": 1000, "description": "reimb_test ordinary expense"})
+        self.as_user(PM, doc.insert, ignore_permissions=True)
+        return doc.name
 
-    def test_picking_non_project_keeps_the_reimbursement_and_leaving_it_out_drops_it(self):
+    def test_hidden_at_every_status_while_an_ordinary_expense_stays(self):
         _, expense = self.approve(HR)
-        cases = (
-            ("in", ["Non-Project"], [expense]),
-            ("=", "Non-Project", [expense]),
-            ("in", ["Reimbursement"], [expense]),
-            ("in", ["PO Payment", "Non-Project"], [expense]),
-            ("not in", ["Non-Project"], []),
-            ("!=", "Non-Project", []),
-            ("in", ["Project Expense"], []),
-            ("not in", ["Reimbursement"], []),
-        )
-        for op, types, expected in cases:
-            with self.subTest(op=op, types=types):
-                self.assertEqual(self.rows(expense, op, types), expected)
+        ordinary = self.ordinary()
+        for status in ("Approved", "Reconciliation Pending"):
+            with self.subTest(status=status):
+                if status != "Approved":
+                    self.decide(ACC, expense, "mark_done")
+                self.assertEqual(self.expense_status(expense), status)
+                self.assertIsNone(self.queue_row(ADMIN, expense))
+                self.assertIsNone(self.queue_row(ACC, expense))
+        self.assertIsNotNone(self.queue_row(ADMIN, ordinary))
 
-    def test_the_non_project_count_includes_the_reimbursement(self):
+    def test_not_in_the_claimants_payment_raised_by_me(self):
         _, expense = self.approve(HR)
-        ordinary = frappe.get_doc({"doctype": NPE, "amount": 1000, "description": "reimb_test ordinary expense"})
-        self.as_user(PM, ordinary.insert, ignore_permissions=True)
+        filters = [["name", "=", expense], ["raised_by", "=", "@me"]]
+        reply = self.as_user(PM, get_approval_queue.get_approval_queue, filters=filters)
+        self.assertEqual(reply["data"], [])
+
+    def test_not_counted_in_the_tab_badges(self):
+        before = self.as_user(ADMIN, get_approval_queue.get_approval_queue_counts)
+        self.approve(HR)
+        after = self.as_user(ADMIN, get_approval_queue.get_approval_queue_counts)
+        self.assertEqual(after["counts"].get("Approved", 0), before["counts"].get("Approved", 0))
+        self.assertEqual(after["all"], before["all"])
+
+    def test_the_action_center_sends_its_payment_to_the_reimbursements_page(self):
+        name, expense = self.approve(HR)
+        ordinary = self.ordinary()
+        frappe.db.set_value(NPE, ordinary, "status", "Approved", update_modified=False)  # setup: waiting to be paid
+        reply = self.as_user(ACC, finance.get_pending_finance_items)
+        items = {it["key"]: it for _, group in reply["groups"]["expenses"] for it in group}
+        mine = items[f"npe-{expense}"]
+        self.assertEqual(mine["tag"], "Reimbursement")
+        self.assertTrue(mine["linkTo"].startswith("/reimbursements?tab=approved"), mine["linkTo"])
+        self.assertIn(f"reimb_approved_q={name}", mine["linkTo"])
+        self.assertTrue(items[f"npe-{ordinary}"]["linkTo"].startswith("/project-payments?"))
+
+    def test_the_type_filter_and_facet_have_no_reimbursement_left(self):
+        _, expense = self.approve(HR)
+        ordinary = self.ordinary()
+        names = [expense, ordinary]
         reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue_facets, "source_type",
-                             filters=[["name", "in", [expense, ordinary.name]]])
-        self.assertEqual({v["value"]: v["count"] for v in reply["values"]}, {"Non-Project": 2, "Reimbursement": 1})
-
-    def test_a_claim_alone_still_offers_non_project(self):
-        _, expense = self.approve(HR)
-        reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue_facets, "source_type",
-                             filters=[["name", "=", expense]])
-        self.assertEqual(reply["values"], [{"value": "Non-Project", "count": 1}, {"value": "Reimbursement", "count": 1}])
+                             filters=[["name", "in", names]])
+        self.assertEqual(reply["values"], [{"value": "Non-Project", "count": 1}])
+        for types, expected in ((["Non-Project"], [ordinary]), (["Reimbursement"], [])):
+            with self.subTest(types=types):
+                rows = self.as_user(ADMIN, get_approval_queue.get_approval_queue,
+                                    filters=[["name", "in", names], ["source_type", "in", types]])["data"]
+                self.assertEqual([r["name"] for r in rows], expected)
 
 
 class TestReimbursementBulkActions(_EndToEndCase):
@@ -384,7 +404,7 @@ class TestReimbursementBulkActions(_EndToEndCase):
         self.assertEqual(data["failed"], [])
         self.assertEqual(data["statuses"], {r1: "Approved", r2: "Approved", o1: "Approved"})
         self.assertEqual(self.claims_status(c1, c2), [APPROVED, APPROVED])  # approval is not an ending
-        self.assertEqual(self.queue_row(ACC, r1)["source_type"], "Reimbursement")
+        self.assertIsNone(self.queue_row(ACC, r1))
 
     def test_ceo_bulk_reject_gives_every_claim_in_the_batch_the_one_reason(self):
         self.need_ceo()
