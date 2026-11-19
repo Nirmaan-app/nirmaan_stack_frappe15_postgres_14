@@ -106,20 +106,45 @@ class TestHvacAssetV74(FrappeTestCase):
     def test_05_v74_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V73))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 75)  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE nums[-1] == 74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73
-        self.assertEqual(nums, list(range(1, 76)))  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE list(range(1, 75)); DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74))
+        self.assertEqual(nums[-1], 76)  # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE nums[-1] == 75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE nums[-1] == 74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73
+        self.assertEqual(nums, list(range(1, 77)))  # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE list(range(1, 76)); DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE list(range(1, 75)); DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74))
         self.assertTrue(os.path.exists(_asset_path(V72)))
 
     def test_06_live_catalogue_is_v74(self):
         # DU-3 K2 INVERTED (HVAC v75 minted + loaded; mechanical authority): BEFORE live Ducting = v74's and 743 items; AFTER live Ducting
         # = v75's (not v74's), Misc still = v74's (v75 leaves it untouched - negative half kept), 744 items (+ the threshold Pricing Input)
-        v75 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v75.json")["category_configs"]}
+        v75 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v76.json")["category_configs"]}  # VAV-1 K2 (HVAC v76 LOADED; mechanical authority): the live configs are v76's (Misc + 2 families; Valve / Ducting byte-equal to v75). BEFORE v75's
         for cid in (DUCT, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
             self.assertEqual(_norm(live), _norm(v75[cid]), cid)
-        self.assertEqual(_norm(v75[MISC]), _norm(self.cfg[MISC]))
+        # VAV-1 K2 (HVAC v76 LOADED; mechanical authority; chat-Claude ANSWER to VAV1-22): BEFORE `assertEqual(_norm(v75[MISC]), _norm(self.cfg[MISC]))`.
+        # AFTER: the live (v76) Misc = v74's EXCEPT exactly the 2 VAV-borrowed families (Digital Thermostat, Transformation Pieces): with their
+        # 2 `item` values and 2 family blocks taken out, every other Misc key is byte-identical; and the live Misc items = v74's 22 byte-identical
+        # + exactly those 2 new items.
+        new_fams = ("Digital Thermostat", "Transformation Pieces")
+        live_misc = json.loads(_norm(v75[MISC]))
+        self.assertNotEqual(_norm(live_misc), _norm(self.cfg[MISC]))                          # it did change ...
+        d = next(x for x in live_misc["list_spec"]["attribute_definitions"] if x["id"] == "item")
+        self.assertEqual([v for v in d["values"] if v in new_fams], list(new_fams))
+        d["values"] = [v for v in d["values"] if v not in new_fams]
+        fams = live_misc["list_spec"]["pricing"]["families"]
+        self.assertEqual(sorted(f for f in fams if f in new_fams), sorted(new_fams))
+        for f in new_fams:
+            del fams[f]
+        self.assertEqual(_norm(live_misc), _norm(self.cfg[MISC]))                             # ... by exactly the 2 families
+        live_items = {r[0]: r for r in frappe.db.sql("""select item_uid, attributes, rates from "tabBoQ Rate Master Item"
+                                                         where active=1 and discipline='HVAC' and kind='hvac_misc_item'""")}
+        old = {it["item_uid"]: it for it in self.cur["items"] if it["kind"] == "hvac_misc_item"}
+        self.assertEqual(len(old), 22)
+        J = lambda v: json.loads(v) if isinstance(v, str) else v
+        for uid, it in old.items():
+            self.assertIn(uid, live_items)
+            self.assertEqual(_norm(J(live_items[uid][1])), _norm(it["attributes"]), uid)
+            self.assertEqual(_norm(J(live_items[uid][2])), _norm(it["rates"]), uid)
+        added = sorted(J(live_items[u][1]).get("item") for u in set(live_items) - set(old))
+        self.assertEqual(added, sorted(new_fams))
         self.assertNotEqual(_norm(v75[DUCT]), _norm(self.cfg[DUCT]))
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 744)
+        self.assertEqual(n, 840)  # VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE 744 (+ 91 VAV, 2 Misc, 2 Sensors, 1 Pricing Input)

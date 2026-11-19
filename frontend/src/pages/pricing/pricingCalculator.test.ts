@@ -172,7 +172,9 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     // ⚠️ VP-1 (24 -> 26; mechanical authority, BEFORE `toBe(24)`): `hvac_valve_package` (holds items, priced) and `hvac_misc`
     // (fetch_only: fetched so the Valve Package borrows its SKUs, listed neither in the calculator nor on the page).
     // ⚠️ DU-1 Part B (26 -> 27; mechanical authority, BEFORE `toBe(26)`): `hvac_ducting` (holds items, priced), appended last.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(27);
+    // ⚠️ VAV-1 (27 -> 29; mechanical authority, BEFORE `toBe(27)`): `hvac_vav_box` (holds items; the calculator) and `hvac_sensors`
+    // (fetch_only, borrow-only), appended after Ducting.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(29);
     expect(RATE_MASTER_CONFIG_TARGETS).toContainEqual({ discipline: "HVAC", categoryId: "hvac_misc" });
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
@@ -519,8 +521,10 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   // `hvac_ducting` (holds items) APPENDED; the six `holds_items: false` entries are untouched.
   it("the registry lists fourteen HVAC categories: ADP, Insulation, Piping, VRF, Pricing Inputs, the Valve Package and Ducting hold items, Misc is fetch-only, the four vendor-quote and the two alias ones do not", () => {
     expect(hvacEntry.categories.map((c) => c.category_id))
-      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_misc", "hvac_ducting"]);
-    expect(hvacEntry.categories.filter((c) => c.fetch_only).map((c) => c.category_id)).toEqual(["hvac_misc"]);
+      // VAV-1 (mechanical authority, BEFORE the list ending "hvac_ducting" and fetch_only ["hvac_misc"]): + VAV Box (holds items), + Sensors
+      // (fetch_only), appended; the six `holds_items: false` entries untouched
+      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_misc", "hvac_ducting", "hvac_vav_box", "hvac_sensors"]);
+    expect(hvacEntry.categories.filter((c) => c.fetch_only).map((c) => c.category_id)).toEqual(["hvac_misc", "hvac_sensors"]);
     expect(noItems).toHaveLength(6);
     expect(vendor).toHaveLength(4);
     // every vendor entry's CONFIG carries the two messages -- the registry names no message
@@ -546,7 +550,8 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
     // fetch_only, so the page drops it as well (N6)
     expect(pageHvac.categories.map((c) => c.category_id))
       // DU-1 Part B (mechanical authority, BEFORE the list ending "hvac_valve_package"): + Ducting (holds items)
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_ducting"]);   // 12e-1: + Piping (holds items)
+      // VAV-1 (mechanical authority, BEFORE the list ending "hvac_ducting"): + VAV Box (holds items); Sensors (fetch_only) dropped like Misc
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_ducting", "hvac_vav_box"]);   // 12e-1: + Piping (holds items)
     const electrical = RATE_MASTER_DISCIPLINES[0];
     expect(electrical.discipline).toBe("Electrical");
     expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
@@ -628,7 +633,8 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
       // VRF-1 (mechanical authority, BEFORE the list without "hvac_vrf"): + VRF (holds items)
       // VP-1 (mechanical authority, BEFORE the list ending "hvac_pricing_inputs"): + the Valve Package; Misc (fetch_only) dropped
       // DU-1 Part B (mechanical authority, BEFORE the list ending "hvac_valve_package"): + Ducting (holds items)
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_ducting"]);   // 12e-1: + Piping (holds items)
+      // VAV-1 (mechanical authority, BEFORE the list ending "hvac_ducting"): + VAV Box (holds items); Sensors (fetch_only) dropped like Misc
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs", "hvac_valve_package", "hvac_ducting", "hvac_vav_box"]);   // 12e-1: + Piping (holds items)
   });
 
   for (const [own, target] of ALIASES) {

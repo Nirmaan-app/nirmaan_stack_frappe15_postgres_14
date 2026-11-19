@@ -187,6 +187,21 @@ function withoutDu3(items: RateMasterItem[]): RateMasterItem[] {
 }
 
 /**
+ * VAV-1 (owner rulings 2026-11-18 22:16 - 2026-11-19 01:39): HVAC v76's 91 VAV items, 2 Sensors items, the 2 Misc items it adds and its ONE
+ * Pricing Input ("VAV - installation-only uplift"), which the served fixture predates -- every uid v75 does not hold, set aside on the stored
+ * side FIRST; it throws unless exactly those 96 are there, so it cannot pass vacuously.
+ */
+const H75_UIDS = new Set(readJsonFixture<Asset>(new URL("rate_master_hvac_all_v75.json", DATA_DIR)).items.map((it) => String(it.item_uid)));
+function withoutVav1(items: RateMasterItem[]): RateMasterItem[] {
+  const isNew = (it: RateMasterItem) => !H75_UIDS.has(String(it.item_uid));
+  const n = (k: string) => items.filter((it) => isNew(it) && it.kind === k).length;
+  if (n("hvac_vav_item") !== 91 || n("hvac_sensor_item") !== 2 || n("hvac_misc_item") !== 2 || n("hvac_pricing_input") !== 1 || items.filter(isNew).length !== 96) {
+    throw new Error("VAV-1's 91 VAV, 2 Sensors, 2 Misc items and 1 input (v76) are not exactly the uids v75 lacks");
+  }
+  return items.filter((it) => !isNew(it));
+}
+
+/**
  * ELR-3a (owner R-9 / R-R1 Q1, Q2, 2026-10-28): Electrical v69's nine new Pricing Inputs (the point-wiring lengths and the six
  * conduit fills), which the served fixture predates -- set aside on the stored side by name, exactly as `withoutAdp5c` does; it
  * throws if any uid is not in the stored asset, so it cannot pass vacuously. Every other Electrical uid and rate stays under force.
@@ -255,7 +270,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(storedHvac))))], ...] -- the 21 DU-1 items set aside first (`withoutDu1`)
     // INVERTED at DU-3 K2 (HVAC v75; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
     // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(storedHvac)))))], ...] -- the 1 DU-3 input set aside first (`withoutDu3`)
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(storedHvac))))))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
+    // INVERTED at VAV-1 K2 (HVAC v76; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(storedHvac))))))], ...] -- the 96 VAV-1 items set aside first (`withoutVav1`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(withoutVav1(storedHvac)))))))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

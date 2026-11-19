@@ -2371,8 +2371,14 @@ class TestItemListSlice4(FrappeTestCase):
         # INVERTED at DU-1 Part B (HVAC v71; mechanical authority): BEFORE the exemption tuple ended at hvac_misc -- Ducting's spec IS
         # built and it is eligible
         self.assertTrue(extraction.config_is_eligible(self.cfgs[("HVAC", "hvac_ducting")], self.cfgs))
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE the exemption tuple ended at hvac_ducting -- VAV Box's spec IS built but it is NOT eligible (the
+        # temporary calculator_only switch, owner QR-A (a)), and borrow-only Sensors' spec is built (VAV's section borrows it) and is not
+        # eligible either: no request is ever sent for a VAV or a Sensors row
+        for cid in ("hvac_vav_box", "hvac_sensors"):
+            self.assertIsNotNone(extraction.build_items_spec(self.cfgs[("HVAC", cid)]), cid)
+            self.assertFalse(extraction.config_is_eligible(self.cfgs[("HVAC", cid)], self.cfgs), cid)
         for key in self.cfgs:
-            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_vrf"), ("HVAC", "hvac_valve_package"), ("HVAC", "hvac_misc"), ("HVAC", "hvac_ducting")):
+            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_vrf"), ("HVAC", "hvac_valve_package"), ("HVAC", "hvac_misc"), ("HVAC", "hvac_ducting"), ("HVAC", "hvac_vav_box"), ("HVAC", "hvac_sensors")):
                 self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
         self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
 
@@ -3566,7 +3572,7 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v55.json"`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v56.json"`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v57.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v75.json"   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v76.json"   # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
@@ -3623,6 +3629,11 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # DU-1 Part B: v71's `hvac_ducting` config, normalised out on the NEW side the same way, NAMED (BEFORE: no fourth filter)
         self.assertIn(("HVAC", "hvac_ducting"), c33)
         c33 = {k: v for k, v in c33.items() if k[1] != "hvac_ducting"}
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): v76's `hvac_vav_box` and borrow-only `hvac_sensors` configs, normalised out on the NEW side the same way,
+        # NAMED (BEFORE: no fifth filter)
+        self.assertIn(("HVAC", "hvac_vav_box"), c33)
+        self.assertIn(("HVAC", "hvac_sensors"), c33)
+        c33 = {k: v for k, v in c33.items() if k[1] not in ("hvac_vav_box", "hvac_sensors")}
         self.assertEqual(set(c32), set(c33))
         payload = [extraction._ai_item(self._row())]
         checked = []
