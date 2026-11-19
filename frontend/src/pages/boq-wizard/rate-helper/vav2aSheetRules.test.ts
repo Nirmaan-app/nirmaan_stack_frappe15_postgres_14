@@ -274,6 +274,19 @@ describe("VAV-2a B6 - existing boxes: the installation alone, x the factor, no e
   });
 });
 
+describe("VAV-2a - a quantity-bearing heading (a Preamble WITH a unit) is a separate row in every sheet rule; a plain heading is not", () => {
+  it("B3: a Preamble 'Digital thermostat' Nos 10 counts (the thermostat is not added); the same words as a unitless heading do not", () => {
+    expect(tot(v30({ 40: { text: "Digital thermostat", node: "Preamble", unit: "Nos", qty: 10, category: "hvac_sensors" } }))).toEqual([BOX, BOX_I]);
+    expect(tot(v30({ 40: { text: "Digital thermostat", node: "Preamble", unit: "", qty: null } }))).toEqual([BOX + T[0], BOX_I + T[1]]);
+  });
+  it("B6: a Preamble 'Dismantling of Existing VAV' Sets 15 is the separate dismantling row (refix x 0.5); a unitless heading is not (x 1.5)", () => {
+    const R = "Re Installation, configuration and commissioning of VAV Units with thermostat";
+    const rf = (h: SheetRow) => vavSheet({ 272: h, 274: { text: R, unit: "Sets", qty: 15, items: [boxItem({ cfm_range: "None" })] } }, { cfg: vavFull() })(274).itemList!;
+    expect(tot(rf({ text: "Dismantling of Existing VAV", node: "Preamble", unit: "Sets", qty: 15 }))).toEqual([0, 1200]);
+    expect(tot(rf({ text: "Dismantling of Existing VAV", node: "Preamble", unit: "", qty: null }))).toEqual([0, 3600]);
+  });
+});
+
 describe("VAV-2a T4 / T3 - never in the calculator; each key absent = the row as v76 priced it", () => {
   it("T4: the calculator runs none of B3 / B5 / B6 (no sheet): the D2-like entry prices its items as typed", () => {
     const v = calcWith(vavFull(), { items: [blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "Yes", cfm_range: "450-800" })],

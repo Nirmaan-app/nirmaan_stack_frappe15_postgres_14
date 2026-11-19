@@ -123,8 +123,8 @@ class TestHvacAssetV75(FrappeTestCase):
     def test_05_v75_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(CUR))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 76)  # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE nums[-1] == 75
-        self.assertEqual(nums, list(range(1, 77)))  # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE list(range(1, 76))
+        self.assertEqual(nums[-1], 77)  # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE nums[-1] == 75
+        self.assertEqual(nums, list(range(1, 78)))  # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77)); VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE list(range(1, 76))
         self.assertTrue(os.path.exists(_asset_path(PREV)))
 
     def test_06_live_catalogue_is_v75(self):
@@ -134,7 +134,7 @@ class TestHvacAssetV75(FrappeTestCase):
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
             self.assertEqual(_norm(live), _norm(self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 840)  # VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE 744 (+ 91 VAV, 2 Misc, 2 Sensors, 1 Pricing Input)
+        self.assertEqual(n, 848)  # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE 840 (+ 8 VAV-2a Pricing Inputs); VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE 744 (+ 91 VAV, 2 Misc, 2 Sensors, 1 Pricing Input)
         f = frappe.db.sql("""select rates from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind='hvac_pricing_input'
                              and attributes::text like %s""", ('%"' + THRESHOLD + '"%',))
         self.assertTrue(f)
