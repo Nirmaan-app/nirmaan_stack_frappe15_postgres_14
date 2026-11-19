@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
-"""A fake RQ queue for tests of background operations (ADR 0047) that need an operation to STAY queued.
+"""Test support, no tests of its own: a fake RQ queue for tests of background operations (ADR 0047) that need an
+operation to STAY queued.
 
 `HeldQueue` records each job, as a faked queue does, and also keeps an RQ job of that id in Redis with status
 queued, as a real queue does until a worker takes it. A poll (`background_ops.status`) then reads the operation as
@@ -17,8 +18,9 @@ The held jobs are deleted when the test ends (`addCleanup`).
 
 from unittest.mock import patch
 
-from frappe.utils.background_jobs import get_redis_conn
 from rq.job import Job, JobStatus
+
+from frappe.utils.background_jobs import get_redis_conn
 
 
 class HeldQueue:
