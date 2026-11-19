@@ -224,23 +224,33 @@ The N-worker check, one command:
   downloads); one item takes about a minute. The N-worker check's TDS rows carry no datasheet, so nothing is fetched.
 - Every N-worker flow but `match` runs with the BoQ AI setting switched off, because the env holds a real AI key: the flows
   read the setting, switch it off, and put it back when they end (also when the check is stopped with SIGTERM or
-  Ctrl-C). A kill -9 leaves it off: put it back to what it was with
-  `frappe.db.set_single_value("BOQ Upload Review AI Settings", "enabled", <value>)` and a commit (`devenv.sh script`).
+  Ctrl-C).
   With the voter off, classify still writes every row's category (the rule category, flagged for review), which is
   the write that clashed. With it off a suggest writes its run with blank attributes (`ai_status` disabled), and the
   match client refuses to call a model. A classify or suggest reply that says the AI ran counts as a failure. No
   flow ever calls a real provider.
-- The `match` flow switches the AI and the match switch on, but only the workers it started run model calls, and they
-  run with `ANTHROPIC_BASE_URL` at the fake provider (`BIN/fake_ai_provider.py`, in the container on port 18429),
-  which every `anthropic.Anthropic()` the app builds reads. A judge call gets a DIFFERENT verdict per candidate; a
-  card batch gets `{}` (malformed, the run goes on). The settings go back when the flow ends.
+- The `match` flow first swaps the stored AI key for a dummy (`nworker-check-dummy-key`; the real one is parked in
+  Frappe's `__Auth` table as `anthropic_api_key.nworker-check`), then switches the AI and the match switch on. The
+  workers the check started run with `ANTHROPIC_BASE_URL` at the fake provider (`BIN/fake_ai_provider.py`, in the
+  container on port 18429), which every `anthropic.Anthropic()` the app builds reads. Any other process that reads
+  the key (the env's web server, the flows process) reads the dummy, which a real provider refuses. The flow prints
+  the key it reads, and each round prints the keys the calls carried to the fake provider; a round fails on any key
+  but the dummy. A judge call gets a DIFFERENT verdict per candidate; a card batch gets `{}` (malformed, the run goes
+  on). Everything goes back when the flow ends, also when the check is stopped with SIGTERM or Ctrl-C, or when the
+  setup fails part way (`BIN/test_fake_provider_on.py`, run with `devenv.sh script`).
+- A kill -9 skips the clean-up. Killed during any other flow, it leaves the BoQ AI setting off. Killed during
+  `match`, it leaves the AI and the match switch on, the site-wide limit at K, the dummy key stored with the real
+  one parked, and the earlier-BoQ pool file in place. Any AI call then fails at the provider, refused for the key.
+  The next `match` run puts the parked key back when it ends; `devenv.sh reset <task>` puts back the key, the
+  settings and the pool file all at once.
 - A match asks nothing without the earlier-BoQ pool file (`private/boq_rate_match/match_pool_v1.pkl`, built by the
   06:00 job), so the suggest flow's matches end complete with no call on a dev env. The `match` flow brings in a parked
   pool (`<pool>.nworker-check`), else builds one (about 2.5 min on the 2026-10-28 data), and parks it again when it
   ends. Each match's work horse loads it: about 1.4 GiB each, so two matches took the container from 0.97 to 3.77
   GiB; on the 5.5 GiB dev container run N=4 with `--match-at-once 2`.
-- The N-worker check refuses to start while any worker already runs on the env, or while the frappe container uses
-  over 3.5 GiB.
+- The N-worker check refuses to start while any worker or scheduler of the env already runs (any queue: started in
+  the env's bench, from its Python, or for its site; `python3 -m unittest test_walk_background_operations` from
+  `BIN`), or while the frappe container uses over 3.5 GiB.
 - The suggest flow picks N committed sheets on N different BoQs, newest first, that pass the suggest gate and hold 20
   to 300 rate-editable rows. Each run supersedes the sheet's active suggestion run (and match run) with a new one;
   the old runs are kept, as on the screen.

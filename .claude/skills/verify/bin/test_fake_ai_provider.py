@@ -9,10 +9,10 @@ import unittest
 from fake_ai_provider import serve
 
 
-def post(port, content):
+def post(port, content, api_key="k"):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     body = json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": content}]})
-    conn.request("POST", "/v1/messages", body, {"content-type": "application/json"})
+    conn.request("POST", "/v1/messages", body, {"content-type": "application/json", "x-api-key": api_key})
     resp = conn.getresponse()
     return resp.status, json.loads(resp.read())
 
@@ -50,7 +50,15 @@ class TestFakeAiProvider(unittest.TestCase):
         for t in calls:
             t.join()
         self.assertEqual(sorted(statuses), [200, 200, 429, 429])
-        self.assertEqual(stats(port), {"calls": 4, "answered": 2, "rate_limited": 2, "max_in_flight": 2, "limit": 2})
+        self.assertEqual(stats(port), {"calls": 4, "answered": 2, "rate_limited": 2, "max_in_flight": 2, "limit": 2,
+                                       "api_keys": ["k"]})
+
+    def test_it_names_every_api_key_the_calls_carried(self):
+        port = self.start(limit=1, delay=0)
+        post(port, "card", api_key="dummy-b")
+        post(port, "card", api_key="dummy-a")
+        post(port, "card", api_key="dummy-b")
+        self.assertEqual(stats(port)["api_keys"], ["dummy-a", "dummy-b"])
 
     def test_reset_clears_the_counts(self):
         port = self.start(limit=1, delay=0)
@@ -58,7 +66,7 @@ class TestFakeAiProvider(unittest.TestCase):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         conn.request("POST", "/reset", "")
         conn.getresponse().read()
-        self.assertEqual(stats(port)["calls"], 0)
+        self.assertEqual((stats(port)["calls"], stats(port)["api_keys"]), (0, []))
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ get a Messages reply. A judge request (its prompt names "and <n> candidate rows"
 candidate, which the judge parser reads; any other call (a spec card batch) gets `{}`, which the card parser
 reports as malformed and the run goes on.
 
-GET /stats -> {"calls", "answered", "rate_limited", "max_in_flight", "limit"}; POST /reset zeroes the counts.
+GET /stats -> {"calls", "answered", "rate_limited", "max_in_flight", "limit", "api_keys"} (every `x-api-key` the
+calls carried); POST /reset zeroes the counts.
 Standard library only.
 """
 
@@ -48,7 +49,7 @@ def serve(port: int, limit: int, delay: float) -> ThreadingHTTPServer:
     counts = {}
 
     def reset():
-        counts.update(calls=0, answered=0, rate_limited=0, max_in_flight=0, in_flight=0)
+        counts.update(calls=0, answered=0, rate_limited=0, max_in_flight=0, in_flight=0, api_keys=set())
 
     reset()
 
@@ -71,6 +72,7 @@ def serve(port: int, limit: int, delay: float) -> ThreadingHTTPServer:
                 return self._send(404, {"error": "not found"})
             with lock:
                 shown = {k: counts[k] for k in ("calls", "answered", "rate_limited", "max_in_flight")}
+                shown["api_keys"] = sorted(counts["api_keys"])
             self._send(200, {**shown, "limit": limit})
 
         def do_POST(self):
@@ -83,6 +85,7 @@ def serve(port: int, limit: int, delay: float) -> ThreadingHTTPServer:
                 return self._send(404, {"error": "not found"})
             with lock:
                 counts["calls"] += 1
+                counts["api_keys"].add(self.headers.get("x-api-key") or "")
                 over = counts["in_flight"] >= limit
                 if over:
                     counts["rate_limited"] += 1

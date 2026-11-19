@@ -11,11 +11,12 @@ unless `--runs` sets one for all), and stops the workers again, also on failure 
 an operation are walked apart, by `walk_background_operation_screens.py`. While the flows run it samples,
 once a second, each worker's memory (its process plus the work horse it forks per operation) and the Postgres
 connections open on the env's DB. It prints the peak of each, and exits 1 when any operation failed, 2 when the
-check could not run (workers already running, too little memory, a worker that did not start).
+check could not run (a worker or scheduler of the env already running, too little memory, a worker that did not start).
 
 `--fake-provider-limit K` adds the match flow (#1718): it starts `fake_ai_provider.py` in the container, a fake
 Anthropic API that answers 429 to a call above K in flight, starts the workers with `ANTHROPIC_BASE_URL` pointing at
-it (so no worker can reach a real provider), and runs N historical matches at once with the site-wide limit at K
+it, and runs N historical matches at once with the stored AI key swapped for a dummy (so no process, these workers
+or any other, can call a real provider with the real key) and the site-wide limit at K
 (`--site-limit L` sets another, to see the check fail without the limit). No match may halt. Each match's work horse
 loads the earlier-BoQ pool (about 1.4 GiB): `--match-at-once M` starts fewer than N where the container cannot hold
 N of them.
@@ -65,6 +66,26 @@ def worker_pids(procs, site: str) -> list[int]:
     mine = {pid for pid, (_, _, args) in procs.items()
             if f"--site {site} worker --queue long" in args and "bench_helper" in args}
     return sorted(pid for pid in mine if procs[pid][0] not in mine)
+
+
+_WORKER_OR_SCHEDULER = re.compile(r"\bbench(_helper frappe)?\b.*\s(worker|schedule)(\s|$)")
+
+
+def site_background_processes(listing: list[tuple[int, str, str]], task: str, site: str) -> list[int]:
+    """The pids, from (pid, cwd, args) rows, of every Frappe worker or scheduler that serves the env: run in its
+    bench, from its bench's Python, or for its site. Any of them could take an operation the check queues."""
+    bench = f"/workspace/development/benches/{task}"
+    return sorted(pid for pid, cwd, args in listing
+                  if _WORKER_OR_SCHEDULER.search(args)
+                  and (cwd == bench or cwd.startswith(f"{bench}/") or f"{bench}/" in args or f"--site {site}" in args))
+
+
+def container_processes() -> list[tuple[int, str, str]]:
+    """(pid, cwd, args) of every process in the container."""
+    out = container(r"""for p in /proc/[0-9]*; do printf '%s\t%s\t%s\n' "${p#/proc/}" "$(readlink "$p/cwd")" \
+                         "$(tr '\0' ' ' <"$p/cmdline")"; done 2>/dev/null""")
+    rows = [line.split("\t", 2) for line in out.splitlines()]
+    return [(int(r[0]), r[1], r[2]) for r in rows if len(r) == 3 and r[0].isdigit()]
 
 
 def tree_rss(procs, root: int) -> int:
@@ -196,8 +217,9 @@ def main() -> int:
     logs = Path.home() / "claude-artifacts/verify" / a.task / f"n-worker-check-{time.strftime('%Y%m%d-%H%M%S')}"
     logs.mkdir(parents=True, exist_ok=True)
 
-    if worker_pids(processes(), site):
-        print(f"cannot run: workers already run on {site}; stop them first")
+    running = site_background_processes(container_processes(), a.task, site)
+    if running:
+        print(f"cannot run: a worker or scheduler already serves {site} (pids {running}); stop it first")
         return 2
     gib = container_gib()
     if gib > MAX_CONTAINER_GIB:

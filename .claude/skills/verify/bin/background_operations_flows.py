@@ -26,11 +26,12 @@ operation's outcome where the screen reads it (the status the polling fallback r
   other tab's. Before #1662 the heavy tab took the light tab's PDF.
 - match (#1718), only with a fake provider: N historical matches at once (`--match-at-once M` fewer: each match's
   work horse loads the earlier-BoQ pool, about 1.4 GiB on the 2026-10-28 data) (`rate_match.start_after_suggest`, the
-  trigger a suggest calls), each on its own sheet's active complete Suggest run, with the AI on and the site-wide
-  limit (match_site_calls_at_once) set to `--site-limit` (default K). The workers send every model call to the fake
-  provider (`fake_ai_provider.py`), which answers 429 to a call above K in flight. An operation is ok when its record
-  ends finished and its match run complete, never halted; the round fails when the provider answered any 429 or no
-  call reached it. The match needs the earlier-BoQ pool file: the flow uses the env's, else builds one, and parks a
+  trigger a suggest calls), each on its own sheet's active complete Suggest run, with the AI on, the stored AI key
+  swapped for a dummy (`FakeProviderOn`), and the site-wide limit (match_site_calls_at_once) set to `--site-limit`
+  (default K). The workers send every model call to the fake provider (`fake_ai_provider.py`), which answers 429 to a
+  call above K in flight. An operation is ok when its record ends finished and its match run complete, never halted;
+  the round fails when the provider answered any 429, no call reached it, or a call carried a key other than the
+  dummy. The match needs the earlier-BoQ pool file: the flow uses the env's, else builds one, and parks a
   file it brought in (renamed, `<pool>.nworker-check`) when it ends, so the other flows' matches still find none.
 
 Every flow but match runs with the BoQ AI setting switched off (the env holds a real key): the setting is read first, switched
@@ -59,13 +60,14 @@ import uuid
 
 import frappe
 from frappe.utils.background_jobs import get_queue
+from frappe.utils.password import set_encrypted_password
 from pypdf import PdfReader
 from rq import Worker
 
 from nirmaan_stack.api import background_ops
 from nirmaan_stack.api.boq import rate_master, rate_match
 from nirmaan_stack.api.boq.wizard import classify, create_from_template, pricing
-from nirmaan_stack.api.boq.wizard.ai_settings import SETTINGS_DOCTYPE
+from nirmaan_stack.api.boq.wizard.ai_settings import SETTINGS_DOCTYPE, get_boq_ai_api_key
 from nirmaan_stack.api.tds import tds_report
 from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.services.boq_rate_match import pool as match_pool
@@ -460,48 +462,103 @@ def match_run(ctx, run, timeout):
 
     out = wait_until(set(started), read, timeout)
     seen = fake_provider("/stats")
+    keys = ["the dummy" if k == DUMMY_KEY else "a key that is not the dummy" for k in seen["api_keys"]]
     print(f"    fake provider: {seen['calls']} calls, {seen['rate_limited']} answered 429, at most "
-          f"{seen['max_in_flight']} in flight (limit {seen['limit']})", flush=True)
+          f"{seen['max_in_flight']} in flight (limit {seen['limit']}); the calls carried {keys or 'no key'}",
+          flush=True)
     if seen["rate_limited"] or not seen["answered"]:
         out["provider"] = {"ok": False, "detail": f"fake provider: {seen['rate_limited']} calls answered 429, "
                                                   f"{seen['answered']} answered"}
+    if seen["api_keys"] != [DUMMY_KEY]:
+        out["key"] = {"ok": False, "detail": f"fake provider: the calls carried {keys or 'no key'}, not the dummy"}
     return out
 
 
 class FakeProviderOn:
-    """The match flow's settings: the BoQ AI and the match switch on, the site-wide limit at `site_limit`, and the
-    earlier-BoQ pool file in place; each put back as it was when the flow ends. Only the workers the walk started
-    against the fake provider make model calls while it holds."""
+    """The match flow's settings: the stored AI key a dummy, the BoQ AI and the match switch on, the site-wide limit at
+    `site_limit`, and the earlier-BoQ pool file in place; each put back as it was when the flow ends, or when entering
+    fails part way. Only the workers the walk started against the fake provider make model calls while it holds, and
+    any other process that reads the key reads the dummy, which a real provider refuses. A run killed while it holds
+    leaves the dummy in place and the real key parked; the next run puts the parked key back when it ends."""
 
     FIELDS = ("enabled", "match_enabled", "match_site_calls_at_once")
 
     def __init__(self, site_limit):
         self.site_limit = site_limit
+        self.key_parked = self.pool_brought = False
+        self.before = None
 
     def __enter__(self):
+        try:
+            park_key()
+            self.key_parked = True
+            self._bring_pool()
+            self.before = {f: frappe.db.get_single_value(SETTINGS_DOCTYPE, f) for f in self.FIELDS}
+            for f, value in zip(self.FIELDS, (1, 1, self.site_limit)):
+                frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
+            frappe.db.commit()
+            frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
+        except BaseException:
+            self.__exit__()
+            raise
+        return self
+
+    def _bring_pool(self):
         path = match_pool.pool_path()
-        self.park = not os.path.exists(path)
-        if self.park and os.path.exists(path + PARKED_POOL):
+        if os.path.exists(path):
+            return
+        self.pool_brought = True
+        if os.path.exists(path + PARKED_POOL):
             os.rename(path + PARKED_POOL, path)
-        elif self.park:
-            print("match: no earlier-BoQ pool file on this env; building one", flush=True)
-            built = match_pool.rebuild_pool()
-            print(f"match: pool built, {built['rows']} rows in {built['secs']}", flush=True)
-        self.before = {f: frappe.db.get_single_value(SETTINGS_DOCTYPE, f) for f in self.FIELDS}
-        for f, value in zip(self.FIELDS, (1, 1, self.site_limit)):
-            frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
-        frappe.db.commit()
-        frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
+            return
+        print("match: no earlier-BoQ pool file on this env; building one", flush=True)
+        built = match_pool.rebuild_pool()
+        print(f"match: pool built, {built['rows']} rows in {built['secs']}", flush=True)
 
     def __exit__(self, *exc):
         frappe.db.rollback()
-        for f, value in self.before.items():
-            frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
-        frappe.db.commit()
-        frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
-        if self.park:
-            path = match_pool.pool_path()
+        if self.before is not None:
+            for f, value in self.before.items():
+                frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
+            frappe.db.commit()
+            frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
+        if self.key_parked:
+            unpark_key()
+        path = match_pool.pool_path()
+        if self.pool_brought and os.path.exists(path):
             os.rename(path, path + PARKED_POOL)
+
+
+KEY_FIELD = "anthropic_api_key"
+PARKED_KEY_FIELD = KEY_FIELD + PARKED_POOL
+DUMMY_KEY = "nworker-check-dummy-key"
+
+
+def _key_stored(fieldname):
+    return frappe.db.sql("select 1 from `__Auth` where doctype = %s and name = %s and fieldname = %s",
+                         (SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, fieldname))
+
+
+def _move_key(src, dst):
+    # __Auth is Frappe's password table, not a doctype: no doc_events to run.
+    frappe.db.sql("update `__Auth` set fieldname = %s where doctype = %s and name = %s and fieldname = %s",
+                  (dst, SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, src))
+
+
+def park_key():
+    """Move the stored AI key to a parked row and store DUMMY_KEY where the app reads it. A key already parked (a run
+    killed while it held) stays parked: the stored one is then the dummy."""
+    if not _key_stored(PARKED_KEY_FIELD):
+        _move_key(KEY_FIELD, PARKED_KEY_FIELD)
+    set_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, DUMMY_KEY, KEY_FIELD)
+    frappe.db.commit()
+
+
+def unpark_key():
+    """Put the parked AI key back where the app reads it (no stored key when none was parked)."""
+    frappe.db.delete("__Auth", {"doctype": SETTINGS_DOCTYPE, "name": SETTINGS_DOCTYPE, "fieldname": KEY_FIELD})
+    _move_key(PARKED_KEY_FIELD, KEY_FIELD)
+    frappe.db.commit()
 
 
 class VoterOff:
@@ -564,6 +621,10 @@ def main():
             runs = a.runs or default_runs
             ops = []
             with FakeProviderOn(FAKE["site_limit"]) if flow == "match" else contextlib.nullcontext():
+                if flow == "match":
+                    if get_boq_ai_api_key() != DUMMY_KEY:
+                        raise SystemExit("match: the stored AI key is not the dummy; not running")
+                    print(f"match: this process reads the stored AI key as {DUMMY_KEY!r}", flush=True)
                 ctx = setup(a.workers)
                 for run in range(1, runs + 1):
                     t0 = time.monotonic()
@@ -581,4 +642,5 @@ def main():
     print("JSON: " + json.dumps(result), flush=True)
 
 
-main()
+if __name__ == "__main__":
+    main()
