@@ -61,3 +61,8 @@ Preconditions:
   no realtime event to clear it, so a customer made in the last 5 minutes is missing from the plain list (the count
   card is not cached). Find it with the search box (`Search by company name...`), a query not cached yet.
 - The made-up customers stay in the env DB; their names start with `Zephyr Walk Builders`.
+- Live refresh (#1670): `BIN/walk_live_refresh.py` holds the list open as the Accountant while the Administrator
+  renames a customer through the REST API, and expects the new name with no reload. It needs the env bench's own
+  Socket.IO server (its docstring says how). On 2026-11-19 it failed at 02: the server sent `list_update` to the
+  page's socket, but no frame reached the page after the transport upgrade; a plain websocket from the same page got
+  both. Not walked until that is understood.
