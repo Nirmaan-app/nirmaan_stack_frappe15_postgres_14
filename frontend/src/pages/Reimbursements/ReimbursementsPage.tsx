@@ -2,7 +2,8 @@
  * Reimbursements (owner, 2026-10-21/22): a Nirmaan user's claims to be repaid money they spent for work. Every step
  * of a claim is here (ADR-0040 Amendment C, owner 2026-11-18); its Non-Project Expense is not in Project Payments.
  *
- * Tabs (`utils/reimbursements/rules.tabsFor`), kept in `?tab=`, in order:
+ * Tabs (`utils/reimbursements/rules.tabsFor`), kept in `?tab=`, laid out by `ReimbursementTabBar` (grouped HR / Admin /
+ * Accounts for Admin and the CEO, a plain row for HR and Accounts), in order:
  * * Pending Approval -- new claims; HR, Admin and the CEO decide (the server's `can_decide`, `get_pending_for_me`).
  * * Pending L1 Approval -- HR approved at or above the monthly limit; Admin or the CEO decide.
  * * Pending CEO Approval -- Admin approved above ₹50,000; only the CEO sees it.
@@ -22,17 +23,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 
-import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/components/ui/use-toast";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
-import { cn } from "@/lib/utils";
 import { UpdatePaymentDetailsDialog as NonProjectExpensePayDialog } from "@/pages/NonProjectExpenses/components/UpdatePaymentDetailsDialog";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import type { ClaimRow, ClaimTabCounts, PendingReimbursement } from "@/types/NirmaanStack/Reimbursement";
 import { raiserLevelOf } from "@/utils/approvalTiers";
-import { ALL_MONTHS, MONTH_TABS, filtersByMonth, resolveMonth } from "@/utils/reimbursements/claimMonth";
+import { filtersByMonth, resolveMonth } from "@/utils/reimbursements/claimMonth";
 import type { ApprovalStage } from "@/utils/reimbursements/monthLimit";
 import {
     SELECTABLE_TABS,
@@ -40,9 +39,10 @@ import {
     TAB_L1,
     TAB_LABELS,
     TAB_PENDING,
-    TAB_RECONCILIATION,
     actsOn,
     claimantName,
+    groupsTabs,
+    isReimbursementAdmin,
     resolveTab,
     tabsFor,
     type ReimbursementTab,
@@ -58,6 +58,7 @@ import { DecisionDialog, type Decision } from "./components/DecisionDialog";
 import { DeleteClaimDialog } from "./components/DeleteClaimDialog";
 import { ExportForPaymentDialog, MarkPaidDialog } from "./components/PayoutDialogs";
 import { RaiseReimbursementDialog } from "./components/RaiseReimbursementDialog";
+import { ReimbursementTabBar } from "./components/ReimbursementTabBar";
 import { useRefreshClaimPayments } from "./hooks/useClaimPayments";
 import type { DecisionOutcome } from "./hooks/useClaimDecisions";
 
@@ -84,11 +85,10 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
     const [tab, setTab] = useState<ReimbursementTab>(() => resolveTab(urlStateManager.getParam("tab"), viewer));
     // Bumped after any change, to remount the open table so it refetches (and drops its ticks).
     const [reload, setReload] = useState(0);
-    const [highlight, setHighlight] = useState<string | null>(null);
     // The picked month on Paid and All, per tab, from the address (the current month when none).
     const byMonth = filtersByMonth(tab, viewer);
     const [months, setMonths] = useState<Record<string, string>>({});
-    const month = byMonth ? (months[tab] ?? resolveMonth(urlStateManager.getParam(`reimb_${tab}_month`))) : undefined;
+    const month = byMonth ? (months[tab] ?? resolveMonth(urlStateManager.getParam(`reimb_${tab}_month`), tab)) : undefined;
     const changeMonth = useCallback((next: string) => {
         setMonths((m) => ({ ...m, [tab]: next }));
         urlStateManager.updateParam(`reimb_${tab}_month`, next);
@@ -97,18 +97,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
     // Back / forward between tabs.
     useEffect(() => urlStateManager.subscribe("tab", (_, value) => setTab(resolveTab(value, viewer))), [viewer]);
 
-    const openTab = useCallback((value: ReimbursementTab, claim: string | null = null) => {
-        if (claim) {
-            // The tab opens searched to the claim, as the Action Center's links open it -- on every month, so a
-            // claim from another month is not filtered out.
-            urlStateManager.updateParam(`reimb_${value}_searchBy`, "name");
-            urlStateManager.updateParam(`reimb_${value}_q`, claim);
-            if (MONTH_TABS.includes(value)) {
-                urlStateManager.updateParam(`reimb_${value}_month`, ALL_MONTHS);
-                setMonths((m) => ({ ...m, [value]: ALL_MONTHS }));
-            }
-        }
-        setHighlight(claim);
+    const openTab = useCallback((value: ReimbursementTab) => {
         setTab(value);
         urlStateManager.updateParam("tab", value);
     }, []);
@@ -204,28 +193,19 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
     const onExport = useCallback((rows: ClaimRow[]) => { setExporting(rows); setExportOpen(true); }, []);
     const onReconcile = useCallback((r: ClaimRow) => setReconciling(r), []);
 
-    /** Say where each decided claim went, with a button to open that tab (the claim moved out of this one). */
+    /** Say where each decided claim went. No "Open tab" button on the toast (owner, 2026-11-19). */
     const reportOutcome = useCallback((outcome: DecisionOutcome, verb: string) => {
         const { moved, failed } = outcome;
         if (moved.length) {
             const tabsReached = [...new Set(moved.map((m) => m.tab))];
             const where = (t: ReimbursementTab | null) => (t ? TAB_LABELS[t] : "All (rejected)");
             const target = tabsReached.length === 1 ? tabsReached[0] : null;
-            const destination = tabsReached.length === 1 ? tabsReached[0] ?? "all" : null;
             toast({
                 title: moved.length === 1 ? `${verb} ${moved[0].claim}` : `${verb} ${moved.length} claims`,
                 description: tabsReached.length === 1
                     ? `Now in ${where(target)}.`
                     : `Now in: ${tabsReached.map((t) => `${where(t)} (${moved.filter((m) => m.tab === t).length})`).join(", ")}.`,
                 variant: "success",
-                ...(destination && tabs.includes(destination) ? {
-                    action: (
-                        <ToastAction altText={`Open ${TAB_LABELS[destination]}`}
-                            onClick={() => openTab(destination, moved.length === 1 ? moved[0].claim : null)}>
-                            Open tab
-                        </ToastAction>
-                    ),
-                } : {}),
             });
         }
         if (failed.length) {
@@ -238,7 +218,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
         setClearTicks((n) => n + 1);
         setOpenName(null);
         refreshAll();
-    }, [toast, tabs, openTab, refreshAll]);
+    }, [toast, refreshAll]);
 
     return (
         <div className="flex-1 space-y-4">
@@ -249,29 +229,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 </p>
             </div>
 
-            {/* Pills, as the Payees page and Expense Requests show their tabs. */}
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Reimbursement tabs">
-                {tabs.map((t) => {
-                    const active = t === tab;
-                    const count = counts[t];
-                    return (
-                        <button
-                            key={t}
-                            type="button"
-                            role="tab"
-                            aria-selected={active}
-                            onClick={() => openTab(t)}
-                            className={cn(
-                                "flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                                active ? "bg-sky-500 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200",
-                            )}
-                        >
-                            {TAB_LABELS[t]}
-                            {count !== undefined && <b className="text-xs tabular-nums">{count}</b>}
-                        </button>
-                    );
-                })}
-            </div>
+            <ReimbursementTabBar tabs={tabs} active={tab} counts={counts} grouped={groupsTabs(viewer)} onOpen={(t) => openTab(t)} />
 
             <ClaimsTable
                 // The month is in the key: the table refetches on its own filters, not on a changed request parameter.
@@ -282,6 +240,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 onOpen={onOpen}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                isAdmin={isReimbursementAdmin(viewer)}
                 selectable={selectable}
                 canAct={canAct}
                 cannotActReason={cannotActReason}
@@ -291,7 +250,6 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 onExport={onExport}
                 onReconcile={onReconcile}
                 clearTicks={clearTicks}
-                highlight={highlight}
                 month={month}
                 onMonthChange={byMonth ? changeMonth : undefined}
             />
@@ -309,6 +267,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 }}
                 onEdit={onEdit}
                 onDelete={(r) => { setOpenName(null); onDelete(r); }}
+                isAdmin={isReimbursementAdmin(viewer)}
             />
             <DecisionDialog
                 open={decisionOpen}
@@ -340,12 +299,6 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                         toast({
                             title: "Now in Reconciliation Pending",
                             description: "Add the UTR and proof there (Mark Reconciled) to finish.",
-                            action: (
-                                <ToastAction altText="Open Reconciliation Pending"
-                                    onClick={() => openTab(TAB_RECONCILIATION, moved.length === 1 ? moved[0] : null)}>
-                                    Open tab
-                                </ToastAction>
-                            ),
                         });
                     }
                     setClearTicks((n) => n + 1);

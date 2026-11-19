@@ -33,6 +33,7 @@ from nirmaan_stack.integrations.controllers.reimbursement_notify import notify_d
 from nirmaan_stack.services.expense_decision import is_l1
 from nirmaan_stack.services.reimbursements.access import claim_decide_problem, is_hr
 from nirmaan_stack.services.reimbursements.convert import create_expense
+from nirmaan_stack.services.reimbursements.expense_link import lock_claim
 from nirmaan_stack.services.reimbursements.month_total import month_totals
 from nirmaan_stack.services.reimbursements.rules import (
     APPROVED,
@@ -51,7 +52,7 @@ DOCTYPE = "Reimbursement"
 
 
 def _locked_for_decision(name: str, user: str):
-    claim = frappe.get_doc(DOCTYPE, name, for_update=True)
+    claim = lock_claim(name)
     problem = claim_decide_problem(claim, user)
     if problem:
         frappe.throw(_(problem), frappe.ValidationError if claim.status != PENDING else frappe.PermissionError)

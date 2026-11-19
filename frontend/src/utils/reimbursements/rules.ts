@@ -103,10 +103,14 @@ export function editProblem(status: string, isClaimant: boolean): string | null 
 }
 
 /** Why the person may not delete the claim, or null: the claimant, while pending or once rejected (owner,
- *  2026-10-27). A claim rejected in Payments takes its Rejected expense with it (the server does that). */
-export function deleteProblem(status: string, isClaimant: boolean): string | null {
-    if (!isClaimant) return "Only the person who raised a claim can delete it.";
-    if (status !== PENDING && status !== REJECTED) return `This claim is ${status}, so it can't be deleted.`;
+ *  2026-10-27); an Admin, anyone's claim once it is rejected (owner, 2026-11-19). A claim rejected in Payments takes
+ *  its Rejected expense with it (the server does that). Mirrors `rules.delete_problem`. */
+export function deleteProblem(status: string, isClaimant: boolean, isAdmin = false): string | null {
+    if (isClaimant) {
+        return status !== PENDING && status !== REJECTED ? `This claim is ${status}, so it can't be deleted.` : null;
+    }
+    if (!isAdmin) return "Only the person who raised a claim, or an Admin once it is rejected, can delete it.";
+    if (status !== REJECTED) return `This claim is ${status}: an Admin can delete someone else's claim only once it is rejected.`;
     return null;
 }
 
@@ -188,7 +192,8 @@ export const TAB_LABELS: Record<ReimbursementTab, string> = {
     [TAB_CEO]: "Pending CEO Approval",
     [TAB_APPROVED]: "Payment need to be paid",
     [TAB_RECONCILIATION]: "Reconciliation Pending",
-    [TAB_PAID]: "Paid",
+    // Renamed (owner, 2026-11-19); the id stays `paid`.
+    [TAB_PAID]: "Reconciliation Done / Paid",
     [TAB_MINE]: "Reimbursement Raised By Me",
     [TAB_ALL]: "All",
 };
@@ -230,19 +235,54 @@ export function actsOn(tab: ReimbursementTab, viewer: Viewer): boolean {
 }
 
 /**
- * The tabs a person sees, in order (owner, 2026-11-18): Admin, Accounts and HR see every tab but Pending CEO Approval,
- * which only the CEO sees; the CEO sees all eight. Everyone else sees only Reimbursement Raised By Me.
+ * The tab bar (owner, 2026-11-19, plan page "Tab layout"): one row of equal-height tabs, each label on two lines with
+ * its count beside it, then All, and Reimbursement Raised By Me alone at the right end. Admin and the CEO -- who see the
+ * most tabs -- get them grouped in bordered boxes named for who works them; HR and Accounts get a plain row.
+ */
+export const TAB_GROUPS: readonly { label: string; tabs: readonly ReimbursementTab[] }[] = [
+    { label: "HR", tabs: [TAB_PENDING] },
+    { label: "Admin", tabs: [TAB_L1, TAB_CEO] },
+    { label: "Accounts", tabs: [TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID] },
+];
+
+/** Each tab's label on two lines, split where it reads naturally (All stays one word). */
+export const TAB_LINES: Record<ReimbursementTab, readonly [string, string] | readonly [string]> = {
+    [TAB_PENDING]: ["Pending", "Approval"],
+    [TAB_L1]: ["Pending", "L1 Approval"],
+    [TAB_CEO]: ["Pending", "CEO Approval"],
+    [TAB_APPROVED]: ["Payment", "need to be paid"],
+    [TAB_RECONCILIATION]: ["Reconciliation", "Pending"],
+    [TAB_PAID]: ["Reconciliation", "Done / Paid"],
+    [TAB_MINE]: ["Reimbursement", "Raised By Me"],
+    [TAB_ALL]: ["All"],
+};
+
+/** Whether this person's tabs are grouped (Admin and the CEO). */
+export const groupsTabs = (viewer: Viewer): boolean => isReimbursementAdmin(viewer) || isReimbursementCeo(viewer);
+
+/**
+ * The tabs a person sees, in order (owner, 2026-11-19), each to the people whose work it is:
+ * - the CEO: all eight; an Admin (Administrator included): all but Pending CEO Approval;
+ * - HR: Pending Approval, Reconciliation Done / Paid, Raised By Me, All;
+ * - Accounts: Payment need to be paid, Reconciliation Pending, Reconciliation Done / Paid, Raised By Me, All;
+ * - everyone else: Raised By Me.
+ * Display only: what each person may read and do is the server's (HR and Accounts still read every claim, in All).
  */
 export function tabsFor(viewer: Viewer): ReimbursementTab[] {
     const ceo = isReimbursementCeo(viewer);
-    if (!(seesAllClaims(viewer) || ceo)) return [TAB_MINE];
-    return TABS.filter((tab) => tab !== TAB_CEO || ceo);
+    if (ceo || isReimbursementAdmin(viewer)) return TABS.filter((tab) => tab !== TAB_CEO || ceo);
+    if (isReimbursementHr(viewer)) return [TAB_PENDING, TAB_PAID, TAB_MINE, TAB_ALL];
+    if (seesAllClaims(viewer)) return [TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID, TAB_MINE, TAB_ALL];
+    return [TAB_MINE];
 }
 
-/** The tab a person opens on: Pending Approval for those who decide claims (HR, Admin, the CEO), Payment need to be
- *  paid for Accounts, their own claims for everyone else. */
+/** The tab a person opens on, where their own step waits (owner, 2026-11-19): Pending CEO Approval for the CEO,
+ *  Pending L1 Approval for an Admin who isn't the CEO, Pending Approval for HR, Payment need to be paid for Accounts,
+ *  their own claims for everyone else. */
 export function defaultTab(viewer: Viewer): ReimbursementTab {
     const tabs = tabsFor(viewer);
+    if (isReimbursementCeo(viewer) && tabs.includes(TAB_CEO)) return TAB_CEO;
+    if (isReimbursementAdmin(viewer) && tabs.includes(TAB_L1)) return TAB_L1;
     if (actsOn(TAB_PENDING, viewer) && tabs.includes(TAB_PENDING)) return TAB_PENDING;
     return tabs.includes(TAB_APPROVED) ? TAB_APPROVED : tabs[0];
 }

@@ -177,6 +177,41 @@
       "status": "Rejected",
       "is_claimant": false,
       "allowed": false
+    },
+    {
+      "name": "admin, someone else's, rejected",
+      "status": "Rejected",
+      "is_claimant": false,
+      "is_admin": true,
+      "allowed": true
+    },
+    {
+      "name": "admin, someone else's, pending",
+      "status": "Pending Approval",
+      "is_claimant": false,
+      "is_admin": true,
+      "allowed": false
+    },
+    {
+      "name": "admin, someone else's, approved",
+      "status": "Approved",
+      "is_claimant": false,
+      "is_admin": true,
+      "allowed": false
+    },
+    {
+      "name": "admin, someone else's, paid",
+      "status": "Paid",
+      "is_claimant": false,
+      "is_admin": true,
+      "allowed": false
+    },
+    {
+      "name": "admin, own, pending",
+      "status": "Pending Approval",
+      "is_claimant": true,
+      "is_admin": true,
+      "allowed": true
     }
   ],
   "mergeable": [

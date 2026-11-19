@@ -308,6 +308,7 @@ class TestReimbursementsAreNotInProjectPayments(_EndToEndCase):
         self.assertEqual(mine["tag"], "Reimbursement")
         self.assertTrue(mine["linkTo"].startswith("/reimbursements?tab=approved"), mine["linkTo"])
         self.assertIn(f"reimb_approved_q={name}", mine["linkTo"])
+        self.assertIn("reimb_approved_month=all", mine["linkTo"])  # the tab defaults to this month
         self.assertTrue(items[f"npe-{ordinary}"]["linkTo"].startswith("/project-payments?"))
 
     def test_the_type_filter_and_facet_have_no_reimbursement_left(self):

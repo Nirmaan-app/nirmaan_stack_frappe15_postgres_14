@@ -137,8 +137,9 @@ not appear in Project Payments & Expenses. Decision record:
   Reconciliation Pending (`link_lines.get_linkable_expenses` lists it, with a blank type). The settle and
   `unreconcile._revert_expense` both `doc.save` inside `outflow_import_write`, so the claim follows in the same
   savepoint. Pinned by `test_reimbursements.test_the_bank_import_links_settles_and_undoes_it_like_any_expense`.
-- **Deleting** (owner, 2026-10-27): the claimant deletes their claim while it is Pending Approval or Rejected
-  (`rules.delete_problem`, twin `rules.ts`, shared cases JSON). A pending claim, or one HR or Admin rejected, has no
+- **Deleting** (owner, 2026-10-27): the claimant deletes their claim while it is Pending Approval or Rejected;
+  an Admin (the CEO included) deletes anyone's claim once it is Rejected, through the same call, from All or the
+  claim view (owner, 2026-11-19) (`rules.delete_problem`, twin `rules.ts`, shared cases JSON). A pending claim, or one HR or Admin rejected, has no
   expense; a claim rejected after its first approval (L1 or CEO) takes its Rejected expense with it (`expense_link.delete_rejected_expense`),
   and one whose expense is not Rejected (an older row, a raw write) is refused, telling the claimant Accounts can
   delete that expense. Deleting the expense in ANY status deletes the claim (`expense_link.delete_with_expense`:

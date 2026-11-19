@@ -3,8 +3,8 @@
 // Columns for every Reimbursements tab (ADR-0040 Amendment C): one config, so every tab reads the same way. As in
 // Project Payments' queue, the tabs where people act on ticked rows start with a tick box and every tab with an action
 // has an Actions column right after it: Approve / Reject (circled icons) on the three approval tabs, Mark as Paid on
-// Payment need to be paid, Mark Reconciled on Reconciliation Pending, Edit / Delete on Raised By Me. Every tab after the first
-// approval shows the claim's Non-Project Expense (its ID and its own status).
+// Payment need to be paid, Mark Reconciled on Reconciliation Pending, Edit / Delete on Raised By Me, and, for Admin,
+// Delete on rejected claims in All. Every tab after the first approval shows the claim's Non-Project Expense (its ID).
 //
 // EVERY FIELD IS A COLUMN, because the default Export writes every column definition (hidden ones
 // included) and the payers asked for "all the fields" (owner, 2026-10-22). The bank fields, description
@@ -26,7 +26,7 @@ import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatP
 import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
 
 import type { Decision } from "../components/DecisionDialog";
-import { PayToCell, TitleCell } from "../components/HoverDetails";
+import { PayToCell, RejectionReason, TitleCell } from "../components/HoverDetails";
 import {
     REJECTED,
     TAB_ALL,
@@ -83,8 +83,6 @@ const EXPENSE_TABS: readonly ReimbursementTab[] = [TAB_L1, TAB_CEO, TAB_APPROVED
 export const columnVisibilityFor = (tab: ReimbursementTab) => ({
     ...HIDDEN_BY_DEFAULT,
     approved_by: tab === TAB_PAID,
-    // The Role column (with its facet) on the two reporting tabs; elsewhere the role sits under the claimant's name.
-    claimant_role: tab === TAB_PAID || tab === TAB_ALL,
     rejection_reason: false,
     expense_status: false,
 });
@@ -97,6 +95,8 @@ interface Args {
     onOpen: (r: ClaimRow) => void;
     onEdit: (r: ClaimRow) => void;
     onDelete: (r: ClaimRow) => void;
+    /** Admin (the CEO included): a delete button on rejected claims in All (owner, 2026-11-19). */
+    isAdmin?: boolean;
     /** The tab has tick boxes (this person acts on ticked rows here). */
     selectable?: boolean;
     /** Whether this person may act on a row of this tab, and why not (the approval tabs show it on hover). */
@@ -110,12 +110,10 @@ interface Args {
 }
 
 export function getReimbursementColumns({
-    tab, userId, getUserName, onOpen, onEdit, onDelete, selectable, canAct, cannotActReason, onDecide, onMarkPaid,
-    onReconcile,
+    tab, userId, getUserName, onOpen, onEdit, onDelete, isAdmin = false, selectable, canAct, cannotActReason, onDecide,
+    onMarkPaid, onReconcile,
 }: Args): ColumnDef<ClaimRow>[] {
     const mine = tab === TAB_MINE;
-    // Paid and All: the reporting tabs, which show a Role column (with its facet) and so tighten two others.
-    const reporting = tab === TAB_PAID || tab === TAB_ALL;
     // Reimbursement Raised By Me and All span every status, so they show it (with the decision under it).
     const showStatus = mine || tab === TAB_ALL;
     const exported = (header: string, value: (r: ClaimRow) => string | number) => ({
@@ -169,12 +167,13 @@ export function getReimbursementColumns({
                 // Its id is the field the Claimant facet filters on (the table sends a column's id as the field).
                 id: "claimant_name",
                 accessorKey: "claimant_name",
-                size: reporting ? 115 : 125,
+                size: 125,
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Claimant" />,
                 cell: ({ row }) => (
                     <div className="min-w-0">
                         <div className="truncate">{claimantName(row.original, getUserName)}</div>
-                        {!reporting && row.original.claimant_role && (
+                        {/* The role under the name on every tab; no Role column or filter (owner, 2026-11-19). */}
+                        {row.original.claimant_role && (
                             <div className="truncate text-[11px] text-muted-foreground">{roleLabel(row.original.claimant_role)}</div>
                         )}
                     </div>
@@ -186,7 +185,7 @@ export function getReimbursementColumns({
                 size: 105,
                 header: "Role",
                 cell: ({ row }) => <span className="block truncate text-xs">{roleLabel(row.original.claimant_role) || "--"}</span>,
-                meta: { ...exported("Claimant Role", (r) => roleLabel(r.claimant_role)), ...facetMeta({ field: "claimant_role", title: "Role" }) },
+                meta: exported("Claimant Role", (r) => roleLabel(r.claimant_role)),
             },
             {
                 id: "claimant_email",
@@ -235,7 +234,7 @@ export function getReimbursementColumns({
     columns.push(
         {
             id: "pay_to",
-            size: reporting ? 130 : 140,
+            size: 140,
             header: "Pay to",
             // The last four digits in the cell; the whole account (number, IFSC, bank, branch) on hover.
             cell: ({ row }) => <PayToCell claim={row.original} />,
@@ -254,18 +253,17 @@ export function getReimbursementColumns({
             accessorKey: "status",
             size: 120,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-            // A rejection's reason sits under the status, so Raised By Me needs no Rejection Reason column of its own
-            // (it still exports). No approver name under it (owner, 2026-11-19): Approved By is its own column on Paid.
+            // A rejection's reason opens from an icon beside the status, so Raised By Me needs no Rejection Reason column
+            // of its own (it still exports). No approver name under it (owner, 2026-11-19): Approved By is its own column on Paid.
             cell: ({ row }) => {
                 const r = row.original;
                 return (
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-1.5">
                         <span className={cn("px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap", STATUS_BADGE[r.status])}>
                             {r.status}
                         </span>
-                        {r.status === REJECTED && r.rejection_reason && (
-                            <div className="mt-1 line-clamp-2 text-[11px] text-red-700" title={r.rejection_reason}>{r.rejection_reason}</div>
-                        )}
+                        {/* The reason behind a message icon, read on hover or click (owner, 2026-11-19). */}
+                        {r.status === REJECTED && r.rejection_reason && <RejectionReason reason={r.rejection_reason} />}
                     </div>
                 );
             },
@@ -343,8 +341,11 @@ export function getReimbursementColumns({
     // Actions, SECOND (right after the tick box), as Project Payments' queue has it: the hand never travels to the
     // right edge, and the buttons look the same as there (`ProjectPayments/config/approvalColumns.tsx`).
     const isApprovalTab = tab === TAB_PENDING || tab === TAB_L1 || tab === TAB_CEO;
-    const actionsWidth = isApprovalTab ? 72 : tab === TAB_APPROVED ? 148 : tab === TAB_RECONCILIATION ? 156 : mine ? 72 : 0;
-    if (actionsWidth && (mine || (canAct && (isApprovalTab ? onDecide : tab === TAB_APPROVED ? onMarkPaid : onReconcile)))) {
+    // Admin deletes anyone's rejected claim from All (owner, 2026-11-19); the claimant deletes from Raised By Me.
+    const adminDeletes = isAdmin && tab === TAB_ALL;
+    const actionsWidth = isApprovalTab ? 72 : tab === TAB_APPROVED ? 148 : tab === TAB_RECONCILIATION ? 156 : mine ? 72
+        : adminDeletes ? 64 : 0;
+    if (actionsWidth && (mine || adminDeletes || (canAct && (isApprovalTab ? onDecide : tab === TAB_APPROVED ? onMarkPaid : onReconcile)))) {
         const none = <span className="text-muted-foreground">--</span>;
         columns.splice(selectable ? 1 : 0, 0, {
             id: "actions",
@@ -354,10 +355,10 @@ export function getReimbursementColumns({
             enableHiding: false,
             cell: ({ row }) => {
                 const r = row.original;
-                if (mine) {
+                if (mine || adminDeletes) {
                     const isClaimant = r.owner === userId;
                     const edit = !editProblem(r.status, isClaimant);
-                    const del = !deleteProblem(r.status, isClaimant);
+                    const del = !deleteProblem(r.status, isClaimant, isAdmin);
                     if (!edit && !del) return none;
                     return (
                         <div className="flex items-center gap-1">

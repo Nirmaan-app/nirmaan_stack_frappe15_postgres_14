@@ -15,6 +15,7 @@ Run:
 from __future__ import annotations
 
 import io
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -825,6 +826,35 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertFalse(frappe.db.exists(NPE, expense.name))
         self.assertTrue(set(receipt_files) <= set(self.storage.deleted))
 
+    def test_an_admin_deletes_a_rejected_claim_with_its_expense(self):
+        """Owner, 2026-11-19: an Admin deletes anyone's claim once it is Rejected -- the same call as the claimant's,
+        so a claim rejected in Payments takes its Rejected expense and receipts with it."""
+        name, expense = self.approve(HR)
+        self.move(expense, "Rejected", "Wrong project")
+        frappe.db.commit()
+        receipt_files = [f.name for f in receipts.claim_files(name)]
+        self.as_user(ADMIN, claims.delete_reimbursement, name)
+        self.assertFalse(frappe.db.exists("Reimbursement", name))
+        self.assertFalse(frappe.db.exists(NPE, expense.name))
+        self.assertTrue(set(receipt_files) <= set(self.storage.deleted))
+
+    def test_only_an_admin_deletes_someone_elses_claim_and_only_once_rejected(self):
+        rejected = self.raise_claim(PM)
+        self.as_user(HR, review.reject_reimbursement, rejected, "reimb_test unreadable")
+        for user in (HR, ACC):  # HR and Accounts may not, even rejected
+            with self.assertRaises(frappe.PermissionError):
+                self.as_user(user, claims.delete_reimbursement, rejected)
+        self.as_user(ADMIN, claims.delete_reimbursement, rejected)  # HR rejected: no expense, the claim goes
+        self.assertFalse(frappe.db.exists("Reimbursement", rejected))
+
+        pending = self.raise_claim(PM)
+        approved, expense = self.approve(HR)
+        for name in (pending, approved):  # an Admin may not delete someone else's live claim
+            with self.assertRaises(frappe.ValidationError):
+                self.as_user(ADMIN, claims.delete_reimbursement, name)
+            self.assertTrue(frappe.db.exists("Reimbursement", name))
+        self.assertTrue(frappe.db.exists(NPE, expense.name))
+
     def test_the_claimant_cannot_delete_a_rejected_claim_whose_expense_was_revived(self):
         """A claim Rejected in Payments whose expense was later put back must not take that live expense with it,
         and the refusal says what Accounts can do (code review 2026-10-27, finding 4: a reject is refused there)."""
@@ -1085,9 +1115,18 @@ class TestClaimMonth(ReimbursementTestCase):
         with self.assertRaises(frappe.ValidationError):
             self.as_user(ACC, queue.get_claim_month_summary, "pending", 2025)
 
+    def test_payment_need_to_be_paid_narrows_by_the_raised_month(self):
+        name, _ = self.approve(HR)  # small: born Approved, so it waits to be paid
+        listed = [r["name"] for r in self.names("approved", self.THIS_MONTH)["data"]]
+        self.assertIn(name, listed)
+        last_month = frappe.utils.add_months(frappe.utils.nowdate(), -1)[:7]
+        self.assertNotIn(name, [r["name"] for r in self.names("approved", last_month)["data"]])
+        summary = self.as_user(ACC, queue.get_claim_month_summary, "approved", int(self.THIS_MONTH[:4]))
+        self.assertGreaterEqual(summary["months"][str(int(self.THIS_MONTH[5:]))]["count"], 1)
+
     def test_other_tabs_ignore_the_month_and_a_bad_month_is_refused(self):
         name = self.raise_claim(PM, amount=300)
-        self.assertIn(name, {r["name"] for r in self.names("pending", "1999-01")["data"]})
+        self.assertIn(name, {r["name"] for r in self.names("pending", "1999-01")["data"]})  # Pending ignores it
         for bad in ("2026-13", "Nov 2026", "2026/11"):
             with self.subTest(bad=bad), self.assertRaises(frappe.ValidationError):
                 self.names("all", bad)
@@ -1215,6 +1254,66 @@ class TestBulkDecisions(ReimbursementTestCase):
         name = self.raise_claim(PM, amount=2500)
         reply = self.as_user(HR, review.approve_reimbursement, name, acknowledged=1)
         self.assertEqual((reply["status"], reply["expense_status"], reply["tab"]), (APPROVED, "Requested", "l1"))
+
+
+class TestSimultaneousDecisions(ReimbursementTestCase):
+    """Two people approve one claim at the same moment (browser walk 2026-11-19: the second got a raw 500
+    `SerializationFailure`). The loser runs on its own connection, its snapshot taken before the winner commits --
+    the request's first transaction, REPEATABLE READ -- so its lock read is refused; `expense_link.lock_claim` turns
+    that into a sentence. Exactly one expense either way."""
+
+    def race(self, loser_call) -> dict:
+        """Take the loser's snapshot, let HR approve and commit, then run `loser_call(name)` on the loser's
+        connection. Returns `{name, exc | result}`."""
+        name = self.raise_claim(PM, amount=450)
+        out: dict = {"name": name}
+        snapshot_taken, winner_done = threading.Event(), threading.Event()
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+
+        def loser():
+            frappe.init(site=site, sites_path=sites_path)
+            try:
+                frappe.connect()
+                frappe.set_user(ADMIN)
+                # The first statement fixes this transaction's REPEATABLE READ snapshot, before the winner commits.
+                frappe.db.sql('SELECT status FROM "tabReimbursement" WHERE name = %s', name)
+                snapshot_taken.set()
+                winner_done.wait(30)
+                try:
+                    out["result"] = loser_call(name)
+                except Exception as exc:  # noqa: BLE001 -- the test asserts on it
+                    out["exc"] = exc
+                frappe.db.rollback()
+            finally:
+                frappe.destroy()
+
+        thread = threading.Thread(target=loser)
+        thread.start()
+        self.assertTrue(snapshot_taken.wait(30))
+        self.as_user(HR, review.approve_reimbursement, name)
+        winner_done.set()
+        thread.join(60)
+        self.assertEqual(frappe.db.count(NPE, {"reimbursement": name}), 1)
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "approved_by"), HR)
+        return out
+
+    def test_the_second_single_approve_is_told_not_crashed(self):
+        out = self.race(lambda name: review.approve_reimbursement(name))
+        self.assertIsInstance(out.get("exc"), frappe.ValidationError, out)
+        self.assertIn("a moment ago", str(out["exc"]))
+
+    def test_the_second_bulk_approve_reports_the_claim_it_lost(self):
+        out = self.race(lambda name: review.bulk_approve_reimbursements([name])["data"])
+        data = out.get("result")
+        self.assertIsNotNone(data, out)
+        self.assertEqual(data["succeeded"], [])
+        self.assertEqual([f["name"] for f in data["failed"]], [out["name"]])
+        self.assertIn("a moment ago", data["failed"][0]["reason"])
+
+    def test_a_reject_racing_an_approve_is_told_too(self):
+        out = self.race(lambda name: review.reject_reimbursement(name, "reimb_test too late"))
+        self.assertIsInstance(out.get("exc"), frappe.ValidationError, out)
+        self.assertEqual(frappe.db.get_value("Reimbursement", out["name"], "status"), APPROVED)
 
 
 class TestProjectManagerCap(ReimbursementTestCase):
