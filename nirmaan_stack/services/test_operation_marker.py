@@ -147,7 +147,8 @@ class TestJobState(FrappeTestCase):
 
 
 class TestRelease(FrappeTestCase):
-    """release(key, job_id) frees the marker only while it is still the one it read."""
+    """A release frees the marker only while it still names the releasing operation, and never a marker another start
+    wrote after the release read it."""
 
     def setUp(self):
         self.key = f"test_operation_marker:{frappe.generate_hash(length=10)}"
