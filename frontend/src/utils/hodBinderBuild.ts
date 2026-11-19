@@ -71,8 +71,12 @@ export function binderStartBlocked(builds: HodBuilds, system: string): boolean {
   return builds.binder !== null && builds.binder.hodSystem !== system;
 }
 
+/** Is the content of `system`'s `document` being prepared in this tab? */
+export function documentBuilding(builds: HodBuilds, system: string, document: string): boolean {
+  return builds.document?.hodSystem === system && builds.document.document === document;
+}
+
 /** Is the Download of `system`'s `document` held back? Only by another document's download; its own row spins. */
 export function documentStartBlocked(builds: HodBuilds, system: string, document: string): boolean {
-  const building = builds.document;
-  return building !== null && !(building.hodSystem === system && building.document === document);
+  return builds.document !== null && !documentBuilding(builds, system, document);
 }

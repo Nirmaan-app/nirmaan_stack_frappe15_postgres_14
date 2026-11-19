@@ -122,7 +122,8 @@ commits (so the work finds the caller's writes), writes "finished" only after th
 file privately for its owner, and refuses a second start of the same kind when `one_per_user` says so. A failure the
 user can act on is a `frappe.throw` in the work; its words reach the screen. Residence check Q1 refuses a raw
 `frappe.enqueue` (or `enqueue_doc`, or RQ's own `enqueue_call` / `get_queue(...).enqueue`) anywhere else, and L2
-refuses a raw `socket.on` / `socket.off` outside the shared hook and the listener homes. Both freeze the old sites per file, each with
+refuses a raw `socket.on` / `socket.off` outside the shared hook, `frontend/src/lib/frappe.ts` and the tab's global
+listeners (`frontend/src/services/socketListeners.ts`). Both freeze the old sites per file, each with
 its one-line reason (`scripts/raw-enqueue-suppressions.json`, `frontend/socket-listener-suppressions.json`), so a new
 one fails even where another file loses one. A named exception there (a cron job, a doc hook, the statement imports)
 still queues so its job finds what it reads committed: where the writes are not yet committed (a doc hook,

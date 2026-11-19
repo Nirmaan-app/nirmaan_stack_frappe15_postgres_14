@@ -959,16 +959,10 @@ def part_document_beside_binder(page, out):
         wait_until(lambda: len(dls) >= 2, 900, page=page)
     save(page, out, "04-both-done")
     found = records([binder_op, document_op], out)
-    by_size = {((found[op].get("result") or {}).get("file") or {}).get("size_bytes"): op for op in found if found[op]}
-    saved = {}
-    for d in dls:
-        path = out / d.suggested_filename
-        d.save_as(path)
-        saved[path.stat().st_size] = path
+    saved = {d.suggested_filename: d for d in dls}
     for name, op, kind in (("binder", binder_op, "hod_binder"), ("document", document_op, "hod_document")):
-        check_record(name, found[op], kind)
-        size = ((found[op] or {}).get("result") or {}).get("file", {}).get("size_bytes")
-        check(size in saved and by_size.get(size) == op, f"{name}: a downloaded file is its own operation's ({size} bytes)")
+        made = ((found[op] or {}).get("result") or {}).get("file") or {}
+        check_file(name, found[op], saved.get(made.get("filename")), out, kind)
 
 
 PARTS = {"tds": part_tds, "handover": part_handover, "commission": part_commission, "bulk": part_bulk,

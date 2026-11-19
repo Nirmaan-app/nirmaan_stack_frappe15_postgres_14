@@ -2,8 +2,8 @@
 // CONTENT of one document (the actual Commission reports / TDS sheets / snag list, not the list page).
 // A build is a background operation (ADR 0047, #1663): this tab follows its own builds' status records through
 // the shared hook, the binder and one document's content each on its own (#1671, so a binder waiting in the queue
-// never holds back a document's download), so a build waiting in the queue shows as waiting, it gives up only at its time limit counted
-// from when it starts running, and a reload or a tab change picks it up again. The finished PDF is collected by
+// never holds back a document's download). A build waiting in the queue shows as waiting, it gives up only at its
+// time limit counted from when it starts running, and a reload or a tab change picks it up again. The finished PDF is collected by
 // operation id, and only by the user who started it.
 //
 // A build always SAVES its PDF. Showing it in the preview dialog instead was tried on 2026-09-25 and
@@ -14,6 +14,7 @@ import { useCallback } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import type { OpView } from "@/utils/backgroundOps/operationFollower";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { binderBuildOf, type HodBuilds, type HodJob } from "@/utils/hodBinderBuild";
 import { saveUrlAs } from "@/utils/saveUrlAs";
@@ -53,7 +54,7 @@ async function savePdf(result: unknown, _context: unknown, opId: string) {
   );
 }
 
-function onFailed(ended: { phase: string; error: string }) {
+function onFailed(ended: Extract<OpView, { phase: "failed" | "lost" }>) {
   toast({
     title: ended.phase === "lost" ? "Download stopped" : "Download failed",
     description: ended.error,
@@ -77,16 +78,13 @@ export function useHodBinder() {
   /** Build the binder of `hodSystem`, or — with `document` — that document's content. */
   const build = useCallback(
     async (project: string, hodSystem: string, title: string, document: string | null = null) => {
-      if (document ? documentBusy : binderBusy) return;
+      const [busy, start] = document ? [documentBusy, startDocument] : [binderBusy, startBinder];
+      if (busy) return;
       const context: HodJob = { hodSystem, document, title };
-      await (document ? startDocument : startBinder)(
-        HOD_METHODS.startBinder,
-        { project, hod_system: hodSystem, document },
-        context,
-      );
+      await start(HOD_METHODS.startBinder, { project, hod_system: hodSystem, document }, context);
     },
     [binderBusy, documentBusy, startBinder, startDocument],
   );
 
-  return { build, builds, progress: binder?.progress ?? null };
+  return { build, builds, binderProgress: binder?.progress ?? null };
 }

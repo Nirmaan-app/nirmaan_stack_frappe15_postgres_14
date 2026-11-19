@@ -59,7 +59,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
 }) => {
   const { payload, isLoading, error, mutate } = useProjectHod(projectId);
   const { addSystems, removeSystem, updateRow } = useHodMutations();
-  const { build, builds, progress } = useHodBinder();
+  const { build, builds, binderProgress } = useHodBinder();
   const { uploadSignedCopy } = useHodSignedCopy();
   const [showGuide, setShowGuide] = React.useState(false);
   const [showLogos, setShowLogos] = React.useState(false);
@@ -301,7 +301,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                   signedCopy={payload.signed_copies?.[name] ?? null}
                   onUploadSignedCopy={(file) => handleSignedCopy(name, file)}
                   builds={builds}
-                  progress={builds.binder?.hodSystem === name ? progress : null}
+                  progress={builds.binder?.hodSystem === name ? binderProgress : null}
                   onBuild={(document, title) =>
                     build(projectId, name, title, document)
                   }

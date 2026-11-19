@@ -42,7 +42,7 @@ import {
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
-import { binderStartBlocked, documentStartBlocked } from "@/utils/hodBinderBuild";
+import { binderStartBlocked, documentBuilding, documentStartBlocked } from "@/utils/hodBinderBuild";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { BinderDialog } from "./BinderDialog";
@@ -278,9 +278,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
 
   const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
     if (meta.kind === "app") {
-      const mine =
-        builds.document?.hodSystem === system.name && builds.document.document === row.document;
-      if (mine) return; // already being prepared for this row; the button shows it
+      // Already being prepared for this row; the button shows it.
+      if (documentBuilding(builds, system.name, row.document)) return;
       // A saved selection IS the answer to "which records?" (owner 2026-09-24), so the download starts
       // straight away and the picker is not asked again. Without one, pick first (owner 2026-09-22).
       if (Array.isArray(row.form_data?.selected))
@@ -560,9 +559,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 const off = !!row.disabled;
                 const editable = rowEditable(row, canEdit);
                 const kind = documentChip(meta);
-                const contentBusy =
-                  builds.document?.hodSystem === system.name &&
-                  builds.document.document === row.document;
+                const contentBusy = documentBuilding(builds, system.name, row.document);
                 const rowBusy =
                   savingRow === row.name ||
                   busyKey === `doc:${row.name}` ||
