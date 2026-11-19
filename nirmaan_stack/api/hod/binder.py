@@ -274,11 +274,12 @@ def start_binder(op_id: str, project: str, hod_system: str, document: str | None
 			if not frappe.db.exists("Print Format", pf):
 				frappe.throw(_("Print Format '{0}' is missing -- it has to be created first.").format(pf))
 
-	# One binder (or document's content) queued or running per user: it holds a `long` worker for minutes.
+	# One binder queued or running per user, and one document's content: each holds a `long` worker for minutes.
+	# Each has its own slot, so a binder waiting in the queue never holds back a one-document download.
 	project_name = frappe.db.get_value("Projects", project, "project_name") or project
 	what = f"{sections[0]['title']} download" if document else "handover binder"
 	return background_ops.start(
-		"hod_binder",
+		"hod_document" if document else "hod_binder",
 		"nirmaan_stack.api.hod.binder.binder_op",
 		op_id=op_id,
 		timeout=BUILD_TIMEOUT_SECONDS,

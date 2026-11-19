@@ -703,10 +703,11 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   made; no link to it works for anyone else. *Avoid*: download token, temp file. (Spec #1654.)
 
 - **One at a time per user** — the rule that a user may have only one background operation of a given kind waiting
-  in the queue or running (a commission reports download, a handover binder, a Snag List PDF), so one user cannot
-  hold every worker. A second start of that kind is refused with words naming the one still being prepared; once that
-  one ends, however it ends, the user may start again. Different kinds do not hold each other back. *Avoid*: lock,
-  per-user lock. (Spec #1654, follow-up on #1663 and #1664, 2026-11-19.)
+  in the queue or running (a commission reports download, a handover binder, one handover document's download, a Snag
+  List PDF), so one user cannot hold every worker. A second start of that kind is refused with words naming the one
+  still being prepared; once that one ends, however it ends, the user may start again. Different kinds do not hold
+  each other back: a handover binder waiting in the queue never holds back one document's download. *Avoid*: lock,
+  per-user lock. (Spec #1654, follow-up on #1663 and #1664, 2026-11-19; the document's own kind, #1671.)
 
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".

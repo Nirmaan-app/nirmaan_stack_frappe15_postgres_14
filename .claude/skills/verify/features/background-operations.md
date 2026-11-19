@@ -94,9 +94,10 @@ and reads each operation's outcome where the screen reads it):
 - One per user, the same rule (`background_ops.start(..., one_per_user=...)`, #1663 #1664): a second commission
   bulk download (`Commission Report` tab -> the tracker -> `Bulk Approved Reports` -> `Export`) while the user's first is queued
   or running fails with a `Failed` toast naming the first: "Your commission reports download for <project> is still
-  being prepared. Wait for it to finish, then try again." A second handover binder or document download fails with
-  a `Download failed` toast: "Your handover binder for <project> (<system>) is still being prepared. ..." (or "Your
-  <document> download for ..."). The two limits are apart: a running commission download never holds back a binder.
+  being prepared. Wait for it to finish, then try again." A second handover binder fails with a `Download failed`
+  toast: "Your handover binder for <project> (<system>) is still being prepared. ..."; a second one-document download
+  likewise ("Your <document> download for ..."). The limits are apart, one per kind: a running commission download
+  never holds back a binder, and a queued binder never holds back a one-document download (`hod_document`, #1671).
   The screen disables its own button while one runs, so reach the second start from ANOTHER project's commission tab
   (commission) or a second browser tab (binder, whose tab slot is one per browser tab).
 - A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The page starts

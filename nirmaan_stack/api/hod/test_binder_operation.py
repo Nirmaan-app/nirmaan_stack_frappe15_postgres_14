@@ -166,7 +166,7 @@ class TestBinderOperation(FrappeTestCase):
 		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
 		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
 				self.assertRaises(frappe.ValidationError) as refused:
-			self._queue_only(document=DOCUMENT)  # the whole binder is still queued
+			self._queue_only()  # the first binder is still queued
 		self.assertEqual(
 			str(refused.exception),
 			f"Your handover binder for {project_name} ({SYSTEM}) is still being prepared. "
@@ -175,6 +175,29 @@ class TestBinderOperation(FrappeTestCase):
 		frappe.db.rollback()
 
 		background_ops._end(first, background_ops.FINISHED)  # however it ends, the user is free again
+		self._start_and_work_off(document=None)
+
+	def test_a_queued_binder_never_holds_back_one_documents_download_which_is_one_at_a_time_itself(self):
+		for pf in (binder.PF_DOCUMENT, binder.PF_CHECKLIST):
+			if not frappe.db.exists("Print Format", pf):
+				raise unittest.SkipTest(f"Print Format {pf} missing on this site")
+		self._queue_only()  # the whole binder waits in the queue
+
+		document = self._queue_only(document=DOCUMENT)
+		self.assertEqual(get_status(op_id=document)["state"], "queued")
+
+		project_name = frappe.db.get_value("Projects", self.project, "project_name")
+		title = binder.build_plan(self.project, SYSTEM, DOCUMENT)[0][0]["title"]
+		with self.assertRaises(frappe.ValidationError) as refused:
+			self._queue_only(document=DOCUMENT)  # the first document download is still queued
+		self.assertEqual(
+			str(refused.exception),
+			f"Your {title} download for {project_name} ({SYSTEM}) is still being prepared. "
+			"Wait for it to finish, then try again.",
+		)
+		frappe.db.rollback()
+
+		background_ops._end(document, background_ops.FINISHED)
 		self._start_and_work_off()
 
 	def test_a_document_that_is_not_done_is_refused_before_anything_is_queued(self):
