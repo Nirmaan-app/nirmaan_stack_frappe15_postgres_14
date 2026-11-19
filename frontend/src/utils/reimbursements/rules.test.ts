@@ -10,18 +10,28 @@ import {
     HR_LEAD_PROFILE,
 } from "@/constants/roles";
 
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
+
 import {
     DESCRIPTION_REQUIRED_ABOVE,
     MONTHLY_LIMIT,
+    PM_MONTHLY_CAP,
     STATUSES,
+    TABS,
     TAB_ALL,
     TYPES,
     TAB_APPROVED,
+    TAB_CEO,
+    TAB_L1,
     TAB_MINE,
     TAB_PAID,
     TAB_PENDING,
-    TAB_REJECTED,
+    TAB_RECONCILIATION,
     acknowledgementProblem,
+    actsOn,
+    capLeft,
+    capProblem,
+    claimTab,
     approvalNeedsL1,
     claimantName,
     decideProblem,
@@ -56,6 +66,10 @@ interface RuleCases {
     delete: (Allowed & { status: string; is_claimant: boolean })[];
     description_required: (Named & { amount: number; required: boolean })[];
     mergeable: { file_name: string; mergeable: boolean }[];
+    tabs: string[];
+    claim_tab: (Named & { claim_status: string; expense_status: string | null; tab: string | null })[];
+    pm_monthly_cap: number;
+    pm_cap: (Allowed & { month_used: number; amount: number; capped: boolean; left: number })[];
 }
 
 // The server's twin reads the same file (services/reimbursements/test_rules.py).
@@ -112,44 +126,88 @@ describe("shared cases with the server", () => {
     it.each(CASES.mergeable)("mergeable: $file_name", (c) => {
         expect(isMergeable(c.file_name)).toBe(c.mergeable);
     });
+
+    it("has the same tabs, in the same order", () => {
+        expect([...TABS]).toEqual(CASES.tabs);
+    });
+
+    it.each(CASES.claim_tab)("claim tab: $name", (c) => {
+        expect(claimTab(c.claim_status, c.expense_status)).toBe(c.tab);
+    });
+
+    it("has the same Project Manager cap", () => {
+        expect(PM_MONTHLY_CAP).toBe(CASES.pm_monthly_cap);
+    });
+
+    it.each(CASES.pm_cap)("Project Manager cap: $name", (c) => {
+        expect(capProblem(c.month_used, c.amount, c.capped) === null).toBe(c.allowed);
+        if (c.capped) expect(capLeft(c.month_used)).toBe(c.left);
+    });
 });
 
 describe("tabsFor", () => {
+    const EVERY_TAB_BUT_THE_CEOS = [TAB_PENDING, TAB_L1, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID, TAB_MINE, TAB_ALL];
+
     it("gives everyone else only the claims they raised", () => {
         expect(tabsFor({ role: "Nirmaan Project Manager Profile" })).toEqual([TAB_MINE]);
         expect(tabsFor({ role: "Nirmaan PMO Executive Profile" })).toEqual([TAB_MINE]);
     });
 
-    it("gives HR and Admin every tab, in the owner's order", () => {
-        const all = [TAB_PENDING, TAB_APPROVED, TAB_PAID, TAB_ALL, TAB_MINE, TAB_REJECTED];
-        for (const role of [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE]) {
-            expect(tabsFor({ role })).toEqual(all);
+    it("gives Admin, HR and Accounts every tab but the CEO's, in the owner's order", () => {
+        for (const role of [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE]) {
+            expect(tabsFor({ role })).toEqual(EVERY_TAB_BUT_THE_CEOS);
         }
-        expect(tabsFor({ role: null, userId: "Administrator" })).toEqual(all);
+        expect(tabsFor({ role: null, userId: "Administrator" })).toEqual(EVERY_TAB_BUT_THE_CEOS);
     });
 
-    it("gives Accounts All and the decided tabs, but no approval queue", () => {
-        for (const role of [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE]) {
-            expect(tabsFor({ role })).toEqual([TAB_APPROVED, TAB_PAID, TAB_ALL, TAB_MINE, TAB_REJECTED]);
-        }
-        expect(resolveTab(TAB_ALL, { role: ACCOUNTANT_PROFILE })).toBe(TAB_ALL);
+    it("gives the CEO all eight, Pending CEO Approval third", () => {
+        expect(tabsFor({ role: ADMIN_PROFILE, userId: CEO_AUTHORIZED_USER })).toEqual([...TABS]);
+        expect(tabsFor({ role: ADMIN_PROFILE, userId: CEO_AUTHORIZED_USER })[2]).toBe(TAB_CEO);
     });
 
     it("sends a bookmarked tab the person can't see back to their first tab", () => {
         expect(resolveTab(TAB_APPROVED, { role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
-        expect(resolveTab(TAB_PAID, { role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
-        expect(resolveTab(TAB_PENDING, { role: ACCOUNTANT_PROFILE })).toBe(TAB_APPROVED);
-        expect(resolveTab(TAB_APPROVED, { role: ACCOUNTANT_PROFILE })).toBe(TAB_APPROVED);
+        expect(resolveTab(TAB_CEO, { role: ADMIN_PROFILE, userId: "admin@x.com" })).toBe(TAB_PENDING);
+        expect(resolveTab(TAB_CEO, { role: ADMIN_PROFILE, userId: CEO_AUTHORIZED_USER })).toBe(TAB_CEO);
+        expect(resolveTab(TAB_PENDING, { role: ACCOUNTANT_PROFILE })).toBe(TAB_PENDING);
         expect(resolveTab("nonsense", { role: ADMIN_PROFILE })).toBe(TAB_PENDING);
     });
 
-    it("opens HR and Admin on Pending Approval, Accounts on Payment need to be paid, everyone else on their own", () => {
+    it("opens the retired Rejected tab as All", () => {
+        expect(resolveTab("rejected", { role: ACCOUNTANT_PROFILE })).toBe(TAB_ALL);
+        expect(resolveTab("rejected", { role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
+    });
+
+    it("opens deciders on Pending Approval, Accounts on Payment need to be paid, everyone else on their own", () => {
         for (const role of [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE]) {
             expect(defaultTab({ role })).toBe(TAB_PENDING);
             expect(resolveTab(null, { role })).toBe(TAB_PENDING);
         }
         expect(defaultTab({ role: ACCOUNTANT_PROFILE })).toBe(TAB_APPROVED);
         expect(defaultTab({ role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
+    });
+});
+
+describe("actsOn", () => {
+    const hr = { role: HR_EXECUTIVE_PROFILE };
+    const admin = { role: ADMIN_PROFILE, userId: "admin@x.com" };
+    const ceo = { role: ADMIN_PROFILE, userId: CEO_AUTHORIZED_USER };
+    const accounts = { role: ACCOUNTANT_PROFILE };
+
+    it("lets HR, Admin and the CEO decide new claims; Accounts never", () => {
+        expect([hr, admin, ceo, accounts].map((v) => actsOn(TAB_PENDING, v))).toEqual([true, true, true, false]);
+    });
+
+    it("leaves L1 to Admin and the CEO, and the CEO's tab to the CEO", () => {
+        expect([hr, admin, ceo, accounts].map((v) => actsOn(TAB_L1, v))).toEqual([false, true, true, false]);
+        expect([hr, admin, ceo, accounts].map((v) => actsOn(TAB_CEO, v))).toEqual([false, false, true, false]);
+    });
+
+    it("lets Admin and Accounts pay and reconcile; HR only looks", () => {
+        for (const tab of [TAB_APPROVED, TAB_RECONCILIATION] as const) {
+            expect([hr, admin, accounts].map((v) => actsOn(tab, v))).toEqual([false, true, true]);
+        }
+        expect(actsOn(TAB_PAID, admin)).toBe(false);
     });
 });
 
@@ -174,7 +232,7 @@ describe("paymentStage", () => {
         expect(paymentStage("Approved")).toBe("Waiting to be paid");
         expect(paymentStage("Reconciliation Pending")).toBe("Paid, waiting for the bank statement");
         expect(paymentStage("Paid")).toBe("Paid");
-        expect(paymentStage("Rejected")).toBe("Rejected in Payments");
-        expect(paymentStage(undefined)).toBe("Not sent to Payments");
+        expect(paymentStage("Rejected")).toBe("Rejected after approval");
+        expect(paymentStage(undefined)).toBe("No expense yet");
     });
 });

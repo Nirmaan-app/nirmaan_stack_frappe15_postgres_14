@@ -1,42 +1,45 @@
 /**
- * Reimbursements (owner, 2026-10-21/22): a Nirmaan user's claims to be repaid money they spent for work.
+ * Reimbursements (owner, 2026-10-21/22): a Nirmaan user's claims to be repaid money they spent for work. Every step
+ * of a claim is here (ADR-0040 Amendment C, owner 2026-11-18); its Non-Project Expense is not in Project Payments.
  *
- * Tabs (`utils/reimbursements/rules.tabsFor`), kept in `?tab=`:
- * * All -- HR, Admin and Accounts: every claim, every status.
- * * Reimbursement Raised By Me -- everyone: their own claims; Edit while pending, Delete while pending or rejected.
- * * Pending Approval -- HR and Admin: every pending claim; Approve / Reject where the server says they may.
- * * Payment need to be paid (Approved) -- Admin, HR, Accounts: claims waiting on their Non-Project Expense,
- *   which Accounts pays from Project Payments & Expenses (ADR-0040), with where each payment is.
- * * Paid -- Admin, HR, Accounts: claims whose expense is Paid.
- * * Rejected -- Admin, HR, Accounts.
+ * Tabs (`utils/reimbursements/rules.tabsFor`), kept in `?tab=`, in order:
+ * * Pending Approval -- new claims; HR, Admin and the CEO decide (the server's `can_decide`, `get_pending_for_me`).
+ * * Pending L1 Approval -- HR approved at or above the monthly limit; Admin or the CEO decide.
+ * * Pending CEO Approval -- Admin approved above ₹50,000; only the CEO sees it.
+ * * Payment need to be paid -- Admin and Accounts: Export for Payment, Mark as Paid.
+ * * Reconciliation Pending -- Admin and Accounts: Mark Reconciled (UTR and proof), which turns the claim Paid.
+ * * Paid · Reimbursement Raised By Me (everyone; Edit / Delete their own) · All (rejected claims included).
+ * Admin, Accounts and HR see every tab but the CEO's; the CEO sees all eight; everyone else only Raised By Me.
+ * Each badge is the number of rows the tab lists (`queue.get_claim_tab_counts`).
  *
- * The header's right action, "Raise Reimbursement", flips `newReimbursementDialog`; the dialog is mounted
- * here. The server is the boundary for every read and write (`api/reimbursements`,
- * `integrations/controllers/reimbursement.py`); these tabs only decide what renders.
+ * The header's right action, "Raise Reimbursement", flips `newReimbursementDialog`; the dialog is mounted here. The
+ * server is the boundary for every read and write (`api/reimbursements`, `api/approvals/expense_actions`); these tabs
+ * only decide what renders.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 
+import { ToastAction } from "@/components/ui/toast";
+import { useToast } from "@/components/ui/use-toast";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
-import { useCounts } from "@/hooks/useCounts";
 import { useUserData } from "@/hooks/useUserData";
 import { cn } from "@/lib/utils";
+import { UpdatePaymentDetailsDialog as NonProjectExpensePayDialog } from "@/pages/NonProjectExpenses/components/UpdatePaymentDetailsDialog";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { REIMBURSEMENT_DOCTYPE, type PendingReimbursement, type Reimbursement } from "@/types/NirmaanStack/Reimbursement";
+import type { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
+import type { ClaimRow, ClaimTabCounts, PendingReimbursement } from "@/types/NirmaanStack/Reimbursement";
 import { raiserLevelOf } from "@/utils/approvalTiers";
+import type { ApprovalStage } from "@/utils/reimbursements/monthLimit";
 import {
-    APPROVED,
-    PAID,
-    REJECTED,
-    TAB_ALL,
-    TAB_APPROVED,
+    SELECTABLE_TABS,
+    TAB_CEO,
+    TAB_L1,
     TAB_LABELS,
-    TAB_MINE,
-    TAB_PAID,
     TAB_PENDING,
-    TAB_REJECTED,
+    TAB_RECONCILIATION,
+    actsOn,
     claimantName,
     resolveTab,
     tabsFor,
@@ -46,14 +49,21 @@ import {
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
+import { BulkDecisionDialog } from "./components/BulkDecisionDialog";
 import { ClaimDetailSheet } from "./components/ClaimDetailSheet";
 import { ClaimsTable } from "./components/ClaimsTable";
 import { DecisionDialog, type Decision } from "./components/DecisionDialog";
 import { DeleteClaimDialog } from "./components/DeleteClaimDialog";
+import { ExportForPaymentDialog, MarkPaidDialog } from "./components/PayoutDialogs";
 import { RaiseReimbursementDialog } from "./components/RaiseReimbursementDialog";
 import { useRefreshClaimPayments } from "./hooks/useClaimPayments";
+import type { DecisionOutcome } from "./hooks/useClaimDecisions";
 
 const PENDING_API = "nirmaan_stack.api.reimbursements.review.get_pending_for_me";
+const COUNTS_API = "nirmaan_stack.api.reimbursements.queue.get_claim_tab_counts";
+
+const isApprovalStage = (tab: ReimbursementTab): tab is ApprovalStage =>
+    tab === TAB_PENDING || tab === TAB_L1 || tab === TAB_CEO;
 
 export default function ReimbursementsPage() {
     const { role, user_id } = useUserData();
@@ -64,78 +74,96 @@ export default function ReimbursementsPage() {
 }
 
 function Reimbursements({ viewer }: { viewer: Viewer }) {
+    const { toast } = useToast();
     const userId = viewer.userId ?? "";
     const tabs = useMemo(() => tabsFor(viewer), [viewer]);
-    const decides = tabs.includes(TAB_PENDING);
+    const decidesNew = actsOn(TAB_PENDING, viewer);
+    const deciderLevel = raiserLevelOf(viewer.role, viewer.userId, CEO_AUTHORIZED_USER);
     const [tab, setTab] = useState<ReimbursementTab>(() => resolveTab(urlStateManager.getParam("tab"), viewer));
-    // Bumped after any change, to remount the open table so it refetches.
+    // Bumped after any change, to remount the open table so it refetches (and drops its ticks).
     const [reload, setReload] = useState(0);
+    const [highlight, setHighlight] = useState<string | null>(null);
 
     // Back / forward between tabs.
     useEffect(() => urlStateManager.subscribe("tab", (_, value) => setTab(resolveTab(value, viewer))), [viewer]);
 
-    const openTab = (value: ReimbursementTab) => {
+    const openTab = useCallback((value: ReimbursementTab, claim: string | null = null) => {
+        if (claim) {
+            // The tab opens searched to the claim, as the Action Center's links open it.
+            urlStateManager.updateParam(`reimb_${value}_searchBy`, "name");
+            urlStateManager.updateParam(`reimb_${value}_q`, claim);
+        }
+        setHighlight(claim);
         setTab(value);
         urlStateManager.updateParam("tab", value);
-    };
+    }, []);
 
     const { data: users } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
     const getUserName = useCallback(
         memoize((id?: string | null) => users?.find((u) => u.name === id)?.full_name || id || "--"),
         [users],
     );
+    const nameOf = useCallback((r: ClaimRow) => claimantName(r, getUserName), [getUserName]);
 
+    // Who may decide each new claim: the server's `can_decide` (HR can't decide an HR-raised claim).
     const { data: pendingData, mutate: mutatePending } =
-        useFrappeGetCall<{ message: PendingReimbursement[] }>(PENDING_API, undefined, decides ? `reimb_pending:${userId}` : null);
-    const pending = useMemo(() => pendingData?.message ?? [], [pendingData]);
-    // The claims this person may decide: Approve / Reject show only for these (the server's `can_decide`).
-    const pendingNames = useMemo(() => new Set(pending.filter((r) => r.can_decide).map((r) => r.name)), [pending]);
-    const canDecide = useCallback((name: string) => pendingNames.has(name), [pendingNames]);
-    const cannotDecideReason = useCallback(
-        (name: string) => pending.find((r) => r.name === name)?.cannot_decide_reason,
-        [pending],
-    );
+        useFrappeGetCall<{ message: PendingReimbursement[] }>(PENDING_API, undefined, decidesNew ? `reimb_pending:${userId}` : null);
+    const pending = useMemo(() => new Map((pendingData?.message ?? []).map((r) => [r.name, r])), [pendingData]);
 
-    const { data: countsData, mutate: mutateCounts } = useCounts(
-        [
-            { key: TAB_ALL, doctype: REIMBURSEMENT_DOCTYPE },
-            { key: TAB_MINE, doctype: REIMBURSEMENT_DOCTYPE, filters: [["owner", "=", userId]] },
-            { key: TAB_APPROVED, doctype: REIMBURSEMENT_DOCTYPE, filters: [["status", "=", APPROVED]] },
-            { key: TAB_PAID, doctype: REIMBURSEMENT_DOCTYPE, filters: [["status", "=", PAID]] },
-            { key: TAB_REJECTED, doctype: REIMBURSEMENT_DOCTYPE, filters: [["status", "=", REJECTED]] },
-        ],
-        `reimb_counts:${userId}`,
-    );
-    const counts: Partial<Record<ReimbursementTab, number>> = {
-        [TAB_ALL]: tabs.includes(TAB_ALL) ? (countsData?.message?.[TAB_ALL] as number | undefined) : undefined,
-        [TAB_MINE]: countsData?.message?.[TAB_MINE] as number | undefined,
-        // Every pending claim, as the table lists them (HR's include the ones they can't decide).
-        [TAB_PENDING]: decides ? pending.length : undefined,
-        [TAB_APPROVED]: countsData?.message?.[TAB_APPROVED] as number | undefined,
-        [TAB_PAID]: countsData?.message?.[TAB_PAID] as number | undefined,
-        [TAB_REJECTED]: countsData?.message?.[TAB_REJECTED] as number | undefined,
-    };
+    const { data: countsData, mutate: mutateCounts } =
+        useFrappeGetCall<{ message: ClaimTabCounts }>(COUNTS_API, undefined, `reimb_tab_counts:${userId}`);
+    const counts = countsData?.message ?? {};
 
-    // An approve creates a claim's expense and a delete removes it, but neither changes the claims on screen, so
-    // the payments cached for them are refreshed explicitly (code review finding 5).
+    // An approve creates a claim's expense and a delete removes it, but neither changes the claims on screen, so the
+    // payments cached for them are refreshed explicitly (code review finding 5).
     const refreshPayments = useRefreshClaimPayments();
     const refreshAll = useCallback(() => {
         setReload((n) => n + 1);
         mutateCounts();
         refreshPayments();
-        if (decides) mutatePending();
-    }, [mutateCounts, mutatePending, refreshPayments, decides]);
+        if (decidesNew) mutatePending();
+    }, [mutateCounts, mutatePending, refreshPayments, decidesNew]);
+
+    // What this person may do on a row of the open tab. The server decides; this only picks the buttons.
+    const actsHere = actsOn(tab, viewer);
+    const canAct = useCallback((r: ClaimRow) => {
+        if (!actsHere) return false;
+        if (tab === TAB_PENDING) return !!pending.get(r.name)?.can_decide;
+        return !!r.expense;
+    }, [actsHere, tab, pending]);
+    const cannotActReason = useCallback((r: ClaimRow) => {
+        if (tab === TAB_PENDING) {
+            // Until the server has said who decides what, say so rather than "you can't" (browser walk 2026-11-19).
+            if (!pendingData) return "Checking who can decide...";
+            return pending.get(r.name)?.cannot_decide_reason ?? "You can't decide this claim.";
+        }
+        if (tab === TAB_CEO) return "Only the CEO approves here.";
+        if (tab === TAB_L1) return "Only Admin or the CEO approves here.";
+        return "Only Admin or Accounts can pay a claim.";
+    }, [tab, pending, pendingData]);
+    const selectable = actsHere && SELECTABLE_TABS.includes(tab);
 
     // Dialog and sheet state. Each holds a claim NAME or a snapshot it only reads before acting.
     const { newReimbursementDialog, setNewReimbursementDialog } = useDialogStore();
     const [editingName, setEditingName] = useState<string | null>(null);
     const [openName, setOpenName] = useState<string | null>(null);
-    // Closing a decision or delete dialog clears only its open flag: the claim stays, so the dialog keeps
-    // showing it while it animates out (clearing it flashed "Reject ?" / "Delete ?"). The next open replaces it.
-    const [decision, setDecision] = useState<{ action: Decision; claim: Reimbursement } | null>(null);
+    // Closing a dialog clears only its open flag: its claim stays, so it keeps showing while it animates out.
+    const [decision, setDecision] = useState<{ action: Decision; claim: ClaimRow; stage: ApprovalStage } | null>(null);
     const [decisionOpen, setDecisionOpen] = useState(false);
-    const [deleting, setDeleting] = useState<Reimbursement | null>(null);
+    const [bulk, setBulk] = useState<{ action: Decision; rows: ClaimRow[]; stage: ApprovalStage } | null>(null);
+    const [bulkOpen, setBulkOpen] = useState(false);
+    const [paying, setPaying] = useState<ClaimRow[]>([]);
+    const [payOpen, setPayOpen] = useState(false);
+    const [exporting, setExporting] = useState<ClaimRow[]>([]);
+    const [exportOpen, setExportOpen] = useState(false);
+    const [clearTicks, setClearTicks] = useState(0);
+    const [reconciling, setReconciling] = useState<ClaimRow | null>(null);
+    const [deleting, setDeleting] = useState<ClaimRow | null>(null);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    // Mark Reconciled opens the Non-Project Expense pay dialog, which wants the stored expense.
+    const { data: reconcileExpense } = useFrappeGetDoc<NonProjectExpenses>(
+        "Non Project Expenses", reconciling?.expense ?? undefined, reconciling?.expense ? undefined : null,
+    );
 
     const formOpen = newReimbursementDialog || !!editingName;
     const closeForm = (open: boolean) => {
@@ -144,13 +172,58 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
         setEditingName(null);
     };
 
-    const onOpen = useCallback((r: Reimbursement) => setOpenName(r.name), []);
-    const onEdit = useCallback((r: Reimbursement) => { setOpenName(null); setEditingName(r.name); }, []);
-    const onDelete = useCallback((r: Reimbursement) => { setDeleting(r); setDeleteOpen(true); }, []);
-    const onDecide = useCallback((action: Decision, claim: Reimbursement) => {
-        setDecision({ action, claim });
+    const onOpen = useCallback((r: ClaimRow) => setOpenName(r.name), []);
+    const onEdit = useCallback((r: ClaimRow) => { setOpenName(null); setEditingName(r.name); }, []);
+    const onDelete = useCallback((r: ClaimRow) => { setDeleting(r); setDeleteOpen(true); }, []);
+    const onDecide = useCallback((action: Decision, claim: ClaimRow) => {
+        if (!isApprovalStage(tab)) return;
+        setDecision({ action, claim, stage: tab });
         setDecisionOpen(true);
-    }, []);
+    }, [tab]);
+    const onBulkDecide = useCallback((action: Decision, rows: ClaimRow[]) => {
+        if (!isApprovalStage(tab)) return;
+        setBulk({ action, rows, stage: tab });
+        setBulkOpen(true);
+    }, [tab]);
+    const onMarkPaid = useCallback((rows: ClaimRow[]) => { setPaying(rows); setPayOpen(true); }, []);
+    const onExport = useCallback((rows: ClaimRow[]) => { setExporting(rows); setExportOpen(true); }, []);
+    const onReconcile = useCallback((r: ClaimRow) => setReconciling(r), []);
+
+    /** Say where each decided claim went, with a button to open that tab (the claim moved out of this one). */
+    const reportOutcome = useCallback((outcome: DecisionOutcome, verb: string) => {
+        const { moved, failed } = outcome;
+        if (moved.length) {
+            const tabsReached = [...new Set(moved.map((m) => m.tab))];
+            const where = (t: ReimbursementTab | null) => (t ? TAB_LABELS[t] : "All (rejected)");
+            const target = tabsReached.length === 1 ? tabsReached[0] : null;
+            const destination = tabsReached.length === 1 ? tabsReached[0] ?? "all" : null;
+            toast({
+                title: moved.length === 1 ? `${verb} ${moved[0].claim}` : `${verb} ${moved.length} claims`,
+                description: tabsReached.length === 1
+                    ? `Now in ${where(target)}.`
+                    : `Now in: ${tabsReached.map((t) => `${where(t)} (${moved.filter((m) => m.tab === t).length})`).join(", ")}.`,
+                variant: "success",
+                ...(destination && tabs.includes(destination) ? {
+                    action: (
+                        <ToastAction altText={`Open ${TAB_LABELS[destination]}`}
+                            onClick={() => openTab(destination, moved.length === 1 ? moved[0].claim : null)}>
+                            Open tab
+                        </ToastAction>
+                    ),
+                } : {}),
+            });
+        }
+        if (failed.length) {
+            toast({
+                title: failed.length === 1 ? `${failed[0].claim} wasn't changed` : `${failed.length} claims weren't changed`,
+                description: failed.map((f) => `${f.claim}: ${f.reason}`).join("\n"),
+                variant: "destructive",
+            });
+        }
+        setClearTicks((n) => n + 1);
+        setOpenName(null);
+        refreshAll();
+    }, [toast, tabs, openTab, refreshAll]);
 
     return (
         <div className="flex-1 space-y-4">
@@ -193,9 +266,16 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 onOpen={onOpen}
                 onEdit={onEdit}
                 onDelete={onDelete}
-                canDecide={canDecide}
-                cannotDecideReason={cannotDecideReason}
+                selectable={selectable}
+                canAct={canAct}
+                cannotActReason={cannotActReason}
                 onDecide={onDecide}
+                onBulkDecide={onBulkDecide}
+                onMarkPaid={onMarkPaid}
+                onExport={onExport}
+                onReconcile={onReconcile}
+                clearTicks={clearTicks}
+                highlight={highlight}
             />
 
             <RaiseReimbursementDialog open={formOpen} onOpenChange={closeForm} editingName={editingName} onSaved={refreshAll} />
@@ -204,21 +284,75 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 onOpenChange={(open) => !open && setOpenName(null)}
                 userId={userId}
                 getUserName={getUserName}
-                canDecide={canDecide}
-                onDecide={onDecide}
+                canDecide={(name) => decidesNew && !!pending.get(name)?.can_decide}
+                onDecide={(action, claim) => {
+                    setDecision({ action, claim, stage: TAB_PENDING });
+                    setDecisionOpen(true);
+                }}
                 onEdit={onEdit}
                 onDelete={(r) => { setOpenName(null); onDelete(r); }}
             />
             <DecisionDialog
                 open={decisionOpen}
                 decision={decision?.action ?? null}
+                stage={decision?.stage ?? TAB_PENDING}
                 claim={decision?.claim ?? null}
-                claimantName={decision ? claimantName(decision.claim, getUserName) : ""}
+                claimantName={decision ? nameOf(decision.claim) : ""}
                 isOwn={decision?.claim.owner === userId}
-                deciderLevel={raiserLevelOf(viewer.role, viewer.userId, CEO_AUTHORIZED_USER)}
+                deciderLevel={deciderLevel}
                 onOpenChange={setDecisionOpen}
-                onDone={() => { setOpenName(null); refreshAll(); }}
+                onDone={(outcome) => reportOutcome(outcome, decision?.action === "reject" ? "Rejected" : "Approved")}
             />
+            <BulkDecisionDialog
+                open={bulkOpen}
+                decision={bulk?.action ?? null}
+                stage={bulk?.stage ?? TAB_PENDING}
+                rows={bulk?.rows ?? []}
+                claimantName={nameOf}
+                deciderLevel={deciderLevel}
+                onOpenChange={setBulkOpen}
+                onDone={(outcome) => reportOutcome(outcome, bulk?.action === "reject" ? "Rejected" : "Approved")}
+            />
+            <MarkPaidDialog
+                open={payOpen}
+                rows={paying}
+                onOpenChange={setPayOpen}
+                onDone={(moved) => {
+                    if (moved.length) {
+                        toast({
+                            title: "Now in Reconciliation Pending",
+                            description: "Add the UTR and proof there (Mark Reconciled) to finish.",
+                            action: (
+                                <ToastAction altText="Open Reconciliation Pending"
+                                    onClick={() => openTab(TAB_RECONCILIATION, moved.length === 1 ? moved[0] : null)}>
+                                    Open tab
+                                </ToastAction>
+                            ),
+                        });
+                    }
+                    setClearTicks((n) => n + 1);
+                    refreshAll();
+                }}
+            />
+            <ExportForPaymentDialog
+                open={exportOpen}
+                rows={exporting}
+                onOpenChange={setExportOpen}
+                onExported={() => setClearTicks((n) => n + 1)}
+            />
+            {reconciling && reconcileExpense && reconcileExpense.name === reconciling.expense && (
+                <NonProjectExpensePayDialog
+                    isOpen={!!reconciling}
+                    setIsOpen={(open) => { if (!open) setReconciling(null); }}
+                    expense={reconcileExpense}
+                    markAsPaid
+                    onSuccess={() => {
+                        toast({ title: `${reconciling.name} is Paid`, description: "Its expense is reconciled, so the claim is Paid.", variant: "success" });
+                        setReconciling(null);
+                        refreshAll();
+                    }}
+                />
+            )}
             <DeleteClaimDialog open={deleteOpen} claim={deleting} onOpenChange={setDeleteOpen} onDone={refreshAll} />
         </div>
     );
