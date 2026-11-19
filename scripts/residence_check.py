@@ -590,9 +590,10 @@ def raw_listener_uses() -> list[str]:
 # A screen follows a background operation with useBackgroundOperation (src/hooks/useBackgroundOperation.ts), which
 # reads the operation's status record and takes the socket's message only as "read now". A raw `socket.on` of its own
 # is where a screen took another operation's result. A live event that is not an operation (a doc change, a cheque)
-# is listened to with useSocketEventListener (L1's safe hook, not counted) or registered globally in
-# src/services/socketListeners.ts. The raw listeners that stay (locks) are frozen per file, each with its reason, in
-# SOCKET_LISTENER_SUPPRESSIONS; scripts/frontend_ratchet_check.py refuses a count that rises in a pull request.
+# is listened to with useSocketEventListener (L1's safe hook, counted only when its event is an operation's) or
+# registered globally in src/services/socketListeners.ts. The raw listeners that stay (locks) are frozen per file,
+# each with its reason, in SOCKET_LISTENER_SUPPRESSIONS; scripts/frontend_ratchet_check.py refuses a count that rises
+# in a pull request.
 
 SOCKET_LISTENER_SUPPRESSIONS = "frontend/socket-listener-suppressions.json"
 SOCKET_LISTENER_RULE = "no-socket-listener"

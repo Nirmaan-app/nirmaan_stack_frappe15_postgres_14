@@ -251,8 +251,9 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
 - **A screen that waits on a background operation follows it with `useBackgroundOperation`**
   (`src/hooks/useBackgroundOperation.ts`, ADR-0047): it reads the operation's status record, and the socket's
   message only makes it read sooner. Never listen for an operation's result. Residence check L2 refuses a raw
-  `socket.on` / `socket.off` (for any event but the connection's own) outside that hook, `src/lib/frappe.ts` and
-  `src/services/socketListeners.ts`; the raw listeners that stay (locks) are frozen per file, each with its reason,
+  `socket.on` / `socket.off` (for any event but the connection's own), and a safe listener hook or a wrapper of one
+  (`use…EventListener`) whose event is an operation's (`background_op:…`, `READ_NOW_EVENT`), outside that hook,
+  `src/lib/frappe.ts` and `src/services/socketListeners.ts`; the raw listeners that stay (locks) are frozen per file, each with its reason,
   in `frontend/socket-listener-suppressions.json` (root `CODING_STANDARDS.md` § Writing backend Python, "Queuing a
   background operation"). Any other live event takes the safe hooks above.
 - Global listeners are registered in `src/services/socketListeners.ts`, started once by

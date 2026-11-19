@@ -721,6 +721,19 @@ class SocketListeners(unittest.TestCase):
         )
         self.assertEqual(socket_listener_count(src), 0)
 
+    def test_a_safe_listener_hook_or_a_wrapper_listening_for_an_operation_event_is_counted(self):
+        src = (
+            "useSocketEventListener('background_op:read_now', f);\n"
+            "useSocketEventListener(READ_NOW_EVENT, f);\n"
+            "useSocketEventListener(`background_op:${kind}`, f);\n"
+            "frappe.useSocketEventListener(\"background_op:done\", f);\n"
+            "useExportEventListener('background_op:read_now', f);\n"
+            "useSocketEventListener('cheques:changed', f);\n"
+            "useSocketEventListener(eventName, f);\n"
+            "track('background_op:read_now');\n"
+        )
+        self.assertEqual(socket_listener_count(src), 5)
+
     def test_a_tsx_source_is_read_as_tsx(self):
         src = "const A = () => <div>{x}</div>;\nsocket.on('po:new', f);\n"
         self.assertEqual(socket_listener_count(src, "a.tsx"), 1)

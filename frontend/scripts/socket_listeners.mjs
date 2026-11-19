@@ -2,7 +2,9 @@
 // TypeScript's own parser, so comments and strings are read as the compiler reads them. A listener is
 // `<socket>.on(event, ...)` or `<socket>.off(event, ...)`, where <socket> is a name or a property called `socket`
 // (`socket?.on`, `frappe.socket.on`). One whose event is a string naming the connection itself (`connect`,
-// `disconnect`, `connect_error`) is not counted: it carries no result.
+// `disconnect`, `connect_error`) is not counted: it carries no result. A safe listener hook, or a wrapper of one (a
+// call to `use<Name>EventListener`), is counted when its event is an operation event: a string or template starting
+// `background_op:`, or `READ_NOW_EVENT`. Only useBackgroundOperation listens for those.
 //
 //   stdin:  {"<path>": "<source>", ...}      a path ending in .tsx is parsed as TSX
 //   stdout: {"<path>": <count>, ...}
@@ -25,6 +27,20 @@ const isListener = (callee) =>
   ["on", "off"].includes(callee.name.text) &&
   isSocket(unwrap(callee.expression));
 
+const OPERATION_EVENT_PREFIX = "background_op:";
+
+const calleeName = (callee) =>
+  ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+
+const isListenerHook = (callee) => /^use\w*EventListener$/.test(calleeName(callee) ?? "");
+
+const isOperationEvent = (event) => {
+  if (event === undefined) return false;
+  if (ts.isStringLiteralLike(event)) return event.text.startsWith(OPERATION_EVENT_PREFIX);
+  if (ts.isTemplateExpression(event)) return event.head.text.startsWith(OPERATION_EVENT_PREFIX);
+  return calleeName(event) === "READ_NOW_EVENT";
+};
+
 const namesTheConnection = (event) =>
   event !== undefined && ts.isStringLiteralLike(event) && CONNECTION_EVENTS.has(event.text);
 
@@ -34,8 +50,12 @@ export function socketListenerCount(path, source) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, kind);
   let count = 0;
   const visit = (node) => {
-    if (ts.isCallExpression(node) && isListener(unwrap(node.expression)) && !namesTheConnection(node.arguments[0])) {
-      count++;
+    if (ts.isCallExpression(node)) {
+      const callee = unwrap(node.expression);
+      const event = node.arguments[0];
+      if ((isListener(callee) && !namesTheConnection(event)) || (isListenerHook(callee) && isOperationEvent(event))) {
+        count++;
+      }
     }
     ts.forEachChild(node, visit);
   };
