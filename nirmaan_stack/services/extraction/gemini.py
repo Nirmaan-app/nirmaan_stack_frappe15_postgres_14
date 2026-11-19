@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CHEQUE, CUSTOMER_PO, INVOICE, TDS_CHALLAN, Entity, LineItem
+from .base import CHEQUE, CUSTOMER_PO, INVOICE, MSME_CERTIFICATE, TDS_CHALLAN, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -62,6 +62,10 @@ _TDS_CHALLAN_FIELDS = (
 # rules (`services/cheques/photo.py`) pick the cheque number out of `micr_line` and map the bank.
 # `micr_line` and `cheque_date` are strings: the MICR groups and the date boxes keep their zeros.
 _CHEQUE_FIELDS = ("bank_name", "micr_line", "cheque_date", "amount_in_figures", "payee")
+_MSME_FIELDS = (
+    "is_udyam_certificate", "udyam_registration_number", "enterprise_name", "enterprise_type",
+    "major_activity", "date_of_udyam_registration", "date_of_incorporation",
+)
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
     "igst_amount", "cgst_amount", "sgst_amount", "tax_amount",
@@ -185,6 +189,23 @@ _CHEQUE_PROMPT = (
 )
 
 
+_MSME_PROMPT = (
+    "Extract the listed fields from this Indian Udyam Registration Certificate (the MSME "
+    "certificate issued by the Ministry of MSME) and return JSON only.\n"
+    "- is_udyam_certificate = \"yes\" if this document is a Udyam Registration Certificate, "
+    "otherwise \"no\".\n"
+    "- udyam_registration_number = the UDYAM REGISTRATION NUMBER exactly as printed, in the form "
+    "UDYAM-XX-00-0000000 (two letters, two digits, seven digits). Keep leading zeros.\n"
+    "- enterprise_name = the NAME OF ENTERPRISE as printed.\n"
+    "- enterprise_type = the type of enterprise for the LATEST classification year shown: exactly "
+    "one of Micro, Small, Medium.\n"
+    "- major_activity = the MAJOR ACTIVITY as printed, e.g. Manufacturing, Services, Trading.\n"
+    "- date_of_udyam_registration = the DATE OF UDYAM REGISTRATION, as DD-MM-YYYY.\n"
+    "- date_of_incorporation = the DATE OF INCORPORATION / REGISTRATION OF ENTERPRISE, as DD-MM-YYYY.\n"
+    "- If a field is not clearly present, return JSON null. Do NOT guess."
+)
+
+
 class _NonRetryable(Exception):
     """A failure that must not be retried (blocked / truncated / empty output)."""
 
@@ -300,6 +321,11 @@ class GeminiExtractor:
         elif doc_kind == CHEQUE:
             fields = _CHEQUE_FIELDS
             prompt = _CHEQUE_PROMPT
+            schema = _schema(fields)
+            is_invoice = False
+        elif doc_kind == MSME_CERTIFICATE:
+            fields = _MSME_FIELDS
+            prompt = _MSME_PROMPT
             schema = _schema(fields)
             is_invoice = False
         elif doc_kind == TDS_CHALLAN:

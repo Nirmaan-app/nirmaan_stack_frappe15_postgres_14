@@ -36,6 +36,9 @@
   "vendor_gst",
   "vendor_pan",
   "tds_deduction_percentage",
+  "msme_id",
+  "msme_attachment",
+  "autofill_all_entities_json",
   "po_amount_balance",
   "payment_balance",
   "invoice_balance",
@@ -194,6 +197,25 @@
    "label": "TDS Deduction Percentage"
   },
   {
+   "description": "Udyam Registration Number, e.g. UDYAM-UP-28-0012345. Read from the MSME certificate by Document AI; editable.",
+   "fieldname": "msme_id",
+   "fieldtype": "Data",
+   "label": "MSME ID"
+  },
+  {
+   "description": "The vendor's Udyam (MSME) registration certificate.",
+   "fieldname": "msme_attachment",
+   "fieldtype": "Attach",
+   "label": "MSME Attachment"
+  },
+  {
+   "description": "What Document AI read off the MSME certificate, as JSON text (Udyam number, enterprise name, type, activity, dates). Cleared with the certificate.",
+   "fieldname": "autofill_all_entities_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill All Entities JSON",
+   "read_only": 1
+  },
+  {
    "fieldname": "vendor_category",
    "fieldtype": "JSON",
    "label": "Vendor Category"
@@ -239,7 +261,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 09:39:27.916696",
+ "modified": "2026-11-19 23:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

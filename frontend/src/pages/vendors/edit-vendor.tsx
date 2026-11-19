@@ -24,6 +24,8 @@ import {
   vendorTaxIdSchemas,
 } from "./utils/vendorTaxIds";
 import { VendorTdsRateHint } from "./components/VendorTdsRateHint";
+import { VendorMsmeFields } from "./components/VendorMsmeFields";
+import { msmeValuesToSave, readMsmeJson, refineMsmePair, vendorMsmeSchemas } from "./utils/msme";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEditVendorData, usePincodeData, useExistingVendors } from './data/useVendorQueries';
@@ -128,6 +130,8 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
         //     }),
         // GST required unless Service; PAN required for every vendor.
         ...vendorTaxIdSchemas(existingVendors, service),
+        // MSME (Udyam) details: optional, but ID and certificate come together (refineMsmePair).
+        ...vendorMsmeSchemas,
         // `coerce` because an <Input type="number"> hands back a string. Without it
         // every submit fails a zod number check on a field the user never touched.
         // ⚠️ Blank must not reach `z.coerce.number()` -- `Number("")` is 0, so an
@@ -140,7 +144,7 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
                 .max(100, { message: "TDS % cannot exceed 100." })
         ),
     // An Individual / HUF PAN must be at 1%; the server applies the same rule on save. See new-vendor.tsx.
-    }).superRefine(refineTdsRateAgainstPan)
+    }).superRefine(refineTdsRateAgainstPan).superRefine(refineMsmePair)
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
@@ -207,6 +211,9 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
         // fallback only covers a vendor the backfill patch has not reached. An
         // Individual / HUF vendor opens at 1%, since the field is locked there.
         tds_deduction_percentage: tdsRateToStore(data?.vendor_pan, data?.tds_deduction_percentage ?? 2),
+        msme_id: data?.msme_id ?? "",
+        msme_attachment: data?.msme_attachment ?? "",
+        autofill_all_entities_json: readMsmeJson(data?.autofill_all_entities_json),
       });
 
       setPincode(vendorAddress?.pincode);
@@ -268,6 +275,7 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
         vendor_name: values.vendor_name,
         vendor_nickname: values.vendor_nickname,
         vendor_state: state,
+        ...msmeValuesToSave(values),
       });
 
       await vendorMutate();
@@ -459,6 +467,7 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
               </FormItem>
             )}
           />
+          <VendorMsmeFields vendorId={id} />
           <FormField
             control={form.control}
             name="address_line_1"

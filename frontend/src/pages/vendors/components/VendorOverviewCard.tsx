@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDownIcon, ChevronRightIcon, CheckCircleIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, CheckCircleIcon, ExternalLink } from "lucide-react";
 import { Vendors } from '@/types/NirmaanStack/Vendors'; // Adjust path
 import { Address } from '@/types/NirmaanStack/Address';   // Adjust path
 import { Category } from '@/types/NirmaanStack/Category'; // Assuming you fetch this for names
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/utils/FormatDate';
 import { useUsersList } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList';
+import { readMsmeJson } from '../utils/msme';
 
 interface VendorOverviewCardProps {
     vendor?: Vendors;
@@ -102,6 +103,8 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
                     {/* `!= null` (not a truthiness test) so a deliberate 0% shows as 0, not as "--". */}
                     <InfoItem label="TDS Deduction %" value={vendor?.tds_deduction_percentage != null ? `${vendor.tds_deduction_percentage}%` : "--"} />
                     <InfoItem label="Pincode" value={vendorAddress?.pincode} className="lg:text-end" />
+
+                    <MsmeItem vendor={vendor} />
                 </div>
               </CardContent>
             </Card>
@@ -140,6 +143,31 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
               </CardContent>
             </Card>
         </>
+    );
+};
+
+/**
+ * MSME ID (owner, 2026-11-19): the ID itself opens the uploaded Udyam certificate in a new tab;
+ * plain text when no certificate was uploaded, "--" when there is no ID.
+ */
+const MsmeItem: React.FC<{ vendor?: Vendors | null }> = ({ vendor }) => {
+    const enterpriseType = readMsmeJson(vendor?.autofill_all_entities_json)?.enterprise_type;
+    const id = vendor?.msme_id;
+    return (
+        <CardDescription className="space-y-1">
+            <p className="text-sm font-medium text-primary">MSME ID</p>
+            <span className="text-sm text-foreground">
+                {!id ? "--" : vendor?.msme_attachment ? (
+                    <a href={vendor.msme_attachment} target="_blank" rel="noopener noreferrer"
+                       title="Open MSME certificate"
+                       className="inline-flex items-center gap-1 text-blue-600 underline underline-offset-2 hover:text-blue-800">
+                        {id}
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    </a>
+                ) : id}
+                {id && enterpriseType ? <span className="text-muted-foreground"> · {enterpriseType}</span> : null}
+            </span>
+        </CardDescription>
     );
 };
 
