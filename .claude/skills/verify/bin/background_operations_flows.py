@@ -1,7 +1,8 @@
 """The flows of the N-worker check (spec #1654), run inside a dev env by `walk_background_operations.py`.
 
     devenv.sh script <task> .claude/skills/verify/bin/background_operations_flows.py --workers N [--runs R]
-        [--flows clone,classify,suggest,tds] [--round-timeout 300]
+        [--flows clone,classify,suggest,tds,match] [--round-timeout 300]
+        [--fake-provider-port P --fake-provider-limit K [--site-limit L] [--match-at-once M]]
 
 It waits until N workers listen on the env's `long` queue, then runs each flow `--runs` times (default: the flow's
 own count, 10 for clone and classify, 5 for suggest, 3 for tds). One run of a flow
@@ -17,13 +18,22 @@ operation's outcome where the screen reads it (the status the polling fallback r
 - suggest: N rate suggests at once, each on its own committed sheet that passes the suggest gate (`start_suggest`
   with its own operation id, whole sheet, as the Suggest rates dialog does, #1667). An operation is ok when its status
   record ends finished with a success result for that sheet and, when the suggest started a historical match (the
-  match switch is on), the match operation its result names ends finished (complete or halted) for that same run.
+  match switch is on), the match operation its result names ends finished and complete for that same run. A halted
+  match (its call runner stopped, as on a 429) fails.
 - tds: N TDS exports by one user back to back, as N tabs of one screen (`start_tds_export`, #1662), heavy (200 rows)
   and light (1 row) alternating, heavy first. Every row of export i carries the marker `NWC<i>X<run>`. An operation
   is ok when its status record ends finished and the PDF `collect_result` hands back holds its own marker and no
   other tab's. Before #1662 the heavy tab took the light tab's PDF.
+- match (#1718), only with a fake provider: N historical matches at once (`--match-at-once M` fewer: each match's
+  work horse loads the earlier-BoQ pool, about 1.4 GiB on the 2026-10-28 data) (`rate_match.start_after_suggest`, the
+  trigger a suggest calls), each on its own sheet's active complete Suggest run, with the AI on and the site-wide
+  limit (match_site_calls_at_once) set to `--site-limit` (default K). The workers send every model call to the fake
+  provider (`fake_ai_provider.py`), which answers 429 to a call above K in flight. An operation is ok when its record
+  ends finished and its match run complete, never halted; the round fails when the provider answered any 429 or no
+  call reached it. The match needs the earlier-BoQ pool file: the flow uses the env's, else builds one, and parks a
+  file it brought in (renamed, `<pool>.nworker-check`) when it ends, so the other flows' matches still find none.
 
-Every flow runs with the BoQ AI setting switched off (the env holds a real key): the setting is read first, switched
+Every flow but match runs with the BoQ AI setting switched off (the env holds a real key): the setting is read first, switched
 off, and put back to what it was when the flows end. With it off, classify still writes every row's category (the
 rule category, flagged for review), a suggest still writes its run (every row's attributes blank, `ai_status`
 disabled), and a match run asks no model (the match client refuses while the setting is off). A classify or suggest
@@ -35,13 +45,16 @@ cloned BoQs, and the classified sheets get new current category rows.
 """
 
 import argparse
+import contextlib
 import io
 import json
 import math
+import os
 import signal
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 
 import frappe
@@ -50,11 +63,12 @@ from pypdf import PdfReader
 from rq import Worker
 
 from nirmaan_stack.api import background_ops
-from nirmaan_stack.api.boq import rate_master
+from nirmaan_stack.api.boq import rate_master, rate_match
 from nirmaan_stack.api.boq.wizard import classify, create_from_template, pricing
 from nirmaan_stack.api.boq.wizard.ai_settings import SETTINGS_DOCTYPE
 from nirmaan_stack.api.tds import tds_report
 from nirmaan_stack.services.boq_category import persist
+from nirmaan_stack.services.boq_rate_match import pool as match_pool
 from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.services.series_lock import boq_series, recent_waits
 
@@ -309,6 +323,9 @@ def suggest_run(ctx, run, timeout):
             return {"ok": False, "detail": f"{what}: match run {match['run']} ended {m['state']}: {m.get('error')}"}
         if outcome.get("run") != match["run"]:
             return {"ok": False, "detail": f"{what}: the match operation holds run {outcome.get('run')}, not {match['run']}"}
+        if outcome.get("run_status") != "complete":
+            return {"ok": False, "detail": f"{what}: match run {match['run']} {outcome.get('run_status')}: "
+                                           f"{outcome.get('halt_reason')}"}
         return {"ok": True, "detail": f"{what}: {result.get('attempted_count')} rows, match {outcome.get('run_status')}"}
 
     return wait_until(set(started), read, timeout)
@@ -377,6 +394,116 @@ def tds_run(ctx, run, timeout):
     return wait_until(set(started), read, timeout)
 
 
+# ── match (fake provider) ─────────────────────────────────────────────────────────────────────────────────────────
+FAKE = {}  # port, limit, site_limit: set by main from the command line
+PARKED_POOL = ".nworker-check"
+
+
+def fake_provider(path):
+    """GET /stats or POST /reset on the fake provider (the flows run in the container the provider runs in)."""
+    req = urllib.request.Request(f"http://127.0.0.1:{FAKE['port']}{path}", data=b"" if path == "/reset" else None)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read())
+
+
+def match_sheets(count):
+    """`count` sheets on `count` different BoQs, newest run first, whose active Suggest run is complete, on the
+    sheet's current commit, with 20 to 150 rows."""
+    runs = frappe.db.sql(
+        """select r.boq, r.sheet_name, r.run_id, r.results from `tabBoQ Rate Suggestion Run` r
+           join `tabBoQ Sheet` s on s.boq = r.boq and s.sheet_name = r.sheet_name and s.is_current = 1
+                and s.commit_version = r.committed_version
+           where r.active = 1 and r.status = 'complete' order by r.creation desc"""
+    )
+    picked, boqs = [], set()
+    for boq, sheet, run_id, results in runs:
+        rows = json.loads(results) if isinstance(results, str) else (results or [])
+        if boq in boqs or not 20 <= len(rows) <= 150:
+            continue
+        picked.append((boq, sheet, run_id))
+        boqs.add(boq)
+        if len(picked) == count:
+            return picked
+    raise SystemExit(f"match: needs {count} sheets with an active complete Suggest run, found {len(picked)}")
+
+
+def match_setup(workers):
+    at_once = FAKE["at_once"] or workers
+    sheets = match_sheets(at_once)
+    print(f"match: {at_once} at once against the fake provider ({FAKE['limit']} calls in flight before it answers "
+          f"429, site-wide limit {FAKE['site_limit']}), on {[(b, s) for b, s, _ in sheets]}", flush=True)
+    return {"sheets": sheets}
+
+
+def match_run(ctx, run, timeout):
+    """N matches at once; none may halt, and the fake provider may answer no 429 (#1718)."""
+    fake_provider("/reset")
+    started = {}
+    for boq, sheet, run_id in ctx["sheets"]:
+        reply = rate_match.start_after_suggest(boq, sheet, run_id)  # commits, which queues the operation
+        if not (reply or {}).get("queued"):
+            raise SystemExit(f"match: could not start on {boq} {sheet!r}: {reply}")
+        started[reply["op_id"]] = (boq, sheet, reply["run"])
+
+    def read(op_id):
+        status = background_ops.get_status(op_id=op_id)
+        if status["state"] not in ENDED:
+            return None
+        boq, sheet, name = started[op_id]
+        what = f"match {name} on {boq} {sheet!r}"
+        result = status.get("result") or {}
+        if status["state"] != "finished":
+            return {"ok": False, "detail": f"{what}: ended {status['state']} {status.get('error') or ''}".rstrip()}
+        if result.get("run_status") != "complete":
+            return {"ok": False, "detail": f"{what}: {result.get('run_status')}: {result.get('halt_reason')}"}
+        return {"ok": True, "detail": f"{what}: complete, {result.get('rows_done')} rows"}
+
+    out = wait_until(set(started), read, timeout)
+    seen = fake_provider("/stats")
+    print(f"    fake provider: {seen['calls']} calls, {seen['rate_limited']} answered 429, at most "
+          f"{seen['max_in_flight']} in flight (limit {seen['limit']})", flush=True)
+    if seen["rate_limited"] or not seen["answered"]:
+        out["provider"] = {"ok": False, "detail": f"fake provider: {seen['rate_limited']} calls answered 429, "
+                                                  f"{seen['answered']} answered"}
+    return out
+
+
+class FakeProviderOn:
+    """The match flow's settings: the BoQ AI and the match switch on, the site-wide limit at `site_limit`, and the
+    earlier-BoQ pool file in place; each put back as it was when the flow ends. Only the workers the walk started
+    against the fake provider make model calls while it holds."""
+
+    FIELDS = ("enabled", "match_enabled", "match_site_calls_at_once")
+
+    def __init__(self, site_limit):
+        self.site_limit = site_limit
+
+    def __enter__(self):
+        path = match_pool.pool_path()
+        self.park = not os.path.exists(path)
+        if self.park and os.path.exists(path + PARKED_POOL):
+            os.rename(path + PARKED_POOL, path)
+        elif self.park:
+            print("match: no earlier-BoQ pool file on this env; building one", flush=True)
+            built = match_pool.rebuild_pool()
+            print(f"match: pool built, {built['rows']} rows in {built['secs']}", flush=True)
+        self.before = {f: frappe.db.get_single_value(SETTINGS_DOCTYPE, f) for f in self.FIELDS}
+        for f, value in zip(self.FIELDS, (1, 1, self.site_limit)):
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
+        frappe.db.commit()
+        frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
+
+    def __exit__(self, *exc):
+        frappe.db.rollback()
+        for f, value in self.before.items():
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, f, value)
+        frappe.db.commit()
+        frappe.clear_cache(doctype=SETTINGS_DOCTYPE)
+        if self.park:
+            path = match_pool.pool_path()
+            os.rename(path, path + PARKED_POOL)
+
+
 class VoterOff:
     """Switch the BoQ AI setting off for the flows (classify's voter, suggest's extraction, match's client), and put
     it back as it was."""
@@ -399,6 +526,7 @@ FLOWS = {  # name -> (setup, one run, default runs)
     "classify": (classify_setup, classify_run, 10),
     "suggest": (suggest_setup, suggest_run, 5),
     "tds": (tds_setup, tds_run, 3),
+    "match": (match_setup, match_run, 3),
 }
 
 
@@ -408,11 +536,21 @@ def main():
     ap.add_argument("--runs", type=int, default=None, help="runs of every flow (default: each flow's own count)")
     ap.add_argument("--flows", default=",".join(FLOWS))
     ap.add_argument("--round-timeout", type=float, default=300)
+    ap.add_argument("--fake-provider-port", type=int)
+    ap.add_argument("--fake-provider-limit", type=int)
+    ap.add_argument("--site-limit", type=int, help="the site-wide calls at once for the match flow (default: K)")
+    ap.add_argument("--match-at-once", type=int, help="matches started at once (default: the workers)")
     a = ap.parse_args()
     flows = [f for f in a.flows.split(",") if f]
     unknown = set(flows) - set(FLOWS)
     if unknown:
         raise SystemExit(f"unknown flows {sorted(unknown)}; known: {sorted(FLOWS)}")
+    if "match" in flows and not (a.fake_provider_port and a.fake_provider_limit):
+        raise SystemExit("match: runs only against the fake provider: walk_background_operations.py "
+                         "--fake-provider-limit K starts it")
+    if a.fake_provider_port:
+        FAKE.update(port=a.fake_provider_port, limit=a.fake_provider_limit,
+                    site_limit=a.site_limit or a.fake_provider_limit, at_once=a.match_at_once)
 
     # Stopped from outside (the walk's clean-up), still put the AI setting back: SystemExit runs VoterOff.__exit__.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
@@ -424,15 +562,16 @@ def main():
         for flow in flows:
             setup, run_once, default_runs = FLOWS[flow]
             runs = a.runs or default_runs
-            ctx = setup(a.workers)
             ops = []
-            for run in range(1, runs + 1):
-                t0 = time.monotonic()
-                outcomes = run_once(ctx, run, a.round_timeout)
-                bad = [o["detail"] for o in outcomes.values() if not o["ok"]]
-                print(f"{flow} run {run}/{runs}: {len(outcomes) - len(bad)} ok, {len(bad)} failed "
-                      f"({time.monotonic() - t0:.1f} s)" + "".join(f"\n    FAILED {d}" for d in bad), flush=True)
-                ops += [{"run": run, **o} for o in outcomes.values()]
+            with FakeProviderOn(FAKE["site_limit"]) if flow == "match" else contextlib.nullcontext():
+                ctx = setup(a.workers)
+                for run in range(1, runs + 1):
+                    t0 = time.monotonic()
+                    outcomes = run_once(ctx, run, a.round_timeout)
+                    bad = [o["detail"] for o in outcomes.values() if not o["ok"]]
+                    print(f"{flow} run {run}/{runs}: {len(outcomes) - len(bad)} ok, {len(bad)} failed "
+                          f"({time.monotonic() - t0:.1f} s)" + "".join(f"\n    FAILED {d}" for d in bad), flush=True)
+                    ops += [{"run": run, **o} for o in outcomes.values()]
             result["flows"][flow] = {
                 "runs": runs, "ok": sum(o["ok"] for o in ops), "failed": sum(not o["ok"] for o in ops), "operations": ops,
             }
