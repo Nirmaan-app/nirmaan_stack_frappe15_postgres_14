@@ -29,16 +29,17 @@ const isListener = (callee) =>
 
 const OPERATION_EVENT_PREFIX = "background_op:";
 
-const calleeName = (callee) =>
-  ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+/** The name an identifier or a property access (`a.b` -> `b`) ends in; undefined for any other expression. */
+const nameOf = (node) =>
+  ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : undefined;
 
-const isListenerHook = (callee) => /^use\w*EventListener$/.test(calleeName(callee) ?? "");
+const isListenerHook = (callee) => /^use\w*EventListener$/.test(nameOf(callee) ?? "");
 
 const isOperationEvent = (event) => {
   if (event === undefined) return false;
   if (ts.isStringLiteralLike(event)) return event.text.startsWith(OPERATION_EVENT_PREFIX);
   if (ts.isTemplateExpression(event)) return event.head.text.startsWith(OPERATION_EVENT_PREFIX);
-  return calleeName(event) === "READ_NOW_EVENT";
+  return nameOf(event) === "READ_NOW_EVENT";
 };
 
 const namesTheConnection = (event) =>

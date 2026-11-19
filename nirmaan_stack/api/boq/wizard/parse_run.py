@@ -662,8 +662,8 @@ def _maybe_self_heal_parse_state(boq_name: str) -> str:
       "running"       -- the RQ job waits in the queue, or started within the
                          staleness window, or is about to be queued
                          (operation_marker.job_state); ALL state is left untouched.
-      "cleared"       -- the job finished / failed / vanished from Redis; the
-                         BoQ flag, job id, enqueue timestamp, and every per-sheet
+      "cleared"       -- the RQ job finished / failed / vanished from Redis; the
+                         BoQ flag, RQ job id, enqueue timestamp, and every per-sheet
                          marker are cleared and committed.
       "cleared_stale" -- the RQ job STARTED more than _STALE_PARSE_SECONDS ago (#1660:
                          never counted from the enqueue, so a parse waiting in the

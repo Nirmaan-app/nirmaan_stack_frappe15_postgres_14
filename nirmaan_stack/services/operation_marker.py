@@ -12,11 +12,11 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
   heals after ENQUEUE_GRACE_SEC (below).
 * Two readers that both judge one marker stale must not both clear it: the second would clear the first's new
   claim. `heal` deletes a stale marker only while it still holds the value that was read (compare-and-delete).
-* The claim's key expires after CLAIM_TTL_SEC, a day: rq keeps a queued job until a worker takes it, so the marker
+* The claim's key expires after CLAIM_TTL_SEC, a day: rq keeps a queued RQ job until a worker takes it, so the marker
   must outlast any queue wait (#1660 review). Staleness is judged by `job_state`, not by the expiry, which only
   removes markers nothing reads again. Once running, a flow's progress writes set its own, shorter TTL.
 * Staleness counts from when the operation started running, not from when it was queued (`job_state`). rq stamps the
-  job's `started_at` when a worker takes it, so an operation waiting behind others is never judged stale, however
+  RQ job's `started_at` when a worker takes it, so an operation waiting behind others is never judged stale, however
   long it waits. A marker whose RQ job rq does not know (lost, or its queue call never came) is cleared once it is older
   than ENQUEUE_GRACE_SEC: the claim and the queue call are consecutive steps of one request, so a younger marker may be
   one whose RQ job is about to be queued.

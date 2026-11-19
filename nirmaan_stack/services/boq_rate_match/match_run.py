@@ -4,7 +4,7 @@
 
     run_match(run_name, *, only_rows=None, resume=False, client=None, card_client=None, progress=None) -> summary
 
-Called by the match job (api/boq/rate_match._match_worker). Steps, each timed:
+Called by the match operation's work (api/boq/rate_match._match_worker). Steps, each timed:
   1. job_pool       THE POOL RULE (DEV2-B8 S1, below): a run NEVER builds the pool and NEVER queues a rebuild. A
                     cached pool file is USED as it is - a stale one too, noted "pool stale" in usage.pool with the
                     stamp it used; with no usable file the run asks nothing and every row says "pool not ready"
@@ -89,7 +89,8 @@ class _Progress:
     a fresh context, so frappe.local (frappe.db, the cache, realtime) is not bound there. (The judge thread that
     starts them runs in a copy of the RQ job's context, see _judge_with_progress; the per-call threads do not inherit
     it.) Touching frappe.local there raised "object is not bound", which the runner read as a connection error and
-    stopped the run (DEV2-B4 S4 attempt 1). The job's main thread reads `done` and reports it (_judge_with_progress)."""
+    stopped the run (DEV2-B4 S4 attempt 1). The RQ job's main thread reads `done` and reports it
+    (_judge_with_progress)."""
 
     def __init__(self, client, rows_by_content, done_before):
         import threading
