@@ -3,8 +3,8 @@
 
 """Read and edit endpoints for Material Test Certificates (MTC).
 
-Create and delete go through the SDK (`createDoc` / `deleteDoc`); the controller
-`integrations/controllers/material_test_certificate.py` enforces every rule on all paths.
+Create and edit go through `create_mtc` / `update_mtc`, delete through the SDK (`deleteDoc`); the
+controller `integrations/controllers/material_test_certificate.py` enforces every rule on all paths.
 
 Project scope (owner, 2026-10-07): Project Managers and Project Leads see ONLY the projects
 assigned to them through `User Permission`. A PM / PL with no assignment sees nothing --
@@ -17,6 +17,9 @@ from frappe import _
 from nirmaan_stack.services.role_profiles import (
     MTC_PROJECT_SCOPED_PROFILES,
     assert_reports_bulk_download_access,
+    can_edit_mtc,
+    can_manage_mtc,
+    can_upload_mtc,
     get_role_profile,
 )
 
@@ -187,6 +190,33 @@ def get_mtcs(procurement_order=None, project=None, vendor=None, all_projects=Non
 
 
 @frappe.whitelist(methods=["POST"])
+def create_mtc(procurement_order, items, attachment, certificate_date):
+    """Upload an MTC: the file (already attached to the PO), its Certificate Date and PO lines.
+
+    `items` is a list (or JSON string) of {item_id, make}; the controller fills the rest from
+    the PO. Inserted without the doctype's Role check: Project Managers / Leads may upload but
+    hold only read rights on the doctype, and the controller enforces who may upload where.
+    """
+    if not can_upload_mtc(frappe.session.user):
+        frappe.throw(_("You are not allowed to upload a Material Test Certificate."), frappe.PermissionError)
+    if isinstance(items, str):
+        items = frappe.parse_json(items)
+
+    doc = frappe.get_doc(
+        {
+            "doctype": MTC,
+            "procurement_order": procurement_order,
+            "attachment": attachment,
+            "certificate_date": certificate_date,
+            "items": [{"item_id": i.get("item_id"), "make": i.get("make")} for i in items or []],
+        }
+    )
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": doc.name}
+
+
+@frappe.whitelist(methods=["POST"])
 def update_mtc(name, items, attachment=None, certificate_date=None):
     """Edit an MTC: replace its items and, when given, its file and Certificate Date.
 
@@ -198,7 +228,13 @@ def update_mtc(name, items, attachment=None, certificate_date=None):
         items = frappe.parse_json(items)
 
     doc = frappe.get_doc(MTC, name)
-    doc.check_permission("write")
+    user = frappe.session.user
+    if can_manage_mtc(user):
+        doc.check_permission("write")  # unchanged for managers, project assignments included
+    # A Project Manager / Lead holds no write right on the doctype: their own MTCs only, and the
+    # controller holds them to their assigned projects.
+    elif not can_edit_mtc(user, doc.owner):
+        frappe.throw(_("You can edit only the Material Test Certificates you uploaded."), frappe.PermissionError)
     doc.set("items", [])
     for item in items or []:
         doc.append("items", {"item_id": item.get("item_id"), "make": item.get("make")})
@@ -208,6 +244,6 @@ def update_mtc(name, items, attachment=None, certificate_date=None):
         doc.certificate_date = certificate_date
     # Explicit: Frappe defaults ignore_version to `flags.in_test`, which would leave the
     # edit history (owner ruling Q33) untested.
-    doc.save(ignore_version=False)
+    doc.save(ignore_permissions=True, ignore_version=False)
     frappe.db.commit()
     return {"name": doc.name}

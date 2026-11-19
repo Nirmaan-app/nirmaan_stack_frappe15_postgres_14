@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import {
-  useFrappeCreateDoc,
   useFrappeDeleteDoc,
   useFrappeFileUpload,
   useFrappePostCall,
@@ -14,13 +13,16 @@ type LineRef = Pick<MTCItem, "item_id" | "make">;
 
 /**
  * Create / edit / delete a Material Test Certificate. Every rule is enforced server-side by
- * the MTC controller; these only move the data.
+ * the MTC controller; these only move the data. Create and edit go through `mtc_api`, because
+ * Project Managers / Leads upload and edit their own MTCs without the doctype's write rights.
  *
  * The file is uploaded attached to the PO (private), exactly like a DC/MIR file.
  */
 export const useMTCMutations = (poName: string) => {
   const { upload } = useFrappeFileUpload();
-  const { createDoc } = useFrappeCreateDoc();
+  const { call: createMTC } = useFrappePostCall(
+    "nirmaan_stack.api.material_test_certificates.mtc_api.create_mtc"
+  );
   const { deleteDoc } = useFrappeDeleteDoc();
   const { call: updateMTC } = useFrappePostCall(
     "nirmaan_stack.api.material_test_certificates.mtc_api.update_mtc"
@@ -49,17 +51,17 @@ export const useMTCMutations = (poName: string) => {
       setBusy(true);
       try {
         const fileUrl = await uploadFile(file);
-        return await createDoc(MTC, {
+        return await createMTC({
           procurement_order: poName,
           attachment: fileUrl,
           certificate_date: certificateDate,
-          items: toRows(lines),
-        } as any);
+          items: JSON.stringify(toRows(lines)),
+        });
       } finally {
         setBusy(false);
       }
     },
-    [uploadFile, createDoc, poName]
+    [uploadFile, createMTC, poName]
   );
 
   /** `file` is null when the file is kept. The replaced file stays in storage (owner ruling). */
