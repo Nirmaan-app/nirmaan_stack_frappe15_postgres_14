@@ -15,8 +15,9 @@
  * The selection's count, total and bulk buttons sit in the table's toolbar, right of the search, as Project
  * Payments' bulk bar does.
  *
- * Facet filters (owner, 2026-11-19): Claimant, Type (on the Title header), Status (All, Raised By Me), Role and Approved
- * By (Paid / All). Their counts are scoped to the tab: by claim status, by owner on Raised By Me, by the month on All.
+ * Facet filters (owner, 2026-11-19): Claimant, Type (on the Title header), Status (All, Raised By Me) and Approved By
+ * (Paid). No Role filter (owner, 2026-11-19: the role shows under the claimant's name only). Their counts are scoped
+ * to the tab: by claim status, by owner on Raised By Me, by the month on All.
  * On the four expense-led tabs the counts cover every Approved claim (the tab itself is the expense's status, which
  * the claim doesn't hold); the filter itself is exact, because it is applied with the tab on the server.
  *
@@ -68,6 +69,8 @@ interface Props {
     onOpen: (r: ClaimRow) => void;
     onEdit: (r: ClaimRow) => void;
     onDelete: (r: ClaimRow) => void;
+    /** Admin (the CEO included): deletes anyone's rejected claim, from All (owner, 2026-11-19). */
+    isAdmin: boolean;
     /** The person acts on ticked rows on this tab. */
     selectable: boolean;
     canAct: (r: ClaimRow) => boolean;
@@ -79,42 +82,41 @@ interface Props {
     onReconcile: (r: ClaimRow) => void;
     /** Bumped by the page after a bulk action, to clear the ticks. */
     clearTicks: number;
-    /** A claim to highlight (the one a toast's "Open tab" pointed to). */
-    highlight?: string | null;
     /** Paid and All, for those who see every claim: the picked month ("YYYY-MM" or "all") and its setter. */
     month?: string;
     onMonthChange?: (month: string) => void;
 }
 
 /** The columns that carry a facet filter (their ids are the claim fields they filter). */
-const FACET_COLUMNS = ["claimant_name", "claimant_role", "reimbursement_type", "status", "approved_by"];
+const FACET_COLUMNS = ["claimant_name", "reimbursement_type", "status", "approved_by"];
 
 /** The filters that scope a tab's facet counts to (roughly) the claims the tab lists. */
 function facetScope(tab: ReimbursementTab, userId: string, month: string | undefined): unknown[] {
     if (tab === TAB_MINE) return [["owner", "=", userId]];
     if (tab === TAB_PENDING) return [["status", "=", PENDING]];
     if (tab === TAB_PAID) return [["status", "=", PAID]];
-    if (tab === TAB_ALL) {
-        return month && month !== ALL_MONTHS
-            ? [["creation", ">=", `${month}-01`], ["creation", "<", `${shiftMonth(month, 1)}-01`]]
-            : [];
-    }
+    const raisedIn = month && month !== ALL_MONTHS
+        ? [["creation", ">=", `${month}-01`], ["creation", "<", `${shiftMonth(month, 1)}-01`]]
+        : [];
+    if (tab === TAB_ALL) return raisedIn;
+    if (tab === TAB_APPROVED) return [["status", "=", APPROVED], ...raisedIn];
     return [["status", "=", APPROVED]];
 }
 
-/** The month's totals: the sum and count of every matching claim, and a breakdown (by type on Paid, by status on All). */
+/** The month's totals: the sum and count of every matching claim, and a breakdown (by status on All, by type elsewhere). */
 const MONTH_AGGREGATES: SimpleAggregationConfig[] = [{ field: "amount", function: "sum" }, { field: "amount", function: "count" }];
 
 export function ClaimsTable({
-    tab, userId, getUserName, onOpen, onEdit, onDelete, selectable, canAct, cannotActReason, onDecide, onBulkDecide,
-    onMarkPaid, onExport, onReconcile, clearTicks, highlight, month, onMonthChange,
+    tab, userId, getUserName, onOpen, onEdit, onDelete, isAdmin, selectable, canAct, cannotActReason, onDecide,
+    onBulkDecide, onMarkPaid, onExport, onReconcile, clearTicks, month, onMonthChange,
 }: Props) {
     const columns = useMemo(
         () => getReimbursementColumns({
-            tab, userId, getUserName, onOpen, onEdit, onDelete, selectable, canAct, cannotActReason, onDecide,
+            tab, userId, getUserName, onOpen, onEdit, onDelete, isAdmin, selectable, canAct, cannotActReason, onDecide,
             onMarkPaid: (r) => onMarkPaid([r]), onReconcile,
         }),
-        [tab, userId, getUserName, onOpen, onEdit, onDelete, selectable, canAct, cannotActReason, onDecide, onMarkPaid, onReconcile],
+        [tab, userId, getUserName, onOpen, onEdit, onDelete, isAdmin, selectable, canAct, cannotActReason, onDecide, onMarkPaid,
+            onReconcile],
     );
     const facetOverrides = useMemo<FacetOverrides>(() => {
         const additionalFilters = facetScope(tab, userId, month);
@@ -129,7 +131,7 @@ export function ClaimsTable({
     const aggregatesConfig = useMemo(() => (byMonth ? MONTH_AGGREGATES : undefined), [byMonth]);
     const groupByConfig = useMemo(
         () => (byMonth
-            ? { groupByField: tab === TAB_PAID ? "reimbursement_type" : "status", aggregateField: "amount", aggregateFunction: "sum" as const, limit: 10 }
+            ? { groupByField: tab === TAB_ALL ? "status" : "reimbursement_type", aggregateField: "amount", aggregateFunction: "sum" as const, limit: 10 }
             : undefined),
         [byMonth, tab],
     );
@@ -218,11 +220,6 @@ export function ClaimsTable({
 
     return (
         <div className="flex flex-col gap-2">
-            {highlight && (
-                <p className="rounded-md bg-sky-50 px-3 py-2 text-xs text-sky-900">
-                    {highlight} is in {TAB_LABELS[tab]}.
-                </p>
-            )}
             <DataTable<ClaimRow>
                 table={table}
                 columns={columns}

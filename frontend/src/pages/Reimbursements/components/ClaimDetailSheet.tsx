@@ -37,12 +37,16 @@ interface Props {
     onDecide: (decision: Decision, claim: Reimbursement) => void;
     onEdit: (claim: Reimbursement) => void;
     onDelete: (claim: Reimbursement) => void;
+    /** Admin (the CEO included) may delete anyone's claim once it is rejected (owner, 2026-11-19). */
+    isAdmin?: boolean;
 }
 
 /** "XXXX1234": the account's last four digits. */
 const maskAccount = (account: string): string => `XXXX${account.slice(-4)}`;
 
-export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName, canDecide, onDecide, onEdit, onDelete }: Props) {
+export function ClaimDetailSheet({
+    claimName, onOpenChange, userId, getUserName, canDecide, onDecide, onEdit, onDelete, isAdmin = false,
+}: Props) {
     const { data: claim } = useFrappeGetDoc<Reimbursement>(REIMBURSEMENT_DOCTYPE, claimName ?? undefined, claimName ? undefined : null);
     const { data: filesData } = useFrappeGetCall<{ message: ClaimFile[] }>(
         CLAIM_FILES_API, { name: claimName }, claimName ? `reimb_files:${claimName}` : null,
@@ -189,7 +193,7 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
                         </div>
 
                         <div className="flex flex-wrap justify-end gap-2 border-t px-6 py-3">
-                            {isClaimant && !deleteProblem(claim.status, true) && (
+                            {!deleteProblem(claim.status, isClaimant, isAdmin) && (
                                 <Button variant="ghost" className="text-red-600" onClick={() => onDelete(claim)}>
                                     <Trash2 className="mr-1.5 h-4 w-4" /> Delete
                                 </Button>

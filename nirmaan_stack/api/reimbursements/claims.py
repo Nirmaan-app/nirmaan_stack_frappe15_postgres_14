@@ -25,6 +25,7 @@ from nirmaan_stack.services.reimbursements.convert import LINK_FIELD
 from nirmaan_stack.services.reimbursements.expense_link import (
     delete_claim,
     delete_rejected_expense,
+    lock_claim,
     lock_expense_of,
 )
 from nirmaan_stack.services.reimbursements.month_total import month_used
@@ -44,6 +45,7 @@ from nirmaan_stack.services.reimbursements.rules import (
     edit_problem,
     reviewer_for,
 )
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin
 from nirmaan_stack.services.stored_files import delete_files
 
 DOCTYPE = "Reimbursement"
@@ -83,9 +85,11 @@ def _check_cap(user: str, amount, when, exclude: str | None = None) -> None:
 
 
 def _refuse_delete(claim, user: str) -> None:
-    problem = delete_problem(claim.status, is_claimant=claim.owner == user)
+    is_claimant = claim.owner == user
+    is_admin = is_nirmaan_admin(user)
+    problem = delete_problem(claim.status, is_claimant=is_claimant, is_admin=is_admin)
     if problem:
-        frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
+        frappe.throw(_(problem), frappe.ValidationError if is_claimant or is_admin else frappe.PermissionError)
 
 
 def _delete_last(names: list[str]) -> None:
@@ -135,7 +139,7 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
     again from `payee`, which must be one of the claimant's.
     """
     user = frappe.session.user
-    claim = frappe.get_doc(DOCTYPE, name, for_update=True)
+    claim = lock_claim(name)
     problem = edit_problem(claim.status, is_claimant=claim.owner == user)
     if problem:
         frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
@@ -161,8 +165,9 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
 
 @frappe.whitelist(methods=["POST"])
 def delete_reimbursement(name) -> dict:
-    """Delete the claimant's own claim while it is Pending Approval or Rejected, with its receipts -- and, for a
-    claim rejected in Payments, its Rejected Non-Project Expense (owner, 2026-10-27; ADR-0040).
+    """Delete a claim with its receipts -- and, for a claim rejected in Payments, its Rejected Non-Project Expense
+    (owner, 2026-10-27; ADR-0040). The claimant deletes their own while it is Pending Approval or Rejected; an Admin
+    deletes anyone's once it is Rejected (owner, 2026-11-19; `rules.delete_problem`).
 
     The expense is locked BEFORE the claim, the order a decision or a delete from Payments takes, so this can't
     deadlock with them (code review 2026-10-27, finding 2). The rule is asked again inside the locks."""
@@ -170,7 +175,7 @@ def delete_reimbursement(name) -> dict:
     # Refused before any lock, so someone else's call never holds the claim's expense row.
     _refuse_delete(frappe.get_doc(DOCTYPE, name), user)
     expense = lock_expense_of(name)
-    claim = frappe.get_doc(DOCTYPE, name, for_update=True)
+    claim = lock_claim(name)
     _refuse_delete(claim, user)
     delete_rejected_expense(name, expense)
     files = delete_claim(name)

@@ -1,12 +1,12 @@
 /**
- * The month picker and its totals on the Paid and All tabs (owner, 2026-11-19). Paid counts claims by the month their
+ * The month picker and its totals on Payment need to be paid, Paid and All (owner, 2026-11-19). Paid counts claims by the month their
  * expense was paid, All by the month they were raised (`queue.get_claims`, `month`).
  *
  * The picker is a month button that opens a calendar of months (owner, 2026-11-19: stepping ‹ › month by month was too
  * slow): the year is picked with ‹ › (a whole year per click), then the month -- any month is two clicks away. Each
  * tile shows that month's total and claim count (`queue.get_claim_month_summary`, read when the picker opens and when
- * the year changes); a month with nothing, or still to come, is greyed out. Quick picks: This month, Last month, All
- * months.
+ * the year changes); a month with nothing, or still to come, is greyed out. Quick picks: This month (Nov), Last month
+ * (Oct), All, and Reset; All and Reset both go to all months, and the picker has the same two (owner, 2026-11-19).
  *
  * The totals under it come from the same call as the rows (the data table's aggregates), so they cover every claim the
  * tab's filters and search match, not only the page. Paid breaks the total down by type, All by status.
@@ -29,10 +29,11 @@ import {
     joinMonth,
     lastMonth,
     monthTitle,
+    shortMonth,
     monthVerb,
     splitMonth,
 } from "@/utils/reimbursements/claimMonth";
-import { TAB_PAID, type ReimbursementTab } from "@/utils/reimbursements/rules";
+import { TAB_APPROVED, TAB_PAID, type ReimbursementTab } from "@/utils/reimbursements/rules";
 
 import { STATUS_BADGE } from "../config/reimbursementColumns";
 
@@ -68,9 +69,10 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
         <div className="flex flex-col gap-2 rounded-md border bg-muted/30 px-3 py-2" role="region" aria-label="Month">
             <div className="flex flex-wrap items-center gap-2">
                 <MonthPicker tab={tab} month={month} onPick={onMonthChange} />
-                {quick(thisMonth, "This month")}
-                {quick(last, "Last month")}
-                {quick(ALL_MONTHS, "All months")}
+                {quick(thisMonth, `This month (${shortMonth(thisMonth)})`)}
+                {quick(last, `Last month (${shortMonth(last)})`)}
+                {quick(ALL_MONTHS, "All")}
+                <ResetButton disabled={all} onReset={() => onMonthChange(ALL_MONTHS)} />
             </div>
             <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", loading && "opacity-60")} aria-live="polite">
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
@@ -87,6 +89,20 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
                 ))}
             </div>
         </div>
+    );
+}
+
+/** Reset: back to all months. A red pill while it can be pressed (a month is picked); muted grey when already on all
+ *  months (owner, 2026-11-19). */
+function ResetButton({ disabled, onReset }: { disabled: boolean; onReset: () => void }) {
+    return (
+        <button type="button" onClick={onReset} disabled={disabled}
+            className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                disabled
+                    ? "pointer-events-none bg-gray-100 text-muted-foreground opacity-60 dark:bg-muted"
+                    : "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60")}>
+            Reset
+        </button>
     );
 }
 
@@ -149,8 +165,16 @@ function MonthPicker({ tab, month, onPick }: { tab: ReimbursementTab; month: str
                         );
                     })}
                 </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                    <button type="button" aria-pressed={!picked} onClick={() => { onPick(ALL_MONTHS); setOpen(false); }}
+                        className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                            !picked ? "bg-sky-500 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-muted dark:text-foreground")}>
+                        All months
+                    </button>
+                    <ResetButton disabled={!picked} onReset={() => { onPick(ALL_MONTHS); setOpen(false); }} />
+                </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                    {tab === TAB_PAID ? "Each tile: paid in that month." : "Each tile: raised in that month."} Greyed: nothing that month, or still to come.
+                    {tab === TAB_PAID ? "Each tile: paid in that month." : tab === TAB_APPROVED ? "Each tile: raised in that month, still to be paid." : "Each tile: raised in that month."} Greyed: nothing that month, or still to come.
                 </p>
             </PopoverContent>
         </Popover>

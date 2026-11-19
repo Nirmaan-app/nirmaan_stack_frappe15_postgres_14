@@ -129,7 +129,7 @@ class TestSharedCases(unittest.TestCase):
     def test_delete(self):
         for case in CASES["delete"]:
             with self.subTest(case["name"]):
-                problem = delete_problem(case["status"], is_claimant=case["is_claimant"])
+                problem = delete_problem(case["status"], is_claimant=case["is_claimant"], is_admin=case.get("is_admin", False))
                 self.assertEqual(problem is None, case["allowed"], problem)
 
 

@@ -17,7 +17,7 @@ Owner rulings, 2026-10-23:
   expense deletes the Expense Request (owner, 2026-10-23, replacing "only a Rejected one"). Frappe's own
   delete permission and the bank-link guard still decide whether the expense may be deleted at all.
 * The claimant deletes their claim while it is Pending Approval or Rejected (`rules.delete_problem`, owner
-  2026-10-27). A pending claim, or one HR or Admin rejected, has no expense; a claim rejected in Payments takes its
+  2026-10-27); an Admin deletes anyone's once it is Rejected, the same way (owner, 2026-11-19). A pending claim, or one HR or Admin rejected, has no expense; a claim rejected in Payments takes its
   Rejected expense with it (`delete_rejected_expense`). The claimant can't delete their own claim's expense any
   other way (`refuse_claimant_delete`), and one that is not Rejected (an older row, a raw write) is refused.
 * ONE LOCK ORDER, expense then claim (code review 2026-10-27, finding 2). A decision and a delete from Payments
@@ -38,6 +38,7 @@ from nirmaan_stack.services.expense_decision import FALLBACK_REJECTION_REASON as
 from nirmaan_stack.services.expense_decision import REJECTION_REASON_FLAG
 from nirmaan_stack.services.notification_links import delete_notifications_for
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.ledgers import PAID as EXPENSE_PAID
 from nirmaan_stack.services.reimbursements.convert import APPROVAL_FLAG, LINK_FIELD
 from nirmaan_stack.services.reimbursements.receipts import detach_claim_files
@@ -207,6 +208,26 @@ def _delete_files_now(claim_name: str, files: list[str]) -> None:
     except Exception:
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), f"Reimbursement {claim_name}: receipt files not deleted")
+
+
+CHANGED_ELSEWHERE = "Someone else decided or changed {0} a moment ago, so nothing was saved. Refresh to see it now."
+
+
+def lock_claim(claim_name: str):
+    """The claim, read under its row lock: every approve, reject, edit and claimant delete takes it this way.
+
+    ⚠️ A request's FIRST transaction is REPEATABLE READ on Postgres: when another request changed the claim and
+    committed while this one waited on the lock, the lock read raises a serialization failure instead of returning
+    the row (two people approving one claim at the same moment, measured 2026-11-19: a raw 500). That refusal is
+    right -- nothing of this request was written -- so only its wording changes, through the one narrow recogniser
+    (`outflow_import.concurrency.is_concurrent_writer_refusal`); any other failure propagates unchanged. A bulk
+    call rolls back to the claim's savepoint and reports this sentence on that one claim."""
+    try:
+        return frappe.get_doc(CLAIM_DOCTYPE, claim_name, for_update=True)
+    except Exception as exc:
+        if not is_concurrent_writer_refusal(exc):
+            raise
+        frappe.throw(_(CHANGED_ELSEWHERE).format(claim_name), frappe.ValidationError, title=_("Changed elsewhere"))
 
 
 def lock_expense_of(claim_name: str) -> frappe._dict | None:

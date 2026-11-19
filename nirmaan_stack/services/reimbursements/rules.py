@@ -120,14 +120,19 @@ def edit_problem(status: str, *, is_claimant: bool) -> str | None:
     return None
 
 
-def delete_problem(status: str, *, is_claimant: bool) -> str | None:
+def delete_problem(status: str, *, is_claimant: bool, is_admin: bool = False) -> str | None:
     """Why this person may not delete the claim, or None when they may: the claimant, while it is pending or
-    once it is rejected (owner, 2026-10-27). A claim rejected in Payments takes its Rejected expense with it
-    (`expense_link`); an Approved or Paid claim goes only when its expense is deleted."""
-    if not is_claimant:
-        return "Only the person who raised a claim can delete it."
-    if status not in (PENDING, REJECTED):
-        return f"This claim is {status}, so it can't be deleted."
+    once it is rejected (owner, 2026-10-27); an Admin, anyone's claim once it is rejected (owner, 2026-11-19). A claim
+    rejected in Payments takes its Rejected expense with it (`expense_link`); an Approved or Paid claim goes only when
+    its expense is deleted."""
+    if is_claimant:
+        if status not in (PENDING, REJECTED):
+            return f"This claim is {status}, so it can't be deleted."
+        return None
+    if not is_admin:
+        return "Only the person who raised a claim, or an Admin once it is rejected, can delete it."
+    if status != REJECTED:
+        return f"This claim is {status}: an Admin can delete someone else's claim only once it is rejected."
     return None
 
 

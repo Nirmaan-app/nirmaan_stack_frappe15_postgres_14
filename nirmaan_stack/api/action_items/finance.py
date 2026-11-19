@@ -26,13 +26,15 @@ def settle_queue_link(record_name):
     }, quote_via=urllib.parse.quote)
 
 # A reimbursement's expense is paid on the Reimbursements page, not in Project Payments (ADR-0040 Amendment C):
-# its item opens that page's "Payment need to be paid" tab (`approved`) searched to the claim. The key prefix is
-# the claims table's urlSyncKey (`reimb_` + tab).
+# its item opens that page's "Payment need to be paid" tab (`approved`) searched to the claim, on all months (the tab
+# opens on the current month by default, which would hide an older claim). The key prefix is the claims table's
+# urlSyncKey (`reimb_` + tab).
 def reimbursement_pay_link(claim_name):
     return "/reimbursements?" + urllib.parse.urlencode({
         "tab": "approved",
         "reimb_approved_searchBy": "name",
         "reimb_approved_q": claim_name,
+        "reimb_approved_month": "all",
     }, quote_via=urllib.parse.quote)
 
 @frappe.whitelist()
