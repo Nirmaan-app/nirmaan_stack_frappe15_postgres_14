@@ -1015,6 +1015,84 @@ class TestClaimTabs(ReimbursementTestCase):
         self.assertIsNone(got["payment_source"])  # no bank line matched yet
 
 
+class TestClaimMonth(ReimbursementTestCase):
+    """Owner, 2026-11-19: Paid and All take a month -- Paid by the expense's paid-on date, All by the raised date --
+    and the totals the screen shows come from the same call, over every matching row (`queue.get_claims`)."""
+
+    approve = TestClaimExpense.approve
+    move = TestClaimExpense.move
+
+    def setUp(self):
+        super().setUp()
+        p = patch("nirmaan_stack.services.stored_files.delete_files", self.storage.delete_files)
+        p.start()
+        self.addCleanup(p.stop)
+
+    THIS_MONTH = frappe.utils.nowdate()[:7]
+
+    def names(self, tab, month, **kw):
+        reply = self.as_user(ACC, queue.get_claims, tab, fields=["name", "amount", "status"],
+                             filters=[["owner", "in", [PM, PM2]]], month=month, **kw)
+        return reply
+
+    def test_all_lists_the_claims_raised_in_the_month(self):
+        now = self.raise_claim(PM, amount=300)
+        old = self.raise_claim(PM2, amount=500)
+        frappe.db.sql("""UPDATE "tabReimbursement" SET creation = creation - INTERVAL '40 days' WHERE name = %s""", old)
+        frappe.db.commit()
+        listed = {r["name"] for r in self.names("all", self.THIS_MONTH)["data"]}
+        self.assertIn(now, listed)
+        self.assertNotIn(old, listed)
+        self.assertIn(old, {r["name"] for r in self.names("all", None)["data"]})  # no month: every claim
+
+    def test_paid_lists_the_claims_paid_in_the_month_by_paid_on_date(self):
+        name, expense = self.approve(HR)
+        self.move(expense, "Reconciliation Pending")
+        self.move(expense, "Paid")
+        frappe.db.set_value(NPE, expense.name, "payment_date", frappe.utils.nowdate(), update_modified=False)
+        frappe.db.commit()
+        self.assertEqual([r["name"] for r in self.names("paid", self.THIS_MONTH)["data"]], [name])
+        last_month = frappe.utils.add_months(frappe.utils.nowdate(), -1)[:7]
+        self.assertEqual(self.names("paid", last_month)["data"], [])
+
+    def test_the_totals_cover_the_month_with_a_breakdown(self):
+        self.raise_claim(PM, amount=300)
+        self.raise_claim(PM2, amount=700)
+        reply = self.names("all", self.THIS_MONTH,
+                           aggregates_config='[{"field": "amount", "function": "sum"}, {"field": "amount", "function": "count"}]',
+                           group_by_config='{"groupByField": "status", "aggregateField": "amount", "aggregateFunction": "sum", "limit": 10}')
+        self.assertEqual(float(reply["aggregates"]["sum_of_amount"]), 1000)
+        self.assertEqual(int(reply["aggregates"]["count_of_amount"]), 2)
+        self.assertEqual({g["group_key"]: float(g["aggregate_value"]) for g in reply["group_by_result"]}, {PENDING: 1000})
+
+    def test_the_month_summary_counts_each_month_for_the_picker(self):
+        a = self.raise_claim(PM, amount=300)
+        b = self.raise_claim(PM2, amount=700)
+        frappe.db.sql("""UPDATE "tabReimbursement" SET creation = %s WHERE name = %s""", ("2025-12-10 10:00:00", b))
+        frappe.db.commit()
+        this_year = int(frappe.utils.nowdate()[:4])
+        mine = {r["name"] for r in self.names("all", None)["data"]} & {a, b}
+        self.assertEqual(mine, {a, b})
+        summary = self.as_user(ACC, queue.get_claim_month_summary, "all", 2025)
+        self.assertGreaterEqual(summary["months"]["12"]["count"], 1)
+        self.assertGreaterEqual(summary["months"]["12"]["total"], 700)
+        self.assertLessEqual(summary["first_year"], 2025)
+        now = self.as_user(ACC, queue.get_claim_month_summary, "all", this_year)
+        self.assertGreaterEqual(now["months"][str(int(frappe.utils.nowdate()[5:7]))]["total"], 300)
+        # A claimant reads only their own claims; other tabs have no months.
+        theirs = self.as_user(PM2, queue.get_claim_month_summary, "all", 2025)
+        self.assertEqual(theirs["months"]["12"], {"count": 1, "total": 700.0})
+        with self.assertRaises(frappe.ValidationError):
+            self.as_user(ACC, queue.get_claim_month_summary, "pending", 2025)
+
+    def test_other_tabs_ignore_the_month_and_a_bad_month_is_refused(self):
+        name = self.raise_claim(PM, amount=300)
+        self.assertIn(name, {r["name"] for r in self.names("pending", "1999-01")["data"]})
+        for bad in ("2026-13", "Nov 2026", "2026/11"):
+            with self.subTest(bad=bad), self.assertRaises(frappe.ValidationError):
+                self.names("all", bad)
+
+
 class TestBulkDecisions(ReimbursementTestCase):
     """ADR-0040 Amendment C point 5: Approve selected / Reject selected on Pending Approval run the single call's
     steps per claim, each in its own savepoint (`review.bulk_approve_reimbursements`, `bulk_reject_reimbursements`)."""
