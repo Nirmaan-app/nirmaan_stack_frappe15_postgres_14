@@ -10,8 +10,7 @@ Groups:
   TestGeminiAssistPure       -- service mapping (map_suggestion incl. is_root),
                                 normalize_confidence, build_row_payload.
   TestRunGeminiPass          -- run_gemini_pass guards (gemini_disabled / not_parsed /
-                                frozen / parsing) + enqueue sets gemini_in_progress;
-                                get_gemini_pass_status recovery shape.
+                                frozen / parsing) + enqueue sets gemini_in_progress.
   TestGeminiWorker           -- worker write-back (Pending + level + is_root derivation),
                                 re-run stale-clear + chosen_source demote-to-manual,
                                 in-progress lifecycle on success/error.
@@ -30,7 +29,6 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard import gemini_assist
 from nirmaan_stack.api.boq.wizard.gemini_assist import (
     accept_gemini_suggestion,
-    get_gemini_pass_status,
     reject_gemini_suggestion,
     revert_gemini_acceptance,
     run_gemini_pass,
@@ -215,7 +213,7 @@ class _GeminiDBBase(FrappeTestCase):
 
 
 # ===========================================================================
-# Group 2: run_gemini_pass guards + enqueue + status
+# Group 2: run_gemini_pass guards + enqueue
 # ===========================================================================
 
 class TestRunGeminiPass(_GeminiDBBase):
@@ -306,48 +304,6 @@ class TestRunGeminiPass(_GeminiDBBase):
         )
         self.assertEqual(self._gemini_in_progress(_G_SHEET), 1,
                          "gemini_in_progress must be set to 1 after a successful enqueue")
-
-    def test_enqueue_clears_stale_status_payload(self):
-        # Regression: a re-run after a failure must NOT re-show the previous run's error banner.
-        # The enqueue invalidates the cached terminal payload so the frontend's Layer-2 poll
-        # (get_gemini_pass_status) resolves THIS pass, not the last one's outcome. Repro: seed a
-        # stale "error" payload (as _publish_gemini_event records after a failure), then re-enqueue.
-        key = gemini_assist._gemini_status_key(self.boq_name, _G_SHEET)
-        frappe.cache().set_value(
-            key,
-            {"status": "error", "boq_name": self.boq_name,
-             "sheet_name": _G_SHEET, "error_code": "gemini_failed"},
-        )
-        self.addCleanup(frappe.cache().delete_value, key)
-        self.addCleanup(self._restore_draft, _G_SHEET, {"gemini_in_progress": 0})
-
-        # Sanity: before the re-run the stale payload is readable (this is what re-showed the error).
-        self.assertEqual(
-            get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)["status"],
-            "error",
-        )
-
-        fake_job = MagicMock()
-        fake_job.id = "job-gemini-rerun"
-        with patch(_SETTINGS, return_value=_ENABLED_SETTINGS), \
-             patch("frappe.enqueue", return_value=fake_job):
-            result = run_gemini_pass(boq_name=self.boq_name, sheet_name=_G_SHEET)
-
-        self.assertTrue(result["ok"])
-        self.assertIsNone(
-            frappe.cache().get_value(key),
-            "enqueue must invalidate the prior run's cached status payload",
-        )
-        # The poll now sees an in-progress idle shape, NOT the stale error.
-        status = get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)
-        self.assertEqual(status["status"], "idle_or_unknown")
-        self.assertEqual(status["gemini_in_progress"], 1)
-
-    def test_status_returns_idle_shape_when_no_fallback(self):
-        frappe.cache().delete_value(gemini_assist._gemini_status_key(self.boq_name, _G_SHEET))
-        status = get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)
-        self.assertEqual(status["status"], "idle_or_unknown")
-        self.assertIn("gemini_in_progress", status)
 
 
 # ===========================================================================
@@ -497,6 +453,27 @@ class TestGeminiWorker(_GeminiDBBase):
                 gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user=None)
         self.assertEqual(self._gemini_in_progress(), 0,
                          "an errored pass must still clear gemini_in_progress")
+
+    def test_a_pass_ends_with_no_socket_message_and_no_status_key_either_way(self):
+        # #1671: no screen follows a Gemini pass (ADR-0034), so it keeps no per-sheet status key and sends no
+        # boq:gemini_pass_done; its sheet's gemini_in_progress flag is its only state.
+        keys_before = set(frappe.cache().get_keys("boq_gemini_status"))
+        for outcome in ([], _NonRetryable("boom")):
+            with self.subTest(outcome=type(outcome).__name__), \
+                    patch.object(svc, "build_gemini_client", return_value=object()), \
+                    patch.object(svc, "build_row_payload", side_effect=lambda r: {"id": r.get("row_index")}), \
+                    patch.object(svc, "classify_sheet", side_effect=[outcome] if isinstance(outcome, Exception)
+                                 else None, return_value=(outcome, 0)), \
+                    patch(_SETTINGS, return_value=_ENABLED_SETTINGS), \
+                    patch("frappe.publish_realtime") as publish:
+                try:
+                    gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user="Administrator")
+                except _NonRetryable:
+                    pass
+                sent = [c.args[0] for c in publish.call_args_list if c.args[0] not in ("doc_update", "list_update")]
+                self.assertEqual(sent, [], "only Frappe's own Error Log updates may go out")
+                self.assertEqual(set(frappe.cache().get_keys("boq_gemini_status")), keys_before)
+                self.assertEqual(self._gemini_in_progress(), 0)
 
 
 # ===========================================================================
