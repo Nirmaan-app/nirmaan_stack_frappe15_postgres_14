@@ -34,7 +34,7 @@ not appear in Project Payments & Expenses. Decision record:
   is the full amount. Saved: `approved_by` on approve, `rejection_reason` on reject. There is no reviewed-by /
   reviewed-on field (owner, 2026-10-22).
 - **The monthly reimbursement limit decides how far an approval goes** (owner, 2026-10-28, ADR-0040 Amendment B).
-  The **month total** is the claim in hand plus the claimant's other Approved and Paid claims raised in the same
+  The **month total** is the claim in hand plus the claimant's other approved (any of `rules.APPROVED_STEPS`) and Paid claims raised in the same
   calendar month (`month_total.month_totals`; pending and rejected ones don't count; the month is the claim's
   `creation` month). It is worked out on every read and never stored. Under ₹2,000 (₹1,999 or less), HR's approval
   auto-approves the expense. From ₹2,000 up, HR's approval sends the expense to L1 (`rules.approval_needs_l1`), even
@@ -54,7 +54,7 @@ not appear in Project Payments & Expenses. Decision record:
 - **A user's profile has a Reimbursements tab, for Admin only** (owner, 2026-10-28; `Administrator` and the Admin
   profile, the CEO included: `utils/reimbursements/profileMonth.seesProfileReimbursements`). It lists that person's
   claims for one month (the month a claim was raised in, as the limit counts it; default this month, the 11 before it,
-  or All months; `?reimb_month=YYYY-MM`) with a summary above the table: the month total = Approved + Paid with a
+  or All months; `?reimb_month=YYYY-MM`) with a summary above the table: the month total = approved (every approved step) + Paid with a
   "Limit reached" / "Under the ₹2,000 limit" chip, then Approved, Paid, Pending ("not counted yet") and Rejected
   ("never counted"). The totals are the data
   table's group-by (`status`, SUM `amount`) over every matching claim, never the page shown. Read only: the "Raised By
@@ -62,16 +62,34 @@ not appear in Project Payments & Expenses. Decision record:
   Frontend only: no endpoint of its own.
 - **The claims table reads its rows again on window focus** (`ClaimsTable`), as the tab counts do. Its rows live in
   local state and otherwise move only on the live list event, which a dev page signed in at `/login` never gets.
-- **Tabs, in order** (owner, 2026-11-18, ADR-0040 Amendment C; `utils/reimbursements/rules.tabsFor`): Pending
-  Approval (claims at Pending Approval only) · Pending L1 Approval (expense Requested) · Pending CEO Approval
-  (expense CEO Pending; **the CEO only**) · Payment need to be paid (expense Approved) · Reconciliation Pending
-  (expense Reconciliation Pending) · Paid · Reimbursement Raised By Me · All (Rejected included; there is no Rejected
-  tab). Admin, Accounts and HR see every tab but Pending CEO Approval; the CEO sees all eight; everyone else sees only
-  Reimbursement Raised By Me. Each person opens on their first tab. Display only: the server scopes every read, and
-  answers the CEO tab for the CEO alone.
-- **An Approved claim's tab is its expense's status; the claim has no status of its own for it** (owner,
-  2026-11-18: "use the old statuses only"). The claim keeps Pending Approval / Approved / Paid / Rejected, and the
-  Status column shows only those. No field, no status and no migration were added for the tabs.
+- **Tabs, in order** (owner, 2026-11-18, ADR-0040 Amendment C; sets per role 2026-11-19, Amendment E;
+  `utils/reimbursements/rules.tabsFor`): Pending Approval (claim Pending Approval) · Pending L1 Approval (Requested) ·
+  Pending CEO Approval (CEO Pending; **the CEO only**) · Payment need to be paid (Approved) · Reconciliation Pending ·
+  Reconciliation Done / Paid (Paid; id `paid`) · Reimbursement Raised By Me · All (Rejected included; no Rejected tab).
+  Each step tab lists one claim status (`rules.TAB_OF_STATUS`). Admin: every tab but the CEO's; CEO: all eight; HR:
+  Pending Approval, Reconciliation Done / Paid, All, Raised By Me; Accounts: Payment need to be paid, Reconciliation
+  Pending, Reconciliation Done / Paid, All, Raised By Me; everyone else: Raised By Me. Default tab (`rules.defaultTab`):
+  CEO → Pending CEO Approval, Admin → Pending L1 Approval, HR → Pending Approval, Accounts → Payment need to be paid,
+  others → Raised By Me; a `?tab=` the person doesn't have falls back to it. Display only: the server scopes every
+  read, and answers the CEO tab for the CEO alone.
+- **The claim carries its Non-Project Expense's status, by the same name** (owner, 2026-11-19, ADR-0040 Amendment E,
+  replacing 2026-11-18's "use the old statuses only"): Pending Approval (before the expense exists) · Requested ·
+  CEO Pending · Approved (waiting to be paid) · Reconciliation Pending · Paid · Rejected (`rules.STATUSES`,
+  `CLAIM_STATUS_OF_EXPENSE`). "Approved somewhere and not yet paid" is `rules.APPROVED_STEPS` (Requested, CEO
+  Pending, Approved, Reconciliation Pending): the month total, the Project Manager cap and the profile summary count
+  it where they used to read Approved. Claims approved before the change were moved once by
+  `patches/v3_0/reimbursement_status_from_expense` (raw SQL, `modified` left as it was).
+- **Every tab has the month bar** (owner, 2026-11-19; `utils/reimbursements/claimMonth`, `queue.get_claims(month)`,
+  `queue.get_claim_month_summary`): a month picker with month tiles, This month (Nov) / Last month (Oct) / All, and
+  Reset (red while a month is picked). The month is the raised month, except Reconciliation Done / Paid (the
+  expense's paid-on month). Payment need to be paid opens on this month, every other tab on all months
+  (`defaultMonth`); the month stays in the address. Raised By Me has it for everyone, over their own claims. The
+  totals under it cover every row the filters match: the total, Claims, then every status (All, Raised By Me, with a
+  share bar) or Travel / Food / Others.
+- **Narrow screens drop nothing** (owner, 2026-11-19; `ReimbursementTabBar` measures its own width): the full tab row
+  when it fits, else one row that scrolls sideways (group names inline), else -- a phone-narrow bar -- one button
+  with the open tab and its count that opens every tab, grouped, with its count. The month card stacks its figures;
+  the table keeps every column and scrolls inside its box.
 - **Who acts on which tab**: Approve / Reject on Pending Approval = HR, Admin, CEO (`decide_problem`); on Pending
   L1 Approval = Admin, CEO; on Pending CEO Approval = the CEO. Export for Payment and Mark as Paid on Payment need to
   be paid, and Mark Reconciled on Reconciliation Pending = Accounts and Admin. Everyone else who sees a tab only views
@@ -105,12 +123,17 @@ not appear in Project Payments & Expenses. Decision record:
   puts on the insert, read through `approval_raiser.routing_skips_auto`); an Admin's approval clears L1
   (≤ ₹50,000 Approved, above CEO Pending); the CEO's clears both. `expense_raiser` (who
   raised it, for the approval detail) still answers the claimant, the row's owner.
-- **The claim follows only its expense's endings** (`services/reimbursements/expense_link.claim_status_for`, the
-  pure rule, run by the expense `on_update` hook `integrations/controllers/reimbursement_expense`): Approved
-  while the expense is Requested / CEO Pending / Approved / Reconciliation Pending; Paid → claim `Paid` (nothing
-  else sets it); Rejected → claim Rejected with the queue's reason (`expense_decision.decide` puts it on
-  `doc.flags[REJECTION_REASON_FLAG]`. Every Reject in Approve Payments, single-row or bulk, goes through develop's one decision call `expense_actions.decide_expenses` with a required reason (`ApprovePayments.handlePaymentUpdate`, `PaymentActionDialog.rejectsExpense`), never a bare status PATCH. Only a rejection that skips `decide` gets `FALLBACK_REASON`); Paid → back (an undone match) → claim
-  Approved. The claim is written with `doc.save`, in the expense's transaction.
+- **The claim follows every change of its expense's status** (owner, 2026-11-19, Amendment E;
+  `services/reimbursements/expense_link.claim_status_for`, the pure rule, run by the expense `on_update` hook
+  `integrations/controllers/reimbursement_expense`): L1 / CEO approval, Mark as Paid, a reconcile, a reject and an
+  undone bank match (Paid → Reconciliation Pending) are copied onto the claim wherever they are made -- this page,
+  Project Payments or the bank import. The hook runs on the expense's insert too, which is how an approval that leaves
+  the expense at Requested or CEO Pending puts the claim there (`review._approve` saves the claim Approved first: the
+  routing reads its approver). A Pending Approval claim (no expense yet) and a Rejected one (final) never move. A
+  reject carries the queue's reason (`expense_decision.decide` puts it on `doc.flags[REJECTION_REASON_FLAG]`; every
+  Reject goes through `expense_actions.decide_expenses` with a required reason; only a rejection that skips `decide`
+  gets `FALLBACK_REASON`). The claim is written with `doc.save`, in the expense's transaction, through
+  `expense_link.lock_claim`.
 - **The `reimbursement` link can't be forged** (code review 2026-10-23): it is set only on the insert
   `convert.create_expense` makes (server-side flag `convert.APPROVAL_FLAG`), never changed or removed afterwards,
   and a claim has one expense (`expense_link.guard_link` / pure `link_problem`, in the expense `validate`).
@@ -175,7 +198,7 @@ not appear in Project Payments & Expenses. Decision record:
   for one opens Reimbursements → Payment need to be paid searched to the claim (`finance.reimbursement_pay_link`;
   both the recommended answers, built 2026-11-19, to be confirmed).
 - **A Project Manager may claim at most ₹2,000 a month** (owner, 2026-11-18, ADR-0040 Amendment D): a BLOCK at raise
-  and edit, unlike the approver's monthly limit. The month counts the person's Pending Approval, Approved and Paid
+  and edit, unlike the approver's monthly limit. The month counts the person's Pending Approval, approved (any step) and Paid
   claims raised that calendar month (`month_total.month_used`; rejected and deleted claims free their amount; an edit
   replaces its own old amount). Exactly ₹2,000 is allowed. Only the Project Manager profile (`access.is_capped`).
   The server checks inside a lock on the person's Nirmaan Users row (`claims._check_cap`: a no-op UPDATE, because a
