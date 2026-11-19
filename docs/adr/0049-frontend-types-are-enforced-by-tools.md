@@ -130,7 +130,8 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   typed path) no longer on for one of its patterns; a nested `.oxlintrc.json`, `.oxlintrc.jsonc` or `oxlint.config.*`
   in any folder but a real `node_modules` folder, which oxlint never reads (a folder whose name only ends in
   `node_modules`, such as `old_node_modules`, is read and counts), an `.eslintignore`, or a `.gitignore` that hides a
-  tracked file under `frontend/src/` (oxlint reads all three on its own); the `lint` script with a word dropped or
+  tracked file under `frontend/src/` (oxlint reads all three on its own); a symlink under `frontend/src/` (oxlint
+  lints what it points at, and D1 and J1 cannot read behind it); the `lint` script with a word dropped or
   added (only `--deny-warnings`, `--max-warnings=0` (or `--max-warnings 0`) and `--report-unused-disable-directives`
   may be added), or a new `prelint`/`postlint`; a top-level config key it does not compare (such as `extends`)
   changed; and a raised count in `scripts/residence_baseline.json` for a check CI runs. A ban rule's options are

@@ -171,6 +171,11 @@ def tree_loosenings(root):
             problems.append(f"{path}: oxlint skips the files it names; use ignorePatterns in {CONFIG}")
     problems += [f"{path}: a .gitignore hides it from oxlint" for path in
                  git_files("--cached", "--ignored", "--exclude-standard", "--", "frontend/src")]
+    # oxlint follows a link and lints what it points at, honouring its disable comments; the checks that list files
+    # with git (D1, J1) see the link as one entry and read nothing behind it.
+    problems += [f"{path}: a symlink under frontend/src; oxlint lints what it points at, which D1 and J1 cannot read"
+                 for path in git_files("--cached", "--others", "--exclude-standard", "--", "frontend/src")
+                 if (Path(root) / path).is_symlink()]
     return problems
 
 

@@ -351,6 +351,21 @@ class LintSettings(LintRepo, unittest.TestCase):
         (self.repo / "frontend/src/pages/.gitignore").write_text("orders/\n")
         self.refused("frontend/src/pages/orders/list.tsx", "gitignore")
 
+    def test_a_symlink_under_src_is_refused_tracked_or_not(self):
+        # oxlint follows a link into the folder or file behind it and honours its disable comments; the checks that
+        # list files with git (D1, J1) see the link as one entry and read nothing behind it (#1705's review).
+        shared = self.repo / "frontend/shared"
+        shared.mkdir()
+        (shared / "leak.ts").write_text("export const leak = 1;\n")
+        link = self.repo / "frontend/src/shared"
+        link.symlink_to("../shared")
+        self.refused("frontend/src/shared", "symlink")
+        self.commit("a linked folder")
+        self.refused("frontend/src/shared", "symlink")
+        link.unlink()
+        (self.repo / "frontend/src/pages/orders/alias.ts").symlink_to("../../../shared/leak.ts")
+        self.refused("frontend/src/pages/orders/alias.ts", "symlink")
+
     def test_a_narrowed_lint_script_is_refused(self):
         for script, named in [("oxlint --type-aware src/pages", "drops src"),
                               ("oxlint src", "drops --type-aware"),
