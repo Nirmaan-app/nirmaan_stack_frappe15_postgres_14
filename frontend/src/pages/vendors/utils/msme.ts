@@ -17,25 +17,27 @@ export const normalizeUdyam = (value?: string | null): string =>
 
 export const isValidUdyam = (value?: string | null): boolean => UDYAM_REGEX.test(value ?? "");
 
-/** What Document AI read off the certificate, stored on the vendor as `autofill_all_entities_json`. */
+/**
+ * What Document AI read off the certificate, stored on the vendor as `autofill_all_entities_json`:
+ * EVERYTHING printed on it (owner, 2026-11-19; built by `api/vendor/msme_autofill.py`). The named
+ * keys are the ones the app reads; the rest (address, units, NIC codes, classification history,
+ * assistance offices, ...) is carried through untouched.
+ */
 export interface MsmeJson {
   udyam_registration_number?: string | null;
   enterprise_name?: string | null;
   enterprise_type?: string | null;
-  major_activity?: string | null;
-  date_of_udyam_registration?: string | null;
-  date_of_incorporation?: string | null;
   file_url?: string | null;
   read_on?: string | null;
   model?: string | null;
+  [key: string]: unknown;
 }
 
-const MSME_JSON_KEYS: ReadonlyArray<keyof MsmeJson> = [
-  "udyam_registration_number", "enterprise_name", "enterprise_type", "major_activity",
-  "date_of_udyam_registration", "date_of_incorporation", "file_url", "read_on", "model",
-];
-
-/** `Vendors.autofill_all_entities_json` as Frappe returns it (an object, or its JSON text); null when absent or unreadable. */
+/**
+ * `Vendors.autofill_all_entities_json` as Frappe returns it (an object, or its JSON text); null when
+ * absent or unreadable. The WHOLE object is kept: Edit Vendor sends it back on save, so dropping
+ * keys here would erase them from the vendor.
+ */
 export const readMsmeJson = (value: unknown): MsmeJson | null => {
   let raw: unknown = value;
   if (typeof raw === "string") {
@@ -46,12 +48,7 @@ export const readMsmeJson = (value: unknown): MsmeJson | null => {
     }
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const out: MsmeJson = {};
-  for (const key of MSME_JSON_KEYS) {
-    const v: unknown = Reflect.get(raw, key);
-    if (typeof v === "string") out[key] = v;
-  }
-  return out;
+  return { ...raw };
 };
 
 /**

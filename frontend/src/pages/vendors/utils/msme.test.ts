@@ -29,10 +29,18 @@ describe("normalizeUdyam / isValidUdyam (the server's services/vendor_msme.py)",
 });
 
 describe("readMsmeJson", () => {
-  it("reads the stored object or its JSON text, keeping only known string fields", () => {
-    const stored = { udyam_registration_number: "UDYAM-UP-28-0012345", enterprise_type: "Micro", junk: 1 };
-    expect(readMsmeJson(stored)).toEqual({ udyam_registration_number: "UDYAM-UP-28-0012345", enterprise_type: "Micro" });
-    expect(readMsmeJson('{"enterprise_name": "S V Metals"}')).toEqual({ enterprise_name: "S V Metals" });
+  it("reads the stored object or its JSON text, keeping EVERY field (Edit Vendor sends it back)", () => {
+    const stored = {
+      udyam_registration_number: "UDYAM-UP-28-0012345",
+      enterprise_type: "Micro",
+      official_address: { city: "BANGALORE", pincode: "560083" },
+      nic_codes: [{ nic_5_digit: "32909", activity: "Manufacturing" }],
+    };
+    expect(readMsmeJson(stored)).toEqual(stored);
+    expect(readMsmeJson(JSON.stringify(stored))).toEqual(stored);
+    // ... and saving it again round-trips the whole certificate, nested parts included.
+    const saved = msmeValuesToSave({ msme_id: "x", msme_attachment: "/x.pdf", autofill_all_entities_json: readMsmeJson(stored) });
+    expect(readMsmeJson(saved.autofill_all_entities_json)).toEqual(stored);
   });
 
   it("is null for nothing or unreadable text", () => {

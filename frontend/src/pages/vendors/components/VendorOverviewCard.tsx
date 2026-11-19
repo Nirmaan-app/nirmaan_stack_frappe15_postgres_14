@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/utils/FormatDate';
 import { useUsersList } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList';
-import { readMsmeJson } from '../utils/msme';
 
 interface VendorOverviewCardProps {
     vendor?: Vendors;
@@ -151,7 +150,6 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
  * plain text when no certificate was uploaded, "--" when there is no ID.
  */
 const MsmeItem: React.FC<{ vendor?: Vendors | null }> = ({ vendor }) => {
-    const enterpriseType = readMsmeJson(vendor?.autofill_all_entities_json)?.enterprise_type;
     const id = vendor?.msme_id;
     return (
         <CardDescription className="space-y-1">
@@ -165,7 +163,6 @@ const MsmeItem: React.FC<{ vendor?: Vendors | null }> = ({ vendor }) => {
                         <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     </a>
                 ) : id}
-                {id && enterpriseType ? <span className="text-muted-foreground"> · {enterpriseType}</span> : null}
             </span>
         </CardDescription>
     );

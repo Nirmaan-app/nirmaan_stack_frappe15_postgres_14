@@ -115,8 +115,14 @@ class TestVendorSave(_VendorCase):
 
 	def _file(self, owner):
 		name = frappe.generate_hash(length=10)
-		frappe.get_doc({"doctype": "File", "name": name, "file_name": "udyam.pdf", "file_url": CERT_URL,
-		                "is_private": 1, "owner": owner}).db_insert()
+		# Frappe stamps `owner` from the session user at insert and drops a passed one, so insert AS the owner.
+		frappe.set_user(owner)
+		try:
+			frappe.get_doc({"doctype": "File", "name": name, "file_name": "udyam.pdf", "file_url": CERT_URL,
+			                "is_private": 1}).db_insert()
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(frappe.db.get_value("File", name, "owner"), owner)
 		return name
 
 	def test_an_unattached_certificate_is_attached_to_the_vendor(self):
@@ -174,6 +180,54 @@ class TestMsmeAutofill(_VendorCase):
 		self.assertEqual((j["file_url"], j["model"]), (CERT_URL, "test-model"))
 		v = out["validation"]
 		self.assertEqual((v["is_udyam_certificate"], v["id_valid"], v["name_match"], v["duplicates"]), (True, True, True, []))
+
+	def test_stores_everything_read_off_the_certificate(self):
+		# Owner, 2026-11-19: the whole certificate goes into autofill_all_entities_json.
+		full = {
+			**self.CERT,
+			"social_category": "General",
+			"address_flat_door_block": "29,1ST FLOOR",
+			"address_premises_building": "PADMASHREE",
+			"address_village_town": "GOTTIGERE",
+			"address_block": "BG ROAD",
+			"address_road_street_lane": "1ST MAIN KAMAKSHI LAYOUT,",
+			"address_city": "BANGALORE",
+			"address_district": "BENGALURU (URBAN)",
+			"address_state": "KARNATAKA",
+			"address_pincode": "560083",
+			"mobile": "9000000001",
+			"email": "test@example.com",
+			"date_of_commencement": "",
+			"district_industries_centre": "BANGALORE (URBAN) ( KARNATAKA )",
+			"msme_di": "BANGALORE ( KARNATAKA )",
+			"units": json.dumps([{"unit_name": " GOEL STEELS UNIT 1 ", "unit_address": None}, {"unit_name": ""}]),
+			"nic_codes": json.dumps([{"nic_2_digit": "32 - Other manufacturing", "nic_4_digit": "3290",
+			                          "nic_5_digit": "32909", "activity": "Manufacturing"}]),
+			"classification_history": json.dumps([{"classification_year": "2024-25", "enterprise_type": "Small",
+			                                       "classification_date": "01-04-2024"}]),
+		}
+		j = self._read(full)[0]["autofill_all_entities_json"]
+		self.assertEqual(j["social_category"], "General")
+		self.assertEqual(j["official_address"]["pincode"], "560083")
+		self.assertEqual(j["official_address"]["district"], "BENGALURU (URBAN)")
+		self.assertEqual((j["mobile"], j["email"]), ("9000000001", "test@example.com"))
+		self.assertIsNone(j["date_of_commencement"], "blank on the certificate stays null")
+		self.assertEqual(j["units"], [{"unit_name": "GOEL STEELS UNIT 1", "unit_address": None}], "empty rows dropped")
+		self.assertEqual(j["nic_codes"][0]["nic_5_digit"], "32909")
+		self.assertEqual(j["classification_history"][0]["classification_date"], "2024-04-01")
+		self.assertEqual((j["district_industries_centre"], j["msme_di"]),
+		                 ("BANGALORE (URBAN) ( KARNATAKA )", "BANGALORE ( KARNATAKA )"))
+
+	def test_missing_or_unreadable_tables_are_empty_lists(self):
+		j = self._read({**self.CERT, "nic_codes": "not json"})[0]["autofill_all_entities_json"]
+		self.assertEqual((j["units"], j["nic_codes"], j["classification_history"]), ([], [], []))
+		self.assertEqual(set(j["official_address"].values()), {None})
+
+	def test_reads_the_same_fields_the_extractor_asks_for(self):
+		# msme_autofill._SCALARS repeats gemini._MSME_FIELDS; they must not drift apart.
+		from nirmaan_stack.services.extraction import gemini
+
+		self.assertEqual(tuple(msme_autofill._SCALARS), gemini._MSME_FIELDS)
 
 	def test_a_malformed_number_does_not_fill_the_form(self):
 		out, _ = self._read({**self.CERT, "udyam_registration_number": "UDYAM-UP-28-12"})

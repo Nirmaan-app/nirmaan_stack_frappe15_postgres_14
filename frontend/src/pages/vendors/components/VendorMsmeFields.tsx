@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useFormContext } from "react-hook-form";
-import { AlertTriangle, FileText, Loader2, X } from "lucide-react";
+import { AlertTriangle, Eye, Loader2 } from "lucide-react";
 
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "@/lib/frappe";
@@ -44,9 +43,11 @@ interface VendorMsmeFieldsProps {
 
 /**
  * MSME details on New / Edit Vendor (owner, 2026-11-19): upload the Udyam certificate, Document AI
- * reads it and fills the MSME ID (editable). Optional, but ID and certificate come together: one
- * without the other blocks the save (`refineMsmePair`). Everything else only warns: not a Udyam
- * certificate, no ID read, a different enterprise name, another vendor with the same ID.
+ * reads it and fills the MSME ID (editable). Once attached, a certificate is only REPLACED, never
+ * removed; a new one replaces the MSME ID and the read data too. Optional, but ID and certificate
+ * come together: one without the other blocks the save (`refineMsmePair`). Everything else only
+ * warns: not a Udyam certificate, no ID read, a different enterprise name, another vendor with the
+ * same ID.
  */
 export const VendorMsmeFields = ({ vendorId }: VendorMsmeFieldsProps) => {
   const form = useFormContext<MsmeFormValues>();
@@ -96,9 +97,17 @@ export const VendorMsmeFields = ({ vendorId }: VendorMsmeFieldsProps) => {
         ...(vendorId ? { doctype: "Vendors", docname: vendorId, fieldname: "msme_attachment" } : {}),
       });
       if (!uploaded?.file_url) throw new Error("The file could not be uploaded. Try again.");
-      // After a failed submit, re-check at once so the "upload the certificate" error clears.
-      form.setValue("msme_attachment", uploaded.file_url, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
+      // Uploaded: it is now the CURRENT certificate (link under the picker). Drop the picked-file
+      // chip and remount the picker, so there is no ✕ and the same file can be picked again.
+      setFile(null);
+      setPickerKey((k) => k + 1);
+      // A new certificate REPLACES the old one's data (owner, 2026-11-19): the MSME ID and the read
+      // data both come from it, so the previous ID goes now and is refilled by the read below; if
+      // the read fails, the user types the new ID. After a failed submit, re-check at once.
+      const validate = form.formState.isSubmitted;
+      form.setValue("msme_attachment", uploaded.file_url, { shouldDirty: true, shouldValidate: validate });
       form.setValue("autofill_all_entities_json", null, { shouldDirty: true });
+      form.setValue("msme_id", "", { shouldDirty: true, shouldValidate: validate });
 
       const res = await readCertificate({
         file_url: uploaded.file_url,
@@ -118,14 +127,6 @@ export const VendorMsmeFields = ({ vendorId }: VendorMsmeFieldsProps) => {
     } finally {
       setReading(false);
     }
-  };
-
-  const removeCertificate = () => {
-    setFile(null);
-    setLastRead(null);
-    setReadError(null);
-    form.setValue("msme_attachment", "", { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
-    form.setValue("autofill_all_entities_json", null, { shouldDirty: true });
   };
 
   // Set by `refineMsmePair` when an MSME ID has no certificate; the ID's own error shows under its field.
@@ -157,25 +158,30 @@ export const VendorMsmeFields = ({ vendorId }: VendorMsmeFieldsProps) => {
 
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">MSME (Udyam) Certificate</p>
-        {attachment && !file ? (
-          <div className="flex items-center gap-2 text-sm">
-            <FileText className="h-4 w-4 text-blue-600" aria-hidden="true" />
-            <a href={attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-              View certificate
+        {/* Same pattern as the PO invoice dialog's edit mode (owner, 2026-11-19): one picker that
+            REPLACES the current certificate, the current one linked under it. Never removed. */}
+        <CustomAttachment
+          key={pickerKey}
+          selectedFile={file}
+          onFileSelect={(f) => void onFileSelect(f)}
+          acceptedTypes={["application/pdf", "image/*"]}
+          label={attachment ? "Replace Current Attachment" : "Upload MSME Certificate"}
+          className="w-full"
+          disabled={reading}
+        />
+        {attachment && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground uppercase font-semibold">Current:</span>
+            <a
+              href={attachment}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-blue-600 hover:underline flex items-center gap-1"
+            >
+              <Eye className="h-3 w-3" aria-hidden="true" />
+              View Certificate
             </a>
-            <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={removeCertificate}>
-              <X className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> Remove
-            </Button>
           </div>
-        ) : (
-          <CustomAttachment
-            key={pickerKey}
-            selectedFile={file}
-            onFileSelect={(f) => void onFileSelect(f)}
-            acceptedTypes={["application/pdf", "image/*"]}
-            label="Upload MSME Certificate"
-            disabled={reading}
-          />
         )}
         {reading && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
