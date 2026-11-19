@@ -21,8 +21,8 @@ Usage:
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
-Stdlib only, plus node for J1 and L2 (frontend/scripts/json_calls.mjs and socket_listeners.mjs, with frontend/node_modules);
-run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 and L2 (frontend/scripts/json_calls.mjs and socket_listeners.mjs, with
+frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -1122,7 +1122,8 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1", "N1", "Q1", "L2"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1", "N1",
+             "Q1", "L2"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:

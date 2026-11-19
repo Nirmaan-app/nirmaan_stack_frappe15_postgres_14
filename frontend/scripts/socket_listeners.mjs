@@ -22,7 +22,9 @@ const isSocket = (node) =>
 
 const isListener = (callee) =>
   (ts.isIdentifier(callee) && callee.text === "useSocketEventListener") ||
-  (ts.isPropertyAccessExpression(callee) && ["on", "off"].includes(callee.name.text) && isSocket(unwrap(callee.expression)));
+  (ts.isPropertyAccessExpression(callee) &&
+    ["on", "off"].includes(callee.name.text) &&
+    isSocket(unwrap(callee.expression)));
 
 const namesTheConnection = (event) =>
   event !== undefined && ts.isStringLiteralLike(event) && CONNECTION_EVENTS.has(event.text);

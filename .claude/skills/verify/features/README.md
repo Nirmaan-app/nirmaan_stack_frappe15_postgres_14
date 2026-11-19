@@ -60,9 +60,10 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
 - [Background operations](./background-operations.md): TDS export, the handover binder, commission and bulk PDF
   download, BoQ upload and template seed, template clone, snag PDF, classify per engine, rate suggest and match,
   hub parse and AI checks, each followed through its owner-only status record: queued apart from running, each tab
-  its own file or outcome, by polling alone; one commission download and one binder per user (spec #1654,
-  #1662-#1669). Walked by `BIN/walk_background_operation_screens.py` (`--part
-  tds|handover|commission|bulk|boq|template|clone|snag|commission-second|binder-second|classify|suggest|hub|review`).
+  its own file or outcome, by polling alone; one commission download, one binder and one document download per
+  user, a queued binder never holding back a document (spec #1654, #1662-#1669, #1671). Walked by
+  `BIN/walk_background_operation_screens.py` (`--part tds|handover|commission|bulk|boq|template|clone|snag|
+  commission-second|binder-second|document-beside-binder|classify|suggest|hub|review`).
   With N `long` workers, N template clones, ceil(N/2) two-engine Classify clicks, N rate suggests on N sheets and N
   TDS exports at once all succeed, and the check prints peak memory per worker, peak DB connections and the longest
   BoQ series lock wait (#1656, #1657, #1659, #1662). The N-worker check, `BIN/walk_background_operations.py --workers N`.

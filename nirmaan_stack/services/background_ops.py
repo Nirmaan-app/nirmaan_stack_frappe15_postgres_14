@@ -69,9 +69,9 @@ def start(kind, method, *, op_id, timeout, queue="long", one_per_user=None, **kw
     returns (JSON) becomes the record's `result`. `timeout` is its time limit in seconds, counted from when it
     starts running.
 
-    The operation is queued once the caller's transaction commits (CODING_STANDARDS.md § Queuing a background operation):
-    the work must find the caller's writes. A whitelisted POST commits at the end of the request; a caller that
-    rolls back instead queues nothing, and the record reads as failed.
+    The operation is queued once the caller's transaction commits (CODING_STANDARDS.md § Queuing a background
+    operation): the work must find the caller's writes. A whitelisted POST commits at the end of the request; a caller
+    that rolls back instead queues nothing, and the record reads as failed.
 
     The same user starting the same id again gets the existing record back and nothing is queued again; an id
     another user already used is refused. Returns the record as its owner reads it.

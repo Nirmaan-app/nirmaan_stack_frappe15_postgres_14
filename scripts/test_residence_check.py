@@ -637,7 +637,8 @@ class RawEnqueues(unittest.TestCase):
         self.assertEqual(raw_enqueue_drift(found, self.frozen(nirmaan_stack__a=2, nirmaan_stack__b=1)), [
             "nirmaan_stack/a.py: 3 raw enqueues, 2 frozen "
             "(a new one: start a background operation with services/background_ops.start)",
-            "nirmaan_stack/b.py: 0 raw enqueues, 1 frozen (fewer: lower its count in scripts/raw-enqueue-suppressions.json)",
+            "nirmaan_stack/b.py: 0 raw enqueues, 1 frozen "
+            "(fewer: lower its count in scripts/raw-enqueue-suppressions.json)",
         ])
 
     def test_an_enqueue_in_a_file_with_none_frozen_fails(self):

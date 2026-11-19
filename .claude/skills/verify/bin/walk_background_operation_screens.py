@@ -31,6 +31,10 @@ Parts (each run as the role that uses the screen; pick an unlocked user with `fr
                finishes the first. A Project Manager on both projects, each with Submitted Field reports.
 - `binder-second`  A handover binder left queued, then a second one in a second browser tab: refused with a toast
                naming the first (#1663). Then a worker finishes the first. The `handover` part's user and project.
+- `document-beside-binder`  A handover binder left queued, then one document's Download in a second browser tab:
+               not refused, its own `hod_document` operation queues, and both end in their own files (#1671). The
+               `handover` part's user and project; `--document` (default commissioning_report) is set Done with its
+               first record selected first (`bgops_hod_document.py`, env DB only).
 
 - `classify`   A committed sheet's pricing page -> Classify sheet -> both engines: one boq_classify operation per
                engine, queued with no worker, then a summary naming both engines' outcome. One --sheet.
@@ -80,6 +84,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--task", required=True)
 ap.add_argument("--part", required=True, choices=["tds", "handover", "commission", "bulk", "boq", "template", "clone",
                                                   "snag", "commission-second", "binder-second",
+                                                  "document-beside-binder",
                                                   "classify", "suggest", "hub", "review"])
 ap.add_argument("--user", required=True)
 ap.add_argument("--password", required=True)
@@ -89,12 +94,16 @@ ap.add_argument("--project2", help="commission-second: the second project's id")
 ap.add_argument("--project2-name", help="commission-second: the second project's name")
 ap.add_argument("--other-user", help="snag: a different user, who must be refused the operation")
 ap.add_argument("--other-password")
-ap.add_argument("--hod-system", default="HVAC", help="binder-second: the system whose binder the card builds")
+ap.add_argument("--hod-system", default="HVAC",
+                help="binder-second, document-beside-binder: the system whose binder the card builds")
+ap.add_argument("--document", default="commissioning_report",
+                help="document-beside-binder: the from-app document whose row Download runs beside the binder")
 ap.add_argument("--sheet", action="append", default=[], metavar="BOQ TITLE::SHEET",
                 help="a BoQ of the project (its title, as its BOQs tab lists it) and one of its sheets, verbatim "
                      "(classify, hub, review: one; suggest: two, on two BoQs)")
 a = ap.parse_args()
 PROJECT_PARTS = ("tds", "handover", "commission", "bulk", "snag", "commission-second", "binder-second",
+                 "document-beside-binder",
                  "classify", "suggest", "hub", "review")
 if a.part in PROJECT_PARTS and not (a.project and a.project_name):
     ap.error(f"--part {a.part} needs --project and --project-name")
@@ -918,9 +927,51 @@ def part_binder_second(page, out):
                          "Wait for it to finish, then try again.", timeout_s=900)
 
 
+def part_document_beside_binder(page, out):
+    seeded = env_script("bgops_hod_document.py", a.project, a.hod_system, a.document, out=out)
+    open_project(page, "Handover Documents")
+    save(page, out, "01-handover-tab")
+
+    def binder(p):
+        p.get_by_role("button", name="Download binder").click()
+        p.get_by_role("dialog").get_by_role("button", name="Download binder").click()
+
+    starts_a, dls_a, dls_b = start_ops(page), [], []
+    collect_downloads(page, dls_a)
+    binder(page)
+    check(wait_until(lambda: page.get_by_text(QUEUED).count() > 0, 30, page=page),
+          "tab a: the binder shows queued while no worker runs")
+    save(page, out, "02-binder-queued")
+    page_b = page.context.new_page()
+    starts_b = start_ops(page_b)
+    collect_downloads(page_b, dls_b)
+    page_b.goto(page.url)  # the project page's Handover Documents tab
+    page_b.get_by_role("row", name=re.compile(re.escape(seeded["title"]))).get_by_role(
+        "button", name="Download").click()
+    refusal = page_b.get_by_text("is still being prepared")
+    page_b.wait_for_timeout(8000)
+    check(refusal.count() == 0, f"tab b: the {seeded['title']} download is not refused while the binder is queued")
+    save(page_b, out, "03-document-started")
+    check(bool(starts_b), "tab b: the document's start carried an operation id")
+    if starts_b:
+        queued = records([starts_b[-1]], out)[starts_b[-1]]
+        check_record("tab-b while the binder waits", queued, "hod_document", state="queued")
+    with long_workers(a.task, 2):
+        wait_until(lambda: dls_a and dls_b, 900, page=page)
+    save(page, out, "04-binder-done")
+    save(page_b, out, "04-document-done")
+    check(bool(starts_a), "tab a: the binder's start carried an operation id")
+    if not (starts_a and starts_b):
+        return
+    found = records([starts_a[-1], starts_b[-1]], out)
+    check_file("binder", found[starts_a[-1]], dls_a[0] if dls_a else None, out, "hod_binder")
+    check_file("document", found[starts_b[-1]], dls_b[0] if dls_b else None, out, "hod_document")
+
+
 PARTS = {"tds": part_tds, "handover": part_handover, "commission": part_commission, "bulk": part_bulk,
          "boq": part_boq, "template": part_template, "clone": part_clone, "snag": part_snag,
          "commission-second": part_commission_second, "binder-second": part_binder_second,
+         "document-beside-binder": part_document_beside_binder,
          "classify": part_classify, "suggest": part_suggest, "hub": part_hub, "review": part_review}
 
 with session(a.task, a.user, a.password) as (page, out):

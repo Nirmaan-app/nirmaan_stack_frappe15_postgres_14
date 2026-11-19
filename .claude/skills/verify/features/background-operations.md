@@ -38,6 +38,10 @@ The screens (`walk_background_operation_screens.py --part <name>`):
 - `binder-second` the same for the handover binder: a second tab's `Download binder` shows "Your handover binder
   for <project> (<system>) is still being prepared. ..." while the first waits; then the first ends in its file
   (#1663).
+- `document-beside-binder` a handover binder left queued, then a second tab's row `Download` of one from-app document
+  (`--document`, default `commissioning_report`, which `BIN/bgops_hod_document.py` first sets Done with its first
+  record selected, env DB only): no refusal toast, its own `hod_document` record reads queued, and once two workers
+  run each tab ends in its own file (#1671).
 - `classify` a committed sheet's pricing page -> `Classify sheet` -> Electrical and HVAC -> `Classify 2 engines`: one
   `boq_classify` operation per engine, the modal "Waiting in the queue" with no worker, then a summary that names both
   engines (#1666).
@@ -142,11 +146,12 @@ The screens, as their roles:
   batches (on the 2026-11-17 backup few free PMs qualify; query `User Permission` x `Project Commission Report` x
   `Project Snag`). `clone` needs the env's active master BoQ Template (see Gotchas).
 - **Whole walk, one part at a time.** `python3 BIN/walk_background_operation_screens.py --task <task> --part
-  tds|handover|commission|bulk|boq|template|clone|snag|commission-second|binder-second|classify|suggest|hub|review
+  tds|handover|commission|bulk|boq|template|clone|snag|commission-second|binder-second|document-beside-binder|
+  classify|suggest|hub|review
   --user <email> --password <pw> [--project <id> --project-name <name>] [--sheet '<BoQ title>::<sheet name>' ...]`
   (every part but `boq`, `template` and `clone` needs both project flags; `commission-second` also `--project2 <id>
   --project2-name <name>`, a second project of the same Project Manager with Submitted Field reports; `snag` also
-  `--other-user <email> --other-password <pw>`; `binder-second` takes `--hod-system`, default HVAC; `classify`,
+  `--other-user <email> --other-password <pw>`; `binder-second` and `document-beside-binder` take `--hod-system`, default HVAC, and the latter `--document`; `classify`,
   `hub` and `review` one `--sheet`, `suggest` two, on two BoQs of the project, each sheet verbatim). It starts its
   operations with no worker running, saves the screen showing them queued, then starts the worker(s) it needs
   through `BIN/bgops_workers.py`. It prints one `ok`/`MISS` line per check, a `NOT WALKED <what>: <why>` line for a
