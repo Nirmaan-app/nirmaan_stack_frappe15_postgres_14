@@ -10,9 +10,10 @@ import {
     isMonth,
     joinMonth,
     lastMonth,
+    monthFigures,
     splitMonth,
     monthTitle,
-    monthVerb,
+    monthHeading,
     resolveMonth,
     shiftMonth,
     shortMonth,
@@ -52,6 +53,26 @@ describe("claimMonth", () => {
         expect(defaultMonth(TAB_ALL, NOV_19)).toBe(ALL_MONTHS);
     });
 
+    it("lists every step on All in order, with colours, leaving out steps with nothing", () => {
+        const figures = monthFigures(TAB_ALL, [
+            { group_key: "Rejected", aggregate_value: 7600 },
+            { group_key: "Paid", aggregate_value: "108760" },
+            { group_key: "Reconciliation Pending", aggregate_value: 900 },
+            { group_key: "Pending Approval", aggregate_value: 21300 },
+            { group_key: "Requested", aggregate_value: 0 },
+        ]);
+        expect(figures.map((f) => [f.key, f.value])).toEqual([
+            ["Pending Approval", 21300], ["Reconciliation Pending", 900], ["Paid", 108760], ["Rejected", 7600],
+        ]);
+        expect(figures.every((f) => !!f.color)).toBe(true);
+    });
+
+    it("always shows Travel, Food and Others elsewhere, in that order", () => {
+        expect(monthFigures(TAB_APPROVED, [{ group_key: "Others", aggregate_value: 12400 }, { group_key: "Travel", aggregate_value: 4150 }])
+            .map((f) => [f.key, f.value])).toEqual([["Travel", 4150], ["Food", 0], ["Others", 12400]]);
+        expect(monthFigures(TAB_PAID, null).map((f) => f.value)).toEqual([0, 0, 0]);
+    });
+
     it("gives the quick picks' short month name", () => {
         expect(shortMonth("2026-11")).toBe("Nov");
         expect(shortMonth("2026-01")).toBe("Jan");
@@ -69,20 +90,21 @@ describe("claimMonth", () => {
         expect(monthTitle("2026-11")).toBe("November 2026");
     });
 
-    it("is for Payment need to be paid, Paid and All, and only for those who see every claim", () => {
+    it("is on every tab; Raised By Me for everyone, the rest for those who see every claim", () => {
         for (const role of [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE]) {
-            expect(filtersByMonth(TAB_PAID, { role })).toBe(true);
-            expect(filtersByMonth(TAB_ALL, { role })).toBe(true);
-            expect(filtersByMonth(TAB_APPROVED, { role })).toBe(true);
-            expect(filtersByMonth(TAB_PENDING, { role })).toBe(false);
+            for (const tab of [TAB_PENDING, TAB_APPROVED, TAB_PAID, TAB_ALL, TAB_MINE] as const) {
+                expect(filtersByMonth(tab, { role })).toBe(true);
+            }
         }
-        expect(filtersByMonth(TAB_MINE, { role: "Nirmaan Project Manager Profile" })).toBe(false);
+        expect(filtersByMonth(TAB_MINE, { role: "Nirmaan Project Manager Profile" })).toBe(true);
         expect(filtersByMonth(TAB_ALL, { role: "Nirmaan Project Manager Profile" })).toBe(false);
     });
 
     it("says what the month counts", () => {
-        expect(monthVerb(TAB_PAID)).toBe("Paid");
-        expect(monthVerb(TAB_ALL)).toBe("Raised");
-        expect(monthVerb(TAB_APPROVED)).toBe("To be paid, raised");
+        expect(monthHeading(TAB_APPROVED, "2026-11")).toEqual({ name: "Approved", when: "raised in November 2026" });
+        expect(monthHeading(TAB_PAID, "2026-11")).toEqual({ name: "Paid", when: "paid in November 2026" });
+        expect(monthHeading(TAB_PENDING, "2026-11")).toEqual({ name: "Pending Approval", when: "raised in November 2026" });
+        expect(monthHeading(TAB_ALL, ALL_MONTHS)).toEqual({ name: "All", when: "all months" });
+        expect(monthHeading(TAB_MINE, ALL_MONTHS)).toEqual({ name: "Mine", when: "all months" });
     });
 });

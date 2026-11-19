@@ -92,15 +92,15 @@ const FACET_COLUMNS = ["claimant_name", "reimbursement_type", "status", "approve
 
 /** The filters that scope a tab's facet counts to (roughly) the claims the tab lists. */
 function facetScope(tab: ReimbursementTab, userId: string, month: string | undefined): unknown[] {
-    if (tab === TAB_MINE) return [["owner", "=", userId]];
-    if (tab === TAB_PENDING) return [["status", "=", PENDING]];
+    // Paid narrows by the paid-on month, which the claim doesn't hold: its counts cover every Paid claim.
     if (tab === TAB_PAID) return [["status", "=", PAID]];
     const raisedIn = month && month !== ALL_MONTHS
         ? [["creation", ">=", `${month}-01`], ["creation", "<", `${shiftMonth(month, 1)}-01`]]
         : [];
+    if (tab === TAB_MINE) return [["owner", "=", userId], ...raisedIn];
+    if (tab === TAB_PENDING) return [["status", "=", PENDING], ...raisedIn];
     if (tab === TAB_ALL) return raisedIn;
-    if (tab === TAB_APPROVED) return [["status", "=", APPROVED], ...raisedIn];
-    return [["status", "=", APPROVED]];
+    return [["status", "=", APPROVED], ...raisedIn];
 }
 
 /** The month's totals: the sum and count of every matching claim, and a breakdown (by status on All, by type elsewhere). */
@@ -131,7 +131,7 @@ export function ClaimsTable({
     const aggregatesConfig = useMemo(() => (byMonth ? MONTH_AGGREGATES : undefined), [byMonth]);
     const groupByConfig = useMemo(
         () => (byMonth
-            ? { groupByField: tab === TAB_ALL ? "status" : "reimbursement_type", aggregateField: "amount", aggregateFunction: "sum" as const, limit: 10 }
+            ? { groupByField: tab === TAB_ALL || tab === TAB_MINE ? "status" : "reimbursement_type", aggregateField: "amount", aggregateFunction: "sum" as const, limit: 10 }
             : undefined),
         [byMonth, tab],
     );
