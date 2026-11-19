@@ -13,6 +13,7 @@ import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FrappeContext } from "@/lib/frappe";
+import { sdkRejection } from "@/utils/__fixtures__/sdkRejection";
 import { collectResultFile, READ_NOW_EVENT, useBackgroundOperation, type BackgroundOperation } from "./useBackgroundOperation";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -206,11 +207,6 @@ describe("useBackgroundOperation: the server's words when it refuses a start or 
   const JSON_METHOD = "nirmaan_stack.api.tds.tds_report.start_tds_export";
   const START_FALLBACK = "The server could not start this.";
   const refusal = (message: string) => JSON.stringify([JSON.stringify({ message, title: "Not permitted" })]);
-  // What frappe-js-sdk rejects with: the reply's body, plus its own `message` and `exception` defaults.
-  const sdkRejection = (body: Record<string, unknown>) => ({
-    ...body, httpStatus: 417, httpStatusText: "Expectation Failed",
-    message: "There was an error.", exception: typeof body.exception === "string" ? body.exception : "",
-  });
 
   let container: HTMLDivElement;
   let root: Root;

@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { sdkRejection } from "./__fixtures__/sdkRejection";
 import { serverRefusalText } from "./frappeErrorText";
-
-// What frappe-js-sdk rejects with when a whitelisted call fails: the reply's body spread, then its own `message`
-// ("There was an error." when the body has none) and `exception` ("" when the body has none).
-const sdkRejection = (body: Record<string, unknown>) => ({
-  ...body,
-  httpStatus: 417,
-  httpStatusText: "Expectation Failed",
-  message: typeof body.message === "string" ? body.message : "There was an error.",
-  exception: typeof body.exception === "string" ? body.exception : "",
-});
 
 describe("serverRefusalText on what frappe-js-sdk rejects with", () => {
   it("reads the server's refusal through the SDK's added fields", () => {
