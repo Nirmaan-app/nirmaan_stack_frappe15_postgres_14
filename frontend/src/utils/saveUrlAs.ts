@@ -7,3 +7,10 @@ export function saveUrlAs(url: string, filename: string): void {
   link.click();
   link.remove();
 }
+
+/** Have the browser save `blob` as `filename`, then free the blob URL made for it. */
+export function saveBlobAs(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  saveUrlAs(url, filename);
+  window.URL.revokeObjectURL(url);
+}

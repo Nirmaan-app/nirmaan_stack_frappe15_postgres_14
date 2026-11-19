@@ -1,6 +1,6 @@
 import { collectResultFile } from "@/hooks/useBackgroundOperation";
 import { readTdsExport } from "@/utils/tdsExport";
-import { saveUrlAs } from "@/utils/saveUrlAs";
+import { saveBlobAs } from "@/utils/saveUrlAs";
 
 /** A generated PDF held in memory for the in-app preview, never saved. Its holder revokes `blobUrl` on close. */
 export interface TdsPdfPreview {
@@ -21,9 +21,9 @@ export async function deliverTdsExport(
 ): Promise<{ preview: TdsPdfPreview | null; failedItems: string[] }> {
   const { previewOnly, filename, failedItems } = readTdsExport(result, context);
   const blob = await collectResultFile(opId);
-  const blobUrl = window.URL.createObjectURL(blob);
-  if (previewOnly) return { preview: { blobUrl, filename, sizeBytes: blob.size }, failedItems };
-  saveUrlAs(blobUrl, filename);
-  window.URL.revokeObjectURL(blobUrl);
+  if (previewOnly) {
+    return { preview: { blobUrl: window.URL.createObjectURL(blob), filename, sizeBytes: blob.size }, failedItems };
+  }
+  saveBlobAs(blob, filename);
   return { preview: null, failedItems };
 }

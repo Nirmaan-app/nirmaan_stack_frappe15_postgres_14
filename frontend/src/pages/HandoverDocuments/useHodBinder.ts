@@ -17,7 +17,7 @@ import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackground
 import type { OpView } from "@/utils/backgroundOps/operationFollower";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { binderBuildOf, type HodBuilds, type HodJob } from "@/utils/hodBinderBuild";
-import { saveUrlAs } from "@/utils/saveUrlAs";
+import { saveBlobAs } from "@/utils/saveUrlAs";
 
 import { HOD_METHODS } from "./hodApi";
 
@@ -30,10 +30,7 @@ const failedParts = (result: unknown): string[] =>
 
 async function savePdf(result: unknown, _context: unknown, opId: string) {
   try {
-    const blob = await collectResultFile(opId);
-    const blobUrl = window.URL.createObjectURL(blob);
-    saveUrlAs(blobUrl, parseResultFile(result)?.filename ?? "Handover.pdf");
-    window.URL.revokeObjectURL(blobUrl);
+    saveBlobAs(await collectResultFile(opId), parseResultFile(result)?.filename ?? "Handover.pdf");
   } catch (error) {
     toast({
       title: "Download failed",

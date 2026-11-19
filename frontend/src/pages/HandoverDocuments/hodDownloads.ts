@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { saveUrlAs } from "@/utils/saveUrlAs";
+import { saveBlobAs } from "@/utils/saveUrlAs";
 
 import { HOD_PRINT_CHECKLIST } from "./hodApi";
 
@@ -92,9 +92,7 @@ export function usePdfDownload() {
       try {
         const response = await fetch(url);
         await assertPdfResponse(response);
-        const blobUrl = window.URL.createObjectURL(await response.blob());
-        saveUrlAs(blobUrl, filename);
-        window.URL.revokeObjectURL(blobUrl);
+        saveBlobAs(await response.blob(), filename);
       } catch (error) {
         toast({
           title: "Download failed",

@@ -14,7 +14,7 @@ import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackground
 import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { isRecord, parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { type BulkRunContext, type DownloadRun, followRun, isWorking, parseRunContext } from "@/utils/bulkDownload/bulkDownloadRun";
-import { saveUrlAs } from "@/utils/saveUrlAs";
+import { saveBlobAs } from "@/utils/saveUrlAs";
 
 const CANCEL_METHOD = "nirmaan_stack.api.pdf_helper.bulk_download.cancel_bulk_download";
 
@@ -48,9 +48,7 @@ export function useBulkDownloadOperation({ storageKey, onSaved }: BulkDownloadOp
         storageKey,
         onFinished: async (result, context, opId) => {
             try {
-                const blobUrl = window.URL.createObjectURL(await collectResultFile(opId));
-                saveUrlAs(blobUrl, parseResultFile(result)?.filename ?? "Download.pdf");
-                window.URL.revokeObjectURL(blobUrl);
+                saveBlobAs(await collectResultFile(opId), parseResultFile(result)?.filename ?? "Download.pdf");
             } catch (error) {
                 toast({
                     title: "Download failed",

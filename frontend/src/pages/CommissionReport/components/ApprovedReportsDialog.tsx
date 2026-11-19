@@ -19,7 +19,7 @@ import { toast } from '@/components/ui/use-toast';
 import { collectResultFile, useBackgroundOperation } from '@/hooks/useBackgroundOperation';
 import { parseResultFile } from '@/utils/backgroundOps/operationFollower';
 import { commissionExportOf, commissionExportOutcome } from '@/utils/commissionBulkExport';
-import { saveUrlAs } from '@/utils/saveUrlAs';
+import { saveBlobAs } from '@/utils/saveUrlAs';
 
 import type { CommissionReportTask } from '../types';
 import { masterMapKey, type MasterTaskInfo } from './FillReportButton';
@@ -46,9 +46,7 @@ export const ApprovedReportsDialog: React.FC<Props> = ({
         storageKey: `commission_bulk:${trackerId}`,
         onFinished: async (result, _context, opId) => {
             try {
-                const blobUrl = window.URL.createObjectURL(await collectResultFile(opId));
-                saveUrlAs(blobUrl, parseResultFile(result)?.filename ?? 'Commission_Reports.pdf');
-                window.URL.revokeObjectURL(blobUrl);
+                saveBlobAs(await collectResultFile(opId), parseResultFile(result)?.filename ?? 'Commission_Reports.pdf');
             } catch (e) {
                 toast({ title: 'Failed', description: e instanceof Error ? e.message : 'Could not download the PDF.', variant: 'destructive' });
                 op.reset();
