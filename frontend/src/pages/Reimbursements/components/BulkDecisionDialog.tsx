@@ -25,7 +25,7 @@ import type { RaiserLevel } from "@/utils/approvalTiers";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { landingTab, withBatchTotals, type ApprovalStage } from "@/utils/reimbursements/monthLimit";
-import { TAB_CEO, TAB_LABELS, TAB_PENDING, type ReimbursementTab } from "@/utils/reimbursements/rules";
+import { TAB_LABELS, TAB_PENDING, type ReimbursementTab } from "@/utils/reimbursements/rules";
 
 import type { Decision } from "./DecisionDialog";
 import { useClaimDecisions, type DecisionOutcome } from "../hooks/useClaimDecisions";
@@ -47,7 +47,8 @@ export function BulkDecisionDialog({ open, decision, stage, rows, claimantName, 
     const { approve, reject, busy } = useClaimDecisions();
 
     const approving = open && decision === "approve";
-    const showsMonth = approving && stage !== TAB_CEO;
+    // Every approval tab, the CEO's included (owner, 2026-11-19).
+    const showsMonth = approving;
     const month = useMonthTotals(showsMonth ? { claims: rows.map((r) => r.name) } : null);
     const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     // On Pending Approval a person's later claim counts the earlier ones approved just before it (the server decides
