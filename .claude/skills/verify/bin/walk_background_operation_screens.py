@@ -31,7 +31,7 @@ Parts (each run as the role that uses the screen; pick an unlocked user with `fr
                finishes the first. A Project Manager on both projects, each with Submitted Field reports.
 - `binder-second`  A handover binder left queued, then a second one in a second browser tab: refused with a toast
                naming the first (#1663). Then a worker finishes the first. The `handover` part's user and project.
-- `document-beside-binder`  A handover binder left queued, then one document's Download in a second browser tab:
+- `document-beside-binder`  A handover binder left queued, then one document's row Download in the same tab: open,
                not refused, its own `hod_document` operation queues, and both end in their own files (#1671). The
                `handover` part's user and project; `--document` (default commissioning_report) is set Done with its
                first record selected first (`bgops_hod_document.py`, env DB only).
@@ -931,41 +931,44 @@ def part_document_beside_binder(page, out):
     seeded = env_script("bgops_hod_document.py", a.project, a.hod_system, a.document, out=out)
     open_project(page, "Handover Documents")
     save(page, out, "01-handover-tab")
-
-    def binder(p):
-        p.get_by_role("button", name="Download binder").click()
-        p.get_by_role("dialog").get_by_role("button", name="Download binder").click()
-
-    starts_a, dls_a, dls_b = start_ops(page), [], []
-    collect_downloads(page, dls_a)
-    binder(page)
+    starts, dls = start_ops(page), []
+    collect_downloads(page, dls)
+    page.get_by_role("button", name="Download binder").click()
+    page.get_by_role("dialog").get_by_role("button", name="Download binder").click()
     check(wait_until(lambda: page.get_by_text(QUEUED).count() > 0, 30, page=page),
-          "tab a: the binder shows queued while no worker runs")
+          "the binder shows queued while no worker runs")
+    check(page.get_by_text("is still being prepared").count() == 0,
+          "the binder is not refused (no earlier binder of this user still waits)")
     save(page, out, "02-binder-queued")
-    page_b = page.context.new_page()
-    starts_b = start_ops(page_b)
-    collect_downloads(page_b, dls_b)
-    page_b.goto(page.url)  # the project page's Handover Documents tab
-    page_b.get_by_role("row", name=re.compile(re.escape(seeded["title"]))).get_by_role(
-        "button", name="Download").click()
-    refusal = page_b.get_by_text("is still being prepared")
-    page_b.wait_for_timeout(8000)
-    check(refusal.count() == 0, f"tab b: the {seeded['title']} download is not refused while the binder is queued")
-    save(page_b, out, "03-document-started")
-    check(bool(starts_b), "tab b: the document's start carried an operation id")
-    if starts_b:
-        queued = records([starts_b[-1]], out)[starts_b[-1]]
-        check_record("tab-b while the binder waits", queued, "hod_document", state="queued")
-    with long_workers(a.task, 2):
-        wait_until(lambda: dls_a and dls_b, 900, page=page)
-    save(page, out, "04-binder-done")
-    save(page_b, out, "04-document-done")
-    check(bool(starts_a), "tab a: the binder's start carried an operation id")
-    if not (starts_a and starts_b):
+    page.keyboard.press("Escape")
+    download = page.get_by_role("row", name=re.compile(re.escape(seeded["title"]))).get_by_role(
+        "button", name="Download")
+    check(download.is_enabled(), f"the {seeded['title']} row's Download is open while the binder waits")
+    download.click()
+    page.wait_for_timeout(8000)
+    check(page.get_by_text("is still being prepared").count() == 0,
+          f"the {seeded['title']} download is not refused while the binder waits")
+    save(page, out, "03-document-started")
+    check(len(starts) == 2, f"the tab started two operations, the binder and the document ({len(starts)} started)")
+    if len(starts) < 2:
         return
-    found = records([starts_a[-1], starts_b[-1]], out)
-    check_file("binder", found[starts_a[-1]], dls_a[0] if dls_a else None, out, "hod_binder")
-    check_file("document", found[starts_b[-1]], dls_b[0] if dls_b else None, out, "hod_document")
+    binder_op, document_op = starts[0], starts[-1]
+    check_record("the document while the binder waits", records([document_op], out)[document_op], "hod_document",
+                 state="queued")
+    with long_workers(a.task, 2):
+        wait_until(lambda: len(dls) >= 2, 900, page=page)
+    save(page, out, "04-both-done")
+    found = records([binder_op, document_op], out)
+    by_size = {((found[op].get("result") or {}).get("file") or {}).get("size_bytes"): op for op in found if found[op]}
+    saved = {}
+    for d in dls:
+        path = out / d.suggested_filename
+        d.save_as(path)
+        saved[path.stat().st_size] = path
+    for name, op, kind in (("binder", binder_op, "hod_binder"), ("document", document_op, "hod_document")):
+        check_record(name, found[op], kind)
+        size = ((found[op] or {}).get("result") or {}).get("file", {}).get("size_bytes")
+        check(size in saved and by_size.get(size) == op, f"{name}: a downloaded file is its own operation's ({size} bytes)")
 
 
 PARTS = {"tds": part_tds, "handover": part_handover, "commission": part_commission, "bulk": part_bulk,

@@ -38,10 +38,10 @@ The screens (`walk_background_operation_screens.py --part <name>`):
 - `binder-second` the same for the handover binder: a second tab's `Download binder` shows "Your handover binder
   for <project> (<system>) is still being prepared. ..." while the first waits; then the first ends in its file
   (#1663).
-- `document-beside-binder` a handover binder left queued, then a second tab's row `Download` of one from-app document
-  (`--document`, default `commissioning_report`, which `BIN/bgops_hod_document.py` first sets Done with its first
-  record selected, env DB only): no refusal toast, its own `hod_document` record reads queued, and once two workers
-  run each tab ends in its own file (#1671).
+- `document-beside-binder` a handover binder left queued (its dialog closed), then the same tab's row `Download` of
+  one from-app document (`--document`, default `commissioning_report`, which `BIN/bgops_hod_document.py` first sets
+  Done with its first record selected, env DB only): the button is open, no refusal toast, its own `hod_document`
+  record reads queued, and once two workers run each operation ends in its own file (#1671).
 - `classify` a committed sheet's pricing page -> `Classify sheet` -> Electrical and HVAC -> `Classify 2 engines`: one
   `boq_classify` operation per engine, the modal "Waiting in the queue" with no worker, then a summary that names both
   engines (#1666).

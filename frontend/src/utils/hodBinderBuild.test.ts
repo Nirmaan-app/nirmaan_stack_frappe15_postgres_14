@@ -8,7 +8,7 @@ import {
   type OpView,
 } from "@/utils/backgroundOps/operationFollower";
 
-import { binderBuildOf } from "./hodBinderBuild";
+import { binderBuildOf, binderStartBlocked, documentStartBlocked } from "./hodBinderBuild";
 
 const OP = "aaaaaaaa-0000-4000-8000-000000000001";
 const JOB = { hodSystem: "Made-up System", document: null, title: "Made-up System — Made-up Project" };
@@ -75,5 +75,27 @@ describe("a binder build waiting in the queue", () => {
     expect(views.at(-1)?.phase).toBe("running");
     await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_DOWN + 1);
     expect(views.at(-1)?.phase).toBe("lost");
+  });
+});
+
+describe("what a system's card may start while this tab follows its builds (#1671)", () => {
+  const BINDER = { hodSystem: "HVAC", document: null, title: "HVAC — Made-up Project" };
+  const KEY_LIST = { hodSystem: "HVAC", document: "key_list", title: "Key List" };
+
+  it("never holds a document's download back behind a binder, waiting or building", () => {
+    expect(documentStartBlocked({ binder: BINDER, document: null }, "HVAC", "commissioning_report")).toBe(false);
+  });
+
+  it("holds back another document's download while one is being prepared, but not that row's own", () => {
+    const builds = { binder: null, document: KEY_LIST };
+    expect(documentStartBlocked(builds, "HVAC", "commissioning_report")).toBe(true);
+    expect(documentStartBlocked(builds, "Electrical", "key_list")).toBe(true);
+    expect(documentStartBlocked(builds, "HVAC", "key_list")).toBe(false);
+  });
+
+  it("holds back another system's binder, never the one building here, and never behind a document", () => {
+    expect(binderStartBlocked({ binder: BINDER, document: null }, "Electrical")).toBe(true);
+    expect(binderStartBlocked({ binder: BINDER, document: null }, "HVAC")).toBe(false);
+    expect(binderStartBlocked({ binder: null, document: KEY_LIST }, "HVAC")).toBe(false);
   });
 });

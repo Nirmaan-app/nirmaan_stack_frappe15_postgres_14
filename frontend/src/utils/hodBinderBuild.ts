@@ -58,3 +58,21 @@ export function binderBuildOf(
       return null;
   }
 }
+
+/** The builds this tab follows: the binder and one document's content each have their own operation (and their own
+ *  one-at-a-time slot on the server), so a binder waiting in the queue never holds back a document's download. */
+export interface HodBuilds {
+  binder: HodJob | null;
+  document: HodJob | null;
+}
+
+/** Is `system`'s Download binder held back? Only by another system's binder; this system's own reopens its dialog. */
+export function binderStartBlocked(builds: HodBuilds, system: string): boolean {
+  return builds.binder !== null && builds.binder.hodSystem !== system;
+}
+
+/** Is the Download of `system`'s `document` held back? Only by another document's download; its own row spins. */
+export function documentStartBlocked(builds: HodBuilds, system: string, document: string): boolean {
+  const building = builds.document;
+  return building !== null && !(building.hodSystem === system && building.document === document);
+}
