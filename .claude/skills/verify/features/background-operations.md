@@ -241,8 +241,8 @@ The N-worker check, one command:
 - A kill -9 skips the clean-up. Killed during any other flow, it leaves the BoQ AI setting off. Killed during
   `match`, it leaves the AI and the match switch on, the site-wide limit at K, the dummy key stored with the real
   one parked, and the earlier-BoQ pool file in place. Any AI call then fails at the provider, refused for the key.
-  The next `match` run puts the parked key back when it ends; `devenv.sh reset <task>` puts back the key, the
-  settings and the pool file all at once.
+  The next `match` run puts the parked key back when it ends; `devenv.sh reset <task>` puts back the key and the
+  settings (it re-clones the DB). Neither parks the pool file again: rename it to `<pool>.nworker-check` by hand.
 - A match asks nothing without the earlier-BoQ pool file (`private/boq_rate_match/match_pool_v1.pkl`, built by the
   06:00 cron job), so the suggest flow's matches end complete with no call on a dev env. The `match` flow brings in a
   parked pool (`<pool>.nworker-check`), else builds one (about 2.5 min on the 2026-10-28 data), and parks it again
