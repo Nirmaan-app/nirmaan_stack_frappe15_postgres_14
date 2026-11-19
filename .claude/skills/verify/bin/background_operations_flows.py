@@ -175,7 +175,7 @@ def clone_run(ctx, run, timeout):
 
     def read(op_id):
         status = background_ops.get_status(op_id=op_id)
-        if status["state"] not in TDS_ENDED:
+        if status["state"] not in ENDED:
             return None
         boq = started[op_id]
         result = status.get("result") or {}
