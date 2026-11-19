@@ -4,6 +4,30 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-19: Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
+
+**Summary** (branch `feat/vendor-wo-pdf`, 5 commits `0d5dc3f8e`..`c13dda255`, unpushed): five owner asks on one
+branch. **Owner owes `bench migrate`** on every other site: the print formats "Vendor Work Orders" (new), "PO Orders"
+and "PO Orders Without Rate" (fixture, `modified` 2026-11-19 18:00), and three new Vendors fields (`vendors.json`
+`modified` 2026-11-19 23:00). No patch: the MSME fields start empty. Test record: artifact "Vendor WO Branch
+Walkthrough".
+
+| Commit | Change |
+|---|---|
+| `0d5dc3f8e` | Print format "Vendor Work Orders" (doctype Vendors): the Vendor page's Work Orders tab prints All / Approved / Finalized (`wo_view`), without Vendor / Categories / Status / Remarks, with a total row (`domain/service-requests.md`) |
+| `d1412bcd2` | Project and Vendor link icons in the three WO lists (frontend only) |
+| `f2c31c5c6` | MTC: Project Manager / Project Lead upload on their assigned projects, edit only their own, never delete. `role_profiles.MTC_UPLOAD_PROFILES`, `can_upload_mtc`, `can_edit_mtc`; controller checks the stored owner and the project; new `mtc_api.create_mtc`; managers keep Frappe's write check in `update_mtc`. 52 MTC tests (`domain/material-test-certificates.md`) |
+| `e96d53014` | "Revised PO Date" = latest Approved PO Revision `approval_date` in the PO preview and both PO print formats; else "PO Date" (`frontend/.claude/context/domain/po-revisions.md`) |
+| `c13dda255` | Vendors `msme_id`, `msme_attachment`, `autofill_all_entities_json` (Long Text); `services/vendor_msme.py` (Udyam rules); extraction `doc_kind="msme_certificate"`; `api/vendor/msme_autofill.py` (`extract_msme_fields`, `msme_duplicates`); `Vendors._validate_msme` (Udyam format; ID and certificate both or neither, only when either changes) and `_attach_msme_file`; `create_vendor_and_address` passes the fields; `test_msme_autofill.py` (`domain/invoice-autofill.md`, `doctypes.md`) |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+**Verification:** WO PDF 20 render cases equal to direct queries; Revised PO Date 5 POs × 2 formats; MTC 52 tests on a
+restored copy; browser walks on a backup copy (32 checks) and on localhost (MSME A–G). Not yet run: the real Gemini
+read (no API key on localhost or the copies) and `test_msme_autofill` on a migrated site.
+
+---
+
 ## 2026-11-12: Rejection reason on Project Payments; the 30-day rule
 
 **Summary** (branch `feat/payment-reject-reason`, uncommitted): every reject of a PO / WO payment saves its reason

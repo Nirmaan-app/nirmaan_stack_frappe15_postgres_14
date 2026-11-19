@@ -178,6 +178,17 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (status *Created*) and the *Edit* filter were removed after the 2026-10-08 data copy held no WO in either
   (the last move out of *Created* was 2026-02-03; into *Edit*, 2025-02-24). *Pending WO* lists Rejected and
   Vendor Selected.
+- **The Vendor page's Work Orders PDF is one print format for three tabs (owner, 2026-11-19).** "Vendor Work
+  Orders" (doctype Vendors, `fixtures/print_format.json`; reference copy
+  `frontend/src/pages/vendors/print/vendor-work-orders-printformat.html`) prints the All / Approved / Finalized
+  sub-tab picked by the `wo_view` parameter, with the screen's filters, sort and search passed through
+  (`ServiceRequests/hooks/useVendorWorkOrdersPdf.ts`). It mirrors "Vendor Material Orders". The PDF leaves out
+  Vendor, Categories, Status and Remarks and ends in a total row; its figures must stay the list's figures, so a
+  change to a list column's meaning changes the format too. The button shows only when the lists run with
+  `for_vendor` (the Vendor page), never on the Work Orders page itself.
+- **WO list Project / Vendor cells are links (2026-11-19).** All three WO lists render them with the shared
+  `components/helpers/NameWithLinkIcon.tsx` (the PO Invoices style): Project → `/projects/<id>?page=overview`,
+  Vendor → `/vendors/<id>`, the Vendor link left out under `for_vendor`.
 
 ## Doctype: Service Requests
 
