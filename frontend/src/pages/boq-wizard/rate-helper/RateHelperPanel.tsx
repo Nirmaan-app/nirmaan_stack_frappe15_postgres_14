@@ -1686,7 +1686,7 @@ function ItemListBlocks({
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : b.helperAdded ? "added by the helper" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -2161,6 +2161,8 @@ function ItemListBlocks({
       {/* VP-1 (N5, owner VR1; mockup boards 12a / 12b): the sheet-heading note -- an amber box after the items, on every state of
           the row (with or without an item); display only */}
       {!section && (view.sheetHeadingNotes ?? []).map((n) => <UnitNoteBox key={n} note={n} testId="item-sheet-heading-note" />)}
+      {/* VAV-2a (B9, owner 2026-11-19 12:49 / 12:59): the combination-row warning -- the same amber box, panel and calculator alike */}
+      {!section && view.combinationWarning && <UnitNoteBox note={view.combinationWarning} testId="item-combination-warning" />}
       {!section && (picker?.mode === "add" ? (
         familyPicker(view.sections ? view.sections.addLabel : "Add an item")
       ) : picker?.mode === "add_section" ? (

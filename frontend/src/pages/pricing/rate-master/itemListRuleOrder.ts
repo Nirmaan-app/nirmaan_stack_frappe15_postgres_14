@@ -1284,10 +1284,92 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            `a quantity typed in the section is kept`,
            `a section that belongs to no ${ownWord} keeps its own, 1 unless typed`].join("; "));
     }
+    // VAV-2a (B7, owner 2026-11-18 22:35 "two if two" / 22:38 "on either side"): the section's quantity read from the row
+    if (typeof sec.qty_attr === "string" && sec.qty_attr) {
+      add(`The ${low} section's quantity per ${ownWord} is the count the row names`,
+          [`read as '${labels[String(sec.qty_attr)] ?? String(sec.qty_attr)}' on the ${low}'s own item ("two thermostats" = 2, "on either side" = 2)`,
+           `nothing named -> 1, shown as assumed`,
+           `a quantity the pricer types wins`].join("; "));
+    }
   }
   if (delegated.length) {
     add(`The row total adds every ${ownWord} and every section`,
         "each line rounded by its own rules; one line that cannot price stops the row, and the count of lines that need a person is shown");
+  }
+  // VAV-2a (B9, owner 2026-11-19 12:49 "all combination rows should have a warning ..."; 12:55 "option b"; 12:59 "50%"): display only
+  {
+    const cw = pr.combination_warning as { box_families?: unknown; share_input?: unknown; line?: unknown } | undefined;
+    if (cw && typeof cw === "object" && typeof cw.share_input === "string" && typeof cw.line === "string") {
+      const thr = items.find((it) => /_pricing_input$/.test(String(it.kind ?? "")) && String((it.attributes as { item?: unknown } | undefined)?.item ?? "") === cw.share_input);
+      const f = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
+      const boxes = Array.isArray(cw.box_families) ? (cw.box_families as unknown[]).map((b) => famWord(String(b))) : [];
+      add(`A row whose extras come to more than a set share of the ${list(boxes)}'s own rate carries a warning to review it`,
+          `the extras = every line other than the ${list(boxes)}; the share = the Pricing Input '${pricingInputLabel(String(cw.share_input), items)}'`
+          + `${Number.isFinite(f) ? ` (${String(Math.round(f * 100))}% today)` : ""} of the ${list(boxes)}'s supply + installation; the warning reads `
+          + `'${plainSentence(cw.line.replace("{n}", "<n>").replace("{x}", "<extras>").replace("{y}", "<row rate>"))}'; no figure changes; shown in the calculator too`,
+          "combination_warning");
+    }
+  }
+  // VAV-2a (B6, owner 2026-11-18 23:49 "onl;y dismatling same asinstalltion, dsimatling and refixing 1.5 times, only refixing 0.5 times if
+  // dismantling seprate row else 1.5"; mockup screen 4: no extras): each kind its own line, its factor named by its Pricing Input (live)
+  {
+    const eb = pr.existing_boxes as { install_family?: unknown; kinds?: unknown } | undefined;
+    if (eb && typeof eb === "object" && Array.isArray(eb.kinds)) {
+      const f = (id: unknown) => {
+        const it = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === id);
+        const v = Number((it?.rates as { factor?: unknown } | undefined)?.factor);
+        return `the Pricing Input '${pricingInputLabel(String(id ?? ""), items)}'${Number.isFinite(v) ? ` (x ${String(v)} today)` : ""}`;
+      };
+      for (const k of eb.kinds as Array<{ label?: unknown; factor_input?: unknown; with_row_input?: unknown }>) {
+        add(`A row whose own words are ${String(k.label ?? "work on an existing box").toLowerCase()} is priced as the installation alone`,
+            [`the ${famWord(String(eb.install_family ?? ""))} item's installation x ${f(k.factor_input)}, supply 0, no extras and no cabling on the row`,
+             k.with_row_input ? `when the sheet has a separate dismantling row naming VAV: x ${f(k.with_row_input)} instead, the note naming that row` : "",
+             "never in the calculator (it has no sheet)"].filter(Boolean).join("; "), "existing_boxes");
+      }
+    }
+  }
+  // VAV-2a (B3 / B4 / QR-C1, owner 2026-11-18 23:32; QR-3a / QR-4 (a) 2026-11-19 00:57; 01:23; QR-C1 (a) 13:31): the own-row check
+  {
+    const oc = pr.own_row_check as { threshold_input?: unknown; extras?: unknown } | undefined;
+    if (oc && typeof oc === "object" && Array.isArray(oc.extras)) {
+      const thr = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === oc.threshold_input);
+      const tf = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
+      const exs = oc.extras as Array<{ label?: unknown; presence_only?: unknown; target?: { attr?: unknown; to?: unknown } }>;
+      const counted = exs.filter((e) => !e.presence_only && !e.target?.attr).map((e) => String(e.label ?? ""));
+      add(`An extra the sheet charges on its own row is checked against that row`,
+          [`the extras checked: ${list(counted)}`,
+           `a separate row = its own words name the extra; a counted row (not per metre), not a box row, not work on an existing box; no AHU / plant-room / fan / VFD / static-pressure / IAQ / VRF words in it or its headings; pieces and duct connections must name VAV`,
+           `its quantity against the VAV rows pricing that extra: at least the Pricing Input '${pricingInputLabel(String(oc.threshold_input ?? ""), items)}'${Number.isFinite(tf) ? ` (${String(Math.round(tf * 100))}% today)` : ""} -> NOT added, the note naming the rows; below -> added, with 'possible double counting' naming the rows`,
+           `quantities blank or 0 on either side (a rate-only BoQ) -> the separate row decides: NOT added, the note naming the rows`,
+           `the same sheet only; never in the calculator (it has no sheet)`].join("; "), "own_row_check");
+      for (const e of exs.filter((x) => x.presence_only || x.target?.attr)) {
+        add(`A ${String(e.label ?? "")} priced on its own row of the sheet changes the box line, without a quantity test`,
+            e.target?.attr ? `${labels[String(e.target.attr)] ?? String(e.target.attr)} -> ${String(e.target.to ?? "")}, the note naming the row(s)` : "the item is not added, the note naming the row(s)",
+            "own_row_check");
+      }
+    }
+  }
+  // VAV-2a (B5, owner 2026-11-18 23:14 / 23:18; 2026-11-19 01:29 / 01:34 / 01:39; 12:35 / 12:37 / 12:55): the integrator cabling
+  {
+    const ic = pr.integrator_cabling as { family?: unknown; qty_input?: unknown; length_input?: unknown } | undefined;
+    if (ic && typeof ic === "object" && typeof ic.family === "string") {
+      const fv = (id: unknown) => {
+        const it = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === id);
+        return Number((it?.rates as { factor?: unknown } | undefined)?.factor);
+      };
+      const m = fv(ic.qty_input), sh = fv(ic.length_input);
+      const sku = items.find((x) => String(x.kind ?? "") === String(pr.kind ?? "") && (x.attributes as Record<string, unknown> | undefined)?.[String(ls?.family_attribute_id ?? "family")] === ic.family);
+      const r = sku?.rates as { cost_supply?: unknown; supply_markup?: unknown } | undefined;
+      const bcs = Number(r?.cost_supply), mk = Number(r?.supply_markup);
+      const quoted = Number.isFinite(bcs) && Number.isFinite(mk) ? Math.ceil(bcs * (1 + mk) - 1e-9) : NaN;
+      const rate = Number.isFinite(bcs) && Number.isFinite(quoted)
+        ? `the ${famWord(ic.family)} SKU: BCS cost ${String(bcs)} per metre, quoted ${String(quoted)} per metre (BCS x ${String(1 + mk)})` : `the ${famWord(ic.family)} SKU`;
+      add(`On a sheet with a VAV integrator anywhere, every VAV box row is checked for a separate integrator cabling row`,
+          [`a separate cabling row = priced per metre, a cable / wiring row (a conduit row is not), VAV named in its own words or in a heading above it, not a power cable; under a VAV heading a row naming other equipment does not count; no quantity test for whether it counts`,
+           `found -> the cabling price is NOT added, the note naming the rows; their metres below the Pricing Input '${pricingInputLabel(String(ic.length_input ?? ""), items)}'${Number.isFinite(sh) ? ` (${String(Math.round(sh * 100))}% today)` : ""} of the metres per box x the sheet's VAV boxes -> the note also asks to check the cabling quantity (the price never changes)`,
+           `none -> the helper adds ${rate} at the Pricing Input '${pricingInputLabel(String(ic.qty_input ?? ""), items)}'${Number.isFinite(m) ? ` (${String(m)} m per box today${Number.isFinite(quoted) ? ` = ${String(Math.ceil(quoted * m - 1e-9))} per box quoted` : ""})` : ""}, installation 0; the user can remove it or add it`,
+           `never in the calculator (it has no sheet)`].join("; "), "integrator_cabling");
+    }
   }
   // ── 11. ADP-3a (owner 2026-10-20): the refusals that name what to change -- ADDED as their own group, LAST, so no
   //        earlier line moves (every line above keeps its number) ──

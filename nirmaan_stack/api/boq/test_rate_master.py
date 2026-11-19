@@ -13442,7 +13442,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "family_alias_needs", "no_sku_refuse_default",
                             # INVERTED at DU-3 K1c (owner Cases 4 / 5 / 8, 2026-11-16) by mechanical authority: BEFORE the set ended at
                             # "no_sku_refuse_default". The four keys are declared by Ducting alone from v75 on; v7 predates them, ADP declares none
-                            "paint_row", "row_refusals", "partial_insulation", "two_insulations"})
+                            "paint_row", "row_refusals", "partial_insulation", "two_insulations",
+                            # INVERTED at VAV-2a K1 (owner QR-S (a) 2026-11-19 13:31; B3 / B5 / B6 / B9) by mechanical authority: BEFORE the
+                            # set ended at "two_insulations". The four keys are declared by VAV Box alone from v77 on; v7 predates them, ADP
+                            # declares none
+                            "own_row_check", "integrator_cabling", "existing_boxes", "combination_warning"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)

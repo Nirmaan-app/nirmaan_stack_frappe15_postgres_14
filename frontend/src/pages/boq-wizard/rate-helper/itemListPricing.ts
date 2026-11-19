@@ -761,6 +761,14 @@ export interface ItemListPricingSpec {
   text_notes?: TextNote[];
   /** VP-1 (N5): a display line from the row's headings AND the sheet's row categories. ABSENT => no line. See `SheetHeadingNote`. */
   sheet_heading_notes?: SheetHeadingNote[];
+  /** VAV-2a (B9): the combination-row warning. ABSENT => no warning. See `CombinationWarning`. */
+  combination_warning?: CombinationWarning;
+  /** VAV-2a (B3 / B4 / QR-C1): an extra charged on its own row of the sheet. ABSENT => no check. See `OwnRowCheck`. */
+  own_row_check?: OwnRowCheck;
+  /** VAV-2a (B5): the integrator cabling rule. ABSENT => no rule. See `IntegratorCabling`. */
+  integrator_cabling?: IntegratorCabling;
+  /** VAV-2a (B6): work on existing boxes. ABSENT => no rule. See `ExistingBoxes`. */
+  existing_boxes?: ExistingBoxes;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
    *  `extras?.scope ?? scope`). ABSENT => byte-identical. */
   scope?: ScopeSpec;
@@ -1675,7 +1683,107 @@ export interface ListSection {
    *  the item read, `formula` over those numbers (3.14 * dia_mm / 1000; 2 * (w + h) / 1000) -- rounded up to the rupee; no option
    *  readable -> the section refuses with `missing`. ABSENT => the section prices in the row's unit, as before. */
   area_basis?: Record<string, { unit: string; options: Array<{ needs: string[]; formula: string; line: string }>; missing: string }>;
+  /** VAV-2a (B7, owner 2026-11-18 22:35 "two if two" / 22:38 "on either side" -> 2): a number attribute of THIS config the model
+   *  answers on the section's own item (the borrowing category may have no count of its own -- Misc, Sensors): a positive value is the
+   *  section line's quantity per row unit; none / "None" / unreadable leaves the default 1 (marked). The pricer's typed quantity always
+   *  wins. ABSENT => the section's quantity as before (its own count, else 1), byte-identical. */
+  qty_attr?: string;
 }
+
+/**
+ * VAV-2a (B9, owner 2026-11-19 12:49 "all combination rows should have a warning that the user should review it more carefully"; 12:55
+ * "option b is ok"; 12:59 "ok proceed with 50%"). A priced row whose lines OTHER than the box (`box_families`, its own items) come to
+ * MORE than `share_input` (a Pricing Input, a factor read live) x the box's own rate (supply + installation) carries one warning line:
+ * `line` with {n} the other lines, {x} their rate and {y} the row's rate (`line_one` when n is 1). The input not set -> `input_missing`.
+ * Display only: no figure moves. ABSENT => no warning, byte-identical.
+ */
+export interface CombinationWarning {
+  box_families: string[];
+  share_input: string;
+  line: string;
+  line_one?: string;
+  input_missing: string;
+}
+
+/**
+ * VAV-2a (B3 / B4 / QR-C1; owner 2026-11-18 23:32 "if they are charged seprately in any boq row, price not to be added an appropriate note
+ * to be given with row refreence..else prices added and declared"; QR-3a (a) the SAME sheet and QR-4 (a) Ducting's way, 2026-11-19 00:57;
+ * 01:23 "agree on all 3" rate-only BoQs; QR-C1 (a) 13:31 the integrator: presence decides). One extra the row may price, how a SEPARATE row
+ * of the same sheet is recognised, and what the row does then. `target`: a section's family (`section` + `family`), an own family
+ * (`family`), or a box attribute value (`attr` `from` -> `to`, presence only). A separate row = its OWN words match `words`; not a box row,
+ * not an existing-work row, not per metre, a count unit or none, no cable word before the extra's words, no artefact words in it or its
+ * headings; `needs_vav`: VAV named in it or its headings; `not_words`: never these words; `near_words` / `not_near_words` (with their
+ * character windows): the words must sit near these and not near those (the integrator vs a heat-meter integrator).
+ */
+export interface OwnRowExtra {
+  label: string;
+  target: { section?: string; family?: string; attr?: string; from?: string; to?: string };
+  words: string;
+  needs_vav?: boolean;
+  not_words?: string;
+  near_words?: string;
+  near_chars?: number;
+  not_near_words?: string;
+  not_near_chars?: number;
+  presence_only?: boolean;
+}
+/** VAV-2a (B3 / B4): the sheet check of every extra (`OwnRowExtra`); `threshold_input` the 90% Pricing Input (read live); the word tables
+ *  shared by every extra; the lines ({extra}, {rows}; {pct} / {threshold} on the ratio). Never in the calculator. ABSENT => no check. */
+export interface OwnRowCheck {
+  threshold_input: string;
+  box_words: string;
+  existing_words: string;
+  artefact_words: string;
+  cable_words: string;
+  vav_words: string;
+  metre_units: string[];
+  count_units: string[];
+  extras: OwnRowExtra[];
+  lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string };
+}
+/**
+ * VAV-2a (B5; owner 2026-11-18 23:14 / 23:18; 2026-11-19 01:29 "VAV must be mentioned in cabling description"; 01:34 a heading naming VAV
+ * counts; 01:39 the 70% note; 12:37-12:55 the rate is the SKU, the 2 m a Pricing Input). On a sheet with a VAV integrator anywhere
+ * (`integrator_words` near `integrator_near_words`, not near `integrator_not_near_words`), every box row: a separate cabling row (per metre,
+ * a cable word, not `power_words`, not a conduit row, VAV named in its own words or in a heading above -- unless its own words name
+ * `other_equipment_words`) -> nothing added, `priced_separately`; their metres below `length_input` x `qty_input` x the sheet's boxes ->
+ * `low_length` instead; none -> the `family` SKU added by the helper at `qty_input` per box with `added`. Never in the calculator.
+ */
+export interface IntegratorCabling {
+  family: string;
+  box_family: string;
+  qty_input: string;
+  length_input: string;
+  integrator_words: string;
+  integrator_near_words: string;
+  integrator_not_near_words: string;
+  near_chars: number;
+  not_near_chars: number;
+  cable_words: string;
+  conduit_words: string;
+  power_words: string;
+  vav_words: string;
+  other_equipment_words: string;
+  metre_units: string[];
+  lines: { added: string; priced_separately: string; low_length: string; input_missing: string };
+}
+/**
+ * VAV-2a (B6; owner 2026-11-18 23:49 "onl;y dismatling same asinstalltion, dsimatling and refixing 1.5 times, only refixing 0.5 times if
+ * dismantling seprate row else 1.5"; the approved mockup screen 4: no extras on such a row). A row whose OWN words are work on an existing
+ * box (the first `kinds` entry whose words match) is priced as `install_family` alone, supply 0, installation x the kind's factor (a
+ * Pricing Input, read live); a refix kind takes `with_row_input` when the sheet has a separate dismantling row naming VAV
+ * (`dismantle_row_words` + `vav_words`). Never in the calculator. ABSENT => no existing-box rule.
+ */
+export interface ExistingBoxes {
+  install_family: string;
+  kinds: Array<{ id: string; words: string; label: string; factor_input: string; with_row_input?: string }>;
+  dismantle_row_words: string;
+  vav_words: string;
+  lines: { priced: string; with_row: string; alone: string; input_missing: string };
+}
+
+/** VAV-2a (B5): a model item the HELPER added (the integrator cabling): its line; the block shows "added by the helper". */
+export const HELPER_ADDED_ATTR = "__added_by_helper";
 
 /** SLICE 12e-3a: the delegated sections a spec declares (those naming a category), in order. PURE. */
 export function delegatedSections(spec: ItemListPricingSpec): Array<ListSection & { category_id: string }> {

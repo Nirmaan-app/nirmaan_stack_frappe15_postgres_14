@@ -35,7 +35,7 @@ import {
   runPipeline,
   evalFormula,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
-import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
+import { labelAsWord, mirroredLead, plainFact, plainPricerText, pricingInputLabel, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -136,6 +136,7 @@ import {
   vrf10On,
   NET_FAMILY_LINE_ATTR,
   NET_LINES_ATTR,
+  HELPER_ADDED_ATTR,
   netLinesOf,
   gaugeLabelOf,
   existingWorkOf,
@@ -1629,9 +1630,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // (Case 4 speaks first: a part-length clause names WHY the second insulation is left out)
       const two = !paint && listSpec.two_insulations && rowCtx.noRow !== true && !partialInsulationOf(listSpec, rowCtx)
         ? twoInsulationsOf(listSpec, ext as ExtractionRowWithItems | undefined) : null;
-      const out1 = computeItemList(category, listSpec, items, withIns, (paint?.ext ?? two?.ext ?? ext) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // VAV-2a (B3-B6): the VAV sheet rules settle the model's items first -- only a config declaring their keys, only on a BoQ row
+      const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, ext as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
+      const out1v = computeItemList(category, listSpec, items, withIns, (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? ext) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      const out1 = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
       const v1 = (out1 as ItemListSuggestion).itemList;
-      const out0 = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
+      const out0a = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
+      const v0a = (out0a as ItemListSuggestion).itemList;
+      const out0 = vavSheet && vavSheet.lines.length && v0a
+        ? { ...out0a, itemList: { ...v0a, sheetHeadingNotes: [...(v0a.sheetHeadingNotes ?? []), ...vavSheet.lines.map((l) => plainPricerText(l, items))] } } as ItemListSuggestion
+        : out0a;
       // DU-3 (Case 5): a row whose OWN words name a double-skin duct is not on our sheet -- the whole row unpriced, with the line
       const refusal = rowCtx.noRow !== true ? rowRefusalOf(listSpec, rowCtx) : null;
       const out = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
@@ -2674,6 +2682,8 @@ export interface ItemBlockView {
   /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
   helperLine?: string;
   changedByYou?: true;
+  /** VAV-2a (B5): the helper ADDED this item (the integrator cabling) -- the panel says "added by the helper"; removable as any item */
+  helperAdded?: true;
   /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
    *  the helper's pick or the next best (K1d: exactly two), and the option the one toggle steps to (`cover_option`). */
   cover?: { option: number; of: number; userChosen: boolean; label: string; next: number };
@@ -2854,6 +2864,9 @@ export interface ItemListView {
   scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /** VP-1 (N5): the sheet-heading lines (`withSheetHeadingNotes`), drawn by the panel as an amber box after the items. */
   sheetHeadingNotes?: string[];
+  /** VAV-2a (B9): the combination-row warning (`combinationWarningOf`), drawn by the panel (and so the calculator) as an amber box after
+   *  the items. Present ONLY on a priced row of a config declaring `combination_warning` whose extras pass the share. */
+  combinationWarning?: string;
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -3593,6 +3606,8 @@ function itemBlockView(
    * every other category is byte-identical.
    */
   const figures: Partial<Record<RateKind, number>> = {};
+  const helperAddedRaw = edit.base !== null && edit.family === null ? modelItem?.attributes?.[HELPER_ADDED_ATTR]?.value : undefined;
+  const helperAdded = typeof helperAddedRaw === "string" && helperAddedRaw.trim() !== "" ? helperAddedRaw : undefined;
   if (res.state === "priced") {
     let supply = 0, install = 0, anySupply = false, anyInstall = false;
     for (const l of layers) {
@@ -3605,7 +3620,9 @@ function itemBlockView(
   }
   return {
     index: res.index,
-    source: edit.helper ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    source: edit.helper || helperAdded !== undefined ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    // VAV-2a (B5): an item the helper added (the integrator cabling) says so, and how much it added
+    ...(!edit.helper && helperAdded !== undefined ? { helperLine: helperAdded, helperAdded: true as const } : {}),
     ...(edit.helper ? {
       helperLine: edit.helper.stated
         ? `From the split ${edit.helper.stated.typed ? "you typed" : "the row states"}: ${edit.helper.size} ${edit.helper.unit}`.trim()
@@ -7240,11 +7257,14 @@ function computeItemList(
      */
     const qtyLinked = pipe !== null && secEdit.qty === undefined && ownerQty !== undefined;
     const qtyTag = r.s.mirror?.tag ?? `from ${String(ownSectionLabel).toLowerCase()}`;
+    // VAV-2a (B7): the count the model read on the section's own item, in THIS config's `qty_attr` (the borrowed category may have no
+    // count) -- below the pricer's typed quantity and a linked one; absent key / no answer => the section's own default, as before
+    const rowQty = !qtyLinked && secEdit.qty === undefined && r.s.qty_attr && answeredItem ? sectionQtyFromRow(answeredItem, r.s.qty_attr) : undefined;
     const callEdit: ItemEdit = {
       base: modelItem ? 0 : null,
       family: secEdit.family,
       attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : refusedByPipe ? { ...secEdit.attrs, [toId!]: "" } : { ...secEdit.attrs },
-      ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : {})),
+      ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : rowQty !== undefined ? { qty: rowQty } : {})),
       ...(mirrored || refusedByPipe ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
       // ADP-1: the mirrored size is marked, so F1 does not read the pipe's mm size as a bare number the BoQ wrote
       ...(mirrored ? { mirrored: [toId!] } : {}),
@@ -7461,6 +7481,8 @@ function computeItemList(
     if (parts.every((p) => typeof p.install_rate === "number")) values.install_rate = sum("install_rate");
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
   }
+  // VAV-2a (B9): the combination-row warning, on the row's catalogue lines (before any scope pick) -- only a config declaring it
+  const combo = rowPriced && spec.combination_warning ? combinationWarningOf(spec.combination_warning, blocks, sectionViews, values, items) : undefined;
   const reason = rowPriced ? undefined
     : (ownCount > 0 && !ownView.rowPriced ? ownView.reason : undefined) ?? sectionViews.find((sv) => !sv.view.rowPriced)?.view.reason ?? ownView.reason;
   const basis = rowPriced
@@ -7491,6 +7513,7 @@ function computeItemList(
       bad,
     },
     ...(sheetInsulationLines.size ? { sheetHeadingNotes: [...sheetInsulationLines].map((l) => plainPricerText(l, items)) } : {}),
+    ...(combo ? { combinationWarning: plainPricerText(combo, items) } : {}),
   };
   const done: ItemListSuggestion = {
     ...ownRes,
@@ -7501,7 +7524,46 @@ function computeItemList(
   } as ItemListSuggestion;
   // VP-1 (N1): a pricing-level `scope` (Valve Package) re-prices the row's LINES -- its own items and its borrowed sections --
   // by the scope pick; ABSENT => the row as it always was. VP-1 (N5): the sheet-heading note last (display only).
-  return withSheetHeadingNotes(spec, items, ctx, spec.scope && !spec.extras ? withScope(spec, items, ctx, ext, overrides, done) : done);
+  const fin = withSheetHeadingNotes(spec, items, ctx, spec.scope && !spec.extras ? withScope(spec, items, ctx, ext, overrides, done) : done);
+  // VAV-2a (B9): a row the scope pick left unpriced carries no warning
+  const fv = combo ? (fin as ItemListSuggestion).itemList : undefined;
+  if (fv && !fv.rowPriced) {
+    const { combinationWarning: _cw, ...rest } = fv;
+    return { ...fin, itemList: rest } as ItemListSuggestion;
+  }
+  return fin;
+}
+
+/**
+ * VAV-2a (B9, owner 2026-11-19 12:49 / 12:55 "option b" / 12:59 "50%"). PURE. The warning line of a priced row whose lines OTHER than the
+ * box come to more than the Pricing Input share x the box's own rate (supply + installation), else undefined. The box = the row's own
+ * priced items of `box_families`; the other lines = the row's other own items and every section line. No box (or a box rate of 0) ->
+ * nothing to compare, no warning. The share input not set -> `input_missing` whenever the row combines the box with anything.
+ */
+export function combinationWarningOf(cw: NonNullable<ItemListPricingSpec["combination_warning"]>, blocks: readonly ItemBlockView[],
+  sectionViews: readonly SectionBlockView[], values: Readonly<Record<string, number>>, items: readonly RateMasterItem[]): string | undefined {
+  const boxes = new Set(cw.box_families);
+  const both = (f: Partial<Record<RateKind, number>> | undefined) => (f?.supply_rate ?? 0) + (f?.install_rate ?? 0);
+  const boxBlocks = blocks.filter((b) => b.state === "priced" && b.family !== null && boxes.has(b.family));
+  const box = boxBlocks.reduce((a, b) => a + both(b.figures), 0);
+  const n = blocks.length - boxBlocks.length + sectionViews.length;
+  if (!boxBlocks.length || !(box > 0) || n === 0) return undefined;
+  const y = (values.supply_rate ?? 0) + (values.install_rate ?? 0);
+  const x = y - box;
+  const share = scopeUpliftOf(items, cw.share_input);
+  if (share === null) return cw.input_missing;
+  if (!(x > share * box + 1e-9)) return undefined;
+  const fig = (v: number) => formatToRoundedIndianRupee(v).replace(/^₹/, "");
+  const t = n === 1 && cw.line_one ? cw.line_one : cw.line;
+  return t.split("{n}").join(String(n)).split("{x}").join(fig(x)).split("{y}").join(fig(y));
+}
+
+/** VAV-2a (B7). PURE. A section item's count in `attr` when it is a positive number, as text; else undefined (the default stands). */
+export function sectionQtyFromRow(item: ExtractedListItem, attr: string): string | undefined {
+  const v = item.attributes?.[attr]?.value;
+  if (v === null || v === undefined || String(v).trim() === "" || String(v).trim() === "None") return undefined;
+  const q = typeof v === "number" ? v : Number(String(v).trim());
+  return Number.isFinite(q) && q > 0 ? String(q) : undefined;
 }
 
 /**
@@ -7732,6 +7794,245 @@ export function ductInsulationDecision(si: NonNullable<ItemListPricingSpec["shee
   // a tiny tolerance so 0.9 x area computed in floating point still counts as exactly 90% (edge c)
   if (ratio + 1e-9 >= threshold) return { action: "drop", line: `${fill(si.lines.covered, base)} ${ratioLine}` };
   return { action: "add", line: `${doubleCount} ${ratioLine}` };
+}
+
+// ── VAV-2a: THE SHEET RULES (owner rulings in each header) -- B6 existing boxes, B3 / B4 / QR-C1 an extra charged on its own row, B5 the
+//    integrator cabling. Each runs ONLY for a config declaring its key, ONLY on a BoQ row (never the calculator: it has no sheet), and
+//    acts on the MODEL'S ITEMS before pricing (dropped / changed / one added by the helper), with its lines for the row's amber box. ──
+
+type VavSheetLine = NonNullable<RowContextWithUnit["sheetLines"]>[number];
+const vre = (p: string | undefined): RegExp | null => { if (!p) return null; try { return new RegExp(p, "i"); } catch { return null; } };
+const unitKey = (u: string | null | undefined) => String(u ?? "").trim().toLowerCase();
+const headsOf = (l: VavSheetLine) => (l.headings ?? (l.heading ? [l.heading] : [])).join(" | ");
+const fillAll = (t: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), t);
+
+/** VAV-2a. PURE. "row 48" / "rows 48, 49" / "rows 1, 2, ... 10 and 3 more" (the DU-3 R8 wording, the 10-row cap). */
+export function vavRowsNamed(rows: readonly number[]): string {
+  const rs = [...new Set(rows)].sort((a, b) => a - b);
+  return `${rs.length > 1 ? "rows" : "row"} ${rs.slice(0, 10).join(", ")}${rs.length > 10 ? ` and ${rs.length - 10} more` : ""}`;
+}
+
+/** VAV-2a. PURE. The first match of `words` in `text` whose window of `nearChars` either side holds `near` and whose window of
+ *  `notNearChars` holds no `notNear` (the VAV integrator, never a heat-meter integrator); else null. */
+export function vavNearHit(text: string, words: string, near: string | undefined, nearChars = 120, notNear?: string, notNearChars = 80): { index: number } | null {
+  let g: RegExp;
+  try { g = new RegExp(words, "gi"); } catch { return null; }
+  const nr = vre(near), nn = vre(notNear);
+  for (let m = g.exec(text); m; m = g.exec(text)) {
+    if (m[0] === "") { g.lastIndex++; continue; }
+    const at = m.index, len = m[0].length;
+    // the words around the match, never the match itself ("Supply & installation of Router" names no context word -- VAV-D0 D4)
+    const win = (c: number) => `${text.slice(Math.max(0, at - c), at)} ${text.slice(at + len, at + len + c)}`;
+    if (nr && !nr.test(win(nearChars))) continue;
+    if (nn && nn.test(win(notNearChars))) continue;
+    return { index: at };
+  }
+  return null;
+}
+
+type OwnRowSpec = NonNullable<ItemListPricingSpec["own_row_check"]>;
+type CablingSpec = NonNullable<ItemListPricingSpec["integrator_cabling"]>;
+
+/** VAV-2a (B3, QR-4 (a)). PURE. Is this line a SEPARATE row of the extra `e`, by the agreed test (VAV-D0 D4, d4_qr4a_final)? */
+export function vavSeparateRow(oc: OwnRowSpec, e: OwnRowSpec["extras"][number], l: VavSheetLine): boolean {
+  const t = l.text ?? "";
+  const heads = headsOf(l);
+  const m = e.near_words ? vavNearHit(t, e.words, e.near_words, e.near_chars, e.not_near_words, e.not_near_chars) : (vre(e.words)?.exec(t) ?? null);
+  if (!m) return false;
+  if (vre(oc.box_words)?.test(t) || vre(oc.existing_words)?.test(t)) return false;
+  const u = unitKey(l.unit);
+  if (oc.metre_units.map(unitKey).includes(u)) return false;
+  if (u !== "" && !oc.count_units.map(unitKey).includes(u)) return false;
+  const c = vre(oc.cable_words)?.exec(t);
+  if (c && c.index < m.index) return false;
+  const art = vre(oc.artefact_words);
+  if (art && (art.test(t) || art.test(heads))) return false;
+  const vav = vre(oc.vav_words);
+  if (e.needs_vav && !(vav && (vav.test(t) || vav.test(heads)))) return false;
+  if (e.not_words && vre(e.not_words)?.test(t)) return false;
+  return true;
+}
+
+/** VAV-2a (B5, owner 01:29 / 01:34 + chat-Claude's v3 test). PURE. Is this line a separate INTEGRATOR CABLING row? "yes", else why not. */
+export function vavCablingRow(ic: CablingSpec, l: VavSheetLine): string {
+  const t = l.text ?? "";
+  if (!ic.metre_units.map(unitKey).includes(unitKey(l.unit))) return "not per metre";
+  const cab = vre(ic.cable_words)?.exec(t);
+  if (!cab) return "not a cable row";
+  if (vre(ic.power_words)?.test(t)) return "power cable";
+  const con = vre(ic.conduit_words)?.exec(t);
+  if (con && con.index < cab.index) return "conduit row, not a cable row";
+  // the row's own DESCRIPTION names VAV -> it counts; VAV only in the row's own notes (a sub-heading such as "VAV and ASSOCIATED WORKS",
+  // BOQ-26-00049 r149) or in a heading above counts like a heading: not when the description names other equipment (owner 01:34)
+  const vav = vre(ic.vav_words);
+  const [desc, ...rowNotes] = t.split(" | ");
+  if (vav?.test(desc)) return "yes";
+  if (!vav?.test([...rowNotes, headsOf(l)].join(" | "))) return "VAV not named in the row or its headings";
+  return vre(ic.other_equipment_words)?.test(desc) ? "names other equipment under a VAV heading" : "yes";
+}
+
+/** VAV-2a (B5). PURE. Does this text name a VAV integrator (the words near the context words, not near the heat-meter words)? */
+export function vavIntegratorNamed(ic: CablingSpec, text: string): boolean {
+  return !!vavNearHit(text, ic.integrator_words, ic.integrator_near_words, ic.near_chars, ic.integrator_not_near_words, ic.not_near_chars);
+}
+
+export interface VavSheetOutcome {
+  ext: ExtractionRowWithItems;
+  /** the row's amber-box lines (each decision, with the rows it names) */
+  lines: string[];
+  /** B6: the factor the existing-box row's installation is multiplied by, with its working line -- or the refusal (input not set) */
+  existing?: { factor: number; line: string } | { refuse: string };
+}
+
+/**
+ * VAV-2a (B6 / B3 / B4 / QR-C1 / B5). PURE. The model's items of THIS BoQ row as the VAV sheet rules settle them, with their lines; null
+ * when no rule applies (no key, the calculator, no sheet, no model item). Order: an existing-box row is the installation alone (nothing
+ * else runs); else each extra charged on its own row; then the integrator cabling.
+ */
+export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, items: readonly RateMasterItem[],
+  ownCategory: string, configOf: ConfigOf): VavSheetOutcome | null {
+  if (!spec.own_row_check && !spec.integrator_cabling && !spec.existing_boxes) return null;
+  if (ctx.noRow === true || !ctx.sheetLines || !ext?.items?.length) return null;
+  const extItems = ext.items;
+  const fa = familyAttr(spec);
+  const secFam = new Map(delegatedSections(spec).map((s) => {
+    const ds = itemListPricingSpec(configOf(s.category_id));
+    return [s.id, ds ? familyAttr(ds) : "item"] as [string, string];
+  }));
+  const isSec = (it: ExtractedListItem) => typeof it.section === "string" && secFam.has(it.section);
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : v === null || v === undefined ? "" : String(v));
+  const famOf = (it: ExtractedListItem) => str(it.attributes?.[isSec(it) ? secFam.get(it.section!)! : fa]?.value);
+  const setAttr = (it: ExtractedListItem, a: string, v: string): ExtractedListItem =>
+    ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } }) as ExtractedListItem;
+  const qtyOf = (r: number) => { const v = ctx.rowQuantities?.[r]; return typeof v === "number" && Number.isFinite(v) ? v : null; };
+  const sumQ = (rows: readonly number[]) => rows.reduce<number | null>((a, r) => (a === null || qtyOf(r) === null ? null : a + (qtyOf(r) as number)), 0);
+  const catOf = (r: number) => ctx.sheetCategories?.[r] ?? rowCats?.get(r) ?? null;
+  const onSheet = ctx.sheetLines.filter((l) => l.sheet === undefined);
+  const lineItems = onSheet.filter((l) => !l.preamble);
+  // a separate row: a line item, or a quantity-bearing heading (a rate-editable Preamble with a unit -- BOQ-26-00071 'VAV WORKS' r56-r60)
+  const others = onSheet.filter((l) => l.row !== ctx.excelRow && (!l.preamble || String(l.unit ?? "").trim() !== ""));
+  const runItems = (r: number): ExtractedListItem[] => (r === ctx.excelRow ? extItems
+    : ((extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items ?? []));
+  const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  const lines: string[] = [];
+  let its = [...extItems];
+
+  // B6 (owner 2026-11-18 23:49; mockup screen 4): work on an existing box -- the installation SKU alone, supply 0, x the kind's factor
+  const eb = spec.existing_boxes;
+  const kind = eb ? eb.kinds.find((k) => !!vre(k.words)?.test(own)) : undefined;
+  if (eb && kind) {
+    const dvav = vre(eb.vav_words), drow = vre(eb.dismantle_row_words);
+    const dRows = kind.with_row_input ? others.filter((l) => !!drow?.test(l.text ?? "") && !!dvav?.test(l.text ?? "")).map((l) => l.row) : [];
+    const input = kind.with_row_input && dRows.length ? kind.with_row_input : kind.factor_input;
+    const factor = scopeUpliftOf(items, input);
+    const label = pricingInputLabel(input, items);
+    const attrs: Record<string, { value: string; confidence: number }> = { [fa]: { value: eb.install_family, confidence: 1 } };
+    if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: eb.install_family, confidence: 1 };
+    if (spec.scope?.model_attr && spec.scope.install_only) attrs[spec.scope.model_attr] = { value: spec.scope.install_only, confidence: 1 };
+    if (kind.with_row_input) {
+      lines.push(dRows.length ? fillAll(eb.lines.with_row, { rows: vavRowsNamed(dRows), factor: String(factor ?? "-") })
+        : fillAll(eb.lines.alone, { factor: String(factor ?? "-") }));
+    }
+    return { ext: { ...ext, items: [{ attributes: attrs } as unknown as ExtractedListItem] }, lines,
+      existing: factor === null ? { refuse: fillAll(eb.lines.input_missing, { input: label }) }
+        : { factor, line: fillAll(eb.lines.priced, { label: kind.label, factor: String(factor), input: label }) } };
+  }
+
+  // B3 / B4 / QR-C1 (owner 23:32; QR-3a / QR-4 (a) 00:57; 01:23 rate-only; QR-C1 (a) 13:31): each extra the row prices, against the sheet
+  const oc = spec.own_row_check;
+  if (oc) {
+    const thr = scopeUpliftOf(items, oc.threshold_input);
+    const sheetRows = new Set(onSheet.map((l) => l.row));
+    for (const e of oc.extras) {
+      const carries = (it: ExtractedListItem) => (e.target.attr
+        ? !isSec(it) && (!e.target.family || famOf(it) === e.target.family) && str(it.attributes?.[e.target.attr]?.value) === (e.target.from ?? "")
+        : e.target.section ? it.section === e.target.section && famOf(it) === e.target.family
+        : !isSec(it) && famOf(it) === e.target.family);
+      if (!its.some(carries)) continue;
+      const sep = others.filter((l) => vavSeparateRow(oc, e, l)).map((l) => l.row);
+      if (!sep.length) continue;
+      const base = { extra: e.label, rows: vavRowsNamed(sep) };
+      if (e.presence_only || e.target.attr) {
+        const to = e.target.to;
+        its = e.target.attr && to !== undefined ? its.map((it) => (carries(it) ? setAttr(it, e.target.attr!, to) : it)) : its.filter((it) => !carries(it));
+        lines.push(fillAll(oc.lines.attr_changed, base));
+        continue;
+      }
+      // the VAV rows of this sheet that price the same extra (the run's items), this row included
+      const naming = [...new Set([ctx.excelRow, ...[...extractionByRow.keys()].filter((r) => r !== ctx.excelRow && sheetRows.has(r)
+        && catOf(r) === ownCategory && runItems(r).some(carries))])];
+      const sq = sumQ(sep), vq = sumQ(naming);
+      if (!sq || !vq) { its = its.filter((it) => !carries(it)); lines.push(fillAll(oc.lines.rate_only, base)); continue; }
+      if (thr === null) { lines.push(`${fillAll(oc.lines.double_count, base)} ${oc.lines.threshold_missing}`); continue; }
+      const more = { ...base, pct: String(Math.round((sq / vq) * 100)), threshold: String(Math.round(thr * 100)), separate: String(sq), boxes: String(vq) };
+      if (sq / vq + 1e-9 >= thr) { its = its.filter((it) => !carries(it)); lines.push(fillAll(oc.lines.not_added, more)); }
+      else lines.push(fillAll(oc.lines.double_count, more));
+    }
+  }
+
+  // B5 (owner 23:14 / 23:18; 01:29 / 01:34 / 01:39; 12:37-12:55): a box row on a sheet with a VAV integrator anywhere
+  const ic = spec.integrator_cabling;
+  if (ic && its.some((it) => !isSec(it) && famOf(it) === ic.box_family)) {
+    const chain = [own, ...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ");
+    const integ = onSheet.some((l) => vavIntegratorNamed(ic, l.text ?? "")) || vavIntegratorNamed(ic, chain);
+    if (integ) {
+      const cab = others.filter((l) => vavCablingRow(ic, l) === "yes").map((l) => l.row);
+      const isCab = (it: ExtractedListItem) => !isSec(it) && famOf(it) === ic.family;
+      const perBox = scopeUpliftOf(items, ic.qty_input);
+      if (cab.length) {
+        its = its.filter((it) => !isCab(it));
+        const metres = sumQ(cab);
+        const boxRows = [...new Set([ctx.excelRow, ...lineItems.filter((l) => l.row !== ctx.excelRow && catOf(l.row) === ownCategory
+          && (!extractionByRow.has(l.row) || runItems(l.row).some((it) => !isSec(it) && famOf(it) === ic.box_family))).map((l) => l.row)])];
+        const boxes = sumQ(boxRows);
+        const share = scopeUpliftOf(items, ic.length_input);
+        const base = { rows: vavRowsNamed(cab) };
+        if (metres && boxes && perBox !== null && share !== null && metres + 1e-9 < share * perBox * boxes) {
+          lines.push(fillAll(ic.lines.low_length, { ...base, metres: String(metres), need: String(Math.round(perBox * boxes * 100) / 100),
+            per_box: String(perBox), boxes: String(boxes), pct: String(Math.round(share * 100)) }));
+        } else lines.push(fillAll(ic.lines.priced_separately, base));
+      } else if (!its.some(isCab)) {
+        if (perBox === null || !(perBox > 0)) lines.push(fillAll(ic.lines.input_missing, { input: pricingInputLabel(ic.qty_input, items) }));
+        else {
+          const line = fillAll(ic.lines.added, { qty: String(perBox) });
+          const attrs: Record<string, { value: string; confidence: number }> = { [fa]: { value: ic.family, confidence: 1 },
+            [NET_LINES_ATTR]: { value: line, confidence: 1 }, [HELPER_ADDED_ATTR]: { value: line, confidence: 1 } };
+          if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: ic.family, confidence: 1 };
+          if (spec.qty_attribute_id) attrs[spec.qty_attribute_id] = { value: String(perBox), confidence: 1 };
+          its.push({ attributes: attrs } as unknown as ExtractedListItem);
+        }
+      }
+    }
+  }
+  const same = its.length === extItems.length && its.every((it, i) => it === extItems[i]);
+  if (same && !lines.length) return null;
+  return { ext: same ? ext : { ...ext, items: its }, lines };
+}
+
+/** VAV-2a (B6). PURE. The existing-box row: each priced own line's installation x the factor (rounded up to the rupee), supply 0, the
+ *  working line on it; the totals and values follow. A refusal (input not set) leaves the row unpriced with the sentence. */
+export function withExistingBoxes(res: HelperResult, ex: NonNullable<VavSheetOutcome["existing"]>, items: readonly RateMasterItem[]): HelperResult {
+  if ("refuse" in ex) return withRowRefusal(res, plainPricerText(ex.refuse, items as RateMasterItem[]));
+  const r = res as ItemListSuggestion;
+  const v = r.itemList;
+  if (!v || !v.rowPriced) return res;
+  const scale = (f: Partial<Record<RateKind, number>>): Partial<Record<RateKind, number>> => {
+    const i = Math.ceil((f.install_rate ?? 0) * ex.factor - 1e-9);
+    return { supply_rate: 0, install_rate: i, combined_rate: i };
+  };
+  // the line names the installation it started from and the figure it gives ({rate} / {figure}), per line
+  const lineOf = (from: number | undefined, to: number | undefined) =>
+    plainPricerText(ex.line.split("{rate}").join(String(from ?? "-")).split("{figure}").join(String(to ?? "-")), items as RateMasterItem[]);
+  const blocks = v.items.map((b) => {
+    if (b.state !== "priced") return b;
+    const f = scale(b.figures);
+    return { ...b, figures: f, working: [...b.working, lineOf(b.figures.install_rate, f.install_rate)] };
+  });
+  const install = blocks.reduce((a, b) => a + (b.state === "priced" ? (b.figures.install_rate ?? 0) : 0), 0);
+  const values = { supply_rate: 0, install_rate: install, combined_rate: install };
+  return { ...r, values, workings: { ...r.workings, derivation: [`Row total per 1 ${v.unit}: supply 0 + install ${install}`], finalValues: { ...values } },
+           itemList: { ...v, items: blocks, totals: { ...values } } } as ItemListSuggestion;
 }
 
 export function withSheetHeadingNotes(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, res: HelperResult): HelperResult {

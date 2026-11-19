@@ -2761,6 +2761,18 @@
     "tabMilestone Tracker"
    ]
   },
+  "nirmaan_stack.services.boq_rate_master.test_vav2a_keys": {
+   "seconds": 14.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabGoogle Calendar",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
    "seconds": 34.8,
    "series": [],

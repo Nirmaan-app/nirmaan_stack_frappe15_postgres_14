@@ -345,7 +345,10 @@ _SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "fam
                                                 "area_basis",
                                                 # DU-2 (P0 defect, R-PAINT): the family question's note this borrower asks with (Misc's own note is
                                                 # the Valve Package's) -- read only where the borrowed config declares borrowers_ask_offered_only
-                                                "family_note"}
+                                                "family_note",
+                                                # VAV-2a (B7, owner 2026-11-18 22:35 / 22:38): a number attribute of THIS config the model answers on
+                                                # the section's own item -- that line's quantity per row unit (the borrowed category may have no count)
+                                                "qty_attr"}
 _SECTION_INCLUDE_KEYS = {"attr", "equals"}
 _SECTION_ABSENT_KEYS = {"value", "line"}
 _SECTION_MIRROR_KEYS = {"from", "to", "tag", "line"}
@@ -417,6 +420,10 @@ def _validate_list_sections(spec, by_id, cfg):
                 _vthrow(f"{sloc}.absent.value must be the value of '{inc['attr']}' that does NOT open the section.")
             if not _nonblank(ab.get("line")):
                 _vthrow(f"{sloc}.absent.line must be a non-empty sentence.")
+        if "qty_attr" in s:
+            qd = by_id.get(s.get("qty_attr")) if isinstance(s.get("qty_attr"), str) else None
+            if qd is None or qd.get("type") != "number":
+                _vthrow(f"{sloc}.qty_attr must name a number attribute of this config's list_spec.")
         mir = s.get("mirror")
         if mir is not None:
             if not isinstance(mir, dict) or set(mir.keys()) != _SECTION_MIRROR_KEYS:
@@ -996,6 +1003,184 @@ def _validate_sheet_insulation(si, spec):
         _vthrow(f"{loc}.lines.covered and .double_count must name the rows ({{rows}}).")
 
 
+def _validate_combination_warning(cw, pr):
+    """VAV-2a (B9) -- `list_spec.pricing.combination_warning`: the box families (families of this config), the share's Pricing Input id,
+    the warning line ({n} other lines, {x} their rate, {y} the row's rate), optionally the one-line form, and the line when the input is
+    not set. Whether the input is a Pricing Input item is the cross-item check (`scope_problems`)."""
+    loc = "list_spec.pricing.combination_warning"
+    if not isinstance(cw, dict) or not (_COMBINATION_WARNING_KEYS <= set(cw) <= _COMBINATION_WARNING_KEYS | _COMBINATION_WARNING_OPTIONAL):
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_COMBINATION_WARNING_KEYS))} (and optionally line_one).")
+    fams = cw.get("box_families")
+    known = set((pr.get("families") or {}).keys())
+    if not isinstance(fams, list) or not fams or not all(isinstance(f, str) and f in known for f in fams) or len(set(fams)) != len(fams):
+        _vthrow(f"{loc}.box_families must be a non-empty list of this config's families (each once).")
+    if not _nonempty_str(cw.get("share_input")):
+        _vthrow(f"{loc}.share_input must name a Pricing Input.")
+    _sentence(cw, "line", loc, ("{n}", "{x}", "{y}"))
+    if "line_one" in cw:
+        _sentence(cw, "line_one", loc, ("{x}", "{y}"))
+    _sentence(cw, "input_missing", loc)
+
+
+def _word_list(v, where):
+    if not isinstance(v, list) or not v or not all(isinstance(x, str) and x.strip() for x in v):
+        _vthrow(f"{where} must be a non-empty list of unit spellings.")
+
+
+def _lines_exactly(d, keys, where):
+    if not isinstance(d, dict) or set(d) != keys:
+        _vthrow(f"{where} needs exactly {', '.join(sorted(keys))}.")
+    for k in keys:
+        _sentence(d, k, where)
+
+
+def _validate_own_row_check(oc, spec):
+    """VAV-2a (B3 / B4 / QR-C1) -- `list_spec.pricing.own_row_check`: the 90% input, the shared word tables (regular expressions), the unit
+    lists, the extras (each a label, a target -- a section's family, an own family, or a box attribute's from -> to -- and its words) and
+    the lines. Whether the input is a Pricing Input item is the cross-item check (`scope_problems`)."""
+    loc = "list_spec.pricing.own_row_check"
+    pr = spec.get("pricing") or {}
+    if not isinstance(oc, dict) or set(oc) != _OWN_ROW_CHECK_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_OWN_ROW_CHECK_KEYS))}.")
+    if not _nonempty_str(oc["threshold_input"]):
+        _vthrow(f"{loc}.threshold_input must name a Pricing Input.")
+    for k in ("box_words", "existing_words", "artefact_words", "cable_words", "vav_words"):
+        _pattern(oc[k], f"{loc}.{k}")
+    _word_list(oc["metre_units"], f"{loc}.metre_units")
+    _word_list(oc["count_units"], f"{loc}.count_units")
+    _lines_exactly(oc["lines"], _OWN_ROW_CHECK_LINES, f"{loc}.lines")
+    for k in ("not_added", "double_count", "rate_only", "attr_changed"):
+        if "{rows}" not in oc["lines"][k]:
+            _vthrow(f"{loc}.lines.{k} must name {{rows}}.")
+    exs = oc["extras"]
+    if not isinstance(exs, list) or not exs:
+        _vthrow(f"{loc}.extras must be a non-empty list.")
+    fams = set((pr.get("families") or {}).keys())
+    secs = {s.get("id"): s for s in (spec.get("sections") or []) if isinstance(s, dict) and s.get("category_id")}
+    attrs = {d.get("id"): d for d in (spec.get("attribute_definitions") or []) if isinstance(d, dict)}
+    for i, e in enumerate(exs):
+        w = f"{loc}.extras[{i}]"
+        if not isinstance(e, dict) or not (_OWN_ROW_EXTRA_KEYS <= set(e) <= _OWN_ROW_EXTRA_KEYS | _OWN_ROW_EXTRA_OPTIONAL):
+            _vthrow(f"{w} needs label, target and words (and optionally {', '.join(sorted(_OWN_ROW_EXTRA_OPTIONAL))}).")
+        if not _nonempty_str(e["label"]):
+            _vthrow(f"{w}.label must be a non-empty string.")
+        _pattern(e["words"], f"{w}.words")
+        for k in ("not_words", "near_words", "not_near_words"):
+            if k in e:
+                _pattern(e[k], f"{w}.{k}")
+        for k in ("near_chars", "not_near_chars"):
+            if k in e and (not isinstance(e[k], int) or isinstance(e[k], bool) or e[k] < 1):
+                _vthrow(f"{w}.{k} must be a positive whole number.")
+        for k in ("needs_vav", "presence_only"):
+            if k in e and not isinstance(e[k], bool):
+                _vthrow(f"{w}.{k} must be true or false.")
+        t = e["target"]
+        if not isinstance(t, dict) or not t:
+            _vthrow(f"{w}.target must be an object.")
+        if "attr" in t:
+            if set(t) - {"attr", "from", "to", "family"} or not {"from", "to"} <= set(t):
+                _vthrow(f"{w}.target with attr needs from and to (and optionally family).")
+            d = attrs.get(t["attr"])
+            if d is None or d.get("type") != "choice" or t["from"] not in (d.get("values") or []) or t["to"] not in (d.get("values") or []):
+                _vthrow(f"{w}.target: '{t.get('attr')}' must be a choice attribute of this config whose values hold from and to.")
+            if "family" in t and t["family"] not in fams:
+                _vthrow(f"{w}.target.family '{t['family']}' is not a family of this config.")
+        elif "section" in t:
+            if set(t) != {"section", "family"} or t["section"] not in secs:
+                _vthrow(f"{w}.target with section needs exactly section (a delegated section of this config) and family.")
+            if t["family"] not in (secs[t["section"]].get("families") or []):
+                _vthrow(f"{w}.target.family '{t.get('family')}' is not offered by section '{t['section']}'.")
+        else:
+            if set(t) != {"family"} or t["family"] not in fams:
+                _vthrow(f"{w}.target must name a family of this config, a section's family, or a box attribute.")
+
+
+def _validate_integrator_cabling(ic, pr):
+    """VAV-2a (B5) -- `list_spec.pricing.integrator_cabling`: the cabling family and the box family (families of this config), the two
+    inputs (metres per box; the length-check share), the integrator words with their near / not-near windows, the cabling-row word tables,
+    the per-metre units and the lines. The inputs being Pricing Input items is the cross-item check (`scope_problems`)."""
+    loc = "list_spec.pricing.integrator_cabling"
+    if not isinstance(ic, dict) or set(ic) != _INTEGRATOR_CABLING_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_INTEGRATOR_CABLING_KEYS))}.")
+    fams = set((pr.get("families") or {}).keys())
+    for k in ("family", "box_family"):
+        if ic[k] not in fams:
+            _vthrow(f"{loc}.{k} '{ic.get(k)}' is not a family of this config.")
+    for k in ("qty_input", "length_input"):
+        if not _nonempty_str(ic[k]):
+            _vthrow(f"{loc}.{k} must name a Pricing Input.")
+    for k in ("integrator_words", "integrator_near_words", "integrator_not_near_words", "cable_words", "conduit_words", "power_words",
+              "vav_words", "other_equipment_words"):
+        _pattern(ic[k], f"{loc}.{k}")
+    for k in ("near_chars", "not_near_chars"):
+        if not isinstance(ic[k], int) or isinstance(ic[k], bool) or ic[k] < 1:
+            _vthrow(f"{loc}.{k} must be a positive whole number.")
+    _word_list(ic["metre_units"], f"{loc}.metre_units")
+    _lines_exactly(ic["lines"], _INTEGRATOR_CABLING_LINES, f"{loc}.lines")
+    for k in ("priced_separately", "low_length"):
+        if "{rows}" not in ic["lines"][k]:
+            _vthrow(f"{loc}.lines.{k} must name {{rows}}.")
+
+
+def _validate_existing_boxes(eb, pr):
+    """VAV-2a (B6) -- `list_spec.pricing.existing_boxes`: the installation family, the kinds (each its own words, block label and factor
+    input; a refix kind also the input used when the sheet has a separate dismantling row), the dismantling-row words, the VAV words and
+    the lines."""
+    loc = "list_spec.pricing.existing_boxes"
+    if not isinstance(eb, dict) or set(eb) != _EXISTING_BOXES_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_EXISTING_BOXES_KEYS))}.")
+    if eb["install_family"] not in set((pr.get("families") or {}).keys()):
+        _vthrow(f"{loc}.install_family '{eb.get('install_family')}' is not a family of this config.")
+    _pattern(eb["dismantle_row_words"], f"{loc}.dismantle_row_words")
+    _pattern(eb["vav_words"], f"{loc}.vav_words")
+    ks = eb["kinds"]
+    if not isinstance(ks, list) or not ks:
+        _vthrow(f"{loc}.kinds must be a non-empty list.")
+    seen = set()
+    for i, k in enumerate(ks):
+        w = f"{loc}.kinds[{i}]"
+        if not isinstance(k, dict) or not ({"id", "words", "label", "factor_input"} <= set(k) <= {"id", "words", "label", "factor_input", "with_row_input"}):
+            _vthrow(f"{w} needs id, words, label and factor_input (and optionally with_row_input).")
+        if not _nonempty_str(k["id"]) or k["id"] in seen:
+            _vthrow(f"{w}.id must be a non-empty, unique string.")
+        seen.add(k["id"])
+        _pattern(k["words"], f"{w}.words")
+        for f in ("label", "factor_input") + (("with_row_input",) if "with_row_input" in k else ()):
+            if not _nonempty_str(k[f]):
+                _vthrow(f"{w}.{f} must be a non-empty string.")
+    _lines_exactly(eb["lines"], _EXISTING_BOXES_LINES, f"{loc}.lines")
+    if "{rows}" not in eb["lines"]["with_row"]:
+        _vthrow(f"{loc}.lines.with_row must name {{rows}}.")
+
+
+def vav_sheet_input_ids(pr):
+    """VAV-2a: every Pricing Input id the VAV-2a keys of a pricing block read (the combination share; the sheet checks add theirs).
+    PURE; [] for a block without them. Read by `extras_input_ids` (the used-by walk) and `scope_problems` (the cross-item check)."""
+    if not isinstance(pr, dict):
+        return []
+    out = []
+    cw = pr.get("combination_warning")
+    if isinstance(cw, dict) and isinstance(cw.get("share_input"), str) and cw["share_input"]:
+        out.append(cw["share_input"])
+    oc = pr.get("own_row_check")
+    if isinstance(oc, dict):
+        out.append(oc.get("threshold_input"))
+    ic = pr.get("integrator_cabling")
+    if isinstance(ic, dict):
+        out += [ic.get("qty_input"), ic.get("length_input")]
+    eb = pr.get("existing_boxes")
+    if isinstance(eb, dict):
+        for k in eb.get("kinds") or []:
+            if isinstance(k, dict):
+                out += [k.get("factor_input"), k.get("with_row_input")]
+    seen, res = set(), []
+    for i in out:
+        if isinstance(i, str) and i and i not in seen:
+            seen.add(i)
+            res.append(i)
+    return res
+
+
 def _validate_paint_row(pw, spec):
     """DU-3 (Case 8) -- `list_spec.pricing.paint_row`: the painting words (a regular expression), the delegated section and its family the
     row prices as (Misc's Paint), the quantity tolerance (0 < t < 1), the line ({rows}) and the miss line ({why})."""
@@ -1378,6 +1563,26 @@ _PRICING_KEYS = _PRICING_KEYS | {"paint_row"}
 _PRICING_KEYS = _PRICING_KEYS | {"row_refusals", "partial_insulation"}
 # DU-3 (QR-2 Q1 (b), owner 21:19): `two_insulations` -- two insulations on one duct row: the whole-duct one priced, the second by hand
 _PRICING_KEYS = _PRICING_KEYS | {"two_insulations"}
+# VAV-2a (B9, owner 2026-11-19 12:49 / 12:55 "option b" / 12:59 "50%"): `combination_warning` -- the warning on a row whose lines other than
+# the box come to more than a Pricing Input share of the box's own rate. Display only. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"combination_warning"}
+_COMBINATION_WARNING_KEYS = {"box_families", "share_input", "line", "input_missing"}
+_COMBINATION_WARNING_OPTIONAL = {"line_one"}
+# VAV-2a (B3 / B4 / QR-C1, owner 2026-11-18 23:32; QR-3a / QR-4 (a) 2026-11-19 00:57; 01:23 rate-only; QR-C1 (a) 13:31): `own_row_check`;
+# (B5, owner 23:14 / 23:18; 01:29 / 01:34 / 01:39; 12:37-12:55): `integrator_cabling`; (B6, owner 23:49; mockup screen 4): `existing_boxes`.
+# Each arrives WITH its shape check below and runs only on a BoQ row. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"own_row_check", "integrator_cabling", "existing_boxes"}
+_OWN_ROW_CHECK_KEYS = {"threshold_input", "box_words", "existing_words", "artefact_words", "cable_words", "vav_words", "metre_units",
+                       "count_units", "extras", "lines"}
+_OWN_ROW_CHECK_LINES = {"not_added", "double_count", "rate_only", "attr_changed", "threshold_missing"}
+_OWN_ROW_EXTRA_KEYS = {"label", "target", "words"}
+_OWN_ROW_EXTRA_OPTIONAL = {"needs_vav", "not_words", "near_words", "near_chars", "not_near_words", "not_near_chars", "presence_only"}
+_INTEGRATOR_CABLING_KEYS = {"family", "box_family", "qty_input", "length_input", "integrator_words", "integrator_near_words",
+                            "integrator_not_near_words", "near_chars", "not_near_chars", "cable_words", "conduit_words", "power_words",
+                            "vav_words", "other_equipment_words", "metre_units", "lines"}
+_INTEGRATOR_CABLING_LINES = {"added", "priced_separately", "low_length", "input_missing"}
+_EXISTING_BOXES_KEYS = {"install_family", "kinds", "dismantle_row_words", "vav_words", "lines"}
+_EXISTING_BOXES_LINES = {"priced", "with_row", "alone", "input_missing"}
 _PAINT_ROW_KEYS = {"words", "section", "family", "tolerance", "line", "miss_line"}
 # DU-2 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER): `family_alias_needs` (the attributes an alias family reads -- its target's
 # conversions needing others are not used for it, their boxes not shown), `no_sku_refuse_default` (the re-file sentence for a no-SKU
@@ -2285,6 +2490,8 @@ def extras_input_ids(cfg):
         si = (pr or {}).get("sheet_insulation") if isinstance(pr, dict) else None
         if isinstance(si, dict) and isinstance(si.get("threshold_input"), str) and si["threshold_input"]:
             out.append(si["threshold_input"])
+        # VAV-2a: the VAV keys' inputs (a block without them adds nothing)
+        out += vav_sheet_input_ids(pr)
         return out
     out = []
     for side in ("indoor", "outdoor"):
@@ -2335,6 +2542,10 @@ def scope_problems(configs, items):
         si = pr.get("sheet_insulation") if isinstance(pr, dict) else None
         if isinstance(si, dict) and "threshold_input" in si and si.get("threshold_input") not in inputs:
             out.append(f"'{c.get('category_id')}' sheet_insulation: the threshold input '{si.get('threshold_input')}' is not a Pricing Input item.")
+        # VAV-2a: each input a VAV-2a key reads must be a Pricing Input item of the discipline too
+        for iid in vav_sheet_input_ids(pr):
+            if iid not in inputs:
+                out.append(f"'{c.get('category_id')}' VAV-2a: the input '{iid}' is not a Pricing Input item.")
     return out
 
 
@@ -3792,6 +4003,14 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _strings_ok(pr, "list_spec.pricing", ("no_sku_refuse_default",))
     if "paint_row" in pr:
         _validate_paint_row(pr["paint_row"], spec)
+    if "combination_warning" in pr:
+        _validate_combination_warning(pr["combination_warning"], pr)
+    if "own_row_check" in pr:
+        _validate_own_row_check(pr["own_row_check"], spec)
+    if "integrator_cabling" in pr:
+        _validate_integrator_cabling(pr["integrator_cabling"], pr)
+    if "existing_boxes" in pr:
+        _validate_existing_boxes(pr["existing_boxes"], pr)
     if "two_insulations" in pr:
         ti = pr["two_insulations"]
         tloc = "list_spec.pricing.two_insulations"
