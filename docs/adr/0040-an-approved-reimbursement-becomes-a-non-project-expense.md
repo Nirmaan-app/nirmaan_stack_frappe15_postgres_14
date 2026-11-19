@@ -169,6 +169,36 @@ month. Unlike Amendment B's limit, which only warns the approver, this is a bloc
 Points 2-4 were the recommended answers to the owner's four questions (pending counts? exactly ₹2,000? PM only?
 edits too?), built as recommended on 2026-11-19 and to be confirmed.
 
+### Amendment E (2026-11-19, owner) -- the claim carries its expense's status
+
+Replaces Decision point 4 ("the claim follows only the endings") and Amendment C point 3 ("no new status"). With the
+claim fixed at Approved from its first approval until it was paid, the Status column read "Approved" for a claim
+waiting at L1, at the CEO or for reconciliation, while the tab and the totals showed the step. Two ways were put to
+the owner: show the step on screen only, worked out from the expense (no schema change), or give the claim the
+expense's statuses. The owner chose the second.
+
+1. **The claim has the expense's statuses, by the same names, plus its own first one**: Pending Approval (HR's or
+   Admin's first approval; there is no expense yet) · Requested · CEO Pending · Approved (waiting to be paid) ·
+   Reconciliation Pending · Paid · Rejected. Three options were added to the doctype's `status`
+   (`rules.CLAIM_STATUS_OF_EXPENSE`).
+2. **Every change of the expense's status is copied onto the claim**, wherever it is made (`expense_link.follow_expense`,
+   on the expense's insert too): L1 and CEO approval, Mark as Paid, a reconcile, a reject (with its reason) and an
+   undone bank match (back to Reconciliation Pending). A Pending Approval or Rejected claim never moves.
+3. **"Approved" in the rules now means one step**; where a rule meant "approved and may still be paid" it reads
+   `rules.APPROVED_STEPS` (Requested, CEO Pending, Approved, Reconciliation Pending): the month total (Amendment B),
+   the Project Manager cap (Amendment D, point 2) and the profile summary.
+4. **Each step tab lists one claim status** (`rules.TAB_OF_STATUS`); the tab no longer reads the expense.
+5. **Existing claims were moved once** by `patches/v3_0/reimbursement_status_from_expense`: an Approved claim whose
+   expense is Requested, CEO Pending or Reconciliation Pending takes that status. Raw SQL on purpose, leaving
+   `modified` as it was (owner); nothing is derived from the claim's status.
+6. **The tab sets per role changed the same day** (Amendment C named Admin, Accounts and HR as seeing every tab):
+   HR sees Pending Approval, Reconciliation Done / Paid, All and Raised By Me; Accounts sees Payment need to be paid,
+   Reconciliation Pending, Reconciliation Done / Paid, All and Raised By Me; Admin every tab but the CEO's. "Paid" is
+   shown as "Reconciliation Done / Paid".
+
+The price: the claim's status and the expense's are the same fact kept twice. Point 2 is what keeps them equal; a
+write to the expense that skips its hooks would leave the claim behind.
+
 ## Considered options
 
 - **Reimbursement as a fifth kind of payment on the Project Payments screens**, the claim holding its own
