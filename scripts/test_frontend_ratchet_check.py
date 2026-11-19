@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from frontend_ratchet_check import (  # noqa: E402
+    DISABLES,
     JSON_CALLS,
     OXLINT,
     suppression_loosenings,
@@ -35,6 +36,7 @@ def suppressions(**files):
 
 BASE = suppressions(orders={"typescript/no-explicit-any": 3, "no-restricted-imports": 1})
 JSON_BASE = {"src/orders.tsx": {"no-json-call": {"count": 1}}}
+DISABLE_BASE = {"src/orders.tsx": {"typescript/no-explicit-any": {"count": 2}}}
 
 
 def loosenings(base, head, base_pkg=None, head_pkg=None):
@@ -142,10 +144,11 @@ class CommandLine(GitRepo, unittest.TestCase):
         self.write(BASE, package(97.47))
         self.commit("base")
 
-    def write(self, supp, pkg, json_calls=None, name=OXLINT):
+    def write(self, supp, pkg, json_calls=None, name=OXLINT, disables=None):
         (self.repo / "frontend").mkdir(exist_ok=True)
         (self.repo / name).write_text(json.dumps(supp))
         (self.repo / JSON_CALLS).write_text(json.dumps(json_calls or JSON_BASE))
+        (self.repo / DISABLES).write_text(json.dumps(disables or DISABLE_BASE))
         (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
 
     def test_a_loosened_working_tree_exits_1_and_names_the_loosening(self):
@@ -173,7 +176,7 @@ class CommandLine(GitRepo, unittest.TestCase):
         self.assertEqual(self.run_script().returncode, 0)
 
     def test_a_deleted_suppressions_file_exits_1_and_says_so(self):
-        for name in (OXLINT, JSON_CALLS):
+        for name in (OXLINT, JSON_CALLS, DISABLES):
             with self.subTest(name):
                 self.write(BASE, package(97.47))
                 (self.repo / name).unlink()
@@ -187,6 +190,30 @@ class CommandLine(GitRepo, unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
         self.assertIn("src/orders.tsx no-json-call rose 1 -> 2", result.stderr)
+
+    def test_a_grown_disable_comment_count_exits_1(self):
+        self.write(BASE, package(97.47), disables={"src/orders.tsx": {"typescript/no-explicit-any": {"count": 3}}})
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"{DISABLES}: src/orders.tsx typescript/no-explicit-any rose 2 -> 3", result.stderr)
+
+    def test_a_new_file_or_rule_in_the_disable_comment_file_exits_1(self):
+        self.write(BASE, package(97.47), disables={**DISABLE_BASE, "src/new.tsx": {"every-rule": {"count": 1}}})
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("src/new.tsx every-rule is new (1)", result.stderr)
+
+    def test_a_lowered_disable_comment_count_exits_0(self):
+        self.write(BASE, package(97.47), disables={"src/orders.tsx": {"typescript/no-explicit-any": {"count": 1}}})
+        self.assertEqual(self.run_script().returncode, 0)
+
+    def test_the_change_that_adds_the_disable_comment_file_exits_0_even_from_an_eslint_base(self):
+        self.git("rm", "-q", DISABLES)
+        (self.repo / "frontend/eslint-suppressions.json").write_text(json.dumps({}))
+        self.commit("no disable freeze")
+        self.write(BASE, package(97.47))
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_no_suppressions_file_on_either_side_exits_0(self):
         self.git("rm", "-q", OXLINT, JSON_CALLS)
@@ -323,6 +350,21 @@ class LintSettings(LintRepo, unittest.TestCase):
         (self.repo / "frontend/.eslintignore").unlink()
         (self.repo / "frontend/src/pages/.gitignore").write_text("orders/\n")
         self.refused("frontend/src/pages/orders/list.tsx", "gitignore")
+
+    def test_a_symlink_under_src_is_refused_tracked_or_not(self):
+        # oxlint follows a link into the folder or file behind it and honours its disable comments; the checks that
+        # list files with git (D1, J1) see the link as one entry and read nothing behind it (#1705's review).
+        shared = self.repo / "frontend/shared"
+        shared.mkdir()
+        (shared / "leak.ts").write_text("export const leak = 1;\n")
+        link = self.repo / "frontend/src/shared"
+        link.symlink_to("../shared")
+        self.refused("frontend/src/shared", "symlink")
+        self.commit("a linked folder")
+        self.refused("frontend/src/shared", "symlink")
+        link.unlink()
+        (self.repo / "frontend/src/pages/orders/alias.ts").symlink_to("../../../shared/leak.ts")
+        self.refused("frontend/src/pages/orders/alias.ts", "symlink")
 
     def test_a_narrowed_lint_script_is_refused(self):
         for script, named in [("oxlint --type-aware src/pages", "drops src"),

@@ -34,6 +34,8 @@ from residence_check import (  # noqa: E402
     json_call_drift,
 )
 
+REPO = Path(__file__).resolve().parent.parent
+
 
 class FrontendPaymentSums(unittest.TestCase):
     def test_a_reduce_over_payment_amounts_is_a_copy(self):
@@ -299,12 +301,12 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_seven_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_eight_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
-            "j1_json_calls_unfrozen",
+            "j1_json_calls_unfrozen", "d1_disable_comments_unfrozen",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):

@@ -21,8 +21,11 @@ Usage:
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
+    python3 scripts/residence_check.py --prune-disable-comments  # D1: lower the frozen disable-comment counts
 
-Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
+D1's code is in disable_comment_check.py; what J1 and D1 share (TypeScript's parser run by node) in frozen_counts.py.
+Stdlib only, plus node for J1 and D1 (frontend/scripts/json_calls.mjs, disable_comments.mjs, with
+frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -36,6 +39,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NamedTuple
+
+import frozen_counts
+from disable_comment_check import DISABLE_SUPPRESSIONS, PRUNE_FLAG, disable_comments_unfrozen, prune_disable_comments
+from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
 
 # Repo root = the parent of this scripts/ directory (NOT the cwd).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -445,32 +452,9 @@ JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui
 JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
 
 
-class JsonCallParserError(RuntimeError):
-    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
-
-
-# Set by --hook: in a commit hook J1 warns and passes when its parser cannot run (a worktree with no
-# frontend/node_modules, a box with no node); CI and every other run still fail.
-J1_MAY_SKIP = False
-
-
 def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
-    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
-
-    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
-    """
-    try:
-        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
-                             capture_output=True, text=True, encoding="utf-8")
-    except OSError as e:
-        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
-    if run.returncode != 0:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
-                                  f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
-    try:
-        return json.loads(run.stdout)
-    except ValueError as e:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX)."""
+    return run_ts_parser(JSON_CALL_PARSER, sources)
 
 
 def json_call_count(src: str) -> int:
@@ -482,26 +466,21 @@ def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]
     """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
 
     ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
-    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
-    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
-    """
-    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
-    out = []
-    for path in sorted(set(found) | set(allowed)):
-        now, was = found.get(path, 0), allowed.get(path, 0)
-        if now > was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
-        elif now < was:
-            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
-                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
-    return out
+    ({path: {rule: {"count": n}}}), and only its JSON_CALL_RULE entries count. A lower count fails too
+    (frozen_counts.frozen_drift)."""
+    calls = {path: {JSON_CALL_RULE: {"count": n}} for path, n in found.items()}
+    allowed = {path: {JSON_CALL_RULE: rules[JSON_CALL_RULE]}
+               for path, rules in frozen.items() if JSON_CALL_RULE in rules}
+    over, under = frozen_drift(calls, allowed,
+                               lambda path, _, now, was: f"frontend/{path}: {now} .json() calls, {was} frozen")
+    return sorted([f"{line} (a new call: use parseJson)" for line in over]
+                  + [f"{line} (fewer: lower its count in {JSON_CALL_SUPPRESSIONS})" for line in under])
 
 
 def json_calls_unfrozen() -> list[str]:
     """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
 
-    When the parser cannot run, that is J1's one finding, so the check fails and says why.
-    """
+    When the parser cannot run, that is J1's one finding (frozen_counts.node_cannot_run)."""
     sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         rel = p.relative_to(REPO_ROOT).as_posix()
@@ -509,14 +488,9 @@ def json_calls_unfrozen() -> list[str]:
             sources[rel.removeprefix("frontend/")] = read(p)
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
-    except JsonCallParserError as e:
-        if J1_MAY_SKIP:
-            print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
-            return []
-        return [f"J1 could not count .json() calls: {e}"]
-    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
-    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
-    return json_call_drift(found, frozen)
+    except TsParserError as e:
+        return node_cannot_run("J1", ".json() calls", e)
+    return json_call_drift(found, read_frozen(JSON_CALL_SUPPRESSIONS))
 
 
 # --- check registry ----------------------------------------------------------
@@ -665,6 +639,20 @@ CHECKS: list[Check] = [
         locate=json_calls_unfrozen,
         pass_mark=0,
     ),
+    # ADR-0049's ratchet through a disable comment (#1705): oxlint honours `eslint-disable` and `oxlint-disable`
+    # comments, so one above a new `any` passed `yarn lint`. Frozen per file and rule in DISABLE_SUPPRESSIONS (the
+    # ratchet check guards it); pass mark 0, as J1's.
+    Check(
+        id="d1_disable_comments_unfrozen",
+        rule="D1",
+        description=f"Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no "
+                    f"rule) than frozen in {DISABLE_SUPPRESSIONS}.",
+        route_hint="a new comment: fix the violation instead of disabling the rule (ADR-0049); a comment removed: "
+                   f"lower its count with python3 scripts/residence_check.py {PRUNE_FLAG}",
+        measure=lambda: len(disable_comments_unfrozen()),
+        locate=disable_comments_unfrozen,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -749,7 +737,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's two
 # counters (B1, B3) run in the local hook only (ADR-0010 amendment, 2026-11-18).
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "D1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
@@ -810,16 +798,23 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
     parser.add_argument("--hook", action="store_true",
-                        help="Run from a commit hook: J1 warns and passes when node or TypeScript cannot run.")
+                        help="Run from a commit hook: J1 and D1 warn and pass when node or TypeScript cannot run.")
+    parser.add_argument(PRUNE_FLAG, action="store_true", dest="prune_disables",
+                        help=f"Lower {DISABLE_SUPPRESSIONS} to today's counts after removing disable comments (D1).")
     args = parser.parse_args(argv)
-    global J1_MAY_SKIP
-    J1_MAY_SKIP = args.hook
+    frozen_counts.NODE_MAY_SKIP = args.hook
     if args.init and args.only:
         print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
               file=sys.stderr)
         return 2
     if args.init:
         return do_init()
+    if args.prune_disables:
+        if args.check or args.only or args.init:
+            print(f"{PRUNE_FLAG} runs alone: it rewrites {DISABLE_SUPPRESSIONS}, which --check promises not to do.",
+                  file=sys.stderr)
+            return 2
+        return prune_disable_comments()
     checks = CHECKS if checks is None else checks
     if args.only:
         try:

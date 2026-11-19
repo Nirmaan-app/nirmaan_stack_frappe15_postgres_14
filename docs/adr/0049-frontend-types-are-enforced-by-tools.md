@@ -22,10 +22,9 @@ We decided:
 - **Checks run at commit and in CI.** The repo's hooks switch themselves on at `yarn install` (`core.hooksPath`), a
   `pre-merge-commit` hook covers merges, and CI runs the same checks on every pull request, because a local hook can
   always be skipped. In CI: ESLint, the existing `tsc` ratchet (`yarn typecheck`), `type-coverage --strict` (an
-  upward-only percentage that also sees `any` from library defaults), and the six residence checks that are not
-  ADR-0010 rules (S1, R1, both P1, T1, T2). ADR-0010's five rules stay local until that ADR is accepted.
-  ADR-0010's rule F5 (no raw `updateDoc` call) skips `frontend/src/lib/frappe.ts`, which names
-  `useFrappeUpdateDoc` to re-export it but writes nothing (owner, 2026-11-16).
+  upward-only percentage that also sees `any` from library defaults), and the residence checks that are not
+  ADR-0010 rules (S1, R1, both P1, T1, T2; J1 and D1 since, in the Amendment). ADR-0010, accepted as amended on 2026-11-18, keeps two counters (B1,
+  B3); they stay local, in the git hook only, and its other rules are review rules (its F5 counter is retired).
 - **SDK calls return `unknown` unless typed.** One module re-exports the frappe-react-sdk hooks with `T` defaulting to
   `unknown`, and a lint rule bans importing `frappe-react-sdk` directly. Callers move one folder per change
   (expand–contract), because flipping the default at once raised 1,113 `tsc` errors (682 in live code across about 130
@@ -100,6 +99,20 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   a worktree with no `frontend/node_modules`, or a box with no node, can still commit. CI runs J1 with the other
   residence checks, after `yarn install`, and fails there.
 - oxlint honours the existing `eslint-disable` comments, under ESLint's rule names.
+- A disable comment is frozen too (#1705): residence check D1 (`scripts/disable_comment_check.py`, run by
+  `scripts/residence_check.py`) counts, per file and rule, the `eslint-disable` and `oxlint-disable` comments
+  (`-next-line`, `-line` or file-wide) that name a rule `.oxlintrc.json` turns on for that file, under any name oxlint
+  reads as it, or name no rule. Only the files a rule applies to count: a rule on only in an override counts in the
+  files its `files` globs match, and a file `ignorePatterns` or a `.gitignore` names is not read, as oxlint reads
+  neither. It reads every file type `oxlint src` lints (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`,
+  `.cjs`). A file-wide comment counts apart from a line comment for the same rule (its key ends ` (file-wide)`), so
+  widening a frozen line comment to the whole file is a new entry. It reads the comments with TypeScript's parser
+  (`frontend/scripts/disable_comments.mjs`), so text in a string is not one. It also reads the HTML-like comments
+  oxlint reads outside `.mjs` and `.mts`: from a `<!--` anywhere, or a `-->` at a line's start, to the line's end.
+  Today's 11 are in `frontend/disable-comment-suppressions.json`; a file off its count fails, in CI and in the commit
+  hooks (which skip it with a warning where node cannot run, as J1). A change that removes a comment lowers the frozen
+  count in the same change, with `python3 scripts/residence_check.py --prune-disable-comments`; the ratchet check
+  refuses a count that rises. Comments for a rule that is off (`react-hooks/exhaustive-deps`) are not counted.
 - ESLint's frozen "rule not found" entry for `jsx-a11y/no-autofocus` (a disable comment for a plugin never loaded)
   has no oxlint counterpart and is gone.
 - `scripts/frontend_ratchet_check.py` guards both files in pull requests. Against a base that holds only
@@ -117,7 +130,8 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
   typed path) no longer on for one of its patterns; a nested `.oxlintrc.json`, `.oxlintrc.jsonc` or `oxlint.config.*`
   in any folder but a real `node_modules` folder, which oxlint never reads (a folder whose name only ends in
   `node_modules`, such as `old_node_modules`, is read and counts), an `.eslintignore`, or a `.gitignore` that hides a
-  tracked file under `frontend/src/` (oxlint reads all three on its own); the `lint` script with a word dropped or
+  tracked file under `frontend/src/` (oxlint reads all three on its own); a symlink under `frontend/src/` (oxlint
+  lints what it points at, and D1 and J1 cannot read behind it); the `lint` script with a word dropped or
   added (only `--deny-warnings`, `--max-warnings=0` (or `--max-warnings 0`) and `--report-unused-disable-directives`
   may be added), or a new `prelint`/`postlint`; a top-level config key it does not compare (such as `extends`)
   changed; and a raised count in `scripts/residence_baseline.json` for a check CI runs. A ban rule's options are
