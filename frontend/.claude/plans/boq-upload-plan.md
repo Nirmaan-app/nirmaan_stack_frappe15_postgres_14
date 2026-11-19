@@ -52152,3 +52152,43 @@ Replay du3end = du3k2 byte-equal. **Cert C1-C12** PASS (41 screenshots), dev_iso
 **Open (follow-up list):** the stray ")" in the stored note "BoQ says round / spiral / oval with no duct type - priced as Spiral /
 Oval)" (owner "option a", 2026-11-17 00:15; 2 rows, wording only); the mixed-shape ruling applied generally was RE-RULED removal-only
 (CH-DU3-17) - nothing open there; the "stainless-steel VALVE row" cert step has no corpus row (unit tests hold it).
+
+## Slice VAV-R0 (desktop) - VAV Box read-only recon - 2026-11-18
+981 VAV Box rows (76 BoQs / 84 sheets) exported to `BoQ main lane\VAV-R0\VAV_Payload_Library`; `hvac_vav_box` existed only in the
+classifier (no item, config or registry line); price source = the 2 Nov workbook's VAV Box tab (86 lines) + 4 Misc-tab lines; paid-run
+estimate 92 calls, central 1.79M tokens. Replay baseline vavpost (33,346 rows, ac7 cadcbc9e / ac7v2 c98df656). No commit, no write.
+
+## Slice VAV-D0 (desktop) - VAV Box design (read-only) - 2026-11-19
+Design `2026-11-19_VAV-D0_Design.md` (D1-D10): 58 rulings mapped; own extras as VAV families + borrowed Misc / Sensors items as sections
+(QR-1 (a)); borrow-only Sensors config (QR-2 (a)); same-sheet charged-separately check, two items for conical + connection, mm inlet
+sizes converted, room sensor at the Misc thermometer rate (QR-3a-d (a)); cabling by positive words (QR-4 (a)); catalogue draft 86 + 4;
+13 fixtures; plan VAV-1 -> VAV-2a / VAV-2b -> VAV-3. No commit, no write.
+
+## Slice VAV-1 (desktop) - VAV Box price sheet into the Rate Master: HVAC v76, the Rate Master tab and the Calculator - 2026-11-19
+**Asset v76** = v75 + `hvac_vav_box` (91 items: the VAV Box tab's 86 lines read from the workbook, BCS noise cleaned, "AHRI Certified";
++ BACnet over IP controller 33,000 + 2,000, Duct connection and Conical piece 1,200 + 0, Integrator cabling 140 + 0 per Mtr, "VAV
+installation - any size" 0 + 1,500; markups 0.4 / 0.6) + borrow-only `hvac_sensors` (CO2 Sensor, Differential Pressure Switch,
+Greystone/Honeywell) + Misc + Digital Thermostat / Transformation Pieces (22 -> 24) + `vav_install_only_uplift` 0 (QR-B (a): the other
+VAV-2 inputs come with their code). Every other config / item byte-identical; the model's question identical for every v75 category.
+Mint `scripts/_instruments/mint_hvac_v76_vav1.py`; loaded after a PROVED backup (vav1_pre_v76_20261119_042636.dump, 442 tables,
+row-count md5 = live), batch rmbulk-98c3f98a68a2, snapshot BRMS-26-00967, verify 0 / 0; Electrical v72 unchanged.
+**Owner rulings in the slice:** QR-A (a) "optiom a" -- the temporary `calculator_only` switch revived for hvac_vav_box ONLY (VRF-2a
+shape): the Rate Master tab and the Calculator work, every VAV-filed BoQ row stays "coming soon" and out of Suggest; QR-C2 (a) the
+integrator's second line is "Imported" (the tab's word); QR-C3 (a) the two nested Misc lines on the Valve / Ducting Derivation tabs
+change ("9 kinds", + the two items); AC16 / T10 calculator = sheet on every line.
+**Validator (B6):** `numbers` may be an empty object (choice-only categories).
+**Proofs:** T1 parity 86 / 86 + 5; T10 calculator = sheet 86 / 86 (26 differ only by rounding below a rupee) + the borrowed five exact;
+T2 reachability 91 / 91; D2 34,720 + 2,900 (+ cabling and DP 37,282 + 3,800; minus the cone 31,360 + 2,900); coverage 0 / 0 / 0;
+replay vav1k2 = vav1p0 byte-identical (0 moves); PF3 30 PASS / 5 N/A-until-VAV-2 / 15 N/A / 0 FAIL; vacuity 5 breaks red.
+**Commits (not pushed, on ab86a7a65):** K1 83a6db950 (the calculator_only switch, the empty-numbers validator fix, the mint script,
+switch tests, 12 + 2 pins inverted), K2 a0274159d (HVAC v76, registry lines, VAV tests, pin moves), K3 this docs commit; K1 / K2 / K3
+with --no-verify (owner VAV1-19 (a): the desktop host hook cannot run; container residence check saved per commit).
+**Cert C1-C9 PASS** (22 cropped screenshots; the owner signed in at :8080): Rate Master > HVAC > VAV Box 91 items + Derivation; the
+Calculator D2 34,720 + 2,900 from the dropdowns and add buttons; Valve / Ducting unchanged; a VAV-filed row = coming soon;
+dev_isolate --yes / --verify PASS. **Suites (VAV-2a's before):** Python 139 / 5,108; vitest boq-wizard + pricing 204 / 8,281; tsc 0 new (1,185). Logs in
+`BoQ main lane\VAV-1\logs\2026-11-19_VAV-1_S3_*`.
+**OPEN 1 - OWED IN VAV-2b:** remove the `calculator_only` key from the VAV config AND the switch (invert K1 83a6db950's switch:
+config_validation allowlist + `_CALCULATOR_ONLY_CATEGORIES` + `_validate_calculator_only`, extraction `config_is_eligible` clauses,
+`isCalculatorOnlyConfig` / `calculatorSurface` in pricingSheetHelper.ts and PricingCalculator.tsx; re-invert the pins listed in
+`VAV-1_K1_pin_inversions.md`). Other open items: the host pre-commit hook (no node for J1; S1 counts approvalsTable.config.ts, an
+upstream 538-line file) - K1 committed with --no-verify, first time; the BOQ-26-00215 cross-sheet CO2 blind spot (VAV-D0).

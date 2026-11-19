@@ -5621,3 +5621,39 @@ follow-up list). Commits ce65207fc, 1ad512a53, b3115fd9b, 9f7e03ac9, a5199b40c, 
 - **Tools:** the pack harness resolves section fields; the review chunks carry the panel's sheet notes ("SHEET NOTE:"); the per-row
   replay (ac7) has no sheet-level feed, so the R1 coverage and the Case 8 run of rows show only on the page / pack harness (7 rows:
   replay 1,390 priced vs pack 1,397).
+
+
+## VAV Box (HVAC v76) - VAV-1 (2026-11-19) - as built
+
+Mint `scripts/_instruments/mint_hvac_v76_vav1.py` (build / fixture / load / verify); design VAV-D0 (`BoQ main lane\VAV-D0\`), rulings in
+`VAV_Rulings_Capture_2026-11-18.md` (owner 2026-11-18 22:16 - 2026-11-19 01:39), QR-A (a) / QR-B (a) / QR-C2 (a) / QR-C3 (a) of VAV-1.
+
+**What v76 adds** (every v75 item and every other v75 config byte-identical; the model's question for every v75 category identical):
+- `hvac_vav_box` (item kind `hvac_vav_item`, family attribute `vav_item`): 91 items = the workbook's VAV Box tab rows 2-87 (84 box lines:
+  Rectangular / Oval x Nothing specific mentioned / AHRI Certified / AHRI Certified Imported x integrator Yes / No x 7 CFM bands; 2 VAV
+  Integrator lines "Nothing specific mentioned" / "Imported", the tab's own words) + the owner's SKUs BACnet over IP controller 33,000 + 2,000,
+  Duct connection 1,200 + 0, Conical piece 1,200 + 0, Integrator cabling 140 + 0 per Mtr, "VAV installation - any size" 0 + 1,500. Markups
+  0.4 / 0.6, BoQ = ROUNDUP(BCS x (1 + markup)). BCS float noise stored clean; "AHRI Certfied" spelled "AHRI Certified".
+- The box family needs its four match facts (`units.count.needs` shape / vav_type / integrator_included / cfm_range): without them the 84
+  SKUs are ambiguous; with one missing the box refuses naming it, never a pick. VAV Integrator needs `vav_type` (values per family).
+- Sections: own VAV items + Misc (Digital Thermostat, Temperature Gauge / Thermometer as "Room temperature sensor", Transformation Pieces)
+  + Sensors (CO2 Sensor, Differential Pressure Switch), borrowed LIVE under their own rules (block 85: VAV holds no figure of them).
+- `hvac_sensors` ("Sensors & Controls", kind `hvac_sensor_item`, family `sensor`): BORROW-ONLY exactly as Misc at VP-1 (no top-level
+  attributes, offered-only, registry `fetch_only`), 2 items Greystone/Honeywell from the Sensors tab rows 14 / 10.
+- `hvac_misc`: + Digital Thermostat (Misc tab row 11) and Transformation Pieces (row 19) and their 2 families; Misc 22 -> 24 items. The
+  nested Misc lines on the Valve Package (line 45) and Ducting (line 63) Derivation tabs read "9 kinds" and list the two (QR-C3 (a)).
+- `vav_install_only_uplift` = 0 (the scope's required input). The other VAV-2 inputs (existing-work factors, 2 m per box, the 90% and
+  70% thresholds) arrive with the code that reads them, VAV-2a (QR-B (a)).
+- `numbers: {}` / `ladders: []`: a category matching on choices only; the validator accepts an empty object since VAV-1 (B6).
+
+**The temporary calculator-only switch (owner QR-A (a), 2026-11-19 02:57):** the VAV config carries `calculator_only: true`
+(`_CALCULATOR_ONLY_CATEGORIES` = {hvac_vav_box}). The Calculator (`calculatorSurface: true`) and the Rate Master tab work; every VAV-filed
+BoQ row keeps "coming soon" and `config_is_eligible` keeps VAV rows out of Suggest. **VAV-2b MUST remove the key and the switch** (the VRF-4
+pattern: allowlist entry, `_CALCULATOR_ONLY_CATEGORIES`, `_validate_calculator_only`, `isCalculatorOnlyConfig`, the dep and the flag).
+
+**Proofs:** T1 parity 86 / 86 + 5; T10 calculator = sheet 86 / 86 (26 differ only by rounding below a rupee) + the borrowed five exact;
+T2 reachability 91 / 91 from the calculator's dropdowns; D2 34,720 + 2,900; Derivation coverage VAV / Sensors 0 / 0 / 0 unreasoned.
+
+**What VAV-2 adds:** the reading rules (CFM band from a range's maximum, the inlet-size table, shape default Rectangular, port charges),
+the opt-in pieces N1-N5 (charged-on-its-own-row check, the 2 m integrator cabling, source tags, counts, one add button per extra),
+existing-work factors, installation-any-size as a rule, the model guidance, the panel to the mockup, the paid run -- and the switch's removal.
