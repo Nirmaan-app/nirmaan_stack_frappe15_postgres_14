@@ -13,72 +13,39 @@
 import { useCallback, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
-import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { deliverTdsExport, type TdsPdfPreview } from "@/pages/projects/data/tds/deliverTdsExport";
 import { toExportSettingsPayload } from "@/pages/projects/data/tds/tdsSettings";
 import type { TDSRepositoryData } from "@/pages/projects/TDSRepository/components/SetupTDSRepositoryDialog";
-import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { formatDate } from "@/utils/FormatDate";
-import { saveUrlAs } from "@/utils/saveUrlAs";
+import type { TdsExportContext } from "@/utils/tdsExport";
 
 const START_METHOD = "nirmaan_stack.api.tds.tds_report.start_tds_export";
 
-/** A generated PDF held in memory for the in-app preview, never saved. */
-export interface HodTdsPreview {
-  blobUrl: string;
-  filename: string;
-  sizeBytes: number;
-}
-
-/** What `exportTds` gives the operation, kept across a reload. */
-interface ExportContext {
-  previewOnly: boolean;
-  fallbackName: string;
-}
-
-const parseContext = (context: unknown): ExportContext => {
-  const value = typeof context === "object" && context !== null ? (context as Record<string, unknown>) : {};
-  return {
-    previewOnly: value.previewOnly === true,
-    fallbackName: typeof value.fallbackName === "string" ? value.fallbackName : "TDS_Report.pdf",
-  };
-};
-
-const failedItems = (result: unknown): string[] =>
-  typeof result === "object" && result !== null && "failed_items" in result && Array.isArray(result.failed_items)
-    ? result.failed_items.map(String)
-    : [];
-
 export function useHodTdsExport(projectId: string, projectName: string) {
   const [isDelivering, setIsDelivering] = useState(false);
-  const [preview, setPreview] = useState<HodTdsPreview | null>(null);
+  const [preview, setPreview] = useState<TdsPdfPreview | null>(null);
 
   const deliver = useCallback(async (result: unknown, context: unknown, opId: string) => {
-    const { previewOnly, fallbackName } = parseContext(context);
-    const name = parseResultFile(result)?.filename || fallbackName;
     setIsDelivering(true);
     try {
-      const blob = await collectResultFile(opId);
-      const blobUrl = window.URL.createObjectURL(blob);
-      if (previewOnly) {
+      const { preview: pdf, failedItems: failed } = await deliverTdsExport(opId, result, context);
+      if (pdf) {
         setPreview((prev) => {
           if (prev) window.URL.revokeObjectURL(prev.blobUrl);
-          return { blobUrl, filename: name, sizeBytes: blob.size };
+          return pdf;
         });
-      } else {
-        saveUrlAs(blobUrl, name);
-        window.URL.revokeObjectURL(blobUrl);
       }
-      const failed = failedItems(result);
       toast(
         failed.length
           ? {
-              title: previewOnly ? "Ready with gaps" : "Downloaded with gaps",
+              title: pdf ? "Ready with gaps" : "Downloaded with gaps",
               description: `Could not include: ${failed.slice(0, 4).join(", ")}${failed.length > 4 ? ` and ${failed.length - 4} more` : ""}.`,
               variant: "destructive",
             }
           : {
               title: "Ready",
-              description: previewOnly ? "Your PDF preview is open." : "Your PDF is downloading.",
+              description: pdf ? "Your PDF preview is open." : "Your PDF is downloading.",
               variant: "success",
             },
       );
@@ -121,7 +88,7 @@ export function useHodTdsExport(projectId: string, projectName: string) {
       { previewOnly }: { previewOnly: boolean },
     ) => {
       if (isExporting) return;
-      const context: ExportContext = {
+      const context: TdsExportContext = {
         previewOnly,
         fallbackName: `${(projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_")}_${label}_${formatDate(new Date())}.pdf`,
       };

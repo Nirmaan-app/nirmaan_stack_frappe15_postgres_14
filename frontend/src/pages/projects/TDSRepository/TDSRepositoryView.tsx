@@ -13,8 +13,11 @@ import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, T
 import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel, projectHistoryTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
 import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
 import { useCounts } from '@/hooks/useCounts';
-import { collectResultFile, useBackgroundOperation } from '@/hooks/useBackgroundOperation';
-import { parseResultFile, type OpView } from '@/utils/backgroundOps/operationFollower';
+import { useBackgroundOperation } from '@/hooks/useBackgroundOperation';
+import { deliverTdsExport } from '@/pages/projects/data/tds/deliverTdsExport';
+import type { TdsExportContext } from '@/utils/tdsExport';
+import { saveUrlAs } from '@/utils/saveUrlAs';
+import type { OpView } from '@/utils/backgroundOps/operationFollower';
 
 const ROW_DOCTYPE = "Project TDS Item List";
 
@@ -196,15 +199,6 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         }
     };
 
-    const triggerBrowserDownload = (url: string, filename: string) => {
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", filename);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-    };
-
     const handlePdfReadyClose = () => {
         setIsPdfReadyOpen(false);
         if (pdfReadyBlobUrl) {
@@ -217,7 +211,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
     const handlePdfReadyDownload = () => {
         if (!pdfReadyBlobUrl) return;
-        triggerBrowserDownload(pdfReadyBlobUrl, pdfReadyFilename);
+        saveUrlAs(pdfReadyBlobUrl, pdfReadyFilename);
         toast({ title: "Success", description: "Report downloaded successfully." });
         handlePdfReadyClose();
     };
@@ -225,34 +219,24 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     /* The export is a background operation (ADR 0047): this tab follows its own operation's status record, so
        two tabs never swap PDFs, a dropped socket still ends in the download, and a reload picks it up again. */
     const deliverPdf = async (result: unknown, context: unknown, opId: string) => {
-        const previewOnly = typeof context === "object" && context !== null && "previewOnly" in context
-            && context.previewOnly === true;
-        const failedItems = typeof result === "object" && result !== null && "failed_items" in result
-            && Array.isArray(result.failed_items) ? result.failed_items.map(String) : [];
-        const dateStr = format(new Date(), "dd-MMM-yyyy");
-        const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_");
-        const finalName = parseResultFile(result)?.filename || `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
         setIsDelivering(true);
         try {
-            const blob = await collectResultFile(opId);
-            const objectUrl = window.URL.createObjectURL(blob);
+            const { preview: pdf, failedItems } = await deliverTdsExport(opId, result, context);
             setIsExportDialogOpen(false);
             const warning = failedItems.length ? `Some attachments failed: ${failedItems.join(", ")}` : null;
-            if (previewOnly) {
+            if (pdf) {
                 // Revoke any previous preview blob before replacing it, so back-to-back exports don't leak it.
                 setPdfReadyBlobUrl((prev) => {
                     if (prev) window.URL.revokeObjectURL(prev);
-                    return objectUrl;
+                    return pdf.blobUrl;
                 });
-                setPdfReadyFilename(finalName);
-                setPdfReadySizeBytes(blob.size);
+                setPdfReadyFilename(pdf.filename);
+                setPdfReadySizeBytes(pdf.sizeBytes);
                 setIsPdfReadyOpen(true);
                 toast(warning
                     ? { title: "Ready with warnings", description: warning }
                     : { title: "PDF ready", description: "Preview or download your TDS report." });
             } else {
-                triggerBrowserDownload(objectUrl, finalName);
-                window.URL.revokeObjectURL(objectUrl);
                 toast(warning
                     ? { title: "Exported with warnings", description: warning }
                     : { title: "Success", description: "Report downloaded successfully." });
@@ -305,7 +289,10 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 items_json: JSON.stringify(selectedItems),
                 project_name: projectName,
             },
-            { previewOnly: !!previewOnly },
+            {
+                previewOnly: !!previewOnly,
+                fallbackName: `TDS_Report_${(projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_")}_${format(new Date(), "dd-MMM-yyyy")}.pdf`,
+            } satisfies TdsExportContext,
         );
     };
 
