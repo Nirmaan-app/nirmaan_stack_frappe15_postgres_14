@@ -71,7 +71,7 @@ interface RuleCases {
     description_required: (Named & { amount: number; required: boolean })[];
     mergeable: { file_name: string; mergeable: boolean }[];
     tabs: string[];
-    claim_tab: (Named & { claim_status: string; expense_status: string | null; tab: string | null })[];
+    claim_tab: (Named & { claim_status: string; tab: string | null })[];
     pm_monthly_cap: number;
     pm_cap: (Allowed & { month_used: number; amount: number; capped: boolean; left: number })[];
 }
@@ -136,7 +136,7 @@ describe("shared cases with the server", () => {
     });
 
     it.each(CASES.claim_tab)("claim tab: $name", (c) => {
-        expect(claimTab(c.claim_status, c.expense_status)).toBe(c.tab);
+        expect(claimTab(c.claim_status)).toBe(c.tab);
     });
 
     it("has the same Project Manager cap", () => {
