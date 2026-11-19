@@ -40,6 +40,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { NameWithLinkIcon } from "@/components/helpers/NameWithLinkIcon";
 import {
   LISTED_WORK_ORDER_STATUSES,
   workOrderBadge,
@@ -249,11 +250,14 @@ export const AllSRList: React.FC<AllSRListProps> = ({
           <DataTableColumnHeader column={column} title="Project" />
         ),
         cell: ({ row }) => {
-          const project = projectOptions.find((p) => p.value === row.original.project);
+          const projectId = row.original.project;
+          const project = projectOptions.find((p) => p.value === projectId);
           return (
-            <div className="font-medium truncate" title={project?.label}>
-              {project?.label || row.original.project}
-            </div>
+            <NameWithLinkIcon
+              label={project?.label || projectId || "--"}
+              to={projectId ? `/projects/${projectId}?page=overview` : undefined}
+              hint="View Project"
+            />
           );
         },
         enableColumnFilter: true,
@@ -273,9 +277,11 @@ export const AllSRList: React.FC<AllSRListProps> = ({
           <DataTableColumnHeader column={column} title="Vendor" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>
-            {getVendorName(row.original.vendor)}
-          </div>
+          <NameWithLinkIcon
+            label={getVendorName(row.original.vendor)}
+            to={row.original.vendor && !for_vendor ? `/vendors/${row.original.vendor}` : undefined}
+            hint="View Vendor"
+          />
         ),
         enableColumnFilter: true,
         size: 200,
