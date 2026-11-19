@@ -72,7 +72,7 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
     const last = lastMonth();
     const quick = (value: string, text: string) => (
         <button type="button" onClick={() => onMonthChange(value)} aria-pressed={month === value}
-            className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+            className={cn("whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                 month === value ? "bg-sky-500 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-muted dark:text-foreground")}>
             {text}
         </button>
@@ -80,14 +80,18 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
 
     return (
         <div className="flex flex-col rounded-md border bg-background" role="region" aria-label="Month">
-            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+            {/* One line; on a narrow screen it scrolls sideways rather than wrapping (owner, 2026-11-19). */}
+            <div className="flex items-center gap-2 overflow-x-auto px-3 py-2 [scrollbar-width:thin] [&>*]:shrink-0">
                 <MonthPicker tab={tab} month={month} onPick={onMonthChange} />
                 {quick(thisMonth, `This month (${shortMonth(thisMonth)})`)}
                 {quick(last, `Last month (${shortMonth(last)})`)}
                 {quick(ALL_MONTHS, "All")}
                 <ResetButton disabled={all} onReset={() => onMonthChange(ALL_MONTHS)} />
             </div>
-            <div className={cn("flex flex-wrap items-stretch gap-y-2 border-t px-3 py-2.5", loading && "opacity-60")} aria-live="polite">
+            {/* Wide: one row of figures with dividers. Narrower: the total on its own line, then 3 figures a row (2 on a
+                phone), so nothing is cut and the dividers never fall out of line (owner, 2026-11-19). */}
+            <div className={cn("grid grid-cols-2 gap-x-4 gap-y-3 border-t px-3 py-2.5 sm:grid-cols-3 xl:flex xl:flex-wrap xl:items-stretch xl:gap-x-0 xl:gap-y-2",
+                loading && "opacity-60")} aria-live="polite">
                 <Figure hero label={label} value={formatToRoundedIndianRupee(total)} />
                 <Figure label="Claims" value={String(count)} />
                 {figures.map((f) => (
@@ -109,8 +113,10 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
 /** One labelled figure in the totals row; the first (hero) is the total, larger. A coloured dot marks a step on All. */
 function Figure({ label, value, color, hero = false }: { label: ReactNode; value: string; color?: string; hero?: boolean }) {
     return (
-        <div className="flex min-w-0 flex-col gap-0.5 border-l px-4 first:border-l-0 first:pl-0">
-            <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-[11.5px]", hero ? "font-medium text-foreground/80" : "text-muted-foreground")}>
+        <div className={cn("flex min-w-0 flex-col gap-0.5 xl:border-l xl:px-4 xl:first:border-l-0 xl:first:pl-0",
+            hero && "col-span-full border-b pb-2 xl:border-b-0 xl:pb-0")}>
+            <span className={cn("inline-flex min-w-0 items-center gap-1.5 text-[11.5px]",
+                hero ? "flex-wrap font-medium text-foreground/80" : "truncate whitespace-nowrap text-muted-foreground")}>
                 {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
                 {label}
             </span>
@@ -126,7 +132,7 @@ function Figure({ label, value, color, hero = false }: { label: ReactNode; value
 function ResetButton({ disabled, onReset }: { disabled: boolean; onReset: () => void }) {
     return (
         <button type="button" onClick={onReset} disabled={disabled}
-            className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+            className={cn("whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                 disabled
                     ? "pointer-events-none bg-gray-100 text-muted-foreground opacity-60 dark:bg-muted"
                     : "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60")}>
