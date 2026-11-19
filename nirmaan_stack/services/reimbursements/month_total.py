@@ -14,6 +14,8 @@ means -- above `rules.MONTHLY_LIMIT` or not -- is `rules.over_monthly_limit`.
 * `month_totals(claims)` -- one row per claim found, keyed by claim.
 * `month_totals_of_expenses(expenses)` -- the same rows for the Non-Project Expenses created from claims, keyed by
   expense; an expense with no claim is left out.
+* `month_used(claimant, when, exclude)` -- the Project Manager cap's count (owner, 2026-11-18; `rules.cap_problem`):
+  a different sum, of every claim that may still be paid (`rules.PM_CAP_COUNTED`, pending ones included).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, over_monthly_limit
+from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, PM_CAP_COUNTED, over_monthly_limit
 
 #: The statuses of the OTHER claims that count toward a month total.
 COUNTED_STATUSES = (APPROVED, PAID)
@@ -87,3 +89,21 @@ def month_totals_of_expenses(expenses) -> dict[str, dict]:
         if row:
             out[link.name] = {**row, "expense": link.name}
     return out
+
+
+def month_used(claimant: str, when, exclude: str | None = None) -> float:
+    """The sum of `claimant`'s claims raised in the calendar month of `when` (a date or datetime) whose status is in
+    `rules.PM_CAP_COUNTED` -- Pending Approval, Approved, Paid -- leaving out the claim `exclude` (the one being
+    edited, whose new amount replaces its old one)."""
+    total = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(amount), 0)
+        FROM "tabReimbursement"
+        WHERE owner = %(claimant)s
+          AND status IN %(counted)s
+          AND DATE_TRUNC('month', creation) = DATE_TRUNC('month', %(when)s::timestamp)
+          AND name <> %(exclude)s
+        """,
+        {"claimant": claimant, "counted": PM_CAP_COUNTED, "when": when, "exclude": exclude or ""},
+    )[0][0]
+    return flt(total, 2)

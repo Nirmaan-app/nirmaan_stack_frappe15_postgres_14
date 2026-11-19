@@ -10,12 +10,20 @@ import unittest
 from nirmaan_stack.services.reimbursements.receipts import is_mergeable
 from nirmaan_stack.services.reimbursements.rules import (
     DESCRIPTION_REQUIRED_ABOVE,
+    EXPENSE_STATUS_OF_TAB,
     MONTHLY_LIMIT,
+    PM_MONTHLY_CAP,
+    STAGE_TABS,
     STATUSES,
+    TABS,
     TYPES,
     acknowledgement_problem,
     approval_needs_l1,
+    cap_left,
+    cap_problem,
     claim_problem,
+    claim_tab,
+    count_tabs,
     decide_problem,
     delete_problem,
     description_required,
@@ -23,6 +31,7 @@ from nirmaan_stack.services.reimbursements.rules import (
     over_monthly_limit,
     rejection_problem,
     reviewer_for,
+    tab_problem,
 )
 
 with open(os.path.join(os.path.dirname(__file__), "reimbursement_rules_cases.json")) as f:
@@ -55,6 +64,21 @@ class TestSharedCases(unittest.TestCase):
                 )
                 self.assertEqual(problem is None, case["allowed"], problem)
 
+    def test_the_tabs_match_the_cases(self):
+        self.assertEqual(list(TABS), CASES["tabs"])
+        self.assertEqual(list(STAGE_TABS), CASES["stage_tabs"])
+
+    def test_claim_tab(self):
+        for case in CASES["claim_tab"]:
+            with self.subTest(case["name"]):
+                self.assertEqual(claim_tab(case["claim_status"], case["expense_status"]), case["tab"])
+
+    def test_tab_problem(self):
+        for case in CASES["tab_problem"]:
+            with self.subTest(case["name"]):
+                problem = tab_problem(case["tab"], viewer_is_ceo=case["viewer_is_ceo"])
+                self.assertEqual(problem is None, case["allowed"], problem)
+
     def test_over_monthly_limit(self):
         for case in CASES["over_monthly_limit"]:
             with self.subTest(case["name"]):
@@ -71,6 +95,25 @@ class TestSharedCases(unittest.TestCase):
             with self.subTest(case["name"]):
                 problem = acknowledgement_problem(case["month_total"], case["acknowledged"])
                 self.assertEqual(problem is None, case["allowed"], problem)
+
+    def test_the_project_manager_cap_matches_the_cases(self):
+        self.assertEqual(PM_MONTHLY_CAP, CASES["pm_monthly_cap"])
+
+    def test_pm_cap(self):
+        for case in CASES["pm_cap"]:
+            with self.subTest(case["name"]):
+                problem = cap_problem(case["month_used"], case["amount"], capped=case["capped"])
+                self.assertEqual(problem is None, case["allowed"], problem)
+                if case["capped"]:
+                    self.assertEqual(cap_left(case["month_used"]), case["left"])
+
+    def test_the_cap_says_how_much_is_left_or_that_the_month_is_used(self):
+        self.assertEqual(cap_problem(1200, 900, capped=True),
+                         "You can claim up to ₹800 more this month. Project Managers can claim up to ₹2,000 a month.")
+        self.assertEqual(cap_problem(1999.5, 1, capped=True),
+                         "You can claim up to ₹0.50 more this month. Project Managers can claim up to ₹2,000 a month.")
+        self.assertEqual(cap_problem(2000, 1, capped=True),
+                         "You have used this month's ₹2,000. Project Managers can claim up to ₹2,000 a month.")
 
     def test_mergeable(self):
         for case in CASES["mergeable"]:
@@ -91,6 +134,32 @@ class TestSharedCases(unittest.TestCase):
 
 
 class TestRefusalsSayWhy(unittest.TestCase):
+    def test_every_expense_led_tab_lists_one_expense_status_and_back(self):
+        """The list call reads `EXPENSE_STATUS_OF_TAB`, the counts read `claim_tab`: they must agree."""
+        for tab, status in EXPENSE_STATUS_OF_TAB.items():
+            with self.subTest(tab):
+                self.assertEqual(claim_tab("Approved", status), tab)
+        self.assertEqual(set(EXPENSE_STATUS_OF_TAB), {"l1", "ceo", "approved", "reconciliation"})
+
+    def test_count_tabs_counts_each_claim_once_per_tab_plus_all_and_mine(self):
+        rows = [
+            {"claim_status": "Pending Approval", "expense_status": None, "mine": True, "n": 2},
+            {"claim_status": "Approved", "expense_status": "Requested", "mine": False, "n": 3},
+            {"claim_status": "Approved", "expense_status": "CEO Pending", "mine": False, "n": 1},
+            {"claim_status": "Approved", "expense_status": "Reconciliation Pending", "mine": True, "n": 1},
+            {"claim_status": "Paid", "expense_status": "Paid", "mine": False, "n": 4},
+            {"claim_status": "Rejected", "expense_status": "Rejected", "mine": True, "n": 5},
+        ]
+        counts = count_tabs(rows, viewer_is_ceo=True)
+        self.assertEqual(counts, {"pending": 2, "l1": 3, "ceo": 1, "approved": 0, "reconciliation": 1,
+                                  "paid": 4, "mine": 8, "all": 16})
+
+    def test_count_tabs_never_sends_the_ceo_count_to_anyone_else(self):
+        rows = [{"claim_status": "Approved", "expense_status": "CEO Pending", "mine": False, "n": 7}]
+        counts = count_tabs(rows, viewer_is_ceo=False)
+        self.assertNotIn("ceo", counts)
+        self.assertEqual(counts["all"], 7)  # the claim is still one of All's
+
     def test_hr_is_told_admin_decides_an_hr_claim(self):
         problem = decide_problem("Pending Approval", claimant_is_hr=True,
                                  decider_is_admin=False, decider_is_hr=True) or ""

@@ -323,5 +323,170 @@
       "acknowledged": true,
       "allowed": true
     }
+  ],
+  "tabs": [
+    "pending",
+    "l1",
+    "ceo",
+    "approved",
+    "reconciliation",
+    "paid",
+    "mine",
+    "all"
+  ],
+  "stage_tabs": [
+    "pending",
+    "l1",
+    "ceo",
+    "approved",
+    "reconciliation",
+    "paid"
+  ],
+  "claim_tab": [
+    {
+      "name": "a new claim is in Pending Approval",
+      "claim_status": "Pending Approval",
+      "expense_status": null,
+      "tab": "pending"
+    },
+    {
+      "name": "HR approved at or above the limit: the expense waits for L1",
+      "claim_status": "Approved",
+      "expense_status": "Requested",
+      "tab": "l1"
+    },
+    {
+      "name": "Admin approved above Rs 50,000: the expense waits for the CEO",
+      "claim_status": "Approved",
+      "expense_status": "CEO Pending",
+      "tab": "ceo"
+    },
+    {
+      "name": "fully approved: Payment need to be paid",
+      "claim_status": "Approved",
+      "expense_status": "Approved",
+      "tab": "approved"
+    },
+    {
+      "name": "marked as paid, not yet matched to the bank",
+      "claim_status": "Approved",
+      "expense_status": "Reconciliation Pending",
+      "tab": "reconciliation"
+    },
+    {
+      "name": "the expense is Paid, so the claim is Paid",
+      "claim_status": "Paid",
+      "expense_status": "Paid",
+      "tab": "paid"
+    },
+    {
+      "name": "a rejected claim is in no step tab (only All)",
+      "claim_status": "Rejected",
+      "expense_status": null,
+      "tab": null
+    },
+    {
+      "name": "rejected after its first approval: still no step tab",
+      "claim_status": "Rejected",
+      "expense_status": "Rejected",
+      "tab": null
+    },
+    {
+      "name": "an Approved claim with no expense is not guessed at",
+      "claim_status": "Approved",
+      "expense_status": null,
+      "tab": null
+    }
+  ],
+  "tab_problem": [
+    {
+      "name": "anyone may list Pending Approval",
+      "tab": "pending",
+      "viewer_is_ceo": false,
+      "allowed": true
+    },
+    {
+      "name": "the CEO lists Pending CEO Approval",
+      "tab": "ceo",
+      "viewer_is_ceo": true,
+      "allowed": true
+    },
+    {
+      "name": "nobody else lists Pending CEO Approval",
+      "tab": "ceo",
+      "viewer_is_ceo": false,
+      "allowed": false
+    },
+    {
+      "name": "the old Rejected tab is gone",
+      "tab": "rejected",
+      "viewer_is_ceo": true,
+      "allowed": false
+    },
+    {
+      "name": "an unknown tab is refused",
+      "tab": "payments",
+      "viewer_is_ceo": false,
+      "allowed": false
+    }
+  ],
+  "pm_monthly_cap": 2000,
+  "pm_cap": [
+    {
+      "name": "the first claim of the month",
+      "month_used": 0,
+      "amount": 1500,
+      "capped": true,
+      "allowed": true,
+      "left": 2000
+    },
+    {
+      "name": "landing exactly on Rs 2,000 is allowed",
+      "month_used": 1200,
+      "amount": 800,
+      "capped": true,
+      "allowed": true,
+      "left": 800
+    },
+    {
+      "name": "one rupee over is refused",
+      "month_used": 1200,
+      "amount": 801,
+      "capped": true,
+      "allowed": false,
+      "left": 800
+    },
+    {
+      "name": "one claim above the cap on its own",
+      "month_used": 0,
+      "amount": 2500,
+      "capped": true,
+      "allowed": false,
+      "left": 2000
+    },
+    {
+      "name": "nothing left this month",
+      "month_used": 2000,
+      "amount": 1,
+      "capped": true,
+      "allowed": false,
+      "left": 0
+    },
+    {
+      "name": "paise count: Rs 1,999.50 used, Rs 0.50 more is allowed",
+      "month_used": 1999.5,
+      "amount": 0.5,
+      "capped": true,
+      "allowed": true,
+      "left": 0.5
+    },
+    {
+      "name": "anyone who is not a Project Manager is not capped",
+      "month_used": 5000,
+      "amount": 9000,
+      "capped": false,
+      "allowed": true,
+      "left": 0
+    }
   ]
 }

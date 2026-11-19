@@ -15,17 +15,19 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
+from nirmaan_stack.services.outflow_import.expense_links import last_source_join
 from nirmaan_stack.services.payees.own_accounts import assert_own_account
-from nirmaan_stack.services.payees.pay_to import copy_payee_account
-from nirmaan_stack.services.reimbursements.access import is_hr
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, copy_payee_account
+from nirmaan_stack.services.reimbursements.access import is_capped, is_hr
 from nirmaan_stack.services.reimbursements.convert import LINK_FIELD
 from nirmaan_stack.services.reimbursements.expense_link import (
     delete_claim,
     delete_rejected_expense,
     lock_expense_of,
 )
+from nirmaan_stack.services.reimbursements.month_total import month_used
 from nirmaan_stack.services.reimbursements.receipts import (
     apply_receipts,
     claim_files,
@@ -34,6 +36,9 @@ from nirmaan_stack.services.reimbursements.receipts import (
 )
 from nirmaan_stack.services.reimbursements.rules import (
     PENDING,
+    PM_MONTHLY_CAP,
+    cap_left,
+    cap_problem,
     claim_problem,
     delete_problem,
     edit_problem,
@@ -42,6 +47,7 @@ from nirmaan_stack.services.reimbursements.rules import (
 from nirmaan_stack.services.stored_files import delete_files
 
 DOCTYPE = "Reimbursement"
+NPE = "Non Project Expenses"
 
 
 def as_list(value) -> list[str]:
@@ -57,6 +63,21 @@ def as_list(value) -> list[str]:
 
 def _check(title, amount, receipt_count, description, reimbursement_type) -> None:
     problem = claim_problem(title, amount, receipt_count, description, reimbursement_type)
+    if problem:
+        frappe.throw(_(problem))
+
+
+def _check_cap(user: str, amount, when, exclude: str | None = None) -> None:
+    """Refuse a Project Manager's claim that takes their month above `PM_MONTHLY_CAP` (owner, 2026-11-18).
+
+    The month is counted after taking this person's row, so two of their claims sent at once are counted one after
+    the other. ⚠️ A no-op UPDATE, not just `FOR UPDATE`: a request's first transaction is REPEATABLE READ on
+    Postgres, whose snapshot would not see the other claim once the lock is released. After an UPDATE the second
+    request is refused with a serialization error instead (READ COMMITTED: it re-reads and counts the first)."""
+    if not is_capped(user):
+        return
+    frappe.db.sql('UPDATE "tabNirmaan Users" SET name = name WHERE name = %s', user)
+    problem = cap_problem(month_used(user, when, exclude), amount, capped=True)
     if problem:
         frappe.throw(_(problem))
 
@@ -85,6 +106,7 @@ def raise_reimbursement(title, amount, payee, file_urls=None, description=None, 
     new_files = loose_files(as_list(file_urls), user)
     _check(title, amount, len(new_files), description, reimbursement_type)
     assert_own_account(user, payee)
+    _check_cap(user, amount, now_datetime())
     plan = plan_receipts(None, new_files)
 
     claim = frappe.get_doc({
@@ -121,6 +143,7 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
     new_files = loose_files(as_list(file_urls), user)
     plan = plan_receipts(claim, new_files, as_list(remove_file_urls))
     _check(title, amount, plan.receipt_count, description, reimbursement_type)
+    _check_cap(user, amount, claim.creation, exclude=claim.name)
 
     claim.update({
         "reimbursement_type": reimbursement_type,
@@ -157,6 +180,23 @@ def delete_reimbursement(name) -> dict:
 
 
 @frappe.whitelist()
+def get_my_month(exclude=None) -> dict:
+    """The caller's own month against the Project Manager cap, for the Raise / Edit dialog:
+    `{capped, cap, used, left}`. `exclude` is the claim being edited (its month, without its own amount); only a
+    claim of the caller's is honoured. Anyone may ask: it reads only their own claims."""
+    user = frappe.session.user
+    if not is_capped(user):
+        return {"capped": False, "cap": PM_MONTHLY_CAP, "used": 0, "left": None}
+    when, own = now_datetime(), None
+    if exclude:
+        claim = frappe.db.get_value(DOCTYPE, exclude, ["owner", "creation"], as_dict=True)
+        if claim and claim.owner == user:
+            when, own = claim.creation, exclude
+    used = month_used(user, when, own)
+    return {"capped": True, "cap": PM_MONTHLY_CAP, "used": used, "left": cap_left(used)}
+
+
+@frappe.whitelist()
 def get_claim_files(name) -> list[dict]:
     """The receipts on a claim the caller may read: the merged PDF first, then any other files."""
     claim = frappe.get_doc(DOCTYPE, name)
@@ -169,10 +209,21 @@ def get_claim_files(name) -> list[dict]:
     ]
 
 
+#: The expense fields the claim's view shows (ADR-0040 Amendment C point 7), read as they are.
+CLAIM_EXPENSE_FIELDS = (
+    "status", "payment_date", "payment_ref", "creation", "amount", "description", "invoice_ref", "invoice_date",
+    "comment", "approval_date", "ceo_approval_date", "auto_approved", *PAY_TO_FIELDS,
+)
+
+
 @frappe.whitelist()
 def get_claim_payments(names) -> dict:
     """The Non-Project Expense paying each claim the caller may read, by claim name (ADR-0040):
-    `{claim: {expense, status, payment_date, payment_ref}}`. Claims with no expense are left out.
+    `{claim: {expense, status, payment_date, payment_ref, ...}}`. Claims with no expense are left out.
+
+    Besides those four, each carries what the claim's view shows (Amendment C point 7): `CLAIM_EXPENSE_FIELDS`
+    and `payment_source`, the statement its bank line was matched from (None before a match), read by the same
+    join Project Payments uses (`expense_links.last_source_join`).
 
     Read here rather than by the screen, because most claimants can't read Non-Project Expenses.
     """
@@ -182,15 +233,19 @@ def get_claim_payments(names) -> dict:
     readable = frappe.get_list(DOCTYPE, filters={"name": ["in", wanted]}, pluck="name")
     if not readable:
         return {}
-    rows = frappe.get_all(
-        "Non Project Expenses",
-        filters={LINK_FIELD: ["in", readable]},
-        fields=["name", LINK_FIELD, "status", "payment_date", "payment_ref"],
+    columns = ", ".join(f'e."{f}"' for f in CLAIM_EXPENSE_FIELDS)
+    rows = frappe.db.sql(
+        f"""
+        SELECT e."name", e."{LINK_FIELD}" AS claim, {columns}, s."source" AS payment_source
+        FROM "tab{NPE}" e
+        {last_source_join(NPE, "e")}
+        WHERE e."{LINK_FIELD}" IN %(readable)s
+        """,
+        {"readable": tuple(readable)},
+        as_dict=True,
     )
     return {
-        row[LINK_FIELD]: {
-            "expense": row.name, "status": row.status,
-            "payment_date": row.payment_date, "payment_ref": row.payment_ref,
-        }
+        row.claim: {"expense": row.name, **{f: row.get(f) for f in CLAIM_EXPENSE_FIELDS},
+                    "payment_source": row.payment_source}
         for row in rows
     }
