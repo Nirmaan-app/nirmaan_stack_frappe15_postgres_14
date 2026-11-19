@@ -9,10 +9,12 @@
  * (Oct), All, and Reset; All and Reset both go to all months, and the picker has the same two (owner, 2026-11-19).
  *
  * The totals under it come from the same call as the rows (the data table's aggregates), so they cover every claim the
- * tab's filters and search match, not only the page. Paid breaks the total down by type, All by status.
+ * tab's filters and search match, not only the page. Shown as figures (owner, 2026-11-19): the total large, then the
+ * claim count and the breakdown -- every step on All (coloured dots and a share bar underneath), Travel / Food /
+ * Others on Payment need to be paid and Paid (`claimMonth.monthFigures`).
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,12 +30,13 @@ import {
     currentMonth,
     joinMonth,
     lastMonth,
+    monthFigures,
+    monthHeading,
     monthTitle,
     shortMonth,
-    monthVerb,
     splitMonth,
 } from "@/utils/reimbursements/claimMonth";
-import { TAB_APPROVED, TAB_PAID, type ReimbursementTab } from "@/utils/reimbursements/rules";
+import { TAB_ALL, TAB_MINE, TAB_PAID, type ReimbursementTab } from "@/utils/reimbursements/rules";
 
 import { STATUS_BADGE } from "../config/reimbursementColumns";
 
@@ -53,8 +56,18 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
     const all = month === ALL_MONTHS;
     const total = Number(aggregates?.sum_of_amount ?? 0);
     const count = Number(aggregates?.count_of_amount ?? 0);
-    const verb = monthVerb(tab);
-    const label = all ? `${verb}, all months` : `${verb} in ${monthTitle(month)}`;
+    const heading = monthHeading(tab, month);
+    // The tab's status as a badge, in its Status-column colours; All and Mine (every status) in grey.
+    const label = (
+        <>
+            <span className={cn("rounded px-1.5 py-px text-[11px] font-semibold", STATUS_BADGE[heading.name] ?? "bg-muted text-foreground")}>
+                {heading.name}
+            </span>
+            {heading.when}
+        </>
+    );
+    const figures = monthFigures(tab, groupByResult);
+    const shareTotal = figures.reduce((sum, f) => sum + f.value, 0);
     const thisMonth = currentMonth();
     const last = lastMonth();
     const quick = (value: string, text: string) => (
@@ -66,28 +79,44 @@ export function ClaimMonthBar({ tab, month, onMonthChange, aggregates, groupByRe
     );
 
     return (
-        <div className="flex flex-col gap-2 rounded-md border bg-muted/30 px-3 py-2" role="region" aria-label="Month">
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col rounded-md border bg-background" role="region" aria-label="Month">
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <MonthPicker tab={tab} month={month} onPick={onMonthChange} />
                 {quick(thisMonth, `This month (${shortMonth(thisMonth)})`)}
                 {quick(last, `Last month (${shortMonth(last)})`)}
                 {quick(ALL_MONTHS, "All")}
                 <ResetButton disabled={all} onReset={() => onMonthChange(ALL_MONTHS)} />
             </div>
-            <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", loading && "opacity-60")} aria-live="polite">
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
-                    {label}: {formatToRoundedIndianRupee(total)}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                    {count} {count === 1 ? "claim" : "claims"}
-                </span>
-                {(groupByResult ?? []).map((g) => (
-                    <span key={g.group_key || "none"}
-                        className={cn("rounded-full px-2 py-0.5", STATUS_BADGE[g.group_key] ?? "bg-muted text-muted-foreground")}>
-                        {g.group_key || "No type"} {formatToRoundedIndianRupee(Number(g.aggregate_value))}
-                    </span>
+            <div className={cn("flex flex-wrap items-stretch gap-y-2 border-t px-3 py-2.5", loading && "opacity-60")} aria-live="polite">
+                <Figure hero label={label} value={formatToRoundedIndianRupee(total)} />
+                <Figure label="Claims" value={String(count)} />
+                {figures.map((f) => (
+                    <Figure key={f.key} label={f.key} value={formatToRoundedIndianRupee(f.value)} color={f.color} />
                 ))}
             </div>
+            {/* All: how the total splits across the steps, in the same colours as the dots. */}
+            {(tab === TAB_ALL || tab === TAB_MINE) && shareTotal > 0 && (
+                <div className="mx-3 mb-2.5 flex h-1 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
+                    {figures.map((f) => (
+                        <span key={f.key} className="h-full" style={{ width: `${(f.value / shareTotal) * 100}%`, backgroundColor: f.color }} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** One labelled figure in the totals row; the first (hero) is the total, larger. A coloured dot marks a step on All. */
+function Figure({ label, value, color, hero = false }: { label: ReactNode; value: string; color?: string; hero?: boolean }) {
+    return (
+        <div className="flex min-w-0 flex-col gap-0.5 border-l px-4 first:border-l-0 first:pl-0">
+            <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-[11.5px]", hero ? "font-medium text-foreground/80" : "text-muted-foreground")}>
+                {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
+                {label}
+            </span>
+            <span className={cn("whitespace-nowrap font-semibold tabular-nums", hero ? "text-2xl leading-tight tracking-tight" : "text-[15px]")}>
+                {value}
+            </span>
         </div>
     );
 }
@@ -124,7 +153,7 @@ function MonthPicker({ tab, month, onPick }: { tab: ReimbursementTab; month: str
             <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 gap-1.5 font-semibold" aria-label="Pick a month">
                     <CalendarDays className="h-4 w-4" />
-                    {picked ? monthTitle(month) : "All months"}
+                    {picked ? monthTitle(month) : "All"}
                     <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
             </PopoverTrigger>
@@ -174,7 +203,7 @@ function MonthPicker({ tab, month, onPick }: { tab: ReimbursementTab; month: str
                     <ResetButton disabled={!picked} onReset={() => { onPick(ALL_MONTHS); setOpen(false); }} />
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                    {tab === TAB_PAID ? "Each tile: paid in that month." : tab === TAB_APPROVED ? "Each tile: raised in that month, still to be paid." : "Each tile: raised in that month."} Greyed: nothing that month, or still to come.
+                    {tab === TAB_PAID ? "Each tile: paid in that month." : tab === TAB_ALL || tab === TAB_MINE ? "Each tile: raised in that month." : "Each tile: raised in that month, still on this tab."} Greyed: nothing that month, or still to come.
                 </p>
             </PopoverContent>
         </Popover>
