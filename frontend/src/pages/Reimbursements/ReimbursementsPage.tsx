@@ -10,7 +10,8 @@
  * * Reconciliation Pending -- Admin and Accounts: Mark Reconciled (UTR and proof), which turns the claim Paid.
  * * Paid · Reimbursement Raised By Me (everyone; Edit / Delete their own) · All (rejected claims included).
  * Admin, Accounts and HR see every tab but the CEO's; the CEO sees all eight; everyone else only Raised By Me.
- * Each badge is the number of rows the tab lists (`queue.get_claim_tab_counts`).
+ * Each badge is the number of rows the tab lists (`queue.get_claim_tab_counts`). Paid and All have a month picker
+ * with the month's totals for Admin, HR and Accounts, kept in `?reimb_<tab>_month=` (`utils/reimbursements/claimMonth`).
  *
  * The header's right action, "Raise Reimbursement", flips `newReimbursementDialog`; the dialog is mounted here. The
  * server is the boundary for every read and write (`api/reimbursements`, `api/approvals/expense_actions`); these tabs
@@ -31,6 +32,7 @@ import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import type { ClaimRow, ClaimTabCounts, PendingReimbursement } from "@/types/NirmaanStack/Reimbursement";
 import { raiserLevelOf } from "@/utils/approvalTiers";
+import { ALL_MONTHS, MONTH_TABS, filtersByMonth, resolveMonth } from "@/utils/reimbursements/claimMonth";
 import type { ApprovalStage } from "@/utils/reimbursements/monthLimit";
 import {
     SELECTABLE_TABS,
@@ -83,15 +85,28 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
     // Bumped after any change, to remount the open table so it refetches (and drops its ticks).
     const [reload, setReload] = useState(0);
     const [highlight, setHighlight] = useState<string | null>(null);
+    // The picked month on Paid and All, per tab, from the address (the current month when none).
+    const byMonth = filtersByMonth(tab, viewer);
+    const [months, setMonths] = useState<Record<string, string>>({});
+    const month = byMonth ? (months[tab] ?? resolveMonth(urlStateManager.getParam(`reimb_${tab}_month`))) : undefined;
+    const changeMonth = useCallback((next: string) => {
+        setMonths((m) => ({ ...m, [tab]: next }));
+        urlStateManager.updateParam(`reimb_${tab}_month`, next);
+    }, [tab]);
 
     // Back / forward between tabs.
     useEffect(() => urlStateManager.subscribe("tab", (_, value) => setTab(resolveTab(value, viewer))), [viewer]);
 
     const openTab = useCallback((value: ReimbursementTab, claim: string | null = null) => {
         if (claim) {
-            // The tab opens searched to the claim, as the Action Center's links open it.
+            // The tab opens searched to the claim, as the Action Center's links open it -- on every month, so a
+            // claim from another month is not filtered out.
             urlStateManager.updateParam(`reimb_${value}_searchBy`, "name");
             urlStateManager.updateParam(`reimb_${value}_q`, claim);
+            if (MONTH_TABS.includes(value)) {
+                urlStateManager.updateParam(`reimb_${value}_month`, ALL_MONTHS);
+                setMonths((m) => ({ ...m, [value]: ALL_MONTHS }));
+            }
         }
         setHighlight(claim);
         setTab(value);
@@ -259,7 +274,8 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
             </div>
 
             <ClaimsTable
-                key={`${tab}:${reload}`}
+                // The month is in the key: the table refetches on its own filters, not on a changed request parameter.
+                key={`${tab}:${reload}:${month ?? ""}`}
                 tab={tab}
                 userId={userId}
                 getUserName={getUserName}
@@ -276,6 +292,8 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 onReconcile={onReconcile}
                 clearTicks={clearTicks}
                 highlight={highlight}
+                month={month}
+                onMonthChange={byMonth ? changeMonth : undefined}
             />
 
             <RaiseReimbursementDialog open={formOpen} onOpenChange={closeForm} editingName={editingName} onSaved={refreshAll} />
