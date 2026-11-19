@@ -640,6 +640,8 @@ def _throw_parse_in_progress():
 
 def _clear_parse_state(boq_name: str) -> None:
     """Clear the BoQ flag, job id, enqueue timestamp and every per-sheet marker, and commit."""
+    # set_value skips the BOQs doc_events on purpose: validate checks area dimensions and status moves, on_update
+    # does nothing, and no hook or derived field reads these three parse-lifecycle columns.
     frappe.db.set_value("BOQs", boq_name, {
         "parse_in_progress": 0,
         "parse_job_id": None,
