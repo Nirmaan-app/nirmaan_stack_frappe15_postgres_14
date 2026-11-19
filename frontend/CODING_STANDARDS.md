@@ -248,6 +248,13 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
   listener of the event in the tab (every `list_update` and `doc_update` listener shares one event name), so one
   closing component stops a whole page's live refresh. Residence check L1 refuses their names outside
   `src/lib/frappe.ts`.
+- **A screen that waits on a background operation follows it with `useBackgroundOperation`**
+  (`src/hooks/useBackgroundOperation.ts`, ADR-0047): it reads the operation's status record, and the socket's
+  message only makes it read sooner. Never listen for an operation's result. Residence check L2 refuses `socket.on`
+  / `socket.off` (for any event but the connection's own) and `useSocketEventListener` outside that hook and
+  `src/lib/frappe.ts`; the listeners that stay (locks, notifications, doc changes) are frozen per file, each with
+  its reason, in `frontend/socket-listener-suppressions.json` (root `CODING_STANDARDS.md` § Writing backend Python,
+  "Queuing a background operation").
 - Global listeners are registered in `src/services/socketListeners.ts`, started once by
   `src/config/SocketInitializer.tsx`, each wrapped in the safe handler and removed in the returned cleanup.
   Firebase push lives in `src/firebase/firebaseConfig.ts`. Walkthrough for adding an event, the proxy and
