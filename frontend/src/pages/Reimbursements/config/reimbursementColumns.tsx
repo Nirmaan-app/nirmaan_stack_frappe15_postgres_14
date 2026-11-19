@@ -1,8 +1,9 @@
 // src/pages/Reimbursements/config/reimbursementColumns.tsx
 //
-// Columns for every Reimbursements tab (ADR-0040 Amendment C): one config, so every tab reads the same way. The three
-// approval tabs end with Approve / Reject (`DecideButtons`), Payment need to be paid with Mark as Paid, Reconciliation
-// Pending with Mark Reconciled; the tabs where people act on ticked rows start with a tick box. Every tab after the first
+// Columns for every Reimbursements tab (ADR-0040 Amendment C): one config, so every tab reads the same way. As in
+// Project Payments' queue, the tabs where people act on ticked rows start with a tick box and every tab with an action
+// has an Actions column right after it: Approve / Reject (circled icons) on the three approval tabs, Mark as Paid on
+// Payment need to be paid, Mark Reconciled on Reconciliation Pending, Edit / Delete on Raised By Me. Every tab after the first
 // approval shows the claim's Non-Project Expense (its ID and its own status).
 //
 // EVERY FIELD IS A COLUMN, because the default Export writes every column definition (hidden ones
@@ -11,24 +12,22 @@
 // column is display only.
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { BadgeCheck, FileText, IndianRupee, Pencil, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, FileText, IndianRupee, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { facetMeta } from "@/components/data-table/facetConfig";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import type { ClaimRow } from "@/types/NirmaanStack/Reimbursement";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
 
-import { DecideButtons } from "../components/DecideButtons";
 import type { Decision } from "../components/DecisionDialog";
 import { PayToCell, TitleCell } from "../components/HoverDetails";
 import {
-    APPROVED,
-    PAID,
     REJECTED,
     TAB_ALL,
     TAB_APPROVED,
@@ -77,12 +76,15 @@ export const EXPENSE_STATUS_BADGE: Record<string, string> = {
 /** The tabs after the first approval, which show the claim's expense. */
 const EXPENSE_TABS: readonly ReimbursementTab[] = [TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID, TAB_ALL, TAB_MINE];
 
-/** What each tab shows on screen: the hidden-by-default fields, plus Approved By on the tabs after the first
- *  approval. All and Reimbursement Raised By Me show the decision (and a rejection's reason) inside the Status cell.
- *  Every column still exports. */
+/** What each tab shows on screen: the hidden-by-default fields, plus Approved By on Paid. All and Reimbursement
+ *  Raised By Me show the decision (and a rejection's reason) inside the Status cell. Every column still exports.
+ *  Sized so every tab fits a laptop's table area (~1,140px) without scrolling sideways (browser check 2026-11-19):
+ *  Approved By is off on the working tabs, where the next step, not who approved, matters. */
 export const columnVisibilityFor = (tab: ReimbursementTab) => ({
     ...HIDDEN_BY_DEFAULT,
-    approved_by: [TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID].includes(tab),
+    approved_by: tab === TAB_PAID,
+    // The Role column (with its facet) on the two reporting tabs; elsewhere the role sits under the claimant's name.
+    claimant_role: tab === TAB_PAID || tab === TAB_ALL,
     rejection_reason: false,
     expense_status: false,
 });
@@ -112,6 +114,8 @@ export function getReimbursementColumns({
     onReconcile,
 }: Args): ColumnDef<ClaimRow>[] {
     const mine = tab === TAB_MINE;
+    // Paid and All: the reporting tabs, which show a Role column (with its facet) and so tighten two others.
+    const reporting = tab === TAB_PAID || tab === TAB_ALL;
     // Reimbursement Raised By Me and All span every status, so they show it (with the decision under it).
     const showStatus = mine || tab === TAB_ALL;
     const exported = (header: string, value: (r: ClaimRow) => string | number) => ({
@@ -147,7 +151,7 @@ export function getReimbursementColumns({
     columns.push(
         {
             accessorKey: "name",
-            size: 135,
+            size: 120,
             header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
             cell: ({ row }) => (
                 <button type="button" onClick={() => onOpen(row.original)}
@@ -162,23 +166,27 @@ export function getReimbursementColumns({
     if (!mine) {
         columns.push(
             {
-                accessorKey: "owner",
-                size: 140,
+                // Its id is the field the Claimant facet filters on (the table sends a column's id as the field).
+                id: "claimant_name",
+                accessorKey: "claimant_name",
+                size: reporting ? 115 : 125,
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Claimant" />,
                 cell: ({ row }) => (
-                    <div>
-                        <div>{claimantName(row.original, getUserName)}</div>
-                        {row.original.claimant_role && (
-                            <div className="text-[11px] text-muted-foreground">{roleLabel(row.original.claimant_role)}</div>
+                    <div className="min-w-0">
+                        <div className="truncate">{claimantName(row.original, getUserName)}</div>
+                        {!reporting && row.original.claimant_role && (
+                            <div className="truncate text-[11px] text-muted-foreground">{roleLabel(row.original.claimant_role)}</div>
                         )}
                     </div>
                 ),
-                meta: exported("Claimant", (r) => claimantName(r, getUserName)),
+                meta: { ...exported("Claimant", (r) => claimantName(r, getUserName)), ...facetMeta({ field: "claimant_name", title: "Claimant" }) },
             },
             {
                 accessorKey: "claimant_role",
-                header: "Claimant Role",
-                meta: exported("Claimant Role", (r) => roleLabel(r.claimant_role)),
+                size: 105,
+                header: "Role",
+                cell: ({ row }) => <span className="block truncate text-xs">{roleLabel(row.original.claimant_role) || "--"}</span>,
+                meta: { ...exported("Claimant Role", (r) => roleLabel(r.claimant_role)), ...facetMeta({ field: "claimant_role", title: "Role" }) },
             },
             {
                 id: "claimant_email",
@@ -192,11 +200,15 @@ export function getReimbursementColumns({
 
     columns.push(
         {
-            accessorKey: "title",
-            size: 165,
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Title" />,
+            // Its id is the claim's type, so the Type facet (Travel / Food / Others) sits on the Title header without a
+            // column of its own (the table sends a column's id as the filtered field). Not sortable: it would sort by type.
+            id: "reimbursement_type",
+            accessorFn: (r) => r.title,
+            size: 140,
+            enableSorting: false,
+            header: "Title",
             cell: ({ row }) => <TitleCell claim={row.original} />,
-            meta: exported("Title", (r) => r.title),
+            meta: { ...exported("Title", (r) => r.title), ...facetMeta({ field: "reimbursement_type", title: "Type" }) },
         },
         {
             accessorKey: "description",
@@ -207,7 +219,15 @@ export function getReimbursementColumns({
             accessorKey: "amount",
             size: 100,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => <span className="tabular-nums font-medium">{formatToIndianRupee(row.original.amount)}</span>,
+            // Whole rupees without ".00" (₹18,000); paise only when the claim has them (₹1,999.50). Export keeps the number.
+            cell: ({ row }) => {
+                const amount = Number(row.original.amount) || 0;
+                return (
+                    <span className="tabular-nums font-medium">
+                        {Number.isInteger(amount) ? formatToRoundedIndianRupee(amount) : formatToIndianRupee(amount)}
+                    </span>
+                );
+            },
             meta: exported("Amount", (r) => r.amount),
         },
     );
@@ -215,7 +235,7 @@ export function getReimbursementColumns({
     columns.push(
         {
             id: "pay_to",
-            size: 165,
+            size: reporting ? 130 : 140,
             header: "Pay to",
             // The last four digits in the cell; the whole account (number, IFSC, bank, branch) on hover.
             cell: ({ row }) => <PayToCell claim={row.original} />,
@@ -232,10 +252,10 @@ export function getReimbursementColumns({
     if (showStatus) {
         columns.push({
             accessorKey: "status",
-            size: 165,
+            size: 120,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-            // The decision sits under the status, so Reimbursement Raised By Me needs no Approved By / Rejection
-            // Reason columns of its own (both still export).
+            // A rejection's reason sits under the status, so Raised By Me needs no Rejection Reason column of its own
+            // (it still exports). No approver name under it (owner, 2026-11-19): Approved By is its own column on Paid.
             cell: ({ row }) => {
                 const r = row.original;
                 return (
@@ -243,16 +263,13 @@ export function getReimbursementColumns({
                         <span className={cn("px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap", STATUS_BADGE[r.status])}>
                             {r.status}
                         </span>
-                        {(r.status === APPROVED || r.status === PAID) && r.approved_by && (
-                            <div className="mt-1 truncate text-[11px] text-muted-foreground">by {getUserName(r.approved_by)}</div>
-                        )}
                         {r.status === REJECTED && r.rejection_reason && (
                             <div className="mt-1 line-clamp-2 text-[11px] text-red-700" title={r.rejection_reason}>{r.rejection_reason}</div>
                         )}
                     </div>
                 );
             },
-            meta: exported("Status", (r) => r.status),
+            meta: { ...exported("Status", (r) => r.status), ...facetMeta({ field: "status", title: "Status" }) },
         });
     }
 
@@ -260,19 +277,16 @@ export function getReimbursementColumns({
         columns.push(
             {
                 accessorKey: "expense",
-                size: 165,
-                header: "Non-Project Expense",
+                size: 110,
+                // "Expense" on screen (one line); the export keeps the full name.
+                header: "Expense",
                 enableSorting: false,
-                // The claim's expense (ADR-0040) and the expense's own status; "--" before the first approval.
+                // The claim's expense ID (ADR-0040); its status is the tab itself, and is in the export and the claim
+                // view (owner, 2026-11-19: no status under the ID). "--" before the first approval.
                 cell: ({ row }) => row.original.expense ? (
-                    <button type="button" onClick={() => onOpen(row.original)} className="min-w-0 text-left">
-                        <span className="block truncate font-mono text-xs text-primary hover:underline">{row.original.expense}</span>
-                        {row.original.expense_status && (
-                            <span className={cn("mt-0.5 inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium",
-                                EXPENSE_STATUS_BADGE[row.original.expense_status] ?? "bg-muted text-muted-foreground")}>
-                                {row.original.expense_status}
-                            </span>
-                        )}
+                    <button type="button" onClick={() => onOpen(row.original)}
+                        className="block max-w-full truncate text-left font-mono text-xs text-primary hover:underline">
+                        {row.original.expense}
                     </button>
                 ) : <span className="text-muted-foreground">--</span>,
                 meta: exported("Non-Project Expense", (r) => r.expense ?? ""),
@@ -288,7 +302,7 @@ export function getReimbursementColumns({
 
     columns.push({
         accessorKey: "creation",
-        size: 125,
+        size: 112,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Raised On" />,
         cell: ({ row }) => formatDate(row.original.creation),
         meta: exported("Raised On", (r) => formatDate(r.creation)),
@@ -297,10 +311,10 @@ export function getReimbursementColumns({
     columns.push(
         {
             accessorKey: "approved_by",
-            size: 120,
+            size: 110,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
             cell: ({ row }) => row.original.approved_by ? getUserName(row.original.approved_by) : <span className="text-muted-foreground">--</span>,
-            meta: exported("Approved By", (r) => (r.approved_by ? getUserName(r.approved_by) : "")),
+            meta: { ...exported("Approved By", (r) => (r.approved_by ? getUserName(r.approved_by) : "")), ...facetMeta({ field: "approved_by", title: "Approved By" }) },
         },
         {
             accessorKey: "rejection_reason",
@@ -315,7 +329,7 @@ export function getReimbursementColumns({
 
     columns.push({
         accessorKey: "attachment",
-        size: 85,
+        size: 72,
         header: "Receipts",
         cell: ({ row }) => row.original.attachment ? (
             <a href={`${SITEURL}${row.original.attachment}`} target="_blank" rel="noreferrer"
@@ -326,74 +340,76 @@ export function getReimbursementColumns({
         meta: exported("Receipts PDF", (r) => (r.attachment ? `${SITEURL}${r.attachment}` : "")),
     });
 
-    // The approval tabs: Approve / Reject as icons in the last column (narrow enough to stay on screen).
-    if ((tab === TAB_PENDING || tab === TAB_L1 || tab === TAB_CEO) && canAct && onDecide) {
-        columns.push({
-            id: "decide",
-            size: 90,
-            header: "",
-            cell: ({ row }) => (
-                <DecideButtons
-                    canDecide={canAct(row.original)}
-                    reason={cannotActReason?.(row.original)}
-                    onApprove={() => onDecide("approve", row.original)}
-                    onReject={() => onDecide("reject", row.original)}
-                />
-            ),
-            meta: { excludeFromExport: true },
-        });
-    }
-
-    if (tab === TAB_APPROVED && canAct && onMarkPaid) {
-        columns.push({
-            id: "mark_paid",
-            size: 120,
-            header: "",
-            cell: ({ row }) => canAct(row.original) ? (
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onMarkPaid(row.original)}>
-                    <IndianRupee className="mr-1 h-3.5 w-3.5" /> Mark as Paid
-                </Button>
-            ) : null,
-            meta: { excludeFromExport: true },
-        });
-    }
-
-    if (tab === TAB_RECONCILIATION && canAct && onReconcile) {
-        columns.push({
-            id: "reconcile",
-            size: 140,
-            header: "",
-            cell: ({ row }) => canAct(row.original) ? (
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onReconcile(row.original)}>
-                    <BadgeCheck className="mr-1 h-3.5 w-3.5" /> Mark Reconciled
-                </Button>
-            ) : null,
-            meta: { excludeFromExport: true },
-        });
-    }
-
-    if (mine) {
-        columns.push({
+    // Actions, SECOND (right after the tick box), as Project Payments' queue has it: the hand never travels to the
+    // right edge, and the buttons look the same as there (`ProjectPayments/config/approvalColumns.tsx`).
+    const isApprovalTab = tab === TAB_PENDING || tab === TAB_L1 || tab === TAB_CEO;
+    const actionsWidth = isApprovalTab ? 72 : tab === TAB_APPROVED ? 148 : tab === TAB_RECONCILIATION ? 156 : mine ? 72 : 0;
+    if (actionsWidth && (mine || (canAct && (isApprovalTab ? onDecide : tab === TAB_APPROVED ? onMarkPaid : onReconcile)))) {
+        const none = <span className="text-muted-foreground">--</span>;
+        columns.splice(selectable ? 1 : 0, 0, {
             id: "actions",
-            size: 80,
-            header: "",
+            header: "Actions",
+            size: actionsWidth,
+            enableSorting: false,
+            enableHiding: false,
             cell: ({ row }) => {
                 const r = row.original;
-                const isClaimant = r.owner === userId;
-                return (
-                    <div className="flex gap-1 justify-end">
-                        {!editProblem(r.status, isClaimant) && (
-                            <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => onEdit(r)} aria-label={`Edit ${r.name}`}>
-                                <Pencil className="w-3.5 h-3.5" />
+                if (mine) {
+                    const isClaimant = r.owner === userId;
+                    const edit = !editProblem(r.status, isClaimant);
+                    const del = !deleteProblem(r.status, isClaimant);
+                    if (!edit && !del) return none;
+                    return (
+                        <div className="flex items-center gap-1">
+                            {edit && (
+                                <Button variant="ghost" size="icon" aria-label={`Edit ${r.name}`} title="Edit"
+                                    className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => onEdit(r)}>
+                                    <Pencil className="h-4 w-4" />
+                                </Button>
+                            )}
+                            {del && (
+                                <Button variant="ghost" size="icon" aria-label={`Delete ${r.name}`} title="Delete"
+                                    className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => onDelete(r)}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                            )}
+                        </div>
+                    );
+                }
+                const allowed = canAct?.(r) ?? false;
+                if (isApprovalTab && onDecide) {
+                    const why = allowed ? undefined : (cannotActReason?.(r) ?? "You can't decide this claim.");
+                    // A disabled button fires no pointer events, so the span carries the reason on hover.
+                    return (
+                        <span className="flex items-center gap-1" title={why}>
+                            <Button variant="ghost" size="icon" aria-label={`Approve ${r.name}`} disabled={!allowed}
+                                className="h-7 w-7 text-green-600 hover:text-green-700" onClick={() => onDecide("approve", r)}>
+                                <CircleCheck className="h-5 w-5" />
                             </Button>
-                        )}
-                        {!deleteProblem(r.status, isClaimant) && (
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-red-600" onClick={() => onDelete(r)} aria-label={`Delete ${r.name}`}>
-                                <Trash2 className="w-3.5 h-3.5" />
+                            <Button variant="ghost" size="icon" aria-label={`Reject ${r.name}`} disabled={!allowed}
+                                className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => onDecide("reject", r)}>
+                                <CircleX className="h-5 w-5" />
                             </Button>
-                        )}
-                    </div>
-                );
+                        </span>
+                    );
+                }
+                if (!allowed) return none;
+                if (tab === TAB_APPROVED && onMarkPaid) {
+                    return (
+                        <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => onMarkPaid(r)}>
+                            <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                            Mark as Paid
+                        </Button>
+                    );
+                }
+                if (tab === TAB_RECONCILIATION && onReconcile) {
+                    return (
+                        <Button size="sm" variant="outline" className="h-7 border-primary text-primary" onClick={() => onReconcile(r)}>
+                            Mark Reconciled
+                        </Button>
+                    );
+                }
+                return none;
             },
             meta: { excludeFromExport: true },
         });
