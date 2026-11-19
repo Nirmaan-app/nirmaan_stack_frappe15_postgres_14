@@ -26,8 +26,8 @@ from rq.job import Job, JobStatus
 
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.commission_report import bulk_download_reports as cbd
+from nirmaan_stack.held_queue_fixture import HeldQueue
 from nirmaan_stack.services import background_ops
-from nirmaan_stack.services.test_background_ops_held_queue import HeldQueue
 
 STRANGER = "commission-bulk-stranger@example.com"
 

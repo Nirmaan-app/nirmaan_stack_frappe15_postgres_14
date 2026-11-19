@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
-"""Test support, no tests of its own: a fake RQ queue for tests of background operations (ADR 0047) that need an
+"""Test helper, no tests of its own: a fake RQ queue for tests of background operations (ADR 0047) that need an
 operation to STAY queued.
 
 `HeldQueue` records each job, as a faked queue does, and also keeps an RQ job of that id in Redis with status

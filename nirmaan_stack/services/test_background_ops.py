@@ -23,8 +23,8 @@ from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 
 from nirmaan_stack.api import background_ops as api
+from nirmaan_stack.held_queue_fixture import HeldQueue
 from nirmaan_stack.services import background_ops
-from nirmaan_stack.services.test_background_ops_held_queue import HeldQueue
 
 OWNER = "bgops-owner@example.com"
 STRANGER = "bgops-stranger@example.com"
