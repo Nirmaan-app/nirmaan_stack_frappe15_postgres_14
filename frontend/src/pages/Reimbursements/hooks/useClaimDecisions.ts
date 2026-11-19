@@ -20,7 +20,6 @@ import { useExpenseDecision } from "@/hooks/useExpenseDecision";
 import type { BulkClaimsReply, ClaimRow } from "@/types/NirmaanStack/Reimbursement";
 import type { ApprovalStage } from "@/utils/reimbursements/monthLimit";
 import {
-    APPROVED,
     TAB_CEO,
     TAB_L1,
     TAB_PENDING,
@@ -87,7 +86,7 @@ export function useClaimDecisions() {
                 }
             }
             return {
-                moved: first.succeeded.map((e) => ({ claim: claimOf.get(e) ?? e, tab: claimTab(APPROVED, statuses[e]) })),
+                moved: first.succeeded.map((e) => ({ claim: claimOf.get(e) ?? e, tab: claimTab(statuses[e]) })),
                 failed,
             };
         },

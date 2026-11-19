@@ -44,11 +44,16 @@ import {
     type ReimbursementTab,
 } from "@/utils/reimbursements/rules";
 
+// Every claim status (owner, 2026-11-19: the claim carries its expense's status), in the totals bar's colours
+// (`claimMonth.STEP_FIGURES`): Approved blue -- on its way to being paid -- and Paid green, settled.
 export const STATUS_BADGE: Record<string, string> = {
     "Pending Approval": "bg-amber-100 text-amber-800",
-    Approved: "bg-emerald-100 text-emerald-800",
+    Requested: "bg-orange-100 text-orange-800",
+    "CEO Pending": "bg-fuchsia-100 text-fuchsia-800",
+    Approved: "bg-blue-100 text-blue-800",
+    "Reconciliation Pending": "bg-violet-100 text-violet-800",
+    Paid: "bg-green-100 text-green-800",
     Rejected: "bg-red-100 text-red-800",
-    Paid: "bg-sky-100 text-sky-800",
 };
 
 /** Exported, never shown: the Pay to column already shows them in one cell. */
@@ -259,7 +264,7 @@ export function getReimbursementColumns({
                 const r = row.original;
                 return (
                     <div className="flex min-w-0 items-center gap-1.5">
-                        <span className={cn("px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap", STATUS_BADGE[r.status])}>
+                        <span className={cn("inline-block min-w-0 rounded px-2 py-0.5 text-xs font-medium leading-tight", STATUS_BADGE[r.status])}>
                             {r.status}
                         </span>
                         {/* The reason behind a message icon, read on hover or click (owner, 2026-11-19). */}

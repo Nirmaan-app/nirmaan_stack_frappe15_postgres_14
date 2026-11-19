@@ -19,12 +19,24 @@ import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 export const PENDING = "Pending Approval";
+/** After the first approval the claim carries its Non-Project Expense's status, by the same names (owner,
+ *  2026-11-19). Mirrors `services/reimbursements/rules.py`. */
+export const REQUESTED = "Requested";
+export const CEO_PENDING = "CEO Pending";
 export const APPROVED = "Approved";
-export const REJECTED = "Rejected";
+export const RECONCILIATION_PENDING = "Reconciliation Pending";
 /** Set only when the claim's Non-Project Expense is paid (ADR-0040); never by a person on this screen. */
 export const PAID = "Paid";
-export type ReimbursementStatus = typeof PENDING | typeof APPROVED | typeof REJECTED | typeof PAID;
-export const STATUSES: readonly ReimbursementStatus[] = [PENDING, APPROVED, REJECTED, PAID];
+export const REJECTED = "Rejected";
+export type ReimbursementStatus =
+    | typeof PENDING | typeof REQUESTED | typeof CEO_PENDING | typeof APPROVED | typeof RECONCILIATION_PENDING
+    | typeof PAID | typeof REJECTED;
+/** The status options, in the doctype's order. */
+export const STATUSES: readonly ReimbursementStatus[] = [
+    PENDING, REQUESTED, CEO_PENDING, APPROVED, RECONCILIATION_PENDING, PAID, REJECTED,
+];
+/** Approved at some step and not yet paid: where a rule used to read "Approved". Twin of `rules.APPROVED_STEPS`. */
+export const APPROVED_STEPS: readonly ReimbursementStatus[] = [REQUESTED, CEO_PENDING, APPROVED, RECONCILIATION_PENDING];
 
 /** What a claim was spent on, in the doctype's order (owner, 2026-10-22). */
 export const TYPES = ["Travel", "Food", "Others"] as const;
@@ -172,8 +184,8 @@ export const isReimbursementCeo = ({ userId }: Viewer): boolean => !!userId && u
 /** L1: Admin (Administrator included) and the CEO -- who approve on Pending L1 Approval. */
 export const isReimbursementL1 = (viewer: Viewer): boolean => isReimbursementAdmin(viewer) || isReimbursementCeo(viewer);
 
-// The tabs (ADR-0040 Amendment C, owner 2026-11-18), the twin of `rules.TABS`. Pending Approval holds only new
-// claims; an Approved claim sits in the tab of its expense's status (`claimTab`).
+// The tabs (ADR-0040 Amendment C, owner 2026-11-18), the twin of `rules.TABS`. Each step tab lists one claim status
+// (`claimTab`); after the first approval the claim carries its expense's status (owner, 2026-11-19).
 export const TAB_PENDING = "pending";
 export const TAB_L1 = "l1";
 export const TAB_CEO = "ceo";
@@ -198,24 +210,20 @@ export const TAB_LABELS: Record<ReimbursementTab, string> = {
     [TAB_ALL]: "All",
 };
 
-/** The expense status each expense-led tab lists. */
-export const EXPENSE_STATUS_OF_TAB: Partial<Record<ReimbursementTab, string>> = {
-    [TAB_L1]: "Requested",
-    [TAB_CEO]: "CEO Pending",
-    [TAB_APPROVED]: "Approved",
-    [TAB_RECONCILIATION]: "Reconciliation Pending",
+/** The step tab of each status; Rejected is in none (only All). Twin of `rules.TAB_OF_STATUS`. */
+const TAB_OF_STATUS: Partial<Record<string, ReimbursementTab>> = {
+    [PENDING]: TAB_PENDING,
+    [REQUESTED]: TAB_L1,
+    [CEO_PENDING]: TAB_CEO,
+    [APPROVED]: TAB_APPROVED,
+    [RECONCILIATION_PENDING]: TAB_RECONCILIATION,
+    [PAID]: TAB_PAID,
 };
 
-/** The step tab a claim sits in, or null (Rejected, or an Approved claim with no expense): only All lists it. */
-export function claimTab(claimStatus: string, expenseStatus: string | null | undefined): ReimbursementTab | null {
-    if (claimStatus === PENDING) return TAB_PENDING;
-    if (claimStatus === PAID) return TAB_PAID;
-    if (claimStatus === APPROVED) {
-        const found = (Object.keys(EXPENSE_STATUS_OF_TAB) as ReimbursementTab[])
-            .find((tab) => EXPENSE_STATUS_OF_TAB[tab] === expenseStatus);
-        return found ?? null;
-    }
-    return null;
+/** The step tab a claim sits in, or null (Rejected): only All lists it. The claim's status names the step; an
+ *  expense's status, by the same name, gives the tab its claim is now in. */
+export function claimTab(status: string | null | undefined): ReimbursementTab | null {
+    return TAB_OF_STATUS[status ?? ""] ?? null;
 }
 
 /** The tabs where a person acts on ticked rows: the three approval tabs, and Payment need to be paid. */
