@@ -1,7 +1,9 @@
 // src/pages/Reimbursements/config/reimbursementColumns.tsx
 //
-// Columns for the Reimbursement Raised By Me, Pending Approval, Approved, Paid and Rejected tables: one config, so every tab
-// reads the same way. Pending Approval ends with Approve / Reject (`DecideButtons`).
+// Columns for every Reimbursements tab (ADR-0040 Amendment C): one config, so every tab reads the same way. The three
+// approval tabs end with Approve / Reject (`DecideButtons`), Payment need to be paid with Mark as Paid, Reconciliation
+// Pending with Mark Reconciled; the tabs where people act on ticked rows start with a tick box. Every tab after the first
+// approval shows the claim's Non-Project Expense (its ID and its own status).
 //
 // EVERY FIELD IS A COLUMN, because the default Export writes every column definition (hidden ones
 // included) and the payers asked for "all the fields" (owner, 2026-10-22). The bank fields, description
@@ -9,13 +11,14 @@
 // column is display only.
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { FileText, Pencil, Trash2 } from "lucide-react";
+import { BadgeCheck, FileText, IndianRupee, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
-import type { Reimbursement } from "@/types/NirmaanStack/Reimbursement";
+import type { ClaimRow } from "@/types/NirmaanStack/Reimbursement";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
@@ -29,10 +32,12 @@ import {
     REJECTED,
     TAB_ALL,
     TAB_APPROVED,
+    TAB_CEO,
+    TAB_L1,
     TAB_MINE,
     TAB_PAID,
     TAB_PENDING,
-    TAB_REJECTED,
+    TAB_RECONCILIATION,
     claimantName,
     deleteProblem,
     editProblem,
@@ -59,13 +64,27 @@ export const HIDDEN_BY_DEFAULT = {
     pay_to_bank_branch: false,
 };
 
-/** What each tab shows on screen: the hidden-by-default fields, plus Approved By only on Approved and Paid, and
- *  Rejection Reason only on Rejected (Reimbursement Raised By Me shows both inside its Status cell). Every column
- *  still exports. */
+/** The expense's own status, coloured as the claim's are. */
+export const EXPENSE_STATUS_BADGE: Record<string, string> = {
+    Requested: "bg-amber-100 text-amber-800",
+    "CEO Pending": "bg-orange-100 text-orange-800",
+    Approved: "bg-emerald-100 text-emerald-800",
+    "Reconciliation Pending": "bg-violet-100 text-violet-800",
+    Paid: "bg-sky-100 text-sky-800",
+    Rejected: "bg-red-100 text-red-800",
+};
+
+/** The tabs after the first approval, which show the claim's expense. */
+const EXPENSE_TABS: readonly ReimbursementTab[] = [TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID, TAB_ALL, TAB_MINE];
+
+/** What each tab shows on screen: the hidden-by-default fields, plus Approved By on the tabs after the first
+ *  approval. All and Reimbursement Raised By Me show the decision (and a rejection's reason) inside the Status cell.
+ *  Every column still exports. */
 export const columnVisibilityFor = (tab: ReimbursementTab) => ({
     ...HIDDEN_BY_DEFAULT,
-    approved_by: tab === TAB_APPROVED || tab === TAB_PAID,
-    rejection_reason: tab === TAB_REJECTED,
+    approved_by: [TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID].includes(tab),
+    rejection_reason: false,
+    expense_status: false,
 });
 
 
@@ -73,26 +92,59 @@ interface Args {
     tab: ReimbursementTab;
     userId: string;
     getUserName: (id?: string | null) => string;
-    onOpen: (r: Reimbursement) => void;
-    onEdit: (r: Reimbursement) => void;
-    onDelete: (r: Reimbursement) => void;
-    /** Pending Approval only: whether this person may decide a claim (the server's `can_decide`), and why not. */
-    canDecide?: (name: string) => boolean;
-    cannotDecideReason?: (name: string) => string | null | undefined;
-    onDecide?: (decision: Decision, r: Reimbursement) => void;
+    onOpen: (r: ClaimRow) => void;
+    onEdit: (r: ClaimRow) => void;
+    onDelete: (r: ClaimRow) => void;
+    /** The tab has tick boxes (this person acts on ticked rows here). */
+    selectable?: boolean;
+    /** Whether this person may act on a row of this tab, and why not (the approval tabs show it on hover). */
+    canAct?: (r: ClaimRow) => boolean;
+    cannotActReason?: (r: ClaimRow) => string | null | undefined;
+    /** The approval tabs. */
+    onDecide?: (decision: Decision, r: ClaimRow) => void;
+    /** Payment need to be paid / Reconciliation Pending. */
+    onMarkPaid?: (r: ClaimRow) => void;
+    onReconcile?: (r: ClaimRow) => void;
 }
 
 export function getReimbursementColumns({
-    tab, userId, getUserName, onOpen, onEdit, onDelete, canDecide, cannotDecideReason, onDecide,
-}: Args): ColumnDef<Reimbursement>[] {
+    tab, userId, getUserName, onOpen, onEdit, onDelete, selectable, canAct, cannotActReason, onDecide, onMarkPaid,
+    onReconcile,
+}: Args): ColumnDef<ClaimRow>[] {
     const mine = tab === TAB_MINE;
     // Reimbursement Raised By Me and All span every status, so they show it (with the decision under it).
     const showStatus = mine || tab === TAB_ALL;
-    const exported = (header: string, value: (r: Reimbursement) => string | number) => ({
+    const exported = (header: string, value: (r: ClaimRow) => string | number) => ({
         exportHeaderName: header, exportValue: value,
     });
 
-    const columns: ColumnDef<Reimbursement>[] = [
+    const columns: ColumnDef<ClaimRow>[] = [];
+    if (selectable) {
+        columns.push({
+            id: "select",
+            size: 36,
+            header: ({ table }) => (
+                <Checkbox
+                    checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select every claim you can on this page"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    checked={row.getIsSelected()}
+                    disabled={!row.getCanSelect()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label={`Select ${row.original.name}`}
+                    title={row.getCanSelect() ? undefined : (cannotActReason?.(row.original) ?? "You can't act on this claim.")}
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            meta: { excludeFromExport: true },
+        });
+    }
+    columns.push(
         {
             accessorKey: "name",
             size: 135,
@@ -105,7 +157,7 @@ export function getReimbursementColumns({
             ),
             meta: exported("ID", (r) => r.name),
         },
-    ];
+    );
 
     if (!mine) {
         columns.push(
@@ -204,6 +256,36 @@ export function getReimbursementColumns({
         });
     }
 
+    if (EXPENSE_TABS.includes(tab)) {
+        columns.push(
+            {
+                accessorKey: "expense",
+                size: 165,
+                header: "Non-Project Expense",
+                enableSorting: false,
+                // The claim's expense (ADR-0040) and the expense's own status; "--" before the first approval.
+                cell: ({ row }) => row.original.expense ? (
+                    <button type="button" onClick={() => onOpen(row.original)} className="min-w-0 text-left">
+                        <span className="block truncate font-mono text-xs text-primary hover:underline">{row.original.expense}</span>
+                        {row.original.expense_status && (
+                            <span className={cn("mt-0.5 inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                EXPENSE_STATUS_BADGE[row.original.expense_status] ?? "bg-muted text-muted-foreground")}>
+                                {row.original.expense_status}
+                            </span>
+                        )}
+                    </button>
+                ) : <span className="text-muted-foreground">--</span>,
+                meta: exported("Non-Project Expense", (r) => r.expense ?? ""),
+            },
+            {
+                accessorKey: "expense_status",
+                header: "Expense Status",
+                enableSorting: false,
+                meta: exported("Expense Status", (r) => r.expense_status ?? ""),
+            },
+        );
+    }
+
     columns.push({
         accessorKey: "creation",
         size: 125,
@@ -244,20 +326,48 @@ export function getReimbursementColumns({
         meta: exported("Receipts PDF", (r) => (r.attachment ? `${SITEURL}${r.attachment}` : "")),
     });
 
-    // Pending Approval: Approve / Reject as icons in the last column (narrow enough to stay on screen).
-    if (tab === TAB_PENDING && canDecide && onDecide) {
+    // The approval tabs: Approve / Reject as icons in the last column (narrow enough to stay on screen).
+    if ((tab === TAB_PENDING || tab === TAB_L1 || tab === TAB_CEO) && canAct && onDecide) {
         columns.push({
             id: "decide",
             size: 90,
             header: "",
             cell: ({ row }) => (
                 <DecideButtons
-                    canDecide={canDecide(row.original.name)}
-                    reason={cannotDecideReason?.(row.original.name)}
+                    canDecide={canAct(row.original)}
+                    reason={cannotActReason?.(row.original)}
                     onApprove={() => onDecide("approve", row.original)}
                     onReject={() => onDecide("reject", row.original)}
                 />
             ),
+            meta: { excludeFromExport: true },
+        });
+    }
+
+    if (tab === TAB_APPROVED && canAct && onMarkPaid) {
+        columns.push({
+            id: "mark_paid",
+            size: 120,
+            header: "",
+            cell: ({ row }) => canAct(row.original) ? (
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onMarkPaid(row.original)}>
+                    <IndianRupee className="mr-1 h-3.5 w-3.5" /> Mark as Paid
+                </Button>
+            ) : null,
+            meta: { excludeFromExport: true },
+        });
+    }
+
+    if (tab === TAB_RECONCILIATION && canAct && onReconcile) {
+        columns.push({
+            id: "reconcile",
+            size: 140,
+            header: "",
+            cell: ({ row }) => canAct(row.original) ? (
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onReconcile(row.original)}>
+                    <BadgeCheck className="mr-1 h-3.5 w-3.5" /> Mark Reconciled
+                </Button>
+            ) : null,
             meta: { excludeFromExport: true },
         });
     }
