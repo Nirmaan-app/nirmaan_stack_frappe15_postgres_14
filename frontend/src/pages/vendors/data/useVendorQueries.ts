@@ -6,6 +6,7 @@ import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Category } from "@/types/NirmaanStack/Category";
 import { Items } from "@/types/NirmaanStack/Items";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import type { Address } from "@/types/NirmaanStack/Address";
 import { VENDOR_DOCTYPE } from "../vendors.constants";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
@@ -204,12 +205,12 @@ export const useLedgerData = (vendorId: string) => {
 };
 
 export const useEditVendorData = (id: string | undefined) => {
-  const vendorResponse = useFrappeGetDoc("Vendors",
+  const vendorResponse = useFrappeGetDoc<Vendors>("Vendors",
     id,
     id ? vendorKeys.vendorDoc(id) : null
   );
   const addressId = vendorResponse.data?.vendor_address;
-  const addressResponse = useFrappeGetDoc(
+  const addressResponse = useFrappeGetDoc<Address>(
     "Address",
     addressId,
     addressId ? vendorKeys.vendorAddress(addressId) : null,

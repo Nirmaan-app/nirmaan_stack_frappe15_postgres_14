@@ -200,7 +200,7 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
         vendor_nickname: data?.vendor_nickname,
         address_line_1: vendorAddress?.address_line1,
         address_line_2: vendorAddress?.address_line2 || undefined,
-        pin: vendorAddress?.pincode,
+        pin: vendorAddress?.pincode ?? undefined,
         vendor_email: data?.vendor_email,
         vendor_mobile: data?.vendor_mobile,
         vendor_alt_mobile: data?.vendor_alt_mobile,
@@ -216,7 +216,7 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
         autofill_all_entities_json: readMsmeJson(data?.autofill_all_entities_json),
       });
 
-      setPincode(vendorAddress?.pincode);
+      setPincode(vendorAddress?.pincode ?? "");
     }
   }, [data, vendorAddress]);
 
@@ -307,7 +307,7 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
   const tdsChangeNote = tdsRateChangeNote(data?.tds_deduction_percentage, form.watch("tds_deduction_percentage"));
   // A PAN another vendor already holds is allowed — warn, never block.
   const samePanVendors = findVendorsByPan(existingVendors, watchedPan);
-  const gstRequired = vendorChange || ["Material", "Material & Service"].includes(data?.vendor_type);
+  const gstRequired = vendorChange || ["Material", "Material & Service"].includes(data?.vendor_type ?? "");
 
   return (
     <div className="flex-1 space-y-4">
