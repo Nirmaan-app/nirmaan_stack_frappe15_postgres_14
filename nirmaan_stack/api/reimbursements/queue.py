@@ -3,8 +3,8 @@
 
 """The Reimbursements page's tabs (ADR-0040 Amendment C): one list call and one count call.
 
-Each step of a claim has its own tab. The claim keeps its four statuses, so an Approved claim's tab is its
-Non-Project Expense's status (`rules.claim_tab`; no field or status was added). The tab rules are pure, in
+Each step of a claim has its own tab, read from the claim's status, which carries its Non-Project Expense's status
+after the first approval (`rules.claim_tab`, owner 2026-11-19). The tab rules are pure, in
 `services/reimbursements/rules.py`; this module only reads.
 
 * `get_claims(tab, ...)` -- one page of a tab, for the shared server data table (`useServerDataTable`'s
@@ -13,11 +13,12 @@ Non-Project Expense's status (`rules.claim_tab`; no field or status was added). 
   (`integrations/controllers/reimbursement`). Each row also carries its expense's ID, status and creation.
 * `get_claim_tab_counts()` -- every tab's badge: the number of rows the tab shows (owner, 2026-11-18).
 
-Paid, All and Payment need to be paid take a `month` ("YYYY-MM", owner 2026-11-19): Paid lists the claims whose
-expense was PAID in that month (its paid-on date); All and Payment need to be paid the claims RAISED in it. The screen's totals come from the same call
+Every tab takes a `month` ("YYYY-MM", owner 2026-11-19): Paid lists the claims whose expense was PAID in that month
+(its paid-on date); every other tab the claims RAISED in it. The screen's totals come from the same call
 (`aggregates_config` / `group_by_config`), so they cover every row the filters match, not only the page.
-* `get_claim_month_summary(tab, year)` -- the month picker's tiles: each month's claim count and total for Paid or
-  All in one year, and the first year with a claim, over the claims the person may read.
+On All and Raised By Me the totals are grouped by the claim's status, which names each step.
+* `get_claim_month_summary(tab, year)` -- the month picker's tiles: each month's claim count and total for a tab in
+  one year, and the first year with a claim, over the claims the person may read.
 
 Pending CEO Approval is the CEO's alone (`rules.tab_problem`): anyone else is refused the list and never sent the
 count.
@@ -37,15 +38,16 @@ from nirmaan_stack.integrations.controllers.reimbursement import get_permission_
 from nirmaan_stack.services.expense_decision import is_ceo
 from nirmaan_stack.services.reimbursements.convert import LINK_FIELD
 from nirmaan_stack.services.reimbursements.rules import (
-    APPROVED,
-    EXPENSE_STATUS_OF_TAB,
     PAID,
-    PENDING,
+    STATUS_OF_TAB,
     TAB_ALL,
     TAB_APPROVED,
+    TAB_CEO,
+    TAB_L1,
     TAB_MINE,
     TAB_PAID,
     TAB_PENDING,
+    TAB_RECONCILIATION,
     count_tabs,
     tab_problem,
 )
@@ -83,10 +85,11 @@ def get_claims(
     if condition is None:
         return {"data": [], "total_count": 0, "aggregates": {}, "group_by_result": None}
 
+    all_filters = _as_filter_list(filters) + condition
     result = get_list_with_count_enhanced_impl(
         doctype=DOCTYPE,
         fields=fields or ["name"],
-        filters=_as_filter_list(filters) + condition,
+        filters=all_filters,
         order_by=order_by,
         limit_start=limit_start,
         limit_page_length=limit_page_length,
@@ -110,13 +113,11 @@ def get_claim_tab_counts() -> dict:
     rows = frappe.db.sql(
         f"""
         SELECT "tabReimbursement"."status" AS claim_status,
-               e."status" AS expense_status,
                ("tabReimbursement"."owner" = %(user)s) AS mine,
                COUNT(*) AS n
         FROM "tabReimbursement"
-        LEFT JOIN "tab{NPE}" e ON e."{LINK_FIELD}" = "tabReimbursement"."name"
         {f"WHERE {scope}" if scope else ""}
-        GROUP BY 1, 2, 3
+        GROUP BY 1, 2
         """,
         {"user": user},
         as_dict=True,
@@ -124,9 +125,9 @@ def get_claim_tab_counts() -> dict:
     return count_tabs(rows, viewer_is_ceo=is_ceo(user))
 
 
-#: The tabs a month narrows (owner, 2026-11-19): Paid by the paid-on month, All and Payment need to be paid by the
-#: month the claim was raised (a claim waiting to be paid has no paid date yet).
-MONTH_TABS = (TAB_PAID, TAB_ALL, TAB_APPROVED)
+#: The tabs a month narrows (owner, 2026-11-19: every tab): Paid by the paid-on month, every other tab by the month the
+#: claim was raised (a claim not yet paid has no paid date).
+MONTH_TABS = (TAB_PENDING, TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TAB_PAID, TAB_ALL, TAB_MINE)
 
 
 def _month_bounds(month) -> tuple[date, date] | None:
@@ -143,12 +144,12 @@ def _month_bounds(month) -> tuple[date, date] | None:
 
 @frappe.whitelist()
 def get_claim_month_summary(tab, year) -> dict:
-    """The month picker's tiles for Paid (by the expense's paid-on month) or All (by the raised month):
-    `{year, first_year, months: {"1".."12": {count, total}}}`, over the claims the caller may read. Months with
-    nothing are left out. `first_year` is the earliest year with a claim (None when there are none)."""
+    """The month picker's tiles for `tab`, Paid by the expense's paid-on month and every other tab by the raised month:
+    `{year, first_year, months: {"1".."12": {count, total}}}`, over the claims the caller may read that are in the tab.
+    Months with nothing are left out. `first_year` is the earliest year with a claim (None when there are none)."""
     user = frappe.session.user
     if tab not in MONTH_TABS:
-        frappe.throw(_("Only Paid, All and Payment need to be paid have months."))
+        frappe.throw(_("Unknown tab: {0}").format(tab))
     problem = tab_problem(tab, viewer_is_ceo=is_ceo(user))
     if problem:
         frappe.throw(problem, frappe.PermissionError)
@@ -159,14 +160,16 @@ def get_claim_month_summary(tab, year) -> dict:
         joined = f"""FROM "tabReimbursement" JOIN "tab{NPE}" e ON e."{LINK_FIELD}" = "tabReimbursement"."name"
             WHERE "tabReimbursement"."status" = %(paid)s AND e."payment_date" IS NOT NULL {scope_sql}"""
         when = 'e."payment_date"'
-    elif tab == TAB_APPROVED:
-        joined = f"""FROM "tabReimbursement" JOIN "tab{NPE}" e ON e."{LINK_FIELD}" = "tabReimbursement"."name"
-            WHERE "tabReimbursement"."status" = %(approved)s AND e."status" = %(to_pay)s {scope_sql}"""
+    elif tab in STATUS_OF_TAB:
+        joined = f'FROM "tabReimbursement" WHERE "tabReimbursement"."status" = %(step)s {scope_sql}'
+        when = '"tabReimbursement"."creation"'
+    elif tab == TAB_MINE:
+        joined = f'FROM "tabReimbursement" WHERE "tabReimbursement"."owner" = %(user)s {scope_sql}'
         when = '"tabReimbursement"."creation"'
     else:
         joined = f'FROM "tabReimbursement" WHERE 1 = 1 {scope_sql}'
         when = '"tabReimbursement"."creation"'
-    params = {"paid": PAID, "approved": APPROVED, "to_pay": EXPENSE_STATUS_OF_TAB[TAB_APPROVED], "year": year}
+    params = {"paid": PAID, "user": user, "step": STATUS_OF_TAB.get(tab), "year": year}
     rows = frappe.db.sql(
         f"""SELECT EXTRACT(MONTH FROM {when})::int AS month, COUNT(*) AS count,
                    COALESCE(SUM("tabReimbursement"."amount"), 0) AS total
@@ -188,35 +191,16 @@ def _tab_condition(tab: str, user: str, month: tuple[date, date] | None = None) 
     if tab == TAB_ALL:
         # As text: the generic list serialises its filters to JSON (cache key), which a date would break.
         return [["creation", ">=", str(month[0])], ["creation", "<", str(month[1])]] if month else []
+    raised = [["creation", ">=", str(month[0])], ["creation", "<", str(month[1])]] if month else []
     if tab == TAB_MINE:
-        return [["owner", "=", user]]
-    if tab == TAB_PENDING:
-        return [["status", "=", PENDING]]
+        return [["owner", "=", user], *raised]
     if tab == TAB_PAID:
         if not month:
             return [["status", "=", PAID]]
         names = _claims_paid_in(*month)
         return [["status", "=", PAID], ["name", "in", names]] if names else None
-    names = _approved_claims_whose_expense_is(EXPENSE_STATUS_OF_TAB[tab])
-    if not names:
-        return None
-    raised_in = [["creation", ">=", str(month[0])], ["creation", "<", str(month[1])]] if month else []
-    return [["status", "=", APPROVED], ["name", "in", names], *raised_in]
-
-
-def _approved_claims_whose_expense_is(expense_status: str) -> list[str]:
-    """The Approved claims whose expense has `expense_status`. Only claims still in flight are ever here (an
-    expense-led tab ends at Paid), so the list stays short; the read scoping is applied afterwards by the list
-    call, on the claims themselves."""
-    return frappe.db.sql_list(
-        f"""
-        SELECT e."{LINK_FIELD}"
-        FROM "tab{NPE}" e
-        JOIN "tab{DOCTYPE}" r ON r."name" = e."{LINK_FIELD}"
-        WHERE e."status" = %(expense_status)s AND r."status" = %(approved)s
-        """,
-        {"expense_status": expense_status, "approved": APPROVED},
-    )
+    # Every other step tab: the claims at that status (the claim carries its expense's status).
+    return [["status", "=", STATUS_OF_TAB[tab]], *raised]
 
 
 def _claims_paid_in(start: date, end: date) -> list[str]:

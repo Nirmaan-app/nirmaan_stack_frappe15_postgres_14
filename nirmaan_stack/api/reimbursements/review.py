@@ -67,10 +67,13 @@ def _approve(name: str, user: str, acknowledged: bool):
     problem = acknowledgement_problem(total, acknowledged)
     if problem:
         frappe.throw(_(problem))
+    # Saved Approved first: the expense's routing reads the claim's approver. Creating the expense then copies its
+    # starting status onto the claim (`expense_link.follow_expense`): Requested, CEO Pending, or Approved as it is.
     claim.status = APPROVED
     claim.approved_by = user
     claim.save(ignore_permissions=True)
     expense = create_expense(claim, user, needs_l1=approval_needs_l1(total, decider_is_l1=is_l1(user)))
+    claim.reload()
     return claim, expense
 
 
@@ -85,7 +88,7 @@ def _reject(name: str, user: str, reason: str):
 
 def _approved_reply(claim, expense) -> dict:
     return {"name": claim.name, "status": claim.status, "expense": expense.name, "expense_status": expense.status,
-            "tab": claim_tab(claim.status, expense.status)}
+            "tab": claim_tab(claim.status)}
 
 
 def _check_reason(reason) -> None:
@@ -145,7 +148,7 @@ def bulk_reject_reimbursements(names, reason) -> dict:
 
     def reject(name):
         claim = _reject(name, user, reason)
-        return {"name": claim.name, "status": claim.status, "tab": claim_tab(claim.status, None)}
+        return {"name": claim.name, "status": claim.status, "tab": claim_tab(claim.status)}
 
     return _bulk(names, reject, REJECTED, "rejected")
 

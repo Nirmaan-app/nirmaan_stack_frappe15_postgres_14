@@ -1,14 +1,16 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A claim and the Non-Project Expense created from it (ADR-0040): the claim follows the expense's endings,
-and the two are deleted together.
+"""A claim and the Non-Project Expense created from it (ADR-0040): the claim carries the expense's status, and the two
+are deleted together.
 
-Owner rulings, 2026-10-23:
+Owner rulings, 2026-10-23 (the first point replaced 2026-11-19):
 
-* The claim stays Approved while its expense is Requested, CEO Pending, Approved or Reconciliation Pending.
-  Expense Paid -> claim Paid. Expense Rejected (in the Payments queue) -> claim Rejected, with the reason
-  typed there. An undone bank match (Paid -> back) puts the claim back to Approved.
+* The claim's status is its expense's status, by the same names (`rules.CLAIM_STATUS_OF_EXPENSE`): Requested, CEO
+  Pending, Approved, Reconciliation Pending, Paid, Rejected. It is copied on every change to the expense's status
+  (`follow_expense`) -- an L1 or CEO approval, Mark as Paid, a reconcile, a reject (with the reason typed there), an
+  undone bank match (Paid -> Reconciliation Pending) -- wherever it is made, the Reimbursements page or Payments.
+  Before 2026-11-19 the claim stayed Approved until the expense was Paid or Rejected.
 * Everything else on the expense may be edited and never touches the claim -- except that Rejected is FINAL
   (owner, 2026-10-23): a rejected expense can't be moved to any other status. To pay it after all, delete it
   (which deletes the claim) and the person raises a new reimbursement. So a claim never sits Rejected while
@@ -39,10 +41,9 @@ from nirmaan_stack.services.expense_decision import REJECTION_REASON_FLAG
 from nirmaan_stack.services.notification_links import delete_notifications_for
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
-from nirmaan_stack.services.outflow_import.ledgers import PAID as EXPENSE_PAID
 from nirmaan_stack.services.reimbursements.convert import APPROVAL_FLAG, LINK_FIELD
 from nirmaan_stack.services.reimbursements.receipts import detach_claim_files
-from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, REJECTED
+from nirmaan_stack.services.reimbursements.rules import APPROVED_STEPS, CLAIM_STATUS_OF_EXPENSE, PAID, REJECTED
 
 CLAIM_DOCTYPE = "Reimbursement"
 
@@ -116,36 +117,29 @@ def refuse_revival(expense) -> None:
         frappe.throw(_(problem))
 
 
-def claim_status_for(expense_status: str, previous_status: str | None, claim_status: str) -> str | None:
-    """The status a claim moves to when its expense goes `previous_status` -> `expense_status`, or None.
+def claim_status_for(expense_status: str | None, claim_status: str | None) -> str | None:
+    """The status a claim moves to when its expense is now `expense_status`, or None when it stays.
 
-    Pure. Only the endings move a claim, and only from the status it can be in at that point.
+    Pure. The claim takes the expense's status by the same name, but only once it has been approved (it is at one of
+    `rules.APPROVED_STEPS` or Paid): a Pending Approval claim has no expense yet, and Rejected is final.
     """
-    if expense_status == previous_status:
+    if claim_status not in (*APPROVED_STEPS, PAID):
         return None
-    if expense_status == EXPENSE_PAID:
-        return PAID if claim_status == APPROVED else None
-    if expense_status == EXPENSE_REJECTED:
-        return REJECTED if claim_status == APPROVED else None
-    if previous_status == EXPENSE_PAID:
-        # An undone bank match: the money is no longer recorded as gone.
-        return APPROVED if claim_status == PAID else None
-    return None
+    target = CLAIM_STATUS_OF_EXPENSE.get(expense_status or "")
+    return target if target and target != claim_status else None
 
 
 def follow_expense(expense) -> None:
-    """Expense `on_update`: carry Paid / Rejected / un-Paid onto the claim. Rides the expense's transaction."""
+    """Expense `on_update`: copy the expense's status onto its claim. Rides the expense's transaction.
+
+    Runs on the expense's insert too (Frappe counts a new document's status as changed), which is how an approval
+    that leaves the expense waiting for L1 or the CEO puts the claim there (`review._approve` saves the claim Approved
+    first, as the routing reads its approver)."""
     claim_name = expense.get(LINK_FIELD)
     if not claim_name or not expense.has_value_changed("status"):
         return
-    before = expense.get_doc_before_save()
-    previous = before.status if before else None
-    # Only an ending (Paid / Rejected) or leaving Paid can move a claim: skip the lock and the load otherwise
-    # (every L1 approval and Reconciliation Pending move of these expenses lands here).
-    if expense.status not in (EXPENSE_PAID, EXPENSE_REJECTED) and previous != EXPENSE_PAID:
-        return
-    claim = frappe.get_doc(CLAIM_DOCTYPE, claim_name, for_update=True)
-    target = claim_status_for(expense.status, previous, claim.status)
+    claim = lock_claim(claim_name)
+    target = claim_status_for(expense.status, claim.status)
     if not target:
         return
     claim.status = target

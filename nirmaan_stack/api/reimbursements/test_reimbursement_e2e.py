@@ -31,7 +31,7 @@ from nirmaan_stack.api.reimbursements import claims, review
 from nirmaan_stack.api.reimbursements import test_reimbursements as base
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.reimbursements import convert
-from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, REJECTED
+from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, RECONCILIATION_PENDING, REJECTED
 
 NPE = base.NPE
 PM, HR, ADMIN, ACC = base.PM, base.HR, base.ADMIN, base.ACC
@@ -47,7 +47,8 @@ class _EndToEndCase(base.ReimbursementTestCase):
         self.fresh_month()
         name = self.raise_claim(claimant, amount=amount)
         reply = self.as_user(approver, review.approve_reimbursement, name, acknowledged=1)
-        self.assertEqual(reply["status"], APPROVED)
+        # The claim carries its expense's starting status (owner, 2026-11-19).
+        self.assertEqual(reply["status"], reply["expense_status"])
         self.assertEqual(reply["expense"], convert.expense_of(name))
         return name, reply["expense"]
 
@@ -100,7 +101,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         self.assertEqual(flt(frappe.db.get_value(NPE, expense, "amount")), 1450)
 
         self.assert_moved(self.decide(ACC, expense, "mark_done"), expense, "Reconciliation Pending")
-        self.assertEqual(self.claim(name).status, APPROVED)  # only the endings move a claim
+        self.assertEqual(self.claim(name).status, RECONCILIATION_PENDING)  # the claim carries the expense's status
 
         self.assert_moved(self.decide(ACC, expense, "mark_paid", payment=self.payment()), expense, "Paid")
         self.assertEqual(self.claim(name).status, PAID)
@@ -132,7 +133,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         self.assert_refused(self.decide(ADMIN, expense, "ceo_approve"), expense, "CEO")
         self.assert_refused(self.decide(ACC, expense, "ceo_approve"), expense, "CEO")
         self.assert_refused(self.decide(ACC, expense, "mark_paid", payment=self.payment()), expense, "CEO Pending")
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", "CEO Pending"))
 
         self.assert_moved(self.decide(CEO, expense, "ceo_approve"), expense, "Approved")
         self.assertEqual(self.claim(name).status, APPROVED)
@@ -192,14 +193,14 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         for reason in (None, "", "   "):
             with self.subTest(reason=reason), self.assertRaises(frappe.ValidationError):
                 self.decide(CEO, expense, "reject", reason=reason)
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", "CEO Pending"))
 
     def test_only_the_ceo_rejects_a_ceo_pending_reimbursement(self):
         name, expense = self.approve(ADMIN, amount=80000)
         for user in (ADMIN, ACC, PM, HR):
             with self.subTest(user):
                 self.assert_refused(self.decide(user, expense, "reject", reason="no"), expense)
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("CEO Pending", "CEO Pending"))
 
     # --- paying it wrong --------------------------------------------------------------------------
 
@@ -208,7 +209,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         reason = self.assert_refused(self.decide(ACC, expense, "mark_paid", payment={"payment_ref": "UTR-X"}),
                                      expense, "Mark as Paid needs")
         self.assertIn("Payment Date", reason)
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", "Approved"))
         self.assertFalse(frappe.db.get_value(NPE, expense, "payment_ref"))  # refused writes nothing
 
     def test_a_paid_expense_cannot_be_paid_again(self):
@@ -225,7 +226,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
             with self.subTest(user):
                 self.assert_refused(self.decide(user, expense, "mark_paid", payment=self.payment()), expense,
                                     "Admin or Accounts")
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", "Approved"))
 
     def test_a_typed_in_status_cannot_pay_a_claim(self):
         """A person's own save (Desk, REST) can't move the status: only `decide` does (story 42)."""
@@ -234,7 +235,7 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         doc.status = "Paid"
         with self.assertRaises(frappe.ValidationError):
             self.as_user(ACC, doc.save)
-        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(name).status), ("Approved", "Approved"))
 
     # --- who sees it ------------------------------------------------------------------------------
 
@@ -456,7 +457,7 @@ class TestReimbursementBulkActions(_EndToEndCase):
         data = self.decide_many(ADMIN, [small, reimbursed, large], "l1_approve")
         self.assertEqual(data["statuses"], {small: "Approved", large: "CEO Pending"})
         self.assert_refused({"succeeded": [], "failed": data["failed"]}, reimbursed, "Approved", "Requested")
-        self.assertEqual((self.expense_status(reimbursed), self.claim(claim).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(reimbursed), self.claim(claim).status), ("Approved", "Approved"))
 
     def test_bulk_approval_by_someone_who_may_not_refuses_every_row(self):
         claim, reimbursed = self.approve(ADMIN, amount=80000)
@@ -466,7 +467,7 @@ class TestReimbursementBulkActions(_EndToEndCase):
         ceo = self.decide_many(ADMIN, [reimbursed], "ceo_approve")  # an Admin is not the CEO
         self.assert_refused(ceo, reimbursed, "CEO")
         self.assertEqual(self.statuses(requested, reimbursed), ["Requested", "CEO Pending"])
-        self.assertEqual(self.claim(claim).status, APPROVED)
+        self.assertEqual(self.claim(claim).status, "CEO Pending")  # refused: still with its expense
 
     # --- bulk Mark as Paid -----------------------------------------------------------------------
 
@@ -490,7 +491,7 @@ class TestReimbursementBulkActions(_EndToEndCase):
         self.assertEqual(data["failed"], [])
         self.assertEqual(data["statuses"], {r1: "Reconciliation Pending", r2: "Reconciliation Pending",
                                             o1: "Reconciliation Pending"})
-        self.assertEqual(self.claims_status(c1, c2), [APPROVED, APPROVED])  # money out is not yet Paid
+        self.assertEqual(self.claims_status(c1, c2), [RECONCILIATION_PENDING] * 2)  # money out is not yet Paid
 
         for n, ref in ((r1, "UTR-BULK-1"), (r2, "UTR-BULK-2"), (o1, "UTR-BULK-3")):
             self.assert_moved(self.decide(ACC, n, "mark_paid", payment=self.payment(ref)), n, "Paid")
@@ -520,7 +521,7 @@ class TestReimbursementBulkActions(_EndToEndCase):
             self.assertEqual(reasons[payment.name], "Expense not found")
             after = frappe.db.get_value("Project Payments", payment.name, ["status", "modified"], as_dict=True)
             self.assertEqual((after.status, after.modified), (payment.status, payment.modified))
-        self.assertEqual((self.expense_status(good), self.claim(good_claim).status), ("Reconciliation Pending", APPROVED))
+        self.assertEqual((self.expense_status(good), self.claim(good_claim).status), ("Reconciliation Pending", "Reconciliation Pending"))
         self.assertEqual((self.expense_status(paid), self.claim(paid_claim).status), ("Paid", PAID))
 
     def test_a_batch_over_the_limit_is_refused_whole(self):
@@ -528,11 +529,11 @@ class TestReimbursementBulkActions(_EndToEndCase):
         too_many = [expense] + [f"reimb-test-filler-{i}" for i in range(MAX_BATCH_SIZE)]
         with self.assertRaises(frappe.ValidationError):
             self.decide_many(ACC, too_many, "mark_done")
-        self.assertEqual((self.expense_status(expense), self.claim(claim).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(claim).status), ("Approved", "Approved"))
 
     def test_bulk_mark_as_paid_by_hr_or_the_claimant_is_refused(self):
         claim, expense = self.approve(HR)
         for user in (HR, PM):
             with self.subTest(user):
                 self.assert_refused(self.decide_many(user, [expense], "mark_done"), expense, "Admin or Accounts")
-        self.assertEqual((self.expense_status(expense), self.claim(claim).status), ("Approved", APPROVED))
+        self.assertEqual((self.expense_status(expense), self.claim(claim).status), ("Approved", "Approved"))

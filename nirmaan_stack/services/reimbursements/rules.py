@@ -35,19 +35,41 @@ from __future__ import annotations
 from nirmaan_stack.services.expense_statuses import (
     EXPENSE_APPROVED,
     EXPENSE_CEO_PENDING,
+    EXPENSE_PAID,
     EXPENSE_RECONCILIATION_PENDING,
+    EXPENSE_REJECTED,
     EXPENSE_REQUESTED,
 )
 from nirmaan_stack.services.outflow_import.amounts import rupees
 
 PENDING = "Pending Approval"
+#: After the first approval the claim carries its Non-Project Expense's status, by the same names (owner, 2026-11-19):
+#: waiting for L1, waiting for the CEO, waiting to be paid, waiting for reconciliation, paid, rejected.
+REQUESTED = "Requested"
+CEO_PENDING = "CEO Pending"
 APPROVED = "Approved"
-REJECTED = "Rejected"
+RECONCILIATION_PENDING = "Reconciliation Pending"
 #: Set only when the claim's Non-Project Expense turns Paid (`expense_link.follow_expense`).
 PAID = "Paid"
+REJECTED = "Rejected"
 
 #: The status options, in the doctype's order. Pinned to the doctype by test.
-STATUSES = (PENDING, APPROVED, REJECTED, PAID)
+STATUSES = (PENDING, REQUESTED, CEO_PENDING, APPROVED, RECONCILIATION_PENDING, PAID, REJECTED)
+
+#: The steps after the first approval and before Paid: a claim in any of them is approved and may still be paid. Where
+#: a rule used to read "Approved" it reads these (the month total, the Project Manager cap, the tabs).
+APPROVED_STEPS = (REQUESTED, CEO_PENDING, APPROVED, RECONCILIATION_PENDING)
+
+#: The claim's status for each status of its Non-Project Expense -- the same names (owner, 2026-11-19). The claim is
+#: set from it when it is approved and on every later change to the expense (`expense_link.follow_expense`).
+CLAIM_STATUS_OF_EXPENSE = {
+    EXPENSE_REQUESTED: REQUESTED,
+    EXPENSE_CEO_PENDING: CEO_PENDING,
+    EXPENSE_APPROVED: APPROVED,
+    EXPENSE_RECONCILIATION_PENDING: RECONCILIATION_PENDING,
+    EXPENSE_PAID: PAID,
+    EXPENSE_REJECTED: REJECTED,
+}
 
 #: What a claim was spent on, in the doctype's order. Pinned to the doctype's options by test.
 TYPES = ("Travel", "Food", "Others")
@@ -166,7 +188,7 @@ def claim_problem(title: str | None, amount, receipt_count: int, description: st
 #: raise and at edit. It counts the claims that may still be paid -- Pending Approval, Approved and Paid -- so several
 #: claims raised at once can't each slip under it; a rejected (or deleted) claim frees its amount.
 PM_MONTHLY_CAP = 2000
-PM_CAP_COUNTED = (PENDING, APPROVED, PAID)
+PM_CAP_COUNTED = (PENDING, *APPROVED_STEPS, PAID)
 
 
 def cap_left(month_used: float) -> float:
@@ -203,16 +225,16 @@ def rejection_problem(reason: str | None) -> str | None:
 
 # --- The Reimbursements page's tabs (owner, 2026-11-18, ADR-0040 Amendment C) ---------------------------------
 #
-# Every step of a claim has its own tab. The claim keeps its four statuses (owner: "use the old statuses only"),
-# so an Approved claim's tab is read from its Non-Project Expense's status. No field or status was added for it.
+# Every step of a claim has its own tab, read from the claim's own status (owner, 2026-11-19: the claim carries its
+# expense's statuses, replacing 2026-11-18's "use the old statuses only", when the tab came from the expense).
 # The ids are kept from the earlier tabs where the tab survives ("approved" = Payment need to be paid), so a
 # bookmarked `?tab=` still opens it; "rejected" is gone (its claims are in All).
 
 TAB_PENDING = "pending"                 # Pending Approval: the claim is Pending Approval
-TAB_L1 = "l1"                           # Pending L1 Approval: the expense is Requested
-TAB_CEO = "ceo"                         # Pending CEO Approval: the expense is CEO Pending; the CEO only
-TAB_APPROVED = "approved"               # Payment need to be paid: the expense is Approved
-TAB_RECONCILIATION = "reconciliation"   # Reconciliation Pending: the expense is Reconciliation Pending
+TAB_L1 = "l1"                           # Pending L1 Approval: the claim is Requested
+TAB_CEO = "ceo"                         # Pending CEO Approval: the claim is CEO Pending; the CEO only
+TAB_APPROVED = "approved"               # Payment need to be paid: the claim is Approved
+TAB_RECONCILIATION = "reconciliation"   # Reconciliation Pending: the claim is Reconciliation Pending
 TAB_PAID = "paid"                       # Paid: the claim is Paid
 TAB_MINE = "mine"                       # Reimbursement Raised By Me: the person's own claims
 TAB_ALL = "all"                         # All: every claim, Rejected included
@@ -222,27 +244,22 @@ STAGE_TABS = (TAB_PENDING, TAB_L1, TAB_CEO, TAB_APPROVED, TAB_RECONCILIATION, TA
 #: Every tab the list call answers.
 TABS = STAGE_TABS + (TAB_MINE, TAB_ALL)
 
-#: An Approved claim's tab, by its expense's status.
-TAB_OF_EXPENSE_STATUS = {
-    EXPENSE_REQUESTED: TAB_L1,
-    EXPENSE_CEO_PENDING: TAB_CEO,
-    EXPENSE_APPROVED: TAB_APPROVED,
-    EXPENSE_RECONCILIATION_PENDING: TAB_RECONCILIATION,
+#: The step tab of each status. Rejected is in none (only All).
+TAB_OF_STATUS = {
+    PENDING: TAB_PENDING,
+    REQUESTED: TAB_L1,
+    CEO_PENDING: TAB_CEO,
+    APPROVED: TAB_APPROVED,
+    RECONCILIATION_PENDING: TAB_RECONCILIATION,
+    PAID: TAB_PAID,
 }
-#: The other way round: which expense status an expense-led tab lists.
-EXPENSE_STATUS_OF_TAB = {tab: status for status, tab in TAB_OF_EXPENSE_STATUS.items()}
+#: The other way round: the status a step tab lists.
+STATUS_OF_TAB = {tab: status for status, tab in TAB_OF_STATUS.items()}
 
 
-def claim_tab(claim_status: str | None, expense_status: str | None) -> str | None:
-    """The one step tab a claim is in, or None when it is in none (Rejected, or an Approved claim whose expense
-    is missing or Rejected -- a state the hooks never leave, shown only in All rather than guessed at)."""
-    if claim_status == PENDING:
-        return TAB_PENDING
-    if claim_status == PAID:
-        return TAB_PAID
-    if claim_status == APPROVED:
-        return TAB_OF_EXPENSE_STATUS.get(expense_status or "")
-    return None
+def claim_tab(claim_status: str | None) -> str | None:
+    """The one step tab a claim is in, or None when it is in none (Rejected)."""
+    return TAB_OF_STATUS.get(claim_status or "")
 
 
 def tab_problem(tab: str | None, *, viewer_is_ceo: bool) -> str | None:
@@ -256,8 +273,7 @@ def tab_problem(tab: str | None, *, viewer_is_ceo: bool) -> str | None:
 
 
 def count_tabs(rows, *, viewer_is_ceo: bool) -> dict[str, int]:
-    """Each tab's badge from grouped rows of `{claim_status, expense_status, mine, n}` (the claims the person may
-    read). A badge is the number of rows the tab shows (owner, 2026-11-18). The CEO's tab is left out for anyone
+    """Each tab's badge from grouped rows of `{claim_status, mine, n}` (the claims the person may read). A badge is the number of rows the tab shows (owner, 2026-11-18). The CEO's tab is left out for anyone
     else, so its count is never sent to them."""
     counts = {tab: 0 for tab in TABS}
     for row in rows:
@@ -265,7 +281,7 @@ def count_tabs(rows, *, viewer_is_ceo: bool) -> dict[str, int]:
         counts[TAB_ALL] += n
         if row.get("mine"):
             counts[TAB_MINE] += n
-        tab = claim_tab(row.get("claim_status"), row.get("expense_status"))
+        tab = claim_tab(row.get("claim_status"))
         if tab:
             counts[tab] += n
     if not viewer_is_ceo:
