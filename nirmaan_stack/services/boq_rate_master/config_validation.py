@@ -1040,8 +1040,19 @@ def _validate_own_row_check(oc, spec):
     the lines. Whether the input is a Pricing Input item is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.own_row_check"
     pr = spec.get("pricing") or {}
-    if not isinstance(oc, dict) or set(oc) != _OWN_ROW_CHECK_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_OWN_ROW_CHECK_KEYS))}.")
+    if not isinstance(oc, dict) or not (_OWN_ROW_CHECK_KEYS <= set(oc) <= _OWN_ROW_CHECK_KEYS | {"serves"}):
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_OWN_ROW_CHECK_KEYS))} (and optionally serves).")
+    # VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): `serves` -- a row whose own description names the extra before any box
+    # words counts as that extra's own row, for the extras it names by label
+    if "serves" in oc:
+        sv = oc["serves"]
+        if not isinstance(sv, dict) or "item_first" not in sv or set(sv) - {"item_first", "extras", "presence_decides"} or not isinstance(sv["item_first"], bool):
+            _vthrow(f"{loc}.serves needs item_first (true / false) and optionally extras and presence_decides.")
+        if "presence_decides" in sv and not isinstance(sv["presence_decides"], bool):
+            _vthrow(f"{loc}.serves.presence_decides must be true or false.")
+        labels = {e.get("label") for e in (oc.get("extras") or []) if isinstance(e, dict)}
+        if "extras" in sv and (not isinstance(sv["extras"], list) or not sv["extras"] or not all(x in labels for x in sv["extras"])):
+            _vthrow(f"{loc}.serves.extras must list labels of this check's extras.")
     if not _nonempty_str(oc["threshold_input"]):
         _vthrow(f"{loc}.threshold_input must name a Pricing Input.")
     for k in ("box_words", "existing_words", "artefact_words", "cable_words", "vav_words"):
@@ -1093,6 +1104,56 @@ def _validate_own_row_check(oc, spec):
         else:
             if set(t) != {"family"} or t["family"] not in fams:
                 _vthrow(f"{w}.target must name a family of this config, a section's family, or a box attribute.")
+
+
+def _validate_band_from(bf, spec):
+    """VAV-2a2 (B1 / B2 / B3 / B4; owner R1 2026-11-18 22:16 / 23:53, R2 22:18 / 22:21, QR-3c (a) 2026-11-19 00:57, R3 13:31 / 13:46) --
+    `list_spec.pricing.band_from`: the band attribute (a choice definition whose values are the bands), the families (of this config),
+    the airflow / inlet text definitions, the bands in rising order (each a value of the attribute, its max CFM), the edge rule, the
+    inlet table (rising inches, each band a value), the mm per inch, the group label, the five tags and the lines."""
+    loc = "list_spec.pricing.band_from"
+    if not isinstance(bf, dict) or set(bf) != _BAND_FROM_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_BAND_FROM_KEYS))}.")
+    pr = spec.get("pricing") or {}
+    defs = {d.get("id"): d for d in (spec.get("attribute_definitions") or []) if isinstance(d, dict)}
+    d = defs.get(bf["attr"])
+    if d is None or d.get("type") != "choice":
+        _vthrow(f"{loc}.attr must be a choice attribute of this config.")
+    values = d.get("values") or []
+    for k in ("airflow_attr", "inlet_attr"):
+        if (defs.get(bf[k]) or {}).get("type") != "text":
+            _vthrow(f"{loc}.{k} must be a text attribute of this config.")
+    fams = set((pr.get("families") or {}).keys())
+    if not isinstance(bf["families"], list) or not bf["families"] or not all(f in fams for f in bf["families"]):
+        _vthrow(f"{loc}.families must list families of this config.")
+    bands = bf["bands"]
+    if not isinstance(bands, list) or not bands or any(not isinstance(b, dict) or set(b) != {"value", "max"} or b["value"] not in values
+                                                        or not isinstance(b["max"], (int, float)) or isinstance(b["max"], bool) or b["max"] <= 0 for b in bands):
+        _vthrow(f"{loc}.bands must be a list of {{value, max}}: each value one of {bf['attr']}'s, each max a positive number.")
+    if [b["max"] for b in bands] != sorted({b["max"] for b in bands}):
+        _vthrow(f"{loc}.bands must rise by max, each max once.")
+    if bf["edge"] not in ("lower", "upper"):
+        _vthrow(f"{loc}.edge must be 'lower' or 'upper'.")
+    tbl = bf["inlet_table"]
+    if not isinstance(tbl, list) or not tbl or any(not isinstance(r, dict) or set(r) != {"inch", "band"} or r["band"] not in values
+                                                    or not isinstance(r["inch"], (int, float)) or isinstance(r["inch"], bool) or r["inch"] <= 0 for r in tbl):
+        _vthrow(f"{loc}.inlet_table must be a list of {{inch, band}}: each band one of {bf['attr']}'s, each inch a positive number.")
+    if [r["inch"] for r in tbl] != sorted({r["inch"] for r in tbl}):
+        _vthrow(f"{loc}.inlet_table must rise by inch, each size once.")
+    if not isinstance(bf["mm_per_inch"], (int, float)) or isinstance(bf["mm_per_inch"], bool) or bf["mm_per_inch"] <= 0:
+        _vthrow(f"{loc}.mm_per_inch must be a positive number.")
+    if not _nonempty_str(bf["group"]):
+        _vthrow(f"{loc}.group must be a non-empty string.")
+    _lines_exactly(bf["tags"], _BAND_FROM_TAGS, f"{loc}.tags")
+    _lines_exactly(bf["lines"], _BAND_FROM_LINES, f"{loc}.lines")
+
+
+def _validate_source_tags(st, spec):
+    """VAV-2a2 (B4) -- `list_spec.pricing.source_tags`: attribute id -> the tag a BoQ-stated value carries ("from BoQ"). Display only."""
+    loc = "list_spec.pricing.source_tags"
+    ids = {d.get("id") for d in (spec.get("attribute_definitions") or []) if isinstance(d, dict)}
+    if not isinstance(st, dict) or not st or any(k not in ids or not _nonempty_str(v) for k, v in st.items()):
+        _vthrow(f"{loc} must map attributes of this config to non-empty tags.")
 
 
 def _validate_integrator_cabling(ic, pr):
@@ -1584,6 +1645,12 @@ _INTEGRATOR_CABLING_LINES = {"added", "priced_separately", "low_length", "input_
 _EXISTING_BOXES_KEYS = {"install_family", "kinds", "dismantle_row_words", "vav_words", "lines"}
 _EXISTING_BOXES_LINES = {"priced", "with_row", "alone", "input_missing"}
 _PAINT_ROW_KEYS = {"words", "section", "family", "tolerance", "line", "miss_line"}
+# VAV-2a2 (B1 / B2 / B3 / B4; owner R1 / R2 / QR-3c (a) / R3 / R4): `band_from` -- the band worked out from the airflow or the inlet size
+# (never picked); `source_tags` -- a BoQ-stated field's tag ("from BoQ"). Each arrives WITH its shape check. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"band_from", "source_tags"}
+_BAND_FROM_KEYS = {"attr", "families", "airflow_attr", "inlet_attr", "bands", "edge", "inlet_table", "mm_per_inch", "group", "tags", "lines"}
+_BAND_FROM_TAGS = {"boq", "range_max", "inlet", "typed_cfm", "typed_inlet"}
+_BAND_FROM_LINES = {"crosses", "inlet", "mm", "both_typed", "none_row", "none_typed", "above", "inlet_above", "not_size", "not_cfm"}
 # DU-2 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER): `family_alias_needs` (the attributes an alias family reads -- its target's
 # conversions needing others are not used for it, their boxes not shown), `no_sku_refuse_default` (the re-file sentence for a no-SKU
 # item no `no_sku_refusals` entry names). Each arrives WITH its shape check below. ABSENT => as before.
@@ -3743,6 +3810,12 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             when = rule.get("when") if isinstance(rule, dict) else None
             if isinstance(when, dict) and isinstance(when.get("attr"), str):
                 panel_ns.add(when["attr"])
+        # VAV-2a2 (B3): the two typed boxes `band_from` shows in place of the band picker
+        bfrom = pr.get("band_from")
+        if isinstance(bfrom, dict):
+            for k in ("airflow_attr", "inlet_attr"):
+                if isinstance(bfrom.get(k), str):
+                    panel_ns.add(bfrom[k])
         unknown_pc = set(pc) - panel_ns
         if unknown_pc:
             _vthrow(f"list_spec.pricing.panel_controls names attribute(s) the panel cannot show: {', '.join(sorted(unknown_pc))}.")
@@ -4011,6 +4084,10 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_integrator_cabling(pr["integrator_cabling"], pr)
     if "existing_boxes" in pr:
         _validate_existing_boxes(pr["existing_boxes"], pr)
+    if "band_from" in pr:
+        _validate_band_from(pr["band_from"], spec)
+    if "source_tags" in pr:
+        _validate_source_tags(pr["source_tags"], spec)
     if "two_insulations" in pr:
         ti = pr["two_insulations"]
         tloc = "list_spec.pricing.two_insulations"

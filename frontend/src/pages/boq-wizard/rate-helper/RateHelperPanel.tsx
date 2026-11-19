@@ -1853,6 +1853,15 @@ function ItemListBlocks({
                       </span>
                     )}
                     {/* SLICE 12e-3a (owner D3 / D3a): the value came from the item this section sits under */}
+                    {/* VAV-2a2 (B4, the approved mockup): where the value came from ("from BoQ", "from the inlet size table") */}
+                    {f.sourceTag && (
+                      <span
+                        className="rounded bg-emerald-100 px-1 text-[9px] font-medium leading-none text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+                        data-testid="item-field-source-tag"
+                      >
+                        {f.sourceTag}
+                      </span>
+                    )}
                     {f.mirrorTag && (
                       <span
                         className="rounded bg-sky-100 px-1 text-[9px] font-medium leading-none text-sky-800 dark:bg-sky-900 dark:text-sky-200"

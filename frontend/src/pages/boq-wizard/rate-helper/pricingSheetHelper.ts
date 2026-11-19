@@ -2623,6 +2623,9 @@ export interface ItemFieldView extends ItemFieldDef {
   /** SLICE 12e-3a (owner D3 / D3a): this field's value was MIRRORED from the item the section sits under
    * (the config's `mirror.tag`, "from pipe"). Set by the section pass only; gone once the pricer edits it. */
   mirrorTag?: string;
+  /** VAV-2a2 (B4, the approved mockup): where the value came from -- the band's source ("from the inlet size table", "from the CFM
+   *  you typed") or a BoQ-stated value of a `source_tags` attribute ("from BoQ"). Absent on every other field. */
+  sourceTag?: string;
   /** SLICE 12e-3a (owner D3a): the pricer chose a value here that differs from the mirrored one --
    * "you chose 19.05 (pipe is 15.875)" (the config's `mirror.line`). */
   mirrorLine?: string;
@@ -3191,6 +3194,12 @@ function itemBlockView(
   // VP-4 T4: a working line replaced whole (the D7c strainer line that now says the size it is priced at)
   const lineSwaps = new Map<string, string>();
   const fields: ItemFieldView[] = fieldDefs.map((f) => {
+    // VAV-2a2 (B3 / B4): the band `band_from` worked out -- read-only, the value USED, its source tag and how it landed (rule d)
+    if (f.bandReadOnly) {
+      const br = res.bandRead && res.bandRead.attr === f.skuAttr ? res.bandRead : undefined;
+      return { ...f, value: br ? br.band : "", typedValue: "", defaulted: false, userEdited: false, otherMode: false, readOnly: true as const,
+               blank: false, ...(br ? { sourceTag: br.tag } : {}), ...(br && br.lines.length ? { note: br.lines.join(" ") } : {}) };
+    }
     const raw = assembled.attributes[f.id]?.value;
     const stated = raw === null || raw === undefined ? "" : String(raw);
     const userEdited = Object.prototype.hasOwnProperty.call(edit.attrs, f.id);
@@ -3566,8 +3575,10 @@ function itemBlockView(
      * ONLY where that "None" was an option before -- no ruled default maps it (U5 names the air stream); a field whose
      * "None" a default already turned into a catalogue value never offered it (12d-2) and keeps its display as it was.
      */
-    const noneShown = plainItemListWording(spec) && f.allowNone && stated === "None" && !defaulted && !!f.options && !f.options.includes("None")
-      && family !== null && ruledDefaultValue(spec, f.skuAttr, family) === undefined;
+    const noneShown = (plainItemListWording(spec) && f.allowNone && stated === "None" && !defaulted && !!f.options && !f.options.includes("None")
+      && family !== null && ruledDefaultValue(spec, f.skuAttr, family) === undefined)
+      // VAV-2a2 (B3): the model's "None" in a CFM / inlet box is "not stated", never the word in the box
+      || (!!spec.band_from && stated === "None" && (f.id === spec.band_from.airflow_attr || f.id === spec.band_from.inlet_attr));
     return {
       ...f,
       ...(defaultAsOption ? { options: [...f.options!, value] } : {}),
@@ -3580,6 +3591,8 @@ function itemBlockView(
       userEdited,
       otherMode: otherMode || defaultInBox,
       ...(note ? { note } : {}),
+      // VAV-2a2 (B4): a value the BoQ stated (not typed, not a default) of an attribute the config tags says so ("from BoQ")
+      ...(spec.source_tags?.[f.skuAttr] && !userEdited && !defaulted && !tm && stated !== "" && stated !== "None" ? { sourceTag: spec.source_tags[f.skuAttr] } : {}),
       ...(optionLabels ? { optionLabels } : {}),
       // VRF-2b (owner Q3 / U1): the unit picker beside the typed box -- only on a reader declaring `units`
       ...(f.allowOther && spec.split && spec.compose?.attr === f.skuAttr && family !== null && spec.split.families.includes(family) ? { splitOnCommit: true as const } : {}),
@@ -5474,7 +5487,8 @@ export const VP5_SCOPE = {
   supply_row_echo: /^\s*[A-Z][A-Z0-9&/().,'\- ]{1,60}\s+(?:[Ss]upply(?:ing)?|SUPPLY(?:ING)?)\s+(?:of|OF)\b/,
   install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
   // owner-approved wording (02:24, VP5-16): shown ALONE, without the standard supply-only sentence
-  pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here (owner QR-2)",
+  // VAV-2a2 (R7, owner 2026-11-17 "(owner chose A)" / 2026-11-19 18:16 "a) the next VAV slice"): the owner tag is not shown in the note
+  pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here",
   /** DU-2 K1b (owner QR-1 Q1 (a), 2026-11-16 01:27): a "labour charges" row is the duct's installation only -- on a scope whose own
    *  supply-row uplift is set (Ducting, G-4) only, so the Valve Package's rule is unchanged */
   labour: /\blabou?r\s+(?:charges?|only|cost)\b/i,
@@ -6611,6 +6625,9 @@ export const VALVE_NETS = {
   /** E6: a pressure gauge PROVISION (sockets / valves to fix a gauge later) -> the Misc test plug; the gauge is not included */
   gauge_provision: /\b(?:pressure\s+)?(?:gauge|guage)s?\s+provision\b|\bprovision\b[^|.;]{0,80}?\b(?:gauge|guage)s?\b/i,
   e6_line: "BoQ asks for \"{said}\" -> priced as a gauge provision (socket / test point); the gauge itself is not included (owner E6)",
+  /** VAV-2a2 (R7, owner 2026-11-15 11:46 "price as thermowell"; QR-V (a) 2026-11-20 00:10): "Thermowell with Valve" is the thermowell */
+  thermowell_valve: /\bthermo-?\s*wells?\s+with\s+(?:an?\s+|isolation\s+|ball\s+)?valves?\b/i,
+  e13_line: "BoQ asks for \"{said}\" -> priced as the thermowell (Test Plug / Thermowell); no valve item",
   /** E7: a balancing valve with INTEGRATED P/T test points -> no extra test plug item (W1 counts only separately counted ones) */
   integrated_pt: /\bintegrated\s+(?:p\s*\/\s*t|pressure[^|.;]{0,20}?temperature)\s+test\s+(?:points?|ports?|plugs?)\b/i,
   e7_line: "BoQ says \"{said}\": integrated P/T test points are part of the balancing valve (owner E7)",
@@ -7025,6 +7042,27 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
         const lined = ownTag(plug, "E6") ? plug : addLine(plug, N.e6_line.replace("{said}", (asOf(prev) || m[0]).trim()));
         // the provision's own valves / siphon are part of it: a sizeless valve the model listed beside it folds in
         items = items.flatMap((it, i) => (i === target ? [lined] : (!isSec(it) && sizeOf(val(it, "size_mm")) === null && (famOf(it) === N.ball || blankFam(famOf(it)))) ? [] : [it]));
+      }
+    }
+  }
+  if (secOf.has(N.misc_section)) {
+    // E13 (VAV-2a2 R7, owner 2026-11-15 11:46 "price as thermowell"; QR-V (a) 2026-11-20 00:10): a row whose OWN words are "thermowell
+    // with valve" -> the Misc Test Plug / Thermowell, with a note; a sizeless valve the model listed (the "valve" of those words) folds
+    // into it. A valve with a size of its own is left as read. (BOQ-26-00140 r562, 00234 r222, 00261 r125, 00273 r222.)
+    const ms = secOf.get(N.misc_section)!;
+    const m = own.match(N.thermowell_valve);
+    if (m && items.length >= 1) {
+      const sizeless = (it: ExtractedListItem) => !isSec(it) && sizeOf(val(it, "size_mm")) === null && (famOf(it) === N.ball || blankFam(famOf(it)));
+      // the thermowell the model already read (Misc's Test Plug / Thermowell) is kept; else the sizeless valve becomes it
+      const plugAt = items.findIndex((it) => famOf(it) === N.test_plug);
+      const target = plugAt !== -1 ? plugAt : items.findIndex(sizeless);
+      if (target !== -1) {
+        const prev = items[target];
+        const plug: ExtractedListItem = famOf(prev) === N.test_plug && isSec(prev) ? prev : { section: N.misc_section, attributes: {
+          [ms.fa]: { value: N.test_plug, confidence: 1 }, [ms.asw]: { value: m[0].trim(), confidence: 1 } } };
+        const line13 = N.e13_line.replace("{said}", m[0].trim());
+        const lined = netLinesOf(plug).includes(line13) ? plug : addLine(plug, line13);
+        items = items.flatMap((it, i) => (i === target ? [lined] : sizeless(it) ? [] : [it]));
       }
     }
   }
@@ -7839,7 +7877,21 @@ export function vavSeparateRow(oc: OwnRowSpec, e: OwnRowSpec["extras"][number], 
   const heads = headsOf(l);
   const m = e.near_words ? vavNearHit(t, e.words, e.near_words, e.near_chars, e.not_near_words, e.not_near_chars) : (vre(e.words)?.exec(t) ?? null);
   if (!m) return false;
-  if (vre(oc.box_words)?.test(t) || vre(oc.existing_words)?.test(t)) return false;
+  // VAV-2a2 (B8; owner 2026-11-19 18:56 "4 fix in next slice", QR-C2 (a) 2026-11-20 00:34 "option a is corecet"): with `serves`, a row whose
+  // ITEM is the extra -- the extra's words in the row's own DESCRIPTION (the text before its notes), before any box words there -- names
+  // the boxes only as what it serves and counts as the extra's own row; a row naming the box first stays a box row, and words that sit
+  // only in a row's notes never make a box line the extra's row (BOQ-26-00185 / 00281 r116). `serves.extras`: the extras it applies to
+  // (the owner ruled the BACnet over IP controller; the integrator's own-row decision stays as VAV-2a built it until he rules it)
+  const box = vre(oc.box_words)?.exec(t);
+  if (box) {
+    const sv = oc.serves;
+    if (!sv?.item_first || (sv.extras && !sv.extras.includes(e.label))) return false;
+    const desc = t.split(" | ")[0];
+    const md = e.near_words ? vavNearHit(desc, e.words, e.near_words, e.near_chars, e.not_near_words, e.not_near_chars) : (vre(e.words)?.exec(desc) ?? null);
+    const bd = vre(oc.box_words)?.exec(desc);
+    if (!md || (bd && bd.index <= md.index)) return false;
+  }
+  if (vre(oc.existing_words)?.test(t)) return false;
   const u = unitKey(l.unit);
   if (oc.metre_units.map(unitKey).includes(u)) return false;
   if (u !== "" && !oc.count_units.map(unitKey).includes(u)) return false;
@@ -7953,6 +8005,15 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
       const sep = others.filter((l) => vavSeparateRow(oc, e, l)).map((l) => l.row);
       if (!sep.length) continue;
       const base = { extra: e.label, rows: vavRowsNamed(sep) };
+      // VAV-2a2 (B8; owner 2026-11-20 00:37 "VAV controlers have one to many mapping. one controller for many VAVs. so quantity rule should
+      // not be applied here"): an extra `serves.presence_decides` covers (the BACnet over IP controller) is NOT added when the sheet prices it
+      // on its own row -- presence decides, no quantity test; the note names the row(s). Every other extra keeps the 90% test.
+      const sv = oc.serves;
+      if (sv?.presence_decides && (!sv.extras || sv.extras.includes(e.label)) && !e.presence_only && !e.target.attr) {
+        its = its.filter((it) => !carries(it));
+        lines.push(fillAll(oc.lines.not_added, base));
+        continue;
+      }
       if (e.presence_only || e.target.attr) {
         const to = e.target.to;
         its = e.target.attr && to !== undefined ? its.map((it) => (carries(it) ? setAttr(it, e.target.attr!, to) : it)) : its.filter((it) => !carries(it));

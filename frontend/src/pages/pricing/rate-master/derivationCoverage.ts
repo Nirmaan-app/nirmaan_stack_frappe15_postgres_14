@@ -45,6 +45,8 @@ export const CODE_RULES: Readonly<Record<string, readonly string[]>> = {
 export const NON_RULE_KEYS: ReadonlySet<string> = new Set([
   "kind", "label_attr", "unit_class_attr", "match_attrs", "unit_words", "panel_controls", "panel_notes", "panel_readonly",
   "panel_optional", "reason_names", "rule_lines", "derivation_reasons", "typed_cladding", "qty_label",
+  // VAV-2a2 (B4): a field's source tag ("from BoQ") is display only
+  "source_tags",
 ]);
 
 /** Keys checked as a whole only: their entries are attribute ids the matching reads, not rules of their own. */
@@ -56,6 +58,11 @@ export interface CoverageResult {
   missing: string[];
   orphan: string[];
   unreasoned: string[];
+  /** VAV-2a2 (B6, owner 2026-11-19 18:21 "ok b"): a line whose reason is present but WRONG -- see `wrongReasons`. */
+  wrong: string[];
+  /** VAV-2a2 (B6): a declared reason the tab shows on NO line (its pattern is shadowed or matches nothing) -- see `deadReasons`.
+   *  The guard fails on it for the categories it names; others are reported. */
+  dead: string[];
 }
 
 const canon = (l: RuleOrderLine[]): string => JSON.stringify(l.map((x) => [x.title, x.detail ?? "", (x.sub ?? []).map((s) => [s.title, s.detail ?? ""])]));
@@ -127,5 +134,50 @@ export function derivationCoverage(config: unknown, items: ReadonlyArray<RuleOrd
   }
   const unreasoned = Array.isArray(pr.derivation_reasons)
     ? lines.filter((l) => l.reason === "reason not recorded").map((l) => `line ${l.n}: ${l.title}`) : [];
-  return { lines, missing, orphan, unreasoned };
+  const wrong = Array.isArray(pr.derivation_reasons) ? wrongReasons(lines, pr.derivation_reasons as ReasonEntry[]) : [];
+  const dead = Array.isArray(pr.derivation_reasons) ? deadReasons(lines, pr.derivation_reasons as ReasonEntry[]) : [];
+  return { lines, missing, orphan, unreasoned, wrong, dead };
+}
+
+type ReasonEntry = { rule?: unknown; title?: unknown; why?: unknown };
+
+/**
+ * VAV-2a2 (B6; owner 2026-11-19 18:21 "ok b": the coverage check must FAIL on a reason that is present but WRONG, for every category it
+ * covers). The tab gives a line the FIRST reason whose `title` pattern matches its title (itemListRuleOrder, DU-1). A reason is WRONG on
+ * a line when ANY other reason's pattern matches MORE of that line's title than the shown one does -- the shown reason is the broader one,
+ * and the reason written for the line is hidden behind it (VAV-2a: lines 9 / 11 showed VAV-1's "^The misc item section" reason while
+ * VAV-2a's "^The (misc item|sensor) section's quantity per vav item ..." reason matched the whole title). A rule-id line is WRONG when
+ * two entries name its rule. PURE.
+ */
+export function wrongReasons(lines: readonly RuleOrderLine[], reasons: readonly ReasonEntry[]): string[] {
+  const out: string[] = [];
+  const span = (r: ReasonEntry, title: string): number => {
+    if (typeof r?.why !== "string" || typeof r.title !== "string") return -1;
+    try { const m = new RegExp(r.title, "i").exec(title); return m ? m[0].length : -1; } catch { return -1; }
+  };
+  for (const l of lines) {
+    if (l.rule) {
+      const n = reasons.filter((r) => typeof r?.why === "string" && r.rule === l.rule).length;
+      if (n > 1) out.push(`line ${l.n}: rule ${String(l.rule)} has ${n} reasons; the first is shown`);
+      continue;
+    }
+    const spans = reasons.map((r) => span(r, l.title));
+    const shown = spans.findIndex((x) => x >= 0);
+    if (shown < 0) continue;
+    // ANY other reason (chat-Claude's review of the rule, 2026-11-19 23:45: order must not matter to the check, order caused the defect)
+    const better = spans.findIndex((x, i) => i !== shown && x > spans[shown]);
+    if (better >= 0) out.push(`line ${l.n}: ${l.title} -- shows reason ${shown} (${String(reasons[shown].title)}) but reason ${better} (${String(reasons[better].title)}) matches more of its title`);
+  }
+  return out;
+}
+
+/** VAV-2a2 (B6). PURE. Each declared reason the tab gives to NO line (first-match never picks it), as "reason <i> (<title or rule>)". */
+export function deadReasons(lines: readonly RuleOrderLine[], reasons: readonly ReasonEntry[]): string[] {
+  const used = new Set<number>();
+  for (const l of lines) {
+    const i = reasons.findIndex((r) => typeof r?.why === "string" && ((l.rule && r.rule === l.rule)
+      || (!l.rule && typeof r.title === "string" && (() => { try { return new RegExp(r.title, "i").test(l.title); } catch { return false; } })())));
+    if (i >= 0) used.add(i);
+  }
+  return reasons.flatMap((r, i) => (used.has(i) ? [] : [`reason ${i} (${String(r.title ?? r.rule ?? "")})`]));
 }

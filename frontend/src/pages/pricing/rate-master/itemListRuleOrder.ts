@@ -1330,7 +1330,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   // VAV-2a (B3 / B4 / QR-C1, owner 2026-11-18 23:32; QR-3a / QR-4 (a) 2026-11-19 00:57; 01:23; QR-C1 (a) 13:31): the own-row check
   {
-    const oc = pr.own_row_check as { threshold_input?: unknown; extras?: unknown } | undefined;
+    const oc = pr.own_row_check as { threshold_input?: unknown; extras?: unknown; serves?: { item_first?: unknown; extras?: unknown; presence_decides?: unknown } } | undefined;
     if (oc && typeof oc === "object" && Array.isArray(oc.extras)) {
       const thr = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === oc.threshold_input);
       const tf = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
@@ -1339,9 +1339,17 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add(`An extra the sheet charges on its own row is checked against that row`,
           [`the extras checked: ${list(counted)}`,
            `a separate row = its own words name the extra; a counted row (not per metre), not a box row, not work on an existing box; no AHU / plant-room / fan / VFD / static-pressure / IAQ / VRF words in it or its headings; pieces and duct connections must name VAV`,
+           // VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): the row whose item is the extra names the boxes only as what it serves
+           ...(oc.serves?.item_first ? [`a row whose own description names ${Array.isArray(oc.serves.extras) ? `the ${list((oc.serves.extras as unknown[]).map(String))}` : "the extra"} BEFORE any VAV box ('controller for BACNet integration above VAV Boxes with BMS') is that extra's own row, not a box row; words only in a row's notes never count`] : []),
            `its quantity against the VAV rows pricing that extra: at least the Pricing Input '${pricingInputLabel(String(oc.threshold_input ?? ""), items)}'${Number.isFinite(tf) ? ` (${String(Math.round(tf * 100))}% today)` : ""} -> NOT added, the note naming the rows; below -> added, with 'possible double counting' naming the rows`,
            `quantities blank or 0 on either side (a rate-only BoQ) -> the separate row decides: NOT added, the note naming the rows`,
            `the same sheet only; never in the calculator (it has no sheet)`].join("; "), "own_row_check");
+      // VAV-2a2 (B8; owner 2026-11-20 00:37 "one controller for many VAVs. so quantity rule should not be applied here"): its own line
+      if (oc.serves?.presence_decides) {
+        const who = Array.isArray(oc.serves.extras) ? list((oc.serves.extras as unknown[]).map(String)) : "extra";
+        add(`A ${who} priced on its own row of the sheet is not added to the boxes, whatever its quantity`,
+            `presence decides, with no quantity test (one serves many boxes); the note names the row(s); every other extra keeps the quantity test`, "own_row_check");
+      }
       for (const e of exs.filter((x) => x.presence_only || x.target?.attr)) {
         add(`A ${String(e.label ?? "")} priced on its own row of the sheet changes the box line, without a quantity test`,
             e.target?.attr ? `${labels[String(e.target.attr)] ?? String(e.target.attr)} -> ${String(e.target.to ?? "")}, the note naming the row(s)` : "the item is not added, the note naming the row(s)",
@@ -1369,6 +1377,35 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            `found -> the cabling price is NOT added, the note naming the rows; their metres below the Pricing Input '${pricingInputLabel(String(ic.length_input ?? ""), items)}'${Number.isFinite(sh) ? ` (${String(Math.round(sh * 100))}% today)` : ""} of the metres per box x the sheet's VAV boxes -> the note also asks to check the cabling quantity (the price never changes)`,
            `none -> the helper adds ${rate} at the Pricing Input '${pricingInputLabel(String(ic.qty_input ?? ""), items)}'${Number.isFinite(m) ? ` (${String(m)} m per box today${Number.isFinite(quoted) ? ` = ${String(Math.ceil(quoted * m - 1e-9))} per box quoted` : ""})` : ""}, installation 0; the user can remove it or add it`,
            `never in the calculator (it has no sheet)`].join("; "), "integrator_cabling");
+    }
+  }
+  // VAV-2a2 (B1 / B2 / B3, owner R1 2026-11-18 22:16 / 23:53; R2 22:18 / 22:21, QR-3c (a) 2026-11-19 00:57; R3 13:31 / 13:46): the band
+  // worked out from the airflow or the inlet size -- each rule its own line, every number read from the config's own table
+  {
+    const bf = pr.band_from as { attr?: unknown; families?: unknown; bands?: unknown; edge?: unknown; inlet_table?: unknown; mm_per_inch?: unknown;
+      lines?: Record<string, unknown> } | undefined;
+    if (bf && typeof bf === "object" && Array.isArray(bf.bands) && Array.isArray(bf.inlet_table)) {
+      const fams = Array.isArray(bf.families) ? (bf.families as unknown[]).map((f) => famWord(String(f))) : [];
+      const bands = bf.bands as Array<{ value?: unknown; max?: unknown }>;
+      const top = bands[bands.length - 1];
+      const band = labels[String(bf.attr)] ?? String(bf.attr ?? "");
+      const edgeWords = bf.edge === "upper"
+        ? `a value exactly on an edge takes the UPPER band (${String(bands[0]?.max ?? "")} CFM is ${String(bands[1]?.value ?? "")}); ${String(top?.max ?? "")} CFM is still ${String(top?.value ?? "")}`
+        : `a value exactly on an edge takes the LOWER band (${String(bands[0]?.max ?? "")} CFM is ${String(bands[0]?.value ?? "")}; ${String(top?.max ?? "")} CFM is ${String(top?.value ?? "")})`;
+      add(`A ${list(fams)}'s ${band.toLowerCase()} is worked out from its airflow, never picked`,
+          [`the sheet's bands ${list(bands.map((b) => String(b.value ?? "")), 8)}; a number with no unit is CFM`,
+           `a range takes the band of its MAXIMUM, and a range that crosses two bands says so`, edgeWords,
+           `above ${String(top?.max ?? "")} CFM -> not priced: '${plainSentence(String(bf.lines?.above ?? "").replace("{cfm}", "<cfm>"))}'`].join("; "), "band_from");
+      const table = (bf.inlet_table as Array<{ inch?: unknown; band?: unknown }>).map((r) => `${String(r.inch ?? "")} inch -> ${String(r.band ?? "")}`);
+      const largest = (bf.inlet_table as Array<{ inch?: unknown }>).map((r) => Number(r.inch)).filter(Number.isFinite).reduce((a, b) => Math.max(a, b), 0);
+      add(`With no airflow, the band comes from the inlet size table`,
+          [`the table: ${list(table, 8)}`, `an in-between size takes the next size up; the same table for a rectangular box with a round inlet`,
+           `a size written in mm is converted (mm / ${String(bf.mm_per_inch ?? 25.4)}, then the next size up), with a line saying so; a tag number ('VAV-PID-150') is not a size`,
+           `above ${String(largest)} inch -> not priced`].join("; "), "band_from");
+      add(`No airflow and no inlet size -> not priced`,
+          `on a BoQ row: '${plainSentence(String(bf.lines?.none_row ?? ""))}'; in the calculator: '${plainSentence(String(bf.lines?.none_typed ?? ""))}'`, "band_from");
+      add(`The user types the CFM or the inlet size, and only one of the two is needed`,
+          `two typed boxes in place of a band picker, in the calculator and on the panel; the CFM wins when both are typed, and the band field says so; the band is shown read-only with where it came from`, "band_from");
     }
   }
   // ── 11. ADP-3a (owner 2026-10-20): the refusals that name what to change -- ADDED as their own group, LAST, so no

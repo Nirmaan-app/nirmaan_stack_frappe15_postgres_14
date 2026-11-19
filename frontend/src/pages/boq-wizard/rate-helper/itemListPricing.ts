@@ -769,6 +769,11 @@ export interface ItemListPricingSpec {
   integrator_cabling?: IntegratorCabling;
   /** VAV-2a (B6): work on existing boxes. ABSENT => no rule. See `ExistingBoxes`. */
   existing_boxes?: ExistingBoxes;
+  /** VAV-2a2 (B1 / B2 / B3 / B4): the band attribute worked out from the airflow or the inlet size, never picked. ABSENT => the band
+   *  is a choice as before. See `BandFrom`. */
+  band_from?: BandFrom;
+  /** VAV-2a2 (B4, the approved mockup): a field's source tag when the BoQ stated it ("from BoQ"), by attribute. ABSENT => no tag. */
+  source_tags?: Record<string, string>;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
    *  `extras?.scope ?? scope`). ABSENT => byte-identical. */
   scope?: ScopeSpec;
@@ -1740,6 +1745,12 @@ export interface OwnRowCheck {
   count_units: string[];
   extras: OwnRowExtra[];
   lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string };
+  /** VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): a row whose own description names the extra before any box words
+   *  counts as that extra's own row (`item_first`), for the extras `extras` names by label (absent = every extra). ABSENT => a row naming
+   *  a box is a box row, as VAV-2a built it. */
+  serves?: { item_first: boolean; extras?: string[];
+    /** owner 2026-11-20 00:37 (one controller for many VAVs): for these extras a separate row decides by PRESENCE, no quantity test */
+    presence_decides?: boolean };
 }
 /**
  * VAV-2a (B5; owner 2026-11-18 23:14 / 23:18; 2026-11-19 01:29 "VAV must be mentioned in cabling description"; 01:34 a heading naming VAV
@@ -1780,6 +1791,125 @@ export interface ExistingBoxes {
   dismantle_row_words: string;
   vav_words: string;
   lines: { priced: string; with_row: string; alone: string; input_missing: string };
+}
+
+/**
+ * VAV-2a2 (B1 / B2 / B3 / B4) -- THE BAND FROM THE AIRFLOW OR THE INLET SIZE.
+ *
+ * Owner: R1 2026-11-18 22:16 "2a agree" (a range that crosses bands -> the band of the MAXIMUM airflow), 23:53 (no unit = CFM; no
+ * airflow and no size -> not priced, "airflow not stated, enter the CFM"; above 8,000 CFM -> not priced, "above the largest box on the
+ * sheet"); R2 22:18 the inlet table (0-450 = 6 inch ... 4000-8000 = 24), 22:21 "agree for both" (in-between sizes take the next size up;
+ * the same table for rectangular boxes with a round inlet), QR-3c (a) 2026-11-19 00:57 (a size written with mm is converted, mm / 25.4
+ * then the next size up; a bare tag number is not a size); R3 13:31 / 13:46 (the user enters EITHER the CFM OR the inlet size, CFM wins,
+ * the band read-only with its source, only one of the two is needed); R4 the approved mockup's source tags.
+ *
+ * On an item of one of `families`, the band attribute `attr` is never read from the model or picked: it is worked out here -- the
+ * airflow first (`airflow_attr`, the airflow as written: the maximum of a range, its low end only for the crossing line), else the
+ * inlet size (`inlet_attr`, text: inches, or mm converted), else not priced. `bands` are the sheet's bands in order, each with its
+ * `max` CFM; `edge` says which band a value exactly on an edge takes ("lower": 450 is 0-450; "upper": 450 is 450-800, the largest
+ * band's max still in it). `inlet_table` is the owner's table as data. Every line and tag is config text. ABSENT => as before.
+ */
+export interface BandFrom {
+  attr: string;
+  families: string[];
+  airflow_attr: string;
+  inlet_attr: string;
+  bands: Array<{ value: string; max: number }>;
+  edge: "lower" | "upper";
+  inlet_table: Array<{ inch: number; band: string }>;
+  mm_per_inch: number;
+  /** the either-or group label on the two typed boxes (it says only one is needed) */
+  group: string;
+  tags: { boq: string; range_max: string; inlet: string; typed_cfm: string; typed_inlet: string };
+  lines: { crosses: string; inlet: string; mm: string; both_typed: string; none_row: string; none_typed: string; above: string;
+           inlet_above: string; not_size: string; not_cfm: string };
+}
+
+/** VAV-2a2 (B1): the CFM a cell states -- a number, or text: "650", "650 CFM", "8,000 cfm", "500-650", "Up to 650 CFM", "15000 -16900
+ *  CFM". The largest number is the airflow (the range's maximum), the smallest the low end when two are written. Null when nothing is
+ *  stated ("", "None", "not stated"); "unit" when the text names an airflow unit other than CFM (l/s, cmh, m3/h -- not ruled: refused). PURE. */
+export function readAirflowCfm(v: unknown): { high: number; low: number | null } | "unit" | null {
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? { high: v, low: null } : null;
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
+  if (/l\s*\/\s*s|\blps\b|\bcmh\b|m3\s*\/\s*h|m³|cu\.?\s*m/i.test(t)) return "unit";
+  const nums = (t.replace(/(\d),(\d{3})\b/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return null;
+  const high = Math.max(...nums), low = nums.length >= 2 ? Math.min(...nums) : null;
+  return { high, low: low !== null && low < high ? low : null };
+}
+
+/** VAV-2a2 (B2): an inlet size as written -- ONE number, in inches (a bare number, ", inch, in) or in mm (converted), with only
+ *  diameter / inlet words around it ("8 inch dia", "200 mm", "Ø 250 mm"). Anything else (a tag number "VAV-PID-150", two sizes "8x8")
+ *  is NOT a size. Null when nothing is stated. PURE. */
+export function readInletSize(v: unknown, mmPerInch: number): { inches: number; mm: number | null } | "not_size" | null {
+  if (v === null || v === undefined) return null;
+  const t = String(v).trim();
+  if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
+  const nums = t.match(/\d+(?:\.\d+)?/g) ?? [];
+  if (nums.length !== 1) return "not_size";
+  const rest = t.replace(/\d+(?:\.\d+)?/, " ").toLowerCase()
+    .replace(/["″”]|\binch(es)?\b|\bin\b|\bmm\b|\bdia(meter)?\b\.?|[øØφ⌀]|\binlet\b|\bsize\b|\bround\b|\bof\b/g, " ");
+  if (/[a-z0-9]/.test(rest)) return "not_size";
+  const n = Number(nums[0]);
+  if (!(n > 0)) return "not_size";
+  return /\bmm\b/i.test(t) ? { inches: n / mmPerInch, mm: n } : { inches: n, mm: null };
+}
+
+/** VAV-2a2 (B1): the sheet band an airflow falls in, by the config's edge rule; null above the largest band. PURE. */
+export function bandForCfm(bf: Pick<BandFrom, "bands" | "edge">, cfm: number): string | null {
+  const last = bf.bands.length - 1;
+  for (let i = 0; i <= last; i++) {
+    const m = bf.bands[i].max;
+    if (bf.edge === "upper" && i < last ? cfm < m : cfm <= m + 1e-9) return bf.bands[i].value;
+  }
+  return null;
+}
+
+/** What `bandOf` decided for one item: the band and its source, or the refusal sentence. */
+export type BandRead =
+  | { band: string; source: "boq" | "range_max" | "inlet" | "typed_cfm" | "typed_inlet"; tag: string; lines: string[] }
+  | { refuse: string };
+
+const fillBand = (tpl: string, o: Record<string, string | number>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(String(v)), tpl);
+const fmtBand = (n: number) => String(Math.round(n * 100) / 100);
+
+/**
+ * VAV-2a2 (B1 / B2 / B3). PURE. The band of ONE item from its cells: the airflow (CFM wins when both are given), else the inlet size,
+ * else the refusal (`none_typed` where nothing came from a BoQ row -- the calculator -- else `none_row`). `typedOf(id)` says whether a
+ * cell was typed by the pricer (the tag then says "you typed").
+ */
+export function bandOf(bf: BandFrom, cell: (id: string) => unknown, typedOf: (id: string) => boolean, onRow: boolean): BandRead {
+  const said = (id: string) => { const v = cell(id); return v === null || v === undefined ? "" : String(v).trim(); };
+  const air = readAirflowCfm(cell(bf.airflow_attr));
+  const inl = readInletSize(cell(bf.inlet_attr), bf.mm_per_inch);
+  if (air === "unit") return { refuse: fillBand(bf.lines.not_cfm, { said: said(bf.airflow_attr) }) };
+  if (air) {
+    const lowN = air.low;
+    const band = bandForCfm(bf, air.high);
+    if (band === null) return { refuse: fillBand(bf.lines.above, { cfm: fmtBand(air.high) }) };
+    const typed = typedOf(bf.airflow_attr);
+    const lines: string[] = [];
+    if (typed && inl !== null) lines.push(bf.lines.both_typed);
+    const lowBand = lowN !== null && lowN < air.high ? bandForCfm(bf, lowN) : null;
+    if (lowBand !== null && lowBand !== band) lines.push(fillBand(bf.lines.crosses, { low: fmtBand(lowN!), high: fmtBand(air.high), low_band: lowBand, band }));
+    const source = typed ? "typed_cfm" : lowN !== null ? "range_max" : "boq";
+    return { band, source, tag: bf.tags[source], lines };
+  }
+  if (inl === "not_size") return { refuse: fillBand(bf.lines.not_size, { said: said(bf.inlet_attr) }) };
+  if (inl) {
+    const table = [...bf.inlet_table].sort((a, b) => a.inch - b.inch);
+    const step = table.find((r) => r.inch + 1e-9 >= inl.inches);
+    if (!step) return { refuse: fillBand(bf.lines.inlet_above, { inch: fmtBand(inl.inches), largest: table[table.length - 1]?.inch ?? "" }) };
+    const typed = typedOf(bf.inlet_attr);
+    const lines: string[] = [];
+    if (inl.mm !== null) lines.push(fillBand(bf.lines.mm, { said: said(bf.inlet_attr), mm: fmtBand(inl.mm), inches: fmtBand(inl.inches), inch: step.inch }));
+    lines.push(fillBand(bf.lines.inlet, { said: said(bf.inlet_attr), inch: step.inch, band: step.band }));
+    const source = typed ? "typed_inlet" : "inlet";
+    return { band: step.band, source, tag: bf.tags[source], lines };
+  }
+  return { refuse: onRow ? bf.lines.none_row : bf.lines.none_typed };
 }
 
 /** VAV-2a (B5): a model item the HELPER added (the integrator cabling): its line; the block shows "added by the helper". */
@@ -2081,6 +2211,8 @@ export interface LadderHop {
 }
 
 export interface ItemPriceResult {
+  /** VAV-2a2 (B1-B4): the band `band_from` worked out (its tag and lines), on an item of a band family only */
+  bandRead?: { attr: string; band: string; tag: string; lines: string[] };
   /** DU-1 (DR2 / DR3 / DR4 / DR12): the line a sheet-gauge axis read or ladder wrote, per attr -- the field's note */
   gaugeNotes?: Record<string, string>;
   /** DU-1 (DR4): the gauge the owner's size table gave (the field's amber "from the size table" mark) */
@@ -4963,6 +5095,16 @@ function priceOneItem(
       unreadable[attr] = `choose again: ${reasonName(spec, attr)} -- the value picked is not stocked with the other answers on this item`;
       continue;
     }
+    // VAV-2a2 (B1 / B2 / B3): the band of a band family is WORKED OUT -- from the airflow (CFM wins), else the inlet size -- never read
+    // from the model's band answer or picked; nothing stated refuses by name (the needs loop below outlines the boxes)
+    const bf = spec.band_from;
+    if (bf && attr === bf.attr && family !== null && bf.families.includes(family)) {
+      const r = bandOf(bf, (id) => rawValue(item, id), (id) => item.attributes?.[id]?.typed === true, rowText !== "" || ownText !== "");
+      if ("refuse" in r) { unreadable[attr] = r.refuse; continue; }
+      read[attr] = r.band;
+      out.bandRead = { attr, band: r.band, tag: r.tag, lines: r.lines };
+      continue;
+    }
     if (reader) {
       // SLICE 12d-4c (owner C3, F4): on the COMPOSE axis the layers reader runs FIRST, over the MODEL's cells
       // only (T6: a pricer's typed entry is never parsed as layers). It used to run only when the single-number
@@ -6860,6 +7002,8 @@ export interface ItemFieldDef {
   /** ADP-3a (U2, B6 #5): this is the OUTER size of a `second_key` family (the square diffuser), shown beside the
    * neck it can stand in for. Absent on every other field. */
   secondKey?: true;
+  /** VAV-2a2 (B3): the band `band_from` works out -- shown read-only with its source tag, never picked. Absent on every other field. */
+  bandReadOnly?: true;
 }
 
 /**
@@ -7007,9 +7151,23 @@ export function itemFieldDefs(
   // when the attribute it names is in here, which is what stops the ADP size note inviting a depth that
   // `double-skin plenum` discards.
   const reads = new Set<string>(ids);
+  const bandFrom = spec.band_from && spec.band_from.families.includes(family) ? spec.band_from : null;
   for (const attr of ids) {
     if (seen.has(attr)) continue;
     seen.add(attr);
+    // VAV-2a2 (B3, owner 2026-11-19 13:31 / 13:46): in place of the band picker, the two typed boxes -- the CFM OR the inlet size, one
+    // either-or group whose label says only one is needed -- then the band itself, read-only (worked out, never picked)
+    if (bandFrom && attr === bandFrom.attr) {
+      for (const id of [bandFrom.airflow_attr, bandFrom.inlet_attr]) {
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        out.push({ id, label: shownLabel(defById.get(id)?.label) ?? id, allowNone: false, skuAttr: id, control: controlOf(id, "text"), axes: [attr],
+                   group: bandFrom.group, typedNote: typedFieldNote(spec, id, reads, []) });
+      }
+      seenIds.add(attr);
+      out.push({ id: attr, label: shownLabel(defById.get(attr)?.label) ?? attr, allowNone: false, skuAttr: attr, control: "text", bandReadOnly: true });
+      continue;
+    }
     const reader = spec.numbers[attr];
     if (reader) {
       const modelId = reader.from[0];
@@ -7186,7 +7344,7 @@ export function itemFieldDefs(
     return !!nd && Number.isFinite(nd.value) && (!nd.families || nd.families.includes(family));
   };
   for (const f of out) {
-    if (f.group || f.secondKey) continue;
+    if (f.group || f.secondKey || f.bandReadOnly) continue;
     const reads = f.axes ?? [f.skuAttr];
     if (reads.some((a) => needed.has(a) && !ruled(a))) f.required = true;
   }

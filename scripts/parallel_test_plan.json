@@ -2761,6 +2761,15 @@
     "tabMilestone Tracker"
    ]
   },
+  "nirmaan_stack.services.boq_rate_master.test_vav2a2_keys": {
+   "seconds": 13.5,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ AI Run Log",
+    "tabBoQ Sheet Draft"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_master.test_vav2a_keys": {
    "seconds": 14.3,
    "series": [],
