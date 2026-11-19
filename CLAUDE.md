@@ -42,7 +42,7 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
-  `python3 scripts/residence_check.py` before each commit.
+  `python3 scripts/residence_check.py --hook` before each commit.
 - **Never push to GitHub, and never close issues.** The user does both, by hand, from the laptop. Moving commits
   between the laptop and the desktop with `env_sync.sh` is not a push. The desktop never pushes anywhere.
 - **Per ticket, run the affected test modules, not the whole app.** This overrides `/implement`'s "full test suite
