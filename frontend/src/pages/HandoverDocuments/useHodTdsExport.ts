@@ -14,11 +14,10 @@ import { useCallback, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
-import { deliverTdsExport, type TdsPdfPreview } from "@/pages/projects/data/tds/deliverTdsExport";
+import { deliverTdsExport, type TdsPdfPreview } from "@/utils/tds/deliverTdsExport";
 import { toExportSettingsPayload } from "@/pages/projects/data/tds/tdsSettings";
 import type { TDSRepositoryData } from "@/pages/projects/TDSRepository/components/SetupTDSRepositoryDialog";
-import { formatDate } from "@/utils/FormatDate";
-import type { TdsExportContext } from "@/utils/tdsExport";
+import { tdsExportFallbackName, type TdsExportContext } from "@/utils/tds/tdsExport";
 
 const START_METHOD = "nirmaan_stack.api.tds.tds_report.start_tds_export";
 
@@ -90,7 +89,7 @@ export function useHodTdsExport(projectId: string, projectName: string) {
       if (isExporting) return;
       const context: TdsExportContext = {
         previewOnly,
-        fallbackName: `${(projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_")}_${label}_${formatDate(new Date())}.pdf`,
+        fallbackName: tdsExportFallbackName([projectName || projectId, label], new Date()),
       };
       await start(
         START_METHOD,

@@ -5,7 +5,7 @@
  */
 import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
-import { readBoqWorkerOutcome } from "./boqWorkerOutcome";
+import { readBoqWorkerOutcome } from "@/utils/boq/boqWorkerOutcome";
 
 export const UPLOAD_METHOD = "nirmaan_stack.api.boq.wizard.upload_file.upload_file";
 

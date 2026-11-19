@@ -14,8 +14,8 @@ import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel,
 import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
 import { useCounts } from '@/hooks/useCounts';
 import { useBackgroundOperation } from '@/hooks/useBackgroundOperation';
-import { deliverTdsExport } from '@/pages/projects/data/tds/deliverTdsExport';
-import type { TdsExportContext } from '@/utils/tdsExport';
+import { deliverTdsExport } from '@/utils/tds/deliverTdsExport';
+import { tdsExportFallbackName, type TdsExportContext } from '@/utils/tds/tdsExport';
 import { saveUrlAs } from '@/utils/saveUrlAs';
 import type { OpView } from '@/utils/backgroundOps/operationFollower';
 
@@ -291,7 +291,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             },
             {
                 previewOnly: !!previewOnly,
-                fallbackName: `TDS_Report_${(projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_")}_${format(new Date(), "dd-MMM-yyyy")}.pdf`,
+                fallbackName: tdsExportFallbackName(["TDS_Report", projectName || projectId], new Date()),
             } satisfies TdsExportContext,
         );
     };

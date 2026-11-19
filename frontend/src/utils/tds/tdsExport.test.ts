@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readTdsExport } from "./tdsExport";
+import { readTdsExport, tdsExportFallbackName } from "./tdsExport";
 
 // `tds_export_op` returns {"failed_items": [...]} and `write_result_file` adds the file it kept.
 const finished = (failed_items: unknown, filename = "TDS_Report_Tower_A_2026-11-19.pdf") => ({
@@ -26,5 +26,16 @@ describe("readTdsExport", () => {
     expect(readTdsExport(null, undefined)).toEqual({ previewOnly: false, filename: "TDS_Report.pdf", failedItems: [] });
     expect(readTdsExport({ failed_items: "AHU-2" }, { previewOnly: "yes" }))
       .toEqual({ previewOnly: false, filename: "TDS_Report.pdf", failedItems: [] });
+  });
+});
+
+describe("tdsExportFallbackName", () => {
+  const day = new Date(2026, 10, 19);
+
+  it("joins the parts and the day, each part safe for a file name", () => {
+    expect(tdsExportFallbackName(["TDS_Report", "Tower A / Phase-2"], day))
+      .toBe("TDS_Report_Tower_A___Phase-2_19-Nov-2026.pdf");
+    expect(tdsExportFallbackName(["Tower A", "HVAC_Material_Data_Sheet"], day))
+      .toBe("Tower_A_HVAC_Material_Data_Sheet_19-Nov-2026.pdf");
   });
 });

@@ -1,5 +1,5 @@
 import { collectResultFile } from "@/hooks/useBackgroundOperation";
-import { readTdsExport } from "@/utils/tdsExport";
+import { readTdsExport } from "@/utils/tds/tdsExport";
 import { saveBlobAs } from "@/utils/saveUrlAs";
 
 /** A generated PDF held in memory for the in-app preview, never saved. Its holder revokes `blobUrl` on close. */
