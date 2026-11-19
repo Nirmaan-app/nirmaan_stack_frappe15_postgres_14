@@ -5,6 +5,8 @@
  */
 import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
+import { readBoqWorkerOutcome } from "./boqWorkerOutcome";
+
 export const CLONE_METHOD = "nirmaan_stack.api.boq.wizard.create_from_template.create_from_template";
 
 /**
@@ -42,12 +44,10 @@ export function cloneOutcome(view: OpView): CloneOutcome {
     case "failed":
     case "lost": return outcome("error", null, view.error);
     case "finished": {
-      const result = view.result;
-      if (isRecord(result) && result.status === "success" && typeof result.boq_name === "string") {
-        return outcome("done", result.boq_name);
-      }
-      const code = isRecord(result) && typeof result.error_code === "string" ? result.error_code : "";
-      return outcome("error", null, CLONE_ERROR_MSGS[code] ?? CLONE_ERROR_FALLBACK);
+      const made = readBoqWorkerOutcome(view.result);
+      return made.ok
+        ? outcome("done", made.boqName)
+        : outcome("error", null, CLONE_ERROR_MSGS[made.errorCode ?? ""] ?? CLONE_ERROR_FALLBACK);
     }
   }
 }

@@ -5,6 +5,8 @@
  */
 import { isRecord, type OpView } from "@/utils/backgroundOps/operationFollower";
 
+import { readBoqWorkerOutcome } from "./boqWorkerOutcome";
+
 export const UPLOAD_METHOD = "nirmaan_stack.api.boq.wizard.upload_file.upload_file";
 
 /**
@@ -45,8 +47,7 @@ export interface UploadedFile {
 
 const CODES: Record<string, UploadStatus> = { corrupted: "error-E", zero_sheets: "error-F" };
 
-/** The upload screen's state for the operation's view. A finished parse's result is the worker's outcome:
- *  `{status: "success", boq_name}` or `{status: "error", error_code}`. */
+/** The upload screen's state for the operation's view. */
 export function uploadOutcome(view: OpView): UploadOutcome {
   const outcome = (status: UploadStatus, boqName: string | null = null, error: string | null = null) =>
     ({ status, boqName, error });
@@ -58,12 +59,8 @@ export function uploadOutcome(view: OpView): UploadOutcome {
     case "failed":
     case "lost": return outcome("error-internal", null, view.error);
     case "finished": {
-      const result = view.result;
-      if (isRecord(result) && result.status === "success" && typeof result.boq_name === "string") {
-        return outcome("done", result.boq_name);
-      }
-      const code = isRecord(result) && typeof result.error_code === "string" ? result.error_code : "";
-      return outcome(CODES[code] ?? "error-internal");
+      const made = readBoqWorkerOutcome(view.result);
+      return made.ok ? outcome("done", made.boqName) : outcome(CODES[made.errorCode ?? ""] ?? "error-internal");
     }
   }
 }

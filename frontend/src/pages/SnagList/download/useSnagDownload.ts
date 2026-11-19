@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
+import { saveUrlAs } from "@/utils/saveUrlAs";
 
 import { SNAG_PDF_START } from "./snagDownloadConstants";
 import {
@@ -33,17 +34,6 @@ import {
   SnagDownloadState,
 } from "./snagDownloadParams";
 import { snagPdfContextOf, snagPdfProgressText, type SnagPdfContext } from "./snagPdfOperation";
-
-function saveBlob(blob: Blob, filename: string): void {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.setAttribute("download", filename);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
-}
 
 /** What one of the two downloads does with its finished operation. */
 interface SnagPdfFlow {
@@ -82,8 +72,9 @@ function useSnagPdfOperation(storageKey: string, flow: SnagPdfFlow) {
     onFinished: async (result, rawContext, opId) => {
       const context = snagPdfContextOf(rawContext) ?? { label: "Snag_List", isSummary: false };
       try {
-        const blob = await collectResultFile(opId);
-        saveBlob(blob, flowRef.current.filename(context, parseResultFile(result)?.filename ?? null));
+        const blobUrl = window.URL.createObjectURL(await collectResultFile(opId));
+        saveUrlAs(blobUrl, flowRef.current.filename(context, parseResultFile(result)?.filename ?? null));
+        window.URL.revokeObjectURL(blobUrl);
       } catch (error) {
         fail(error instanceof Error ? error.message : flowRef.current.failureText, error);
         return;
