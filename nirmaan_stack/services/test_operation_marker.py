@@ -144,3 +144,39 @@ class TestJobState(FrappeTestCase):
         self.assertEqual(self._state(missing, marked_ago_sec=1), "running")
         self.assertEqual(self._state(missing, marked_ago_sec=ENQUEUE_GRACE_SEC + 1), "cleared")
         self.assertEqual(self._state(None, marked_ago_sec=ENQUEUE_GRACE_SEC + 1), "cleared")
+
+
+class TestRelease(FrappeTestCase):
+    """release(key, job_id) frees the marker only while it is still the one it read."""
+
+    def setUp(self):
+        self.key = f"test_operation_marker:{frappe.generate_hash(length=10)}"
+        self.addCleanup(frappe.cache().delete_value, self.key)
+
+    def _marker(self):
+        frappe.local.cache.pop(frappe.cache().make_key(self.key), None)
+        return frappe.cache().get_value(self.key)
+
+    def test_release_frees_the_marker_its_operation_holds(self):
+        from nirmaan_stack.services.operation_marker import claim, release
+
+        claim(self.key, {"job_id": "a"})
+        release(self.key, "a")
+        self.assertIsNone(self._marker())
+
+    def test_release_keeps_a_marker_another_start_wrote_between_its_read_and_its_delete(self):
+        import pickle
+
+        from nirmaan_stack.services import operation_marker
+
+        operation_marker.claim(self.key, {"job_id": "a"})
+
+        def read_then_another_start_claims(raw):
+            value = pickle.loads(raw)
+            if value == {"job_id": "a"}:
+                frappe.cache().set_value(self.key, {"job_id": "b"})
+            return value
+
+        with mock.patch.object(operation_marker, "pickle", SimpleNamespace(loads=read_then_another_start_claims)):
+            operation_marker.release(self.key, "a")
+        self.assertEqual(self._marker(), {"job_id": "b"}, "a late release freed another start's marker")

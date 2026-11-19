@@ -25,8 +25,6 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
 import datetime
 import pickle
 
-from redis.exceptions import WatchError
-
 import frappe
 
 ENQUEUE_GRACE_SEC = 30
@@ -70,20 +68,20 @@ def release_own(key):
 
 
 def _delete_if_unchanged(key, marker):
+    """Delete the marker at `key` only while it is still `marker`: a compare-and-set, as background_ops' records are.
+    A write between the read and the delete runs the check again on what was written, no longer the judged marker."""
     cache = frappe.cache()
     made = cache.make_key(key)
     frappe.local.cache.pop(made, None)
-    with cache.pipeline() as pipe:
-        try:
-            pipe.watch(made)
-            raw = pipe.get(made)
-            if raw is None or pickle.loads(raw) != marker:
-                return
-            pipe.multi()
-            pipe.delete(made)
-            pipe.execute()
-        except WatchError:  # written between the read and the delete: no longer the marker that was judged
-            pass
+
+    def attempt(pipe):
+        raw = pipe.get(made)
+        if raw is None or pickle.loads(raw) != marker:
+            return
+        pipe.multi()
+        pipe.delete(made)
+
+    cache.transaction(attempt, made)
 
 
 def job_state(job_id, marked_at, stale_seconds) -> str:
