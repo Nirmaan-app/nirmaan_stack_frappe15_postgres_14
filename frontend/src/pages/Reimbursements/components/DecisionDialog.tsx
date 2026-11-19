@@ -3,9 +3,10 @@
  * who claims it, how much, the account it will be paid into, and the tab approving moves it to ("Goes to"). The
  * server decides who may (`useClaimDecisions`); this dialog only opens from rows the person may act on.
  *
- * On Pending Approval and Pending L1 Approval it shows the claimant's month total (ADR-0040 Amendment B): at or
- * above the ₹2,000 monthly limit the approver ticks the warning first. On Pending Approval the tick is sent as
- * `acknowledged` (the server refuses an unticked one).
+ * On every approval tab -- Pending Approval, Pending L1 Approval and Pending CEO Approval (owner, 2026-11-19: the CEO
+ * sees it too) -- it shows the claimant's month total (ADR-0040 Amendment B): at or above the ₹2,000 monthly limit the
+ * approver ticks the warning first. On Pending Approval the tick is sent as `acknowledged` (the server refuses an
+ * unticked one).
  */
 
 import { useState } from "react";
@@ -25,7 +26,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { RaiserLevel } from "@/utils/approvalTiers";
 import { approvalLanding, type ApprovalStage } from "@/utils/reimbursements/monthLimit";
-import { TAB_CEO, TAB_LABELS, TAB_PENDING, approvalNeedsL1 } from "@/utils/reimbursements/rules";
+import { TAB_LABELS, TAB_PENDING, approvalNeedsL1 } from "@/utils/reimbursements/rules";
 
 import type { DecisionOutcome } from "../hooks/useClaimDecisions";
 import { useClaimDecisions } from "../hooks/useClaimDecisions";
@@ -56,8 +57,7 @@ export function DecisionDialog({
     const { approve, reject, busy } = useClaimDecisions();
 
     const approving = open && decision === "approve" && !!claim;
-    // The CEO's tab is past the monthly limit's step: the box shows on the two tabs where it decides anything.
-    const showsMonth = approving && stage !== TAB_CEO;
+    const showsMonth = approving;
     const month = useMonthTotals(showsMonth && claim ? { claims: [claim.name] } : null);
     const monthRow = showsMonth && claim ? month.byClaim.get(claim.name) : undefined;
     const landing = approving && claim
