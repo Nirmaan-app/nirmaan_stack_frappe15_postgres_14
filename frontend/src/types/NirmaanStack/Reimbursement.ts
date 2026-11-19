@@ -156,3 +156,12 @@ export interface ClaimFile {
     file_url: string;
     is_receipts_pdf: boolean;
 }
+
+/** `api/reimbursements/queue.get_claim_month_summary`: the month picker's tiles for one year of Paid or All. */
+export interface ClaimMonthSummary {
+    year: number;
+    /** The earliest year with a claim on the tab; null when there are none. */
+    first_year: number | null;
+    /** By month number "1".."12"; a month with nothing is absent. */
+    months: Record<string, { count: number; total: number }>;
+}
