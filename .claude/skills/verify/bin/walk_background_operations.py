@@ -222,9 +222,12 @@ def main() -> int:
             return 2
         sampler = Sampler(site, db, pids)
         sampler.start()
-        fake_args = (["--fake-provider-port", str(FAKE_PROVIDER_PORT), "--fake-provider-limit",
-                      str(a.fake_provider_limit)] + (["--site-limit", str(a.site_limit)] if a.site_limit else [])
-                     + (["--match-at-once", str(a.match_at_once)] if a.match_at_once else []) if fake_pid else [])
+        fake_args = []
+        if fake_pid:
+            fake_args = ["--fake-provider-port", str(FAKE_PROVIDER_PORT), "--fake-provider-limit",
+                         str(a.fake_provider_limit)]
+            fake_args += ["--site-limit", str(a.site_limit)] if a.site_limit else []
+            fake_args += ["--match-at-once", str(a.match_at_once)] if a.match_at_once else []
         flows = subprocess.Popen([DEVENV, "script", a.task, FLOWS, "--workers", str(a.workers), "--flows", flows_arg]
                                  + (["--runs", str(a.runs)] if a.runs else []) + fake_args,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

@@ -2,7 +2,7 @@
 """Walk a live-refreshing list (#1670): the Customers list redraws when a customer is saved elsewhere, no reload.
 
     python3 .claude/skills/verify/bin/walk_live_refresh.py --task <task> --user <accountant> --password <pw> \
-        --admin-password <pw> [--customer CUST-0054]
+        --admin-password <pw> [--customer CUST-0054] [--socket-port 9005]
 
 Needs realtime on the env, which `devenv.sh serve` does not give (the vite `/socket.io` proxy points at the main
 bench): run the env bench's own `node apps/frappe/socketio.js` on its published `socketio_port`, with
@@ -16,13 +16,8 @@ As a Nirmaan Accountant Profile user (Customers in its sidebar):
   02-refreshed  the Administrator renames the customer through the REST API (PUT /api/resource/Customers/<id>); the
                 open list shows the new name and the "Data Updated" toast, with no reload.
   03-restored   the name is put back the same way; the list shows it again.
-Each rename is read back from the env DB (`db-*.json`); the name is put back even when a step fails.
-
-Seen 2026-11-19 (#1654 review, Chrome 143 and 157): the server joins the Accountant's socket to `doctype:Customers`
-and emits `list_update` to it on an upgraded websocket with an empty write buffer, but the page receives no frame
-after the upgrade probe (not even a ping), so 02 fails. A plain websocket opened from the same page (no polling
-first) receives both events, and so do Node clients (socket.io-client 4.7.1 and 4.8). The SPA's client is
-socket.io-client 4.7.1 / engine.io-client 6.5.4; Frappe's server socket.io 4.8.4 / engine.io 6.6.11.
+Each rename is read back from the env DB (`db-*.json`); the name is put back even when a step fails. Each step
+prints seen or FAILED; the walk exits 1 on any FAILED.
 """
 
 from __future__ import annotations
@@ -37,6 +32,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
 from drive import base_url, save, session, sidebar
 
 DEVENV = "scripts/devenv/devenv.sh"
@@ -44,17 +41,25 @@ DB = ".claude/skills/verify/bin/customers_db.py"
 
 
 def admin_api(base: str, password: str):
-    jar = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    jar.open(urllib.request.Request(f"{base}/api/method/login", data=urllib.parse.urlencode(
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    opener.open(urllib.request.Request(f"{base}/api/method/login", data=urllib.parse.urlencode(
         {"usr": "Administrator", "pwd": password}).encode()))
 
     def rename(customer: str, name: str) -> None:
         req = urllib.request.Request(f"{base}/api/resource/Customers/{customer}", method="PUT",
                                      data=json.dumps({"company_name": name}).encode(),
                                      headers={"Content-Type": "application/json"})
-        jar.open(req).read()
+        opener.open(req).read()
 
     return rename
+
+
+def shows(page, text: str, timeout_ms: int = 20000) -> bool:
+    try:
+        page.get_by_text(text, exact=True).first.wait_for(timeout=timeout_ms)
+        return True
+    except PlaywrightTimeout:
+        return False
 
 
 def db(task: str, out: Path, label: str, customer: str) -> dict:
@@ -90,27 +95,25 @@ def main() -> int:
         page.reload()
         sidebar(page, "Customers")
         before = db(a.task, out, "01-before", a.customer)["company_name"]
-        page.get_by_text(before, exact=True).first.wait_for(timeout=20000)
+        listed = shows(page, before)
         save(page, out, "01-list")
         socket = next((u for u in sockets if f":{a.socket_port}/" in u), None)
         if socket is None:
             sys.exit(f"walk: the page opened no socket to port {a.socket_port} ({sockets}): realtime is not served")
-        check(True, f"the list shows {before!r}; socket {socket}")
+        check(listed, f"the list shows {before!r} (socket {socket})")
 
         renamed = f"{before} (live {a.customer})"
         try:
             rename(a.customer, renamed)
             check(db(a.task, out, "02-renamed", a.customer)["company_name"] == renamed, f"the DB holds {renamed!r}")
-            page.get_by_text(renamed, exact=True).first.wait_for(timeout=20000)
-            toast = page.get_by_text("Data Updated").first.is_visible()
+            check(shows(page, renamed), f"the open list shows {renamed!r} with no reload")
+            check(page.get_by_text("Data Updated").first.is_visible(), "the 'Data Updated' toast")
             save(page, out, "02-refreshed")
-            check(True, f"the open list shows {renamed!r} with no reload")
-            check(toast, "the 'Data Updated' toast")
         finally:
             rename(a.customer, before)
         check(db(a.task, out, "03-restored", a.customer)["company_name"] == before, f"the DB holds {before!r} again")
-        page.get_by_text(before, exact=True).first.wait_for(timeout=20000)
-        check(page.get_by_text(re.compile(re.escape(renamed))).count() == 0, f"the list no longer shows {renamed!r}")
+        check(shows(page, before) and page.get_by_text(re.compile(re.escape(renamed))).count() == 0,
+              f"the list shows {before!r} again, and {renamed!r} no more")
         save(page, out, "03-restored")
         print(f"evidence: {out}")
     print("PASS" if not missed else f"FAIL: {len(missed)} missed")

@@ -63,6 +63,10 @@ Preconditions:
 - The made-up customers stay in the env DB; their names start with `Zephyr Walk Builders`.
 - Live refresh (#1670): `BIN/walk_live_refresh.py` holds the list open as the Accountant while the Administrator
   renames a customer through the REST API, and expects the new name with no reload. It needs the env bench's own
-  Socket.IO server (its docstring says how). On 2026-11-19 it failed at 02: the server sent `list_update` to the
-  page's socket, but no frame reached the page after the transport upgrade; a plain websocket from the same page got
-  both. Not walked until that is understood.
+  Socket.IO server (its docstring says how). **Failed on 2026-11-19 at 02** (Chrome 143 and 157, through the env's
+  vite proxy and direct to the published port alike): the server joined the Accountant's socket to
+  `doctype:Customers` and emitted `list_update` to it on an upgraded websocket with an empty write buffer, yet the
+  page got no frame after the upgrade probe, not even a ping. A plain websocket opened from the same page (no polling
+  first) got both events, and so did Node clients (socket.io-client 4.7.1 and 4.8). The SPA runs socket.io-client
+  4.7.1 / engine.io-client 6.5.4 against Frappe's socket.io 4.8.4 / engine.io 6.6.11, the same pair as production,
+  so production may be affected too (not checked).
