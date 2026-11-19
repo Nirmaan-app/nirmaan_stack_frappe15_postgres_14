@@ -5657,3 +5657,56 @@ T2 reachability 91 / 91 from the calculator's dropdowns; D2 34,720 + 2,900; Deri
 **What VAV-2 adds:** the reading rules (CFM band from a range's maximum, the inlet-size table, shape default Rectangular, port charges),
 the opt-in pieces N1-N5 (charged-on-its-own-row check, the 2 m integrator cabling, source tags, counts, one add button per extra),
 existing-work factors, installation-any-size as a rule, the model guidance, the panel to the mockup, the paid run -- and the switch's removal.
+
+## VAV Box (HVAC v77) - VAV-2a (2026-11-19) - the sheet rules, the quantity per box, the combination warning
+
+Mint `scripts/_instruments/mint_hvac_v77_vav2a.py` (build / load / verify). The key VALUES live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2aKeys.json`, read by the mint and by the vav2a* tests. Scope per the owner's
+QR-S (a) (2026-11-19 13:31): the airflow band from the CFM, the inlet-size table and the source tags (B1 / B2 / B8) and the product
+preview move to the next slice; the owner's QR-B ruling for them (13:31 / 13:48: the user enters EITHER the CFM OR the inlet size, the CFM
+wins, the band read-only with its source tag, "only one is required" said in the calculator) is that slice's.
+
+**What v77 adds** (every v76 item and every other config byte-identical; every model request identical; `calculator_only` stays on):
+- `list_spec.pricing.own_row_check` (B3 / B4 / QR-C1): every extra a VAV row prices (thermostat, room temperature sensor, BACnet over IP
+  controller, DP switch, CO2 sensor, conical piece, transformation piece, duct connection) is checked against the SAME sheet's rows (QR-3a
+  (a)). A separate row = the agreed test (QR-4 (a); VAV-D0 D4): its own words name the extra; a line item or a quantity-bearing Preamble;
+  not a box row, not work on an existing box, not per metre, a count unit or none, no cable word before the extra's words, no artefact
+  words (AHU, plant room, fresh air, FCU, fan, VFD, static pressure, IAQ, VRF, attenuator, plenum, filter ...) in it or its headings, no
+  mounting-box words; pieces and duct connection must name VAV. Its quantity >= `vav_own_row_threshold` (0.9) x the VAV rows of the sheet
+  that price the same extra -> NOT added + note naming the rows (10, "and N more"); below -> added + "possible double counting - also
+  priced in rows ..."; quantities blank or 0 on EITHER side -> the separate row decides, NOT added (owner 01:23). The VAV integrator:
+  presence decides (no quantity test) -> the box on the "Integrator Included = No" line + note (owner QR-C1 (a), 13:31).
+- `list_spec.pricing.integrator_cabling` (B5): on a sheet with a VAV integrator anywhere (integrator / router / gateway with VAV / BMS /
+  BACnet / Modbus / controller / thermostat around it, never a heat-meter / BTU / flow integrator), every box row: a separate cabling row
+  (per metre, a cable / wiring word, not "power", not a conduit row; VAV - or "variable air volume" - in its description; in its own notes
+  or a heading above it, unless its description names other equipment - 'variable air volume' and the own-notes reading are owner rulings of
+  2026-11-19 15:57, "both a") -> nothing added + note; its metres below
+  `vav_cabling_length_threshold` (0.7) x `vav_cabling_m_per_box` (2) x the sheet's boxes -> the longer note (price unchanged); none -> the
+  `Integrator cabling` SKU (BCS 140 per metre = quoted 196; unchanged since v76) ADDED BY THE HELPER at `vav_cabling_m_per_box` per box,
+  its block "added by the helper", removable. Reproduces chat-Claude's v3 workbook on all 84 VAV sheets (53 / 800; 45 / 705 not added;
+  8 / 95 get 2 m; 0 below 70%; 6 unchecked; 0 differences).
+- `list_spec.pricing.existing_boxes` (B6): a row whose OWN words are dismantling / dismantling and refixing / refixing of an existing box is
+  priced as "VAV installation - any size" alone (supply 0, no extras, no cabling), installation x `vav_existing_dismantle` (1.0) /
+  `vav_existing_dismantle_refix` (1.5) / `vav_existing_refix_with_dismantling` (0.5, the sheet has a separate dismantling row naming VAV) or
+  `vav_existing_refix_alone` (1.5); an input not set -> the row refuses.
+- `list_spec.sections[misc|sensors].qty_attr = qty_per_box` (B7): a borrowed item's quantity per box from the row ("two thermostats",
+  "on either side"); default 1 marked; the pricer's typed quantity wins. Own extras read it through `qty_attribute_id` since v76.
+- `list_spec.pricing.combination_warning` (B9): a priced row whose lines other than the box exceed `vav_combination_warning_share` (0.5) x
+  the box's own supply + installation shows "This rate combines the box with {n} extras (Rs {x} of Rs {y}). Review each item before
+  using." ({x} = the row rate minus the box rate, {y} = the row rate, on the catalogue lines before any scope pick); panel and calculator.
+- 8 Pricing Inputs (above), each read by VAV Box (`extras_input_ids` / `scopeUses`: "used by VAV Box").
+- Derivation: a generated line per key and a reason per line; the "That kind's rule for that unit" reason says BCS cost 140 per metre,
+  quoted 196 (owner 12:35).
+
+**Never in the calculator** (it has no sheet): B3 / B4 / B5 / B6 run only on a BoQ row (`ctx.noRow !== true` with the page's sheet
+lines); B7 needs a model item; B9 shows in both.
+
+**Load-bearing:** the sheet rules settle the MODEL'S ITEMS before pricing (`vavSheetRules`, pricingSheetHelper.ts) -- a dropped extra
+leaves only its note; the helper-added cabling item carries `__added_by_helper`. A row naming "VAV box(es)" is a BOX row to the
+own-row test (a separate "BACnet controller for the VAV boxes" row is not counted -- blind spot kept from the agreed test).
+
+**Known caveat (owner 2026-11-19 18:21 "ok b"; fixed in the next VAV slice):** `derivation_reasons` is matched FIRST-MATCH by title
+pattern, and VAV-1's "^The misc item section" / "^The sensor section" patterns come before the VAV-2a B7 reason, so lines 9 / 11 of the VAV
+Box Derivation ("The misc item / sensor section's quantity per vav item is the count the row names") show the borrowed-section reason. The
+coverage check (`derivationCoverage`, UNREASONED) counts a present-but-wrong reason as covered. A later slice: put the new reasons first
+and make the coverage check test the right reason.
