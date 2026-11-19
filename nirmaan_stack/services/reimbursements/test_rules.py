@@ -9,12 +9,13 @@ import unittest
 
 from nirmaan_stack.services.reimbursements.receipts import is_mergeable
 from nirmaan_stack.services.reimbursements.rules import (
+    CLAIM_STATUS_OF_EXPENSE,
     DESCRIPTION_REQUIRED_ABOVE,
-    EXPENSE_STATUS_OF_TAB,
     MONTHLY_LIMIT,
     PM_MONTHLY_CAP,
     STAGE_TABS,
     STATUSES,
+    STATUS_OF_TAB,
     TABS,
     TYPES,
     acknowledgement_problem,
@@ -71,7 +72,7 @@ class TestSharedCases(unittest.TestCase):
     def test_claim_tab(self):
         for case in CASES["claim_tab"]:
             with self.subTest(case["name"]):
-                self.assertEqual(claim_tab(case["claim_status"], case["expense_status"]), case["tab"])
+                self.assertEqual(claim_tab(case["claim_status"]), case["tab"])
 
     def test_tab_problem(self):
         for case in CASES["tab_problem"]:
@@ -134,28 +135,33 @@ class TestSharedCases(unittest.TestCase):
 
 
 class TestRefusalsSayWhy(unittest.TestCase):
-    def test_every_expense_led_tab_lists_one_expense_status_and_back(self):
-        """The list call reads `EXPENSE_STATUS_OF_TAB`, the counts read `claim_tab`: they must agree."""
-        for tab, status in EXPENSE_STATUS_OF_TAB.items():
+    def test_every_step_tab_lists_one_status_and_back(self):
+        """The list call reads `STATUS_OF_TAB`, the counts read `claim_tab`: they must agree."""
+        for tab, status in STATUS_OF_TAB.items():
             with self.subTest(tab):
-                self.assertEqual(claim_tab("Approved", status), tab)
-        self.assertEqual(set(EXPENSE_STATUS_OF_TAB), {"l1", "ceo", "approved", "reconciliation"})
+                self.assertEqual(claim_tab(status), tab)
+        self.assertEqual(set(STATUS_OF_TAB), {"pending", "l1", "ceo", "approved", "reconciliation", "paid"})
+
+    def test_the_claim_takes_each_expense_status_by_the_same_name(self):
+        self.assertEqual(set(CLAIM_STATUS_OF_EXPENSE.values()) | {"Pending Approval"}, set(STATUSES))
+        for expense_status, claim_status in CLAIM_STATUS_OF_EXPENSE.items():
+            self.assertEqual(expense_status, claim_status)
 
     def test_count_tabs_counts_each_claim_once_per_tab_plus_all_and_mine(self):
         rows = [
-            {"claim_status": "Pending Approval", "expense_status": None, "mine": True, "n": 2},
-            {"claim_status": "Approved", "expense_status": "Requested", "mine": False, "n": 3},
-            {"claim_status": "Approved", "expense_status": "CEO Pending", "mine": False, "n": 1},
-            {"claim_status": "Approved", "expense_status": "Reconciliation Pending", "mine": True, "n": 1},
-            {"claim_status": "Paid", "expense_status": "Paid", "mine": False, "n": 4},
-            {"claim_status": "Rejected", "expense_status": "Rejected", "mine": True, "n": 5},
+            {"claim_status": "Pending Approval", "mine": True, "n": 2},
+            {"claim_status": "Requested", "mine": False, "n": 3},
+            {"claim_status": "CEO Pending", "mine": False, "n": 1},
+            {"claim_status": "Reconciliation Pending", "mine": True, "n": 1},
+            {"claim_status": "Paid", "mine": False, "n": 4},
+            {"claim_status": "Rejected", "mine": True, "n": 5},
         ]
         counts = count_tabs(rows, viewer_is_ceo=True)
         self.assertEqual(counts, {"pending": 2, "l1": 3, "ceo": 1, "approved": 0, "reconciliation": 1,
                                   "paid": 4, "mine": 8, "all": 16})
 
     def test_count_tabs_never_sends_the_ceo_count_to_anyone_else(self):
-        rows = [{"claim_status": "Approved", "expense_status": "CEO Pending", "mine": False, "n": 7}]
+        rows = [{"claim_status": "CEO Pending", "mine": False, "n": 7}]
         counts = count_tabs(rows, viewer_is_ceo=False)
         self.assertNotIn("ceo", counts)
         self.assertEqual(counts["all"], 7)  # the claim is still one of All's
@@ -214,34 +220,31 @@ class TestClaimProblem(unittest.TestCase):
 
 
 class TestClaimFollowsExpense(unittest.TestCase):
-    """ADR-0040: only the expense's endings move the claim, and only from the status it can be in."""
+    """Owner, 2026-11-19: once approved, the claim carries its expense's status by the same name; a pending claim (no
+    expense yet) and a rejected one (final) never move (`expense_link.claim_status_for`)."""
 
-    def test_paid_and_rejected_move_an_approved_claim(self):
+    def test_every_expense_status_is_copied_onto_an_approved_claim(self):
         from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
 
-        self.assertEqual(claim_status_for("Paid", "Reconciliation Pending", "Approved"), "Paid")
-        self.assertEqual(claim_status_for("Paid", "Approved", "Approved"), "Paid")
-        self.assertEqual(claim_status_for("Rejected", "CEO Pending", "Approved"), "Rejected")
-
-    def test_the_waiting_statuses_leave_the_claim_approved(self):
-        from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
-
-        for new, old in (("CEO Pending", None), ("Approved", "CEO Pending"), ("Reconciliation Pending", "Approved")):
-            with self.subTest(new):
-                self.assertIsNone(claim_status_for(new, old, "Approved"))
+        self.assertEqual(claim_status_for("Requested", "Approved"), "Requested")  # created waiting for L1
+        self.assertEqual(claim_status_for("CEO Pending", "Requested"), "CEO Pending")
+        self.assertEqual(claim_status_for("Approved", "CEO Pending"), "Approved")
+        self.assertEqual(claim_status_for("Reconciliation Pending", "Approved"), "Reconciliation Pending")
+        self.assertEqual(claim_status_for("Paid", "Reconciliation Pending"), "Paid")
+        self.assertEqual(claim_status_for("Rejected", "CEO Pending"), "Rejected")
 
     def test_an_undone_match_puts_a_paid_claim_back(self):
         from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
 
-        self.assertEqual(claim_status_for("Reconciliation Pending", "Paid", "Paid"), "Approved")
-        self.assertEqual(claim_status_for("Approved", "Paid", "Paid"), "Approved")
+        self.assertEqual(claim_status_for("Reconciliation Pending", "Paid"), "Reconciliation Pending")
 
-    def test_no_change_and_the_wrong_claim_status_do_nothing(self):
+    def test_no_change_a_pending_claim_and_a_rejected_one_do_nothing(self):
         from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
 
-        self.assertIsNone(claim_status_for("Paid", "Paid", "Approved"))
-        self.assertIsNone(claim_status_for("Paid", "Approved", "Rejected"))
-        self.assertIsNone(claim_status_for("Rejected", "CEO Pending", "Paid"))
+        self.assertIsNone(claim_status_for("Approved", "Approved"))
+        self.assertIsNone(claim_status_for("Paid", "Rejected"))
+        self.assertIsNone(claim_status_for("Requested", "Pending Approval"))
+        self.assertIsNone(claim_status_for("Something new", "Approved"))
 
 
 class TestRejectedIsFinal(unittest.TestCase):

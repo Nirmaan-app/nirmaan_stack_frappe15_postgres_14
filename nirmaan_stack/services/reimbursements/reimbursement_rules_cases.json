@@ -4,9 +4,12 @@
   "description_required_above": 2000,
   "statuses": [
     "Pending Approval",
+    "Requested",
+    "CEO Pending",
     "Approved",
-    "Rejected",
-    "Paid"
+    "Reconciliation Pending",
+    "Paid",
+    "Rejected"
   ],
   "types": [
     "Travel",
@@ -381,55 +384,41 @@
     {
       "name": "a new claim is in Pending Approval",
       "claim_status": "Pending Approval",
-      "expense_status": null,
       "tab": "pending"
     },
     {
-      "name": "HR approved at or above the limit: the expense waits for L1",
-      "claim_status": "Approved",
-      "expense_status": "Requested",
+      "name": "HR approved at or above the limit: the claim is Requested, waiting for L1",
+      "claim_status": "Requested",
       "tab": "l1"
     },
     {
-      "name": "Admin approved above Rs 50,000: the expense waits for the CEO",
-      "claim_status": "Approved",
-      "expense_status": "CEO Pending",
+      "name": "Admin approved above Rs 50,000: the claim is CEO Pending",
+      "claim_status": "CEO Pending",
       "tab": "ceo"
     },
     {
-      "name": "fully approved: Payment need to be paid",
+      "name": "fully approved: Approved, Payment need to be paid",
       "claim_status": "Approved",
-      "expense_status": "Approved",
       "tab": "approved"
     },
     {
       "name": "marked as paid, not yet matched to the bank",
-      "claim_status": "Approved",
-      "expense_status": "Reconciliation Pending",
+      "claim_status": "Reconciliation Pending",
       "tab": "reconciliation"
     },
     {
       "name": "the expense is Paid, so the claim is Paid",
       "claim_status": "Paid",
-      "expense_status": "Paid",
       "tab": "paid"
     },
     {
       "name": "a rejected claim is in no step tab (only All)",
       "claim_status": "Rejected",
-      "expense_status": null,
       "tab": null
     },
     {
-      "name": "rejected after its first approval: still no step tab",
-      "claim_status": "Rejected",
-      "expense_status": "Rejected",
-      "tab": null
-    },
-    {
-      "name": "an Approved claim with no expense is not guessed at",
-      "claim_status": "Approved",
-      "expense_status": null,
+      "name": "an unknown status is in no step tab",
+      "claim_status": "Approved by someone",
       "tab": null
     }
   ],
