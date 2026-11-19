@@ -19,10 +19,12 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info } from "lucide-react";
+import { FileDown, Info, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useVendorWorkOrdersPdf } from "../hooks/useVendorWorkOrdersPdf";
 import {
   FacetDeclaration,
   FacetOverrides,
@@ -543,6 +545,17 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     // standalone Service Requests page keeps the default.
   });
 
+  // Vendor page only: the "Vendor Work Orders" PDF of what this table shows.
+  const { downloadPdf, isDownloadingPdf } = useVendorWorkOrdersPdf({
+    table,
+    vendorId: for_vendor,
+    vendorName,
+    view: "approved",
+    searchTerm,
+    selectedSearchField,
+    searchableFields: srSearchableFields,
+  });
+
   // --- Faceted Filter Options ---
   // project + vendor facets self-fetch (facetDoctype + meta.facet); gst stays a static-options facet.
   const facetFilterOptions = useMemo(
@@ -643,6 +656,14 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             isExporting={isExporting}
             exportFileName={
               vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+            }
+            toolbarActions={
+              for_vendor ? (
+                <Button onClick={downloadPdf} variant="outline" size="sm" className="h-9" disabled={isDownloadingPdf}>
+                  {isDownloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                  Download PDF
+                </Button>
+              ) : undefined
             }
             getRowClassName={getRowClassName}
           />

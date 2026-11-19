@@ -19,10 +19,12 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info } from "lucide-react";
+import { FileDown, Info, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useVendorWorkOrdersPdf } from "../hooks/useVendorWorkOrdersPdf";
 import {
   FacetDeclaration,
   FacetOverrides,
@@ -513,6 +515,17 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
     // standalone Service Requests page keeps the default.
   });
 
+  // Vendor page only: the "Vendor Work Orders" PDF of what this table shows.
+  const { downloadPdf, isDownloadingPdf } = useVendorWorkOrdersPdf({
+    table,
+    vendorId: for_vendor,
+    vendorName,
+    view: "finalized",
+    searchTerm,
+    selectedSearchField,
+    searchableFields: srSearchableFields,
+  });
+
   // --- Static Faceted Filter Options ---
   // `project` + `vendor` migrated to the self-fetching facet path (meta.facet +
   // facetDoctype/facetOverrides). `gst` stays a static (non-self-fetching) facet.
@@ -595,6 +608,14 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
             isExporting={isExporting}
             exportFileName={
               vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+            }
+            toolbarActions={
+              for_vendor ? (
+                <Button onClick={downloadPdf} variant="outline" size="sm" className="h-9" disabled={isDownloadingPdf}>
+                  {isDownloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                  Download PDF
+                </Button>
+              ) : undefined
             }
             getRowClassName={getRowClassName}
           />

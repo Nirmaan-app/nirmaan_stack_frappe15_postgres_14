@@ -1,0 +1,232 @@
+{#-
+  PRINT FORMAT: Vendor Work Orders                  DocType: Vendors
+  Reference copy of the Desk record "Vendor Work Orders" -- the DB record is the runtime
+  source; keep this file equal to it.
+
+  Rows come from the SAME endpoint, filters, search and sort as the Vendor page's Work
+  Orders tab (nirmaan_stack.api.data-table.get_list_with_count_enhanced, like its
+  "Export all"), so the PDF lists exactly what the table shows. Query-string params
+  (absent = all of the vendor's listed WOs, last modified first):
+    wo_view         "all" | "approved" | "finalized" -- the tab's sub-tab (default "all")
+    wo_filters      JSON array of the table's column filters (Frappe filter list)
+    order_by        e.g. "creation desc"
+    search_term     the table's search box
+    search_field    the field the search box searches
+    item_search     "1" when that field is the item-name (child table) search
+  The vendor + the view's status filters are always added here (the same staticFilters as
+  all-sr-list / approved-sr-list / finalized-sr-list), so a request can only narrow the
+  list to this vendor's work orders.
+-#}
+
+{%- set wo_view = frappe.form_dict.wo_view if frappe.form_dict.wo_view in ["all", "approved", "finalized"] else "all" -%}
+{%- if wo_view == "approved" -%}
+    {%- set view_filters = [["status", "=", "Approved"], ["is_finalized", "=", 0]] -%}
+{%- elif wo_view == "finalized" -%}
+    {%- set view_filters = [["status", "=", "Approved"], ["is_finalized", "=", 1]] -%}
+{%- else -%}
+    {#- LISTED_WORK_ORDER_STATUSES: a Work Order under amendment stays listed. -#}
+    {%- set view_filters = [["status", "in", ["Approved", "Amendment"]]] -%}
+{%- endif -%}
+{%- set extra_filters = json.loads(frappe.form_dict.wo_filters) if frappe.form_dict.wo_filters else [] -%}
+{%- set search_term = frappe.form_dict.search_term or None -%}
+{%- set search_field = frappe.form_dict.search_field or None -%}
+{%- set res = frappe.call(
+    "nirmaan_stack.api.data-table.get_list_with_count_enhanced",
+    doctype="Service Requests",
+    fields=["name", "creation", "modified", "project", "vendor", "status", "is_finalized", "gst",
+            "total_amount", "amount_paid", "amount_due", "amount_invoiced"],
+    filters=[["vendor", "=", doc.name]] + view_filters + extra_filters,
+    order_by=frappe.form_dict.order_by or "modified desc",
+    limit_start=0,
+    limit_page_length=0,
+    search_term=search_term,
+    current_search_fields=json.dumps([search_field]) if (search_term and search_field) else None,
+    is_item_search=bool(search_term and frappe.form_dict.item_search == "1"),
+    require_pending_items=False,
+    to_cache=False,
+    for_export=True,
+    doc=None
+) -%}
+{#- doc=None is required: frappe.call hands the endpoint the whole request form_dict, and in a real
+    download_pdf that includes `doc` (the Vendors document object). The endpoint keeps unknown args in
+    **kwargs and json.dumps them, which fails on a document ("not JSON serializable"). -#}
+{%- set wos = res["data"] if res else [] -%}
+
+{#- Service Requests stores only the project link: resolve the names in one query. -#}
+{%- set project_ids = wos | map(attribute="project") | select | unique | list -%}
+{%- set project_names = {} -%}
+{%- if project_ids -%}
+    {%- for p in frappe.get_all("Projects", filters={"name": ["in", project_ids]}, fields=["name", "project_name"]) -%}
+        {%- set _ = project_names.update({p.name: p.project_name}) -%}
+    {%- endfor -%}
+{%- endif -%}
+
+{%- macro money(v) -%}{{ frappe.utils.fmt_money(v or 0, 2, None, "#,##,###.##") }}{%- endmacro -%}
+{%- macro day(d) -%}{{ frappe.utils.formatdate(d, "dd-MMM-yyyy") if d else "" }}{%- endmacro -%}
+{#- Pending Invoices = Amt. Paid less Total Invoiced, floored at 0 (utils/workOrderPendingInvoice.ts);
+    the same expression is used per row below. -#}
+{%- set tot = namespace(total_amount=0, amount_paid=0, amount_due=0, amount_invoiced=0, pending=0) -%}
+{%- for wo in wos -%}
+    {%- set tot.total_amount = tot.total_amount + (wo.total_amount or 0) -%}
+    {%- set tot.amount_paid = tot.amount_paid + (wo.amount_paid or 0) -%}
+    {%- set tot.amount_due = tot.amount_due + (wo.amount_due or 0) -%}
+    {%- set tot.amount_invoiced = tot.amount_invoiced + (wo.amount_invoiced or 0) -%}
+    {%- set tot.pending = tot.pending + ([0, (wo.amount_paid or 0) - (wo.amount_invoiced or 0)] | max) -%}
+{%- endfor -%}
+
+{#- Company header: the default GSTIN's billing address (a vendor spans projects). -#}
+{%- set default_gstin = "29ABFCS9095N1Z9" -%}
+{%- set company_name = "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)" -%}
+{%- set logo_url = "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-BptBZTzQ.svg" -%}
+{%- set company_addr = "Billing address not configured (Check Project GST DocType)" -%}
+{%- set gst_name = frappe.db.get_value("Project GST", {"gstin": default_gstin}, "name") -%}
+{%- if gst_name -%}
+    {%- set g = frappe.db.get_value("Project GST", gst_name, ["address", "city", "pincode", "state"], as_dict=True) -%}
+    {%- set company_addr = [g.address, [g.city, g.pincode] | select | join("-"), g.state] | select | join(", ") -%}
+{%- endif -%}
+
+<style>
+    /* Landscape A4. Frappe >= 15.115 reads orientation/margins ONLY from this top-level rule
+       (pdfkit meta tags are ignored). margin-top makes room for the repeating Nirmaan header:
+       Frappe's header page pads 15mm on top, then the header itself. */
+    .print-format { orientation: Landscape; margin-top: 36mm; margin-bottom: 15mm; margin-left: 10mm; margin-right: 10mm; }
+    /* The rule above is read as PDF page options, but the browser would ALSO apply it as CSS
+       margins (in the body and inside the header/footer pages). Frappe reads options only from
+       a bare `.print-format` selector, so this one cancels the CSS side without touching them. */
+    div.print-format { margin: 0 !important; }
+    .print-format, .print-format td, .print-format th { font-family: Arial, sans-serif; color: #000; }
+
+    .header-wrapper { width: 100%; font-family: Arial, sans-serif; color: #000; }
+    .logo-img { height: 28px; display: block; margin-bottom: 4px; }
+    .company-name-lg { font-size: 12px; font-weight: bold; margin-bottom: 2px; }
+    .company-addr-lg { font-size: 9px; color: #555; margin-bottom: 6px; }
+    .header-border { border-bottom: 3px solid #000; }
+
+    .title-row { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    .title-row td { border: none; padding: 0; vertical-align: bottom; }
+    .doc-title { font-size: 15px; font-weight: bold; letter-spacing: 0.5px; }
+    .report-date { text-align: right; font-size: 9.5px; color: #555; }
+
+    .info-label { font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #555; margin-bottom: 3px; }
+    .vendor-name { font-size: 11px; font-weight: bold; }
+    .top-row { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 12px; }
+    .print-format td.vendor-box { width: 40%; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px !important; vertical-align: top; font-size: 9.5px; line-height: 1.5; }
+    .print-format td.gap { border: none; padding: 0 !important; }
+    /* `.print-format` prefix: `.print-format td { color: #000 }` above would otherwise win on table cells. */
+    .print-format .c-blue { color: #2563eb; }
+    .print-format .c-amber { color: #d97706; }
+    .print-format .c-red { color: #dc2626; }
+    .print-format .c-muted { color: #64748b; }
+
+    /* `separate`, not `collapse`: with collapsed borders wkhtmltopdf leaves a blank band under
+       the repeated header row on every continuation page. Borders are drawn right + bottom only
+       (plus the outer left / top edges) so they stay single-width. */
+    .orders { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    .orders th, .orders td { border-style: solid; border-width: 0 1px 1px 0; }
+    .orders tr > :first-child { border-left-width: 1px; }
+    .orders thead th { border-top-width: 1px; }
+    .orders thead { display: table-header-group; }
+    /* Rows are kept whole on the <tr>. Do NOT wrap cell contents in <div>s: Frappe's print CSS
+       puts `page-break-inside: avoid` on every `table td div`, and with hundreds of them
+       wkhtmltopdf pushes rows down mid-page (blank bands under random rows). */
+    .orders tr { page-break-inside: avoid; }
+    .orders th { background: #f8fafc; color: #475569; font-size: 10.5px; font-weight: bold; text-align: left; border-color: #cbd5e1; line-height: 1.3; vertical-align: bottom; }
+    .orders td { font-size: 11px; border-color: #e2e8f0; vertical-align: top; word-wrap: break-word; line-height: 1.35; }
+    .orders .num { text-align: right; }
+    .orders .center { text-align: center; }
+    .orders td.num, .orders td.date { white-space: nowrap; }
+    /* Frappe's print stylesheet forces `padding: 6px !important` on every print table cell. */
+    .print-format .orders th { padding: 5px 4px !important; }
+    .print-format .orders td { padding: 4px !important; }
+    .orders .strong { font-weight: bold; }
+    .orders tr.summary td { background: #f1f5f9; font-weight: bold; border-color: #cbd5e1; }
+    .orders tr.empty td { text-align: center; color: #555; padding: 14px 4px; }
+</style>
+
+{#- Repeats on every page (wkhtmltopdf header). -#}
+<div id="header-html" style="display: none;">
+    <div class="header-wrapper">
+        <img src="{{ logo_url }}" class="logo-img">
+        <div class="company-name-lg">{{ company_name }}</div>
+        <div class="company-addr-lg">{{ company_addr | e }}</div>
+        <div class="header-border"></div>
+    </div>
+</div>
+
+<table class="title-row">
+    <tr>
+        <td class="doc-title">VENDOR WORK ORDERS &ndash; {{ wo_view | upper }}</td>
+        <td class="report-date">REPORT DATE: {{ day(frappe.utils.nowdate()) }}</td>
+    </tr>
+</table>
+
+<table class="top-row">
+    <tr>
+        <td class="vendor-box">
+            <div class="info-label">Vendor</div>
+            {#- Three lines: name / GSTIN + PAN / city, state. -#}
+            <div class="vendor-name">{{ (doc.vendor_name or doc.name) | e }}</div>
+            <div><b>GSTIN:</b> {{ (doc.vendor_gst or "-") | e }} &nbsp;&nbsp;|&nbsp;&nbsp; <b>PAN:</b> {{ (doc.vendor_pan or "-") | e }}</div>
+            <div>{{ ([doc.vendor_city, doc.vendor_state] | select | join(", ")) | e }}</div>
+        </td>
+        <td class="gap"></td>
+    </tr>
+</table>
+
+<table class="orders">
+    <colgroup>
+        <col style="width: 3%">
+        <col style="width: 14%">
+        <col style="width: 8.5%">
+        <col style="width: 20.5%">
+        <col style="width: 10%">
+        <col style="width: 5%">
+        <col style="width: 9.5%">
+        <col style="width: 9.5%">
+        <col style="width: 10%">
+        <col style="width: 10%">
+    </colgroup>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>WO ID</th>
+            <th>Created On</th>
+            <th>Project</th>
+            <th class="num">Total WO Value (&#8377;)</th>
+            <th class="center">Incl. GST</th>
+            <th class="num">Amt. Paid (&#8377;)</th>
+            <th class="num">Amount Due (&#8377;)</th>
+            <th class="num">Total Invoiced (&#8377;)</th>
+            <th class="num">Pending Invoices (&#8377;)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {%- for wo in wos %}
+        {%- set wo_pending = [0, (wo.amount_paid or 0) - (wo.amount_invoiced or 0)] | max %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td class="strong c-blue">{{ wo.name | e }}</td>
+            <td class="date">{{ day(wo.creation) }}</td>
+            <td>{{ (project_names.get(wo.project) or wo.project or "") | e }}</td>
+            <td class="num">{{ money(wo.total_amount) }}</td>
+            <td class="center">{{ "Yes" if wo.gst == "true" else "No" }}</td>
+            <td class="num">{{ money(wo.amount_paid) }}</td>
+            <td class="num strong {{ 'c-red' if (wo.amount_due or 0) < 0 else 'c-amber' }}">{{ money(wo.amount_due) }}</td>
+            <td class="num c-blue">{{ money(wo.amount_invoiced) }}</td>
+            <td class="num {{ 'c-red' if wo_pending > 0 else 'c-muted' }}">{{ money(wo_pending) }}</td>
+        </tr>
+        {%- else %}
+        <tr class="empty"><td colspan="10">No work orders match.</td></tr>
+        {%- endfor %}
+
+        <tr class="summary">
+            <td colspan="4">Total ({{ wos | length }} WOs)</td>
+            <td class="num">{{ money(tot.total_amount) }}</td>
+            <td></td>
+            <td class="num">{{ money(tot.amount_paid) }}</td>
+            <td class="num">{{ money(tot.amount_due) }}</td>
+            <td class="num">{{ money(tot.amount_invoiced) }}</td>
+            <td class="num">{{ money(tot.pending) }}</td>
+        </tr>
+    </tbody>
+</table>
