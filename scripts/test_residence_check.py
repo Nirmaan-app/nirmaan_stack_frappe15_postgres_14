@@ -609,8 +609,9 @@ class RawEnqueues(unittest.TestCase):
                "frappe.enqueue_doc('ToDo', 'x', 'f')\n"
                "background_jobs.enqueue('m.f')\n"
                "frappe.utils.background_jobs.enqueue('m.f')\n"
-               "get_queue('long').enqueue_call('m.f')\n")
-        self.assertEqual(raw_enqueue_lines(src), [5, 6, 7, 8, 9, 10, 11, 12])
+               "get_queue('long').enqueue_call('m.f')\n"
+               "background_jobs.get_queue('long').enqueue('m.f')\n")
+        self.assertEqual(raw_enqueue_lines(src), [5, 6, 7, 8, 9, 10, 11, 12, 13])
 
     def test_a_mention_a_patch_or_another_enqueue_is_not_a_job_queued(self):
         src = ('import frappe\n'
@@ -702,9 +703,8 @@ class SocketListeners(unittest.TestCase):
             "frappe.socket.on('tds_export_ready', f);\n"
             "(socket.on)('x', f);\n"
             "handlers.forEach(([e, h]) => socket.on(e, h));\n"
-            "useSocketEventListener('commission_bulk_ready', f);\n"
         )
-        self.assertEqual(socket_listener_count(src), 7)
+        self.assertEqual(socket_listener_count(src), 6)
 
     def test_connection_events_and_other_calls_are_not_counted(self):
         src = (
@@ -715,13 +715,14 @@ class SocketListeners(unittest.TestCase):
             "socket.on(`connect_error`, onError);\n"
             "socket.emit('x');\n"
             "emitter.on('x', f);\n"
+            "useSocketEventListener('cheques:changed', f);\n"
             "useDocTypeEventListener('Projects', f);\n"
             "useDocumentEventListener('Projects', id, f);\n"
         )
         self.assertEqual(socket_listener_count(src), 0)
 
     def test_a_tsx_source_is_read_as_tsx(self):
-        src = "const A = () => <div>{x}</div>;\nuseSocketEventListener('po:new', f);\n"
+        src = "const A = () => <div>{x}</div>;\nsocket.on('po:new', f);\n"
         self.assertEqual(socket_listener_count(src, "a.tsx"), 1)
 
     def frozen(self, **counts):
@@ -743,13 +744,14 @@ class SocketListeners(unittest.TestCase):
             "frontend/src/a.ts: frozen with no reason (say in one line why it is not a background operation)",
         ])
 
-    def test_the_shared_hook_and_the_safe_listeners_home_are_exempt_and_tests_are_not_read(self):
+    def test_the_shared_hook_the_safe_listeners_and_the_global_listeners_are_exempt_and_tests_are_not_read(self):
         with mock.patch("residence_check.socket_listener_counts", side_effect=lambda sources: {p: 1 for p in sources}):
             found = socket_listeners_found()
         self.assertNotIn("src/hooks/useBackgroundOperation.ts", found)
         self.assertNotIn("src/lib/frappe.ts", found)
+        self.assertNotIn("src/services/socketListeners.ts", found)
         self.assertNotIn("src/lib/frappeListeners.dom.test.tsx", found)
-        self.assertIn("src/services/socketListeners.ts", found)
+        self.assertIn("src/pages/boq-wizard/SheetPricingPage.tsx", found)
 
     def test_l2_refuses_a_new_file_whatever_the_baseline_file_says(self):
         with tempfile.TemporaryDirectory() as d:

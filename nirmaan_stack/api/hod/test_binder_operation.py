@@ -166,7 +166,7 @@ class TestBinderOperation(FrappeTestCase):
 		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
 		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
 				self.assertRaises(frappe.ValidationError) as refused:
-			self._queue_only()  # the first binder is still queued
+			self._queue_only()
 		self.assertEqual(
 			str(refused.exception),
 			f"Your handover binder for {project_name} ({SYSTEM}) is still being prepared. "
@@ -181,7 +181,7 @@ class TestBinderOperation(FrappeTestCase):
 		for pf in (binder.PF_DOCUMENT, binder.PF_CHECKLIST):
 			if not frappe.db.exists("Print Format", pf):
 				raise unittest.SkipTest(f"Print Format {pf} missing on this site")
-		self._queue_only()  # the whole binder waits in the queue
+		self._queue_only()
 
 		document = self._queue_only(document=DOCUMENT)
 		self.assertEqual(get_status(op_id=document)["state"], "queued")
@@ -189,7 +189,7 @@ class TestBinderOperation(FrappeTestCase):
 		project_name = frappe.db.get_value("Projects", self.project, "project_name")
 		title = binder.build_plan(self.project, SYSTEM, DOCUMENT)[0][0]["title"]
 		with self.assertRaises(frappe.ValidationError) as refused:
-			self._queue_only(document=DOCUMENT)  # the first document download is still queued
+			self._queue_only(document=DOCUMENT)
 		self.assertEqual(
 			str(refused.exception),
 			f"Your {title} download for {project_name} ({SYSTEM}) is still being prepared. "

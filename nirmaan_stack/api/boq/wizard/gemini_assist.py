@@ -779,7 +779,7 @@ def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) ->
 
 
 # ---------------------------------------------------------------------------
-# End of a pass (clears gemini_in_progress + commits, on EVERY exit path)
+# End of a pass
 # ---------------------------------------------------------------------------
 
 def _end_gemini_pass(boq_name: str, sheet_name: str) -> None:

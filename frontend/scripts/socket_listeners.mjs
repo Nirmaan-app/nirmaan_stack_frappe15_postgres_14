@@ -1,8 +1,8 @@
-// L2's parser (scripts/residence_check.py, ADR 0047, #1671): counts the socket listeners in TS/TSX sources with
+// L2's parser (scripts/residence_check.py, ADR-0047, #1671): counts the raw socket listeners in TS/TSX sources with
 // TypeScript's own parser, so comments and strings are read as the compiler reads them. A listener is
 // `<socket>.on(event, ...)` or `<socket>.off(event, ...)`, where <socket> is a name or a property called `socket`
-// (`socket?.on`, `frappe.socket.on`), and a `useSocketEventListener(event, ...)` call. One whose event is a string
-// naming the connection itself (`connect`, `disconnect`, `connect_error`) is not counted: it carries no result.
+// (`socket?.on`, `frappe.socket.on`). One whose event is a string naming the connection itself (`connect`,
+// `disconnect`, `connect_error`) is not counted: it carries no result.
 //
 //   stdin:  {"<path>": "<source>", ...}      a path ending in .tsx is parsed as TSX
 //   stdout: {"<path>": <count>, ...}
@@ -21,10 +21,9 @@ const isSocket = (node) =>
   (ts.isPropertyAccessExpression(node) && node.name.text === "socket");
 
 const isListener = (callee) =>
-  (ts.isIdentifier(callee) && callee.text === "useSocketEventListener") ||
-  (ts.isPropertyAccessExpression(callee) &&
-    ["on", "off"].includes(callee.name.text) &&
-    isSocket(unwrap(callee.expression)));
+  ts.isPropertyAccessExpression(callee) &&
+  ["on", "off"].includes(callee.name.text) &&
+  isSocket(unwrap(callee.expression));
 
 const namesTheConnection = (event) =>
   event !== undefined && ts.isStringLiteralLike(event) && CONNECTION_EVENTS.has(event.text);

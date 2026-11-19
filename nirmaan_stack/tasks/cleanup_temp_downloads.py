@@ -52,8 +52,7 @@ def cleanup_temp_downloads():
             removed += 1
             freed += size
         except OSError:
-            # File vanished mid-sweep (a concurrent fetch_temp_file won the race)
-            # or is unreadable — either way it is not ours to worry about.
+            # File vanished mid-sweep or is unreadable: either way it is not ours to worry about.
             continue
 
     if removed:

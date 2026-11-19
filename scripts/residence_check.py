@@ -528,6 +528,12 @@ def frozen_count_drift(found: dict[str, int], frozen: dict[str, dict], rule: str
     return out
 
 
+def read_frozen(path: str) -> dict[str, dict]:
+    """A frozen-counts file (oxlint's suppressions shape) at a repo path; empty when there is none."""
+    p = REPO_ROOT / path
+    return json.loads(read(p)) if p.exists() else {}
+
+
 def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
     """J1's drift: ``found`` and ``frozen`` keyed by paths relative to frontend/."""
     return frozen_count_drift(found, frozen, JSON_CALL_RULE, what=".json() calls", new_hint="a new call: use parseJson",
@@ -551,9 +557,7 @@ def json_calls_unfrozen() -> list[str]:
             print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
             return []
         return [f"J1 could not count .json() calls: {e}"]
-    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
-    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
-    return json_call_drift(found, frozen)
+    return json_call_drift(found, read_frozen(JSON_CALL_SUPPRESSIONS))
 
 
 # --- Rule L1: the SDK's listener hooks (#1670) --------------------------------------
@@ -582,27 +586,30 @@ def raw_listener_uses() -> list[str]:
     return sorted(found)
 
 
-# --- Rule L2: a socket listener outside the shared hook (ADR 0047, #1671) --------------------------------------------
+# --- Rule L2: a raw socket listener outside its homes (ADR-0047, #1671) ----------------------------------------------
 # A screen follows a background operation with useBackgroundOperation (src/hooks/useBackgroundOperation.ts), which
-# reads the operation's status record and takes the socket's message only as "read now". A listener of its own is
-# where a screen took another operation's result. The listeners that stay (locks, notifications, doc changes) are
-# frozen per file, each with its reason, in SOCKET_LISTENER_SUPPRESSIONS; scripts/frontend_ratchet_check.py refuses a
-# count that rises in a pull request.
+# reads the operation's status record and takes the socket's message only as "read now". A raw `socket.on` of its own
+# is where a screen took another operation's result. A live event that is not an operation (a doc change, a cheque)
+# is listened to with useSocketEventListener (L1's safe hook, not counted) or registered globally in
+# src/services/socketListeners.ts. The raw listeners that stay (locks) are frozen per file, each with its reason, in
+# SOCKET_LISTENER_SUPPRESSIONS; scripts/frontend_ratchet_check.py refuses a count that rises in a pull request.
 
 SOCKET_LISTENER_SUPPRESSIONS = "frontend/socket-listener-suppressions.json"
 SOCKET_LISTENER_RULE = "no-socket-listener"
-# The shared hook, and the safe listeners' home (src/lib/frappe.ts: useSocketEventListener's own `socket.on`).
-SOCKET_LISTENER_HOMES = ("frontend/src/hooks/useBackgroundOperation.ts", "frontend/src/lib/frappe.ts")
+# The shared hook, the safe listeners' home (src/lib/frappe.ts: useSocketEventListener's own `socket.on`), and the
+# tab's global notification listeners (frontend/CODING_STANDARDS.md § Realtime events).
+SOCKET_LISTENER_HOMES = ("frontend/src/hooks/useBackgroundOperation.ts", "frontend/src/lib/frappe.ts",
+                         "frontend/src/services/socketListeners.ts")
 SOCKET_LISTENER_PARSER = "frontend/scripts/socket_listeners.mjs"
 
 
 def socket_listener_counts(sources: dict[str, str]) -> dict[str, int]:
-    """The socket listeners in each TS/TSX source, keyed as given."""
+    """The raw socket listeners in each TS/TSX source, keyed as given."""
     return ts_parser_counts(SOCKET_LISTENER_PARSER, sources)
 
 
 def socket_listener_count(src: str, path: str = "source.ts") -> int:
-    """The socket listeners in one TS source's code (not its comments or strings)."""
+    """The raw socket listeners in one TS source's code (not its comments or strings)."""
     return socket_listener_counts({path: src})[path]
 
 
@@ -635,9 +642,7 @@ def socket_listeners_unfrozen() -> list[str]:
             print(f"⚠ L2 skipped: {e}. CI counts socket listeners on every pull request.")
             return []
         return [f"L2 could not count socket listeners: {e}"]
-    frozen_path = REPO_ROOT / SOCKET_LISTENER_SUPPRESSIONS
-    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
-    return socket_listener_drift(found, frozen)
+    return socket_listener_drift(found, read_frozen(SOCKET_LISTENER_SUPPRESSIONS))
 
 
 # --- Rule N1: no counted names on doctypes background operations write (ADR-0048, #1661) ------------------
@@ -718,7 +723,7 @@ def counted_names() -> list[str]:
     return counted_names_on_background_doctypes(DOCTYPE_DIR, BACKGROUND_WRITTEN_DOCTYPES, COUNTED_NAME_WAITING)
 
 
-# --- Rule Q1: a raw job enqueue outside the background-operation module (ADR 0047, #1671) -------------------------
+# --- Rule Q1: a raw job enqueue outside the background-operation module (ADR-0047, #1671) -------------------------
 # services/background_ops.start queues a job only after writing the status record its owner's screen follows. A raw
 # enqueue has no record, so its screen falls back to hand-written socket code. The old enqueues are frozen per file,
 # each with its reason, in RAW_ENQUEUE_SUPPRESSIONS (oxlint's suppressions shape), so a new one fails even where
@@ -738,9 +743,17 @@ def _names_background_jobs(node: ast.AST, aliases: set[str]) -> bool:
     return isinstance(node, ast.Attribute) and node.attr == "background_jobs"
 
 
+def _is_get_queue(node: ast.AST) -> bool:
+    """`get_queue(...)` or `<module>.get_queue(...)`: RQ's queue, whose own `enqueue` queues a job."""
+    if not isinstance(node, ast.Call):
+        return False
+    return getattr(node.func, "id", None) == "get_queue" or getattr(node.func, "attr", None) == "get_queue"
+
+
 def raw_enqueue_lines(src: str) -> list[int]:
     """1-based lines of a Python source that queue a job: `frappe.enqueue` / `enqueue_doc`, the same names imported
-    from frappe or frappe.utils.background_jobs (under any alias), and RQ's own `enqueue_call` on a queue."""
+    from frappe or frappe.utils.background_jobs (under any alias), and RQ's own `enqueue_call`, or `enqueue` on a
+    `get_queue(...)`."""
     tree = ast.parse(src)
     imported, modules = set(), set()
     for n in ast.walk(tree):
@@ -759,7 +772,8 @@ def raw_enqueue_lines(src: str) -> list[int]:
             lines.add(n.lineno)
         elif isinstance(func, ast.Attribute) and (
                 func.attr == "enqueue_call"
-                or (func.attr in _ENQUEUE_CALLS and _names_background_jobs(func.value, modules))):
+                or (func.attr in _ENQUEUE_CALLS and _names_background_jobs(func.value, modules))
+                or (func.attr == "enqueue" and _is_get_queue(func.value))):
             lines.add(n.lineno)
     return sorted(lines)
 
@@ -789,9 +803,7 @@ def raw_enqueue_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[st
 
 def raw_enqueues_unfrozen() -> list[str]:
     """Q1 over the tree: the files whose raw enqueues differ from RAW_ENQUEUE_SUPPRESSIONS."""
-    frozen_path = REPO_ROOT / RAW_ENQUEUE_SUPPRESSIONS
-    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
-    return raw_enqueue_drift(raw_enqueues_found(), frozen)
+    return raw_enqueue_drift(raw_enqueues_found(), read_frozen(RAW_ENQUEUE_SUPPRESSIONS))
 
 
 # --- check registry ----------------------------------------------------------
@@ -1010,26 +1022,27 @@ CHECKS: list[Check] = [
         locate=counted_names,
         pass_mark=0,
     ),
-    # ADR 0047 (#1671): the listeners that stay are frozen per file, each with its reason, so the pass mark is 0.
+    # ADR-0047 (#1671): the listeners that stay are frozen per file, each with its reason, so the pass mark is 0.
     Check(
         id="l2_socket_listeners_unfrozen",
         rule="L2",
-        description=f"Frontend files whose socket listeners (socket.on / socket.off for an event other than the "
-                    f"connection's own, useSocketEventListener) outside the shared hook differ from their frozen "
-                    f"count in {SOCKET_LISTENER_SUPPRESSIONS}.",
+        description=f"Frontend files whose raw socket listeners (socket.on / socket.off for an event other than the "
+                    f"connection's own) outside {', '.join(SOCKET_LISTENER_HOMES)} differ from their frozen count in "
+                    f"{SOCKET_LISTENER_SUPPRESSIONS}.",
         route_hint="follow a background operation with useBackgroundOperation (src/hooks/useBackgroundOperation.ts), "
-                   "which reads its status record; never listen for its result. Fewer listeners: lower that file's "
-                   f"count in {SOCKET_LISTENER_SUPPRESSIONS} (remove it at 0).",
+                   "which reads its status record; never listen for its result. Any other live event: "
+                   "useSocketEventListener from '@/lib/frappe'. Fewer listeners: lower that file's count in "
+                   f"{SOCKET_LISTENER_SUPPRESSIONS} (remove it at 0).",
         measure=lambda: len(socket_listeners_unfrozen()),
         locate=socket_listeners_unfrozen,
         pass_mark=0,
     ),
-    # ADR 0047 (#1671): the old enqueues are frozen per file, each with its reason, in RAW_ENQUEUE_SUPPRESSIONS, so the
+    # ADR-0047 (#1671): the old enqueues are frozen per file, each with its reason, in RAW_ENQUEUE_SUPPRESSIONS, so the
     # pass mark is 0 and a new enqueue fails even where another file loses one.
     Check(
         id="q1_raw_enqueues_unfrozen",
         rule="Q1",
-        description=f"Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc / enqueue_call) outside "
+        description=f"Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc, RQ's enqueue_call) outside "
                     f"{RAW_ENQUEUE_HOME} differ from their frozen count in {RAW_ENQUEUE_SUPPRESSIONS}.",
         route_hint="queue the work as a background operation: services/background_ops.start (its screen follows it "
                    "with useBackgroundOperation; CODING_STANDARDS.md § Queuing a background operation). Fewer "

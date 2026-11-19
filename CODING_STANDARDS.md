@@ -121,8 +121,8 @@ socket listener of its own ([ADR-0047](docs/adr/0047-a-screen-follows-a-backgrou
 commits (so the work finds the caller's writes), writes "finished" only after the work's own commit, keeps a finished
 file privately for its owner, and refuses a second start of the same kind when `one_per_user` says so. A failure the
 user can act on is a `frappe.throw` in the work; its words reach the screen. Residence check Q1 refuses a raw
-`frappe.enqueue` (or `enqueue_doc`, or RQ's `enqueue_call`) anywhere else, and L2 refuses `socket.on` /
-`socket.off` and `useSocketEventListener` outside the shared hook. Both freeze the old sites per file, each with
+`frappe.enqueue` (or `enqueue_doc`, or RQ's own `enqueue_call` / `get_queue(...).enqueue`) anywhere else, and L2
+refuses a raw `socket.on` / `socket.off` outside the shared hook and the listener homes. Both freeze the old sites per file, each with
 its one-line reason (`scripts/raw-enqueue-suppressions.json`, `frontend/socket-listener-suppressions.json`), so a new
 one fails even where another file loses one. A named exception there (a cron job, a doc hook, the statement imports)
 still queues so its job finds what it reads committed: where the writes are not yet committed (a doc hook,
@@ -483,7 +483,7 @@ breaks it); its name is how a refusal is recognised (`services/outflow_import/im
 (from the app root), which ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on
 increase; auto-tighten on decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1) and rupee
 formatters outside their two homes (R1), so a review need not hunt for those by hand, the frontend's `.json()`
-calls against their frozen counts (J1), and the raw job enqueues (Q1) and socket listeners (L2) that are not
+calls against their frozen counts (J1), and the raw job enqueues (Q1) and raw socket listeners (L2) that are not
 background operations against theirs ([Writing backend Python](#writing-backend-python)). It then runs type-aware oxlint on the staged `.ts`/`.tsx` files under
 `frontend/src` (here, or inside the dev container where oxlint's native binary does not load): `any` in frontend
 code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's five rules:

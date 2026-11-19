@@ -1,34 +1,4 @@
 {
-  "src/components/cheques/PoChequesCard.tsx": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/components/cheques/useChequeApproval.ts": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/components/cheques/useChequeChips.ts": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/components/cheques/useChequeDetail.ts": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/components/layout/action-center/RemindersSection.tsx": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "list_update of Reminder Schedule Log: the list re-reads when a log is written; no background operation."
-    }
-  },
   "src/pages/CommissionReport/data/useCommissionLock.ts": {
     "no-socket-listener": {
       "count": 4,
@@ -63,24 +33,6 @@
     "no-socket-listener": {
       "count": 2,
       "reason": "boq:lock_changed: the sheet's pricing lock moved to another user; no background operation."
-    }
-  },
-  "src/pages/cheque-tracker/components/ChequeTrackerTable.tsx": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/pages/cheque-tracker/config/useChequeTabCounts.ts": {
-    "no-socket-listener": {
-      "count": 1,
-      "reason": "cheques:changed: a cheque changed elsewhere, so this view re-reads; no background operation."
-    }
-  },
-  "src/services/socketListeners.ts": {
-    "no-socket-listener": {
-      "count": 48,
-      "reason": "The app's notification events (pr:*, sb:*, po:*, sr:*, payment:*), registered once per tab; no background operation."
     }
   }
 }

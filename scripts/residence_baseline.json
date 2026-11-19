@@ -36,7 +36,7 @@
   },
   "l2_socket_listeners_unfrozen": {
     "count": 0,
-    "description": "Frontend files whose socket listeners (socket.on / socket.off for an event other than the connection's own, useSocketEventListener) outside the shared hook differ from their frozen count in frontend/socket-listener-suppressions.json.",
+    "description": "Frontend files whose raw socket listeners (socket.on / socket.off for an event other than the connection's own) outside frontend/src/hooks/useBackgroundOperation.ts, frontend/src/lib/frappe.ts, frontend/src/services/socketListeners.ts differ from their frozen count in frontend/socket-listener-suppressions.json.",
     "rule": "L2"
   },
   "n1_counted_names_on_background_doctypes": {
@@ -56,7 +56,7 @@
   },
   "q1_raw_enqueues_unfrozen": {
     "count": 0,
-    "description": "Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc / enqueue_call) outside nirmaan_stack/services/background_ops.py differ from their frozen count in scripts/raw-enqueue-suppressions.json.",
+    "description": "Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc, RQ's enqueue_call) outside nirmaan_stack/services/background_ops.py differ from their frozen count in scripts/raw-enqueue-suppressions.json.",
     "rule": "Q1"
   },
   "r1_rupee_formatters": {

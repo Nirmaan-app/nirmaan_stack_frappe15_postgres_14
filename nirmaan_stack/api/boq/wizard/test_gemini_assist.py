@@ -434,46 +434,49 @@ class TestGeminiWorker(_GeminiDBBase):
                          "human_* is sticky -- the accepted decision survives the wipe")
         self.assertEqual(r2["human_parent"], -1)
 
-    def test_publish_clears_in_progress_on_success(self):
+    def _run_worker_ending(self, classify):
+        """Run the worker with `classify` patched in for the Gemini call, as Administrator (the enqueuing user).
+        Returns (the realtime events it published other than Frappe's own Error Log updates, what it raised or
+        None). Error Log rows the run writes are removed afterwards."""
         self._set_draft(_G_SHEET, {"gemini_in_progress": 1})
         frappe.db.commit()
-        self._run_worker_with([])
-        self.assertEqual(self._gemini_in_progress(), 0,
-                         "a successful pass must clear gemini_in_progress")
-
-    def test_publish_clears_in_progress_on_error_and_reraises(self):
-        self._set_draft(_G_SHEET, {"gemini_in_progress": 1})
-        frappe.db.commit()
+        logs_before = set(frappe.get_all("Error Log", pluck="name"))
+        self.addCleanup(self._remove_error_logs_since, logs_before)
         with patch.object(svc, "build_gemini_client", return_value=object()), \
              patch.object(svc, "build_row_payload", side_effect=lambda r: {"id": r.get("row_index")}), \
-             patch.object(svc, "classify_sheet", side_effect=_NonRetryable("boom")), \
+             patch.object(svc, "classify_sheet", classify), \
              patch(_SETTINGS, return_value=_ENABLED_SETTINGS), \
-             patch("frappe.publish_realtime", MagicMock()):
-            with self.assertRaises(_NonRetryable):
-                gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user=None)
-        self.assertEqual(self._gemini_in_progress(), 0,
-                         "an errored pass must still clear gemini_in_progress")
+             patch("frappe.publish_realtime") as publish:
+            try:
+                gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user="Administrator")
+                raised = None
+            except Exception as e:
+                raised = e
+        return [c.args[0] for c in publish.call_args_list if c.args[0] not in ("doc_update", "list_update")], raised
 
-    def test_a_pass_ends_with_no_socket_message_and_no_status_key_either_way(self):
-        # #1671: no screen follows a Gemini pass (ADR-0034), so it keeps no per-sheet status key and sends no
-        # boq:gemini_pass_done; its sheet's gemini_in_progress flag is its only state.
+    def _remove_error_logs_since(self, before):
+        new = [n for n in frappe.get_all("Error Log", pluck="name") if n not in before]
+        if new:
+            frappe.db.delete("Error Log", {"name": ["in", new]})
+            frappe.db.commit()
+
+    # #1671: no screen follows a Gemini pass (ADR-0034), so it keeps no per-sheet status key and sends no socket
+    # message; its sheet's gemini_in_progress flag is its only state.
+    def test_a_finished_pass_clears_its_flag_and_sends_no_message(self):
         keys_before = set(frappe.cache().get_keys("boq_gemini_status"))
-        for outcome in ([], _NonRetryable("boom")):
-            with self.subTest(outcome=type(outcome).__name__), \
-                    patch.object(svc, "build_gemini_client", return_value=object()), \
-                    patch.object(svc, "build_row_payload", side_effect=lambda r: {"id": r.get("row_index")}), \
-                    patch.object(svc, "classify_sheet", side_effect=[outcome] if isinstance(outcome, Exception)
-                                 else None, return_value=(outcome, 0)), \
-                    patch(_SETTINGS, return_value=_ENABLED_SETTINGS), \
-                    patch("frappe.publish_realtime") as publish:
-                try:
-                    gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user="Administrator")
-                except _NonRetryable:
-                    pass
-                sent = [c.args[0] for c in publish.call_args_list if c.args[0] not in ("doc_update", "list_update")]
-                self.assertEqual(sent, [], "only Frappe's own Error Log updates may go out")
-                self.assertEqual(set(frappe.cache().get_keys("boq_gemini_status")), keys_before)
-                self.assertEqual(self._gemini_in_progress(), 0)
+        sent, raised = self._run_worker_ending(MagicMock(return_value=([], 0)))
+        self.assertIsNone(raised)
+        self.assertEqual(self._gemini_in_progress(), 0, "a successful pass must clear gemini_in_progress")
+        self.assertEqual(sent, [])
+        self.assertEqual(set(frappe.cache().get_keys("boq_gemini_status")), keys_before)
+
+    def test_a_failed_pass_clears_its_flag_sends_no_message_and_reraises(self):
+        keys_before = set(frappe.cache().get_keys("boq_gemini_status"))
+        sent, raised = self._run_worker_ending(MagicMock(side_effect=_NonRetryable("boom")))
+        self.assertIsInstance(raised, _NonRetryable)
+        self.assertEqual(self._gemini_in_progress(), 0, "an errored pass must still clear gemini_in_progress")
+        self.assertEqual(sent, [])
+        self.assertEqual(set(frappe.cache().get_keys("boq_gemini_status")), keys_before)
 
 
 # ===========================================================================
