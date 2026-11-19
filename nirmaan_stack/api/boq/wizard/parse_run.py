@@ -59,8 +59,8 @@ _LIST_JSON_FIELDS: frozenset[str] = frozenset({
 # Per-sheet parse-lifecycle state (#164 A3-backend)
 # ---------------------------------------------------------------------------
 
-# A job that STARTED longer ago than this is treated as a dead worker remnant and
-# self-healed (20 min); a job still waiting in the queue never is (#1660). Mirrors the
+# An RQ job that STARTED longer ago than this is treated as a dead worker remnant and
+# self-healed (20 min); an RQ job still waiting in the queue never is (#1660). Mirrors the
 # frontend hub's recovery expectation.
 _STALE_PARSE_SECONDS = 1200
 
@@ -600,7 +600,7 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False, op_id
     # lifecycle columns feed no derived field. The flag + the operation id (also its raw rq job id) + timestamp +
     # the per-sheet superset markers land in this request's commit, which is also what queues the operation
     # (background_ops.start), so the work finds them committed. A start whose queue call fails ends its operation
-    # failed; the flag then names a job rq never had, which the next start heals after
+    # failed; the flag then names an RQ job that was never queued, which the next start heals after
     # operation_marker.ENQUEUE_GRACE_SEC.
     try:
         claimed = frappe.db.sql(
@@ -639,7 +639,7 @@ def _throw_parse_in_progress():
 
 
 def _clear_parse_state(boq_name: str) -> None:
-    """Clear the BoQ flag, job id, enqueue timestamp and every per-sheet marker, and commit."""
+    """Clear the BoQ flag, RQ job id, enqueue timestamp and every per-sheet marker, and commit."""
     # set_value skips the BOQs doc_events on purpose: validate checks area dimensions and status moves, on_update
     # does nothing, and no hook or derived field reads these three parse-lifecycle columns.
     frappe.db.set_value("BOQs", boq_name, {
@@ -665,10 +665,10 @@ def _maybe_self_heal_parse_state(boq_name: str) -> str:
       "cleared"       -- the job finished / failed / vanished from Redis; the
                          BoQ flag, job id, enqueue timestamp, and every per-sheet
                          marker are cleared and committed.
-      "cleared_stale" -- the job STARTED more than _STALE_PARSE_SECONDS ago (#1660:
+      "cleared_stale" -- the RQ job STARTED more than _STALE_PARSE_SECONDS ago (#1660:
                          never counted from the enqueue, so a parse waiting in the
                          queue is never stale), so it is treated as a dead worker
-                         and cleared as above. A legacy flag with no job id is
+                         and cleared as above. A legacy flag with no RQ job id is
                          cleared_stale when parse_enqueued_at is past the window.
 
     Self-heal ALWAYS blanks parse_job_id + parse_enqueued_at (so a subsequent
@@ -756,7 +756,7 @@ def _rollback_quietly() -> None:
 
 
 def _release_parse_state(boq_name: str, op_id: str | None) -> None:
-    """Clear the BoQ's parse flag, job id, enqueue timestamp and every per-sheet marker, and commit -- only while
+    """Clear the BoQ's parse flag, RQ job id, enqueue timestamp and every per-sheet marker, and commit -- only while
     the flag still names `op_id` (None: a worker called outside an operation, which only ever finds no id). Never
     raises: a failed release must not hide the parse's own outcome; the next start heals the flag."""
     try:
@@ -1039,7 +1039,7 @@ def _parse(boq_name: str, sheet_names, force_reparse: bool) -> dict:
         frappe.db.commit()
 
         # S2 (the ONE seam): the parse is committed -- queue the automatic Claude check, one background
-        # operation per sheet that ended "Parsed". Never raises; never runs the check inside this job.
+        # operation per sheet that ended "Parsed". Never raises; never runs the check inside this background operation.
         checks = ai_run_log.enqueue_after_parse(boq_name, parsed_sheets, ai_prior_parsed)
 
         # Step 8: the outcome. `revision_carry` is OMITTED entirely on a non-revision parse, so the result shape

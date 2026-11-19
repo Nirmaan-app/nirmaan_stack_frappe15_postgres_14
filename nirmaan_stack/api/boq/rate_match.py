@@ -53,8 +53,8 @@ WORKER = "nirmaan_stack.api.boq.rate_match._match_worker"
 OPERATION_KIND = "boq_rate_match"
 _M_MARKER_PREFIX = "boq_match_marker"
 
-# ⚠️ THE THREE MUST MOVE TOGETHER (job timeout < stale threshold < marker TTL), derived as Suggest's are. The marker's
-# TTL is operation_marker.CLAIM_TTL_SEC (a day).
+# ⚠️ THE THREE MUST MOVE TOGETHER (RQ job timeout < stale threshold < marker TTL), derived as Suggest's are. The
+# marker's TTL is operation_marker.CLAIM_TTL_SEC (a day).
 _MATCH_JOB_TIMEOUT_SEC = 1800
 _RQ_KILL_GRACE_SEC = 60
 _STALE_MATCH_SECONDS = _MATCH_JOB_TIMEOUT_SEC + _RQ_KILL_GRACE_SEC + 240

@@ -178,7 +178,7 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
             title="Classify in progress",
         )
     # Queued once this request commits (the work reads only committed rows). A start whose queue call fails ends
-    # its operation failed; its marker then names a job rq never had, which the next start heals after
+    # its operation failed; its marker then names an RQ job that was never queued, which the next start heals after
     # operation_marker.ENQUEUE_GRACE_SEC.
     return background_ops.start(
         OPERATION_KIND,

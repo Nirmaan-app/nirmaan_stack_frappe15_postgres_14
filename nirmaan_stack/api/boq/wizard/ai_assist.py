@@ -380,7 +380,7 @@ def start_check(boq_name: str, sheet_name: str, trigger: str, op_id: str, last_p
 
     Its run-log record (job_id = the operation id) and the sheet's ai_in_progress flag are written in the same
     commit, before the work can start. A queue call that fails ends the operation failed and leaves the record
-    Queued with no job: the health check fails it and clears the flag (ai_run_log.heal_stale_runs). Returns the
+    Queued with no RQ job: the health check fails it and clears the flag (ai_run_log.heal_stale_runs). Returns the
     run-log record's name."""
     background_ops.started_before(op_id)  # refuses a malformed id, and one another user used, before any write
     run_name = ai_run_log.create_run(
@@ -971,7 +971,7 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, run_name: str = None) ->
 
 
 def _raise_check_failed(exc: Exception) -> None:
-    """End the check's operation failed: in its time limit's words when the job ran out of time (background_ops
+    """End the check's operation failed: in its time limit's words when the RQ job ran out of time (background_ops
     says so), else in CHECK_FAILED_MESSAGE -- the cause is on the run record and in the Error Log already."""
     if isinstance(exc, JobTimeoutException):
         raise exc

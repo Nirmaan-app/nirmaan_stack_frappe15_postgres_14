@@ -529,7 +529,7 @@ def _clone_worker(new_boq, template, sheet_names, areas=None):
 
     # Idempotency: wipe anything a prior double-fire left behind, then reload a clean doc.
     # clear_document_cache is load-bearing when the worker re-runs in the SAME process
-    # (a re-enqueued job or a test double-fire): the SQL child-deletes in _reset_clone_target
+    # (a re-enqueued RQ job or a test double-fire): the SQL child-deletes in _reset_clone_target
     # do not evict a parent doc already in Frappe's document cache, so a stale get_doc would
     # still carry the just-deleted sheet_drafts and duplicate them on save.
     _reset_clone_target(new_boq)

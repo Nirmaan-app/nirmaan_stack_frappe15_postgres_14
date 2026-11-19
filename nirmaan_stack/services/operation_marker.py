@@ -8,8 +8,8 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
 
 * The marker is claimed, set only when absent, BEFORE the operation is queued, so two start requests that both read
   "no marker" cannot both queue (`claim`; hub parse claims its BoQ row the same way). A start whose queue call fails
-  ends its background operation failed; its marker then names a job rq never had, which the next start heals after
-  ENQUEUE_GRACE_SEC (below).
+  ends its background operation failed; its marker then names an RQ job that was never queued, which the next start
+  heals after ENQUEUE_GRACE_SEC (below).
 * Two readers that both judge one marker stale must not both clear it: the second would clear the first's new
   claim. `heal` deletes a stale marker only while it still holds the value that was read (compare-and-delete).
 * The claim's key expires after CLAIM_TTL_SEC, a day: rq keeps a queued job until a worker takes it, so the marker
@@ -17,9 +17,9 @@ its sheet (hub parse: its BoQ, in DB columns, so only the first and last rules b
   removes markers nothing reads again. Once running, a flow's progress writes set its own, shorter TTL.
 * Staleness counts from when the operation started running, not from when it was queued (`job_state`). rq stamps the
   job's `started_at` when a worker takes it, so an operation waiting behind others is never judged stale, however
-  long it waits. A marker whose job rq does not know (lost, or its queue call never came) is cleared once it is older
+  long it waits. A marker whose RQ job rq does not know (lost, or its queue call never came) is cleared once it is older
   than ENQUEUE_GRACE_SEC: the claim and the queue call are consecutive steps of one request, so a younger marker may be
-  one whose job is about to be queued.
+  one whose RQ job is about to be queued.
 """
 
 import datetime
@@ -89,8 +89,8 @@ def _delete_if_unchanged(key, marker):
 def job_state(job_id, marked_at, stale_seconds) -> str:
     """'running' | 'cleared' | 'cleared_stale' for a marker naming raw rq `job_id`, set at `marked_at`.
 
-    cleared        rq has ended the job, or does not know it and the marker is past ENQUEUE_GRACE_SEC
-    cleared_stale  the job has been running for more than `stale_seconds` since it started
+    cleared        rq has ended the RQ job, or does not know it and the marker is past ENQUEUE_GRACE_SEC
+    cleared_stale  the RQ job has been running for more than `stale_seconds` since it started
     running        otherwise: waiting in the queue, running inside the window, or about to be queued
     """
     from frappe.utils import background_jobs
@@ -100,7 +100,7 @@ def job_state(job_id, marked_at, stale_seconds) -> str:
         try:
             job = background_jobs.get_job(job_id)
             status = job and job.get_status()
-        except Exception:  # noqa: BLE001 -- an unreadable queue reads as a job rq does not know
+        except Exception:  # noqa: BLE001 -- an unreadable queue reads as an RQ job rq does not know
             job = None
     if job is None:
         return "running" if _age_seconds(marked_at) <= ENQUEUE_GRACE_SEC else "cleared"

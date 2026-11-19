@@ -723,8 +723,8 @@ def counted_names() -> list[str]:
     return counted_names_on_background_doctypes(DOCTYPE_DIR, BACKGROUND_WRITTEN_DOCTYPES, COUNTED_NAME_WAITING)
 
 
-# --- Rule Q1: a raw job enqueue outside the background-operation module (ADR-0047, #1671) -------------------------
-# services/background_ops.start queues a job only after writing the status record its owner's screen follows. A raw
+# --- Rule Q1: a raw RQ job enqueue outside the background-operation module (ADR-0047, #1671) -------------------------
+# services/background_ops.start queues an RQ job only after writing the status record its owner's screen follows. A raw
 # enqueue has no record, so its screen falls back to hand-written socket code. The old enqueues are frozen per file,
 # each with its reason, in RAW_ENQUEUE_SUPPRESSIONS (oxlint's suppressions shape), so a new one fails even where
 # another file loses one; scripts/frontend_ratchet_check.py refuses a count that rises in a pull request.
@@ -744,14 +744,14 @@ def _names_background_jobs(node: ast.AST, aliases: set[str]) -> bool:
 
 
 def _is_get_queue(node: ast.AST) -> bool:
-    """`get_queue(...)` or `<module>.get_queue(...)`: RQ's queue, whose own `enqueue` queues a job."""
+    """`get_queue(...)` or `<module>.get_queue(...)`: RQ's queue, whose own `enqueue` queues an RQ job."""
     if not isinstance(node, ast.Call):
         return False
     return getattr(node.func, "id", None) == "get_queue" or getattr(node.func, "attr", None) == "get_queue"
 
 
 def raw_enqueue_lines(src: str) -> list[int]:
-    """1-based lines of a Python source that queue a job: `frappe.enqueue` / `enqueue_doc`, the same names imported
+    """1-based lines of a Python source that queue an RQ job: `frappe.enqueue` / `enqueue_doc`, the same names imported
     from frappe or frappe.utils.background_jobs (under any alias), and RQ's own `enqueue_call`, or `enqueue` on a
     `get_queue(...)`."""
     tree = ast.parse(src)
@@ -1042,8 +1042,8 @@ CHECKS: list[Check] = [
     Check(
         id="q1_raw_enqueues_unfrozen",
         rule="Q1",
-        description=f"Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc, RQ's enqueue_call) outside "
-                    f"{RAW_ENQUEUE_HOME} differ from their frozen count in {RAW_ENQUEUE_SUPPRESSIONS}.",
+        description=f"Backend files whose raw RQ job enqueues (frappe.enqueue / enqueue_doc, RQ's enqueue_call) "
+                    f"outside {RAW_ENQUEUE_HOME} differ from their frozen count in {RAW_ENQUEUE_SUPPRESSIONS}.",
         route_hint="queue the work as a background operation: services/background_ops.start (its screen follows it "
                    "with useBackgroundOperation; CODING_STANDARDS.md § Queuing a background operation). Fewer "
                    f"enqueues: lower that file's count in {RAW_ENQUEUE_SUPPRESSIONS} (remove it at 0).",

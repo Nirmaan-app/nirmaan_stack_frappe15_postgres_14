@@ -2,7 +2,7 @@
 
 The ratchet is counts and a number a PR can only tighten:
   - frontend/oxlint-suppressions.json: the old oxlint violations, per file and rule, and
-    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1), and the raw job
+    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1), and the raw RQ job
     enqueues and socket listeners that are not background operations (residence checks Q1 and L2:
     scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json). A count may fall or an entry
     go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all` does both).

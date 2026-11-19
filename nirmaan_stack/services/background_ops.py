@@ -16,7 +16,7 @@ undo each other:
 
     queued  -> running             only the worker's `run`, only from queued: one delivery runs the work
     running -> running (progress)  only while running: a progress write never revives a lost operation
-    queued | running -> lost       a poll's verdict (a stale heartbeat or a missing job); a guess
+    queued | running -> lost       a poll's verdict (a stale heartbeat or a missing RQ job); a guess
     queued | running | lost -> finished | failed   the worker's (or the start's) outcome, which is the truth
     finished | failed              final: nothing replaces them
 
@@ -189,7 +189,7 @@ def run(op_id, work, work_kwargs):
     """
     _, record = _transition(op_id, (QUEUED,), lambda _: {"state": RUNNING, "started_at": time.time()})
     if not record:
-        return  # another delivery of this job got it, or a poll already called it lost
+        return  # another delivery of this RQ job got it, or a poll already called it lost
     frappe.set_user(record["owner"])
     _read_now(record)
     frappe.local.background_op_id = op_id
@@ -209,9 +209,9 @@ def run(op_id, work, work_kwargs):
 
 
 def queued_work(job_kwargs):
-    """(dotted work method, its kwargs) of a job on a Frappe queue, from the job's own kwargs: an operation's work is
-    inside this module's wrapper `run`, any other job is its method itself. For a reader that looks for a flow's live
-    jobs on the queues (tasks/suggest_run_healer, tasks/match_run_healer; #1667)."""
+    """(dotted work method, its kwargs) of an RQ job on a Frappe queue, from the RQ job's own kwargs: an operation's
+    work is inside this module's wrapper `run`, any other RQ job is its method itself. For a reader that looks for a
+    flow's live RQ jobs on the queues (tasks/suggest_run_healer, tasks/match_run_healer; #1667)."""
     method = job_kwargs.get("method")
     if not isinstance(method, str):
         method = f"{getattr(method, '__module__', '')}.{getattr(method, '__name__', '')}"
@@ -323,7 +323,7 @@ def _error_text(e, kind):
 def _end(op_id, state, *, error=None, result=None, peak_memory_mb=None):
     """End the operation `finished` or `failed`: the worker's outcome (or the start's, when it never queued).
 
-    It replaces a `lost` verdict: lost is a poll's guess from a late heartbeat or a missing job, and the worker
+    It replaces a `lost` verdict: lost is a poll's guess from a late heartbeat or a missing RQ job, and the worker
     that writes here was alive after all, so its outcome is the truth and its file can be collected. Nothing
     replaces finished or failed.
     """
@@ -378,10 +378,10 @@ def _log(record, peak_memory_mb, replaces_lost=False):
 def _worker_gone(record):
     """Has the operation's worker stopped without ending it? Returns (gone, last sign of life as epoch or None).
 
-    RQ's job status is not the record's truth (it forgets a job 10 minutes after it ends), but while an operation
-    has not ended, its job says whether a worker still holds it. A running job's worker heartbeats every 30 s; a
-    heartbeat older than HEARTBEAT_STALE_SECONDS means the worker died. A queued operation's job can vanish too
-    (a flushed queue); it is lost once the job has been missing that long.
+    RQ's job status is not the record's truth (it forgets an RQ job 10 minutes after it ends), but while an operation
+    has not ended, its RQ job says whether a worker still holds it. A running RQ job's worker heartbeats every 30 s; a
+    heartbeat older than HEARTBEAT_STALE_SECONDS means the worker died. A queued operation's RQ job can vanish too
+    (a flushed queue); it is lost once the RQ job has been missing that long.
     """
     try:
         job = Job.fetch(record["rq_job_id"], connection=get_redis_conn())
@@ -426,7 +426,7 @@ def read_own(op_id):
 
 
 def public(record):
-    """The record as its owner reads it: without the owner, the queue's own job id and the one-per-user sentence."""
+    """The record as its owner reads it: without the owner, the queue's own RQ job id and the one-per-user sentence."""
     return {key: value for key, value in record.items() if key not in ("owner", "rq_job_id", "busy_message")}
 
 

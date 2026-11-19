@@ -83,6 +83,8 @@ class SiteSlots:
             self._renew(keys=[self.key], args=[self.clock() + LEASE_S, int(LEASE_S * 2), *tokens])
 
     def give_back(self, token: str) -> None:
+        """Free the slot `token` names, once its call has ended. A token whose lease already ran out (and was dropped
+        by a taker) is a no-op."""
         self.redis.zrem(self.key, token)
 
     def in_flight(self) -> int:

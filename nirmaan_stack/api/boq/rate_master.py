@@ -221,8 +221,8 @@ OPERATION_KIND = "boq_rate_suggest"
 #     job timeout  <  stale threshold  <  marker TTL
 #   * _STALE_SUGGEST_SECONDS is the "a run is already in progress" guard. Below the job
 #     timeout it declares a LIVE run dead and lets a SECOND worker start on the same sheet --
-#     two runs, double the AI spend. It must clear the job timeout AND rq's 60s kill grace. It
-#     counts from the job's start of running, never from its queueing (#1660).
+#     two runs, double the AI spend. It must clear the RQ job timeout AND rq's 60s kill grace. It
+#     counts from the RQ job's start of running, never from its queueing (#1660).
 #   * The marker's TTL is operation_marker.CLAIM_TTL_SEC (a day): it must outlast the queue wait
 #     and the run, or a second start slips in while the first still runs. The progress bar no
 #     longer lives in the marker: it is the operation's own record (#1667).
@@ -512,7 +512,7 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None,
             title="Suggest in progress",
         )
     # Queued once this request commits (the work reads only committed rows). A start whose queue call fails ends its
-    # operation failed; its marker then names a job rq never had, which the next start heals after
+    # operation failed; its marker then names an RQ job that was never queued, which the next start heals after
     # operation_marker.ENQUEUE_GRACE_SEC.
     return background_ops.start(
         OPERATION_KIND,

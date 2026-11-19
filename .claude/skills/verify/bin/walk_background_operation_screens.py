@@ -580,7 +580,7 @@ def start_suggest(p):
 def part_suggest(page, out):
     """Two sheets suggested at once in two tabs, on one worker: each tab follows its own boq_rate_suggest operation
     and shows its own sheet's run; each suggest's match (boq_rate_match) waits in the queue behind the other
-    suggest and a sleep job, then ends (#1667)."""
+    suggest and a sleep RQ job, then ends (#1667)."""
     with AiOff():
         page_b = page.context.new_page()
         page_b.goto(page.url)
@@ -592,7 +592,7 @@ def part_suggest(page, out):
             opss.append(follow_ops(p))
         for p, *_ in tabs:
             start_suggest(p)
-        # Both suggests are queued (each in its request's commit). A 20 s sleep job queued behind them keeps the
+        # Both suggests are queued (each in its request's commit). A 20 s sleep RQ job queued behind them keeps the
         # first suggest's match waiting in the queue long enough for the screen's ~3 s poll to show it; without it
         # a suggest with the AI off takes about 1.5 s, and the match waits only that long.
         for p, *_ in tabs:
