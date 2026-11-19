@@ -216,7 +216,7 @@ The N-worker check, one command:
   so the walks keep it off and the parse's result names no check (`checks: {}`): the hub's check chip ("Waiting to
   check rows…" / "Checking rows…") and the review screen's check (`get_check_operation`) are reported not walked.
 - A suggest with the AI off takes about 1.5 s, so a match waits in the queue for less than one of the screen's ~3 s
-  polls. The `suggest` part queues Frappe's own 20 s sleep job (`background_jobs.test_job`, `bgops_boq_state.py
+  polls. The `suggest` part queues Frappe's own 20 s sleep RQ job (`background_jobs.test_job`, `bgops_boq_state.py
   hold-queue`) behind the two suggests, so each match visibly waits behind it.
 - The bulk download window says "Waiting for the server to start…" while queued, and the Handover TDS export only
   "Exporting..." (its ticket asks queued apart from running of the binder only).
@@ -244,10 +244,10 @@ The N-worker check, one command:
   The next `match` run puts the parked key back when it ends; `devenv.sh reset <task>` puts back the key, the
   settings and the pool file all at once.
 - A match asks nothing without the earlier-BoQ pool file (`private/boq_rate_match/match_pool_v1.pkl`, built by the
-  06:00 job), so the suggest flow's matches end complete with no call on a dev env. The `match` flow brings in a parked
-  pool (`<pool>.nworker-check`), else builds one (about 2.5 min on the 2026-10-28 data), and parks it again when it
-  ends. Each match's work horse loads it: about 1.4 GiB each, so two matches took the container from 0.97 to 3.77
-  GiB; on the 5.5 GiB dev container run N=4 with `--match-at-once 2`.
+  06:00 cron job), so the suggest flow's matches end complete with no call on a dev env. The `match` flow brings in a
+  parked pool (`<pool>.nworker-check`), else builds one (about 2.5 min on the 2026-10-28 data), and parks it again
+  when it ends. Each match's work horse loads it: about 1.4 GiB each, so two matches took the container from 0.97
+  to 3.77 GiB; on the 5.5 GiB dev container run N=4 with `--match-at-once 2`.
 - The N-worker check refuses to start while any worker or scheduler of the env already runs (any queue: started in
   the env's bench, from its Python, or for its site; `python3 -m unittest test_walk_background_operations` from
   `BIN`), or while the frappe container uses over 3.5 GiB.
@@ -257,7 +257,7 @@ The N-worker check, one command:
 - The classify flow picks committed, unfrozen sheets holding 150 to 500 Electrical and HVAC category rows, newest
   BoQ first, and gives each run's rows a new category version there. Cloned BoQs go to a made-up project,
   "Background operations check", created on first use. Both stay on the env.
-- A job left on the env's `long` queue (such as Frappe's own website index) runs first on the new workers.
+- An RQ job left on the env's `long` queue (such as Frappe's own website index) runs first on the new workers.
 - The clone flow needs the env's active master BoQ Template. The template tests (`test_template_admin`,
   `test_template_materialize`) delete every BoQ Template in the env DB, so after a `devenv.sh test` that ran them
   the flows stop with `clone: no active master template on this env`: `devenv.sh reset <task>` brings it back.
