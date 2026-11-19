@@ -13,7 +13,7 @@ import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FrappeContext } from "@/lib/frappe";
-import { READ_NOW_EVENT, useBackgroundOperation, type BackgroundOperation } from "./useBackgroundOperation";
+import { collectResultFile, READ_NOW_EVENT, useBackgroundOperation, type BackgroundOperation } from "./useBackgroundOperation";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -199,5 +199,77 @@ describe("useBackgroundOperation: a slot change (the pricing page switching shee
     await render("rate_suggest:BOQ-TEST-0001:Sheet A");
     await settle();
     expect(view()).toEqual({ phase: "queued", opId: opA });
+  });
+});
+
+describe("useBackgroundOperation: the server's words when it refuses a start or a file", () => {
+  const JSON_METHOD = "nirmaan_stack.api.tds.tds_report.start_tds_export";
+  const START_FALLBACK = "The server could not start this.";
+  const refusal = (message: string) => JSON.stringify([JSON.stringify({ message, title: "Not permitted" })]);
+  // What frappe-js-sdk rejects with: the reply's body, plus its own `message` and `exception` defaults.
+  const sdkRejection = (body: Record<string, unknown>) => ({
+    ...body, httpStatus: 417, httpStatusText: "Expectation Failed",
+    message: "There was an error.", exception: typeof body.exception === "string" ? body.exception : "",
+  });
+
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function failedStart(args: Record<string, unknown> | FormData, postRejects: unknown) {
+    const call = { get: vi.fn(async () => ({ message: null })), post: vi.fn(async () => { throw postRejects; }) };
+    let op: BackgroundOperation | null = null;
+    await act(async () => {
+      root.render(
+        <FrappeContext.Provider value={{ socket: fakeSocket(), call } as never}>
+          <Tab storageKey="tds_export:PROJ-TEST-0001" expose={(o) => { op = o; }} onFinished={vi.fn()} />
+        </FrappeContext.Provider>,
+      );
+    });
+    await act(async () => {
+      await (op as BackgroundOperation | null)?.start(args instanceof FormData ? UPLOAD_METHOD : JSON_METHOD, args);
+    });
+    const view = (op as BackgroundOperation | null)?.view;
+    return view?.phase === "failed" ? view.error : `not failed: ${view?.phase}`;
+  }
+
+  it("a JSON start shows the server's refusal, its exception without the class, else the start fallback", async () => {
+    expect(await failedStart({}, sdkRejection({ _server_messages: refusal("<b>Only</b> a Project Manager can export.") })))
+      .toBe("Only a Project Manager can export.");
+    expect(await failedStart({}, sdkRejection({ exception: "frappe.exceptions.ValidationError: The sheet is locked." })))
+      .toBe("The sheet is locked.");
+    expect(await failedStart({}, sdkRejection({}))).toBe(START_FALLBACK);
+    expect(await failedStart({}, new TypeError("Cannot read properties of undefined (reading 'data')"))).toBe(START_FALLBACK);
+  });
+
+  it("an upload start reads the refusal from the reply's body, and falls back when the body is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ _server_messages: refusal("The workbook has no sheets.") }), { status: 417 },
+    )));
+    expect(await failedStart(upload("Empty.xlsx"), null)).toBe("The workbook has no sheets.");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>502 Bad Gateway</html>", { status: 502 })));
+    expect(await failedStart(upload("Tower_A.xlsx"), null)).toBe(START_FALLBACK);
+  });
+
+  it("collecting the file rejects with the server's refusal, else its own fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ _server_messages: refusal("This file belongs to another user.") }), { status: 403 },
+    )));
+    await expect(collectResultFile("op-1")).rejects.toThrow("This file belongs to another user.");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+    await expect(collectResultFile("op-1")).rejects.toThrow("The finished file could not be fetched.");
   });
 });

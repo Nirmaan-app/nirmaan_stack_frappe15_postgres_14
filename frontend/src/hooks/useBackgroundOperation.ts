@@ -23,6 +23,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { parseJson } from "@/lib/parseJson";
 import { isRecord, OperationFollower, type OpView } from "@/utils/backgroundOps/operationFollower";
+import { serverRefusalText } from "@/utils/frappeErrorText";
 
 /** The socket message the server sends while an operation changes (`services/background_ops.READ_NOW_EVENT`). */
 export const READ_NOW_EVENT = "background_op:read_now";
@@ -45,27 +46,10 @@ export interface BackgroundOperation {
 /** The SDK's call API (`FrappeConfig.call`): GET and JSON POST to whitelisted methods. */
 type FrappeCall = FrappeConfig["call"];
 
-/** The words of a Frappe error (`_server_messages`, else `exception`): a fetch reply's parsed body, or what an SDK
- *  call rejects with. */
-function frappeErrorWords(body: unknown, fallback: string): string {
-  if (!isRecord(body)) return fallback;
-  try {
-    if (typeof body._server_messages === "string") {
-      const messages = parseJson(body._server_messages);
-      const first = Array.isArray(messages) && typeof messages[0] === "string" ? parseJson(messages[0]) : null;
-      if (isRecord(first) && typeof first.message === "string") return first.message;
-    }
-  } catch {
-    // Not the shape Frappe sends: try `exception`.
-  }
-  if (typeof body.exception === "string" && body.exception) return body.exception.replace(/^[\w.]+:\s*/, "");
-  return fallback;
-}
-
 /** The words of a failed fetch reply, for the screen to show. */
 async function serverError(response: Response, fallback: string): Promise<string> {
   try {
-    return frappeErrorWords(parseJson(await response.text()), fallback);
+    return serverRefusalText(parseJson(await response.text())) ?? fallback;
   } catch {
     return fallback; // Not a JSON reply: the fallback says enough.
   }
@@ -76,7 +60,7 @@ async function readStatus(call: FrappeCall, opId: string): Promise<unknown> {
     const body: unknown = await call.get(STATUS_METHOD, { op_id: opId });
     return isRecord(body) ? body.message : null;
   } catch (error) {
-    throw new Error(frappeErrorWords(error, "The status read failed."));
+    throw new Error(serverRefusalText(error) ?? "The status read failed.");
   }
 }
 
@@ -89,7 +73,7 @@ async function postStart(call: FrappeCall, method: string, args: StartArgs, opId
     try {
       await call.post(method, { ...args, op_id: opId });
     } catch (error) {
-      throw new Error(frappeErrorWords(error, "The server could not start this."));
+      throw new Error(serverRefusalText(error) ?? "The server could not start this.");
     }
     return;
   }
