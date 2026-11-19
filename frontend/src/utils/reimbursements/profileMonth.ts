@@ -6,7 +6,7 @@
  */
 
 import { monthLabel } from "./monthLimit";
-import { APPROVED, PAID, PENDING, REJECTED, isReimbursementAdmin, overMonthlyLimit, type Viewer } from "./rules";
+import { APPROVED_STEPS, PAID, PENDING, REJECTED, isReimbursementAdmin, overMonthlyLimit, type Viewer } from "./rules";
 
 /** Who sees the tab: Admin only (`Administrator` and the Admin profile, the CEO included; owner, 2026-10-28). */
 export const seesProfileReimbursements = (viewer: Viewer): boolean => isReimbursementAdmin(viewer);
@@ -59,6 +59,7 @@ export interface StatusSum {
 }
 
 export interface ProfileTotals {
+    /** Approved at any step and not yet paid (Requested, CEO Pending, Approved, Reconciliation Pending). */
     approved: number;
     paid: number;
     pending: number;
@@ -72,7 +73,7 @@ export interface ProfileTotals {
 /** The summary above the table, from the amounts summed by status over every matching claim (not just this page). */
 export function profileTotals(sums: readonly StatusSum[]): ProfileTotals {
     const of = (status: string) => Number(sums.find((s) => s.group_key === status)?.aggregate_value ?? 0);
-    const approved = of(APPROVED);
+    const approved = APPROVED_STEPS.reduce((sum, status) => sum + of(status), 0);
     const paid = of(PAID);
     const monthTotal = approved + paid;
     return {

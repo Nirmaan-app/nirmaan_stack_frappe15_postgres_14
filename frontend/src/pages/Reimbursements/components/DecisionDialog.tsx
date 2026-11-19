@@ -1,14 +1,15 @@
 /**
- * Approve (the full amount) or Reject (with a reason) one claim, showing what is being decided: who claims
- * it, how much, and the account it will be paid into. The server decides who may (`api/reimbursements/
- * review.py`); this dialog only opens from rows the server put in the person's Pending Approval queue.
+ * Approve (the full amount) or Reject (with a reason) one claim on an approval tab, showing what is being decided:
+ * who claims it, how much, the account it will be paid into, and the tab approving moves it to ("Goes to"). The
+ * server decides who may (`useClaimDecisions`); this dialog only opens from rows the person may act on.
  *
- * Approving shows the claimant's month total (ADR-0040 Amendment B): above the ₹2,000 monthly limit the approver
- * ticks the warning first, and the tick is sent as `acknowledged` (the server refuses an unticked one).
+ * On every approval tab -- Pending Approval, Pending L1 Approval and Pending CEO Approval (owner, 2026-11-19: the CEO
+ * sees it too) -- it shows the claimant's month total (ADR-0040 Amendment B): at or above the ₹2,000 monthly limit the
+ * approver ticks the warning first. On Pending Approval the tick is sent as `acknowledged` (the server refuses an
+ * unticked one).
  */
 
 import { useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
 import { ArrowRight, Loader2 } from "lucide-react";
 
 import { MonthLimitNotice, monthTickNeeded } from "@/components/reimbursements/MonthLimitNotice";
@@ -20,50 +21,49 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/use-toast";
-import type { Reimbursement } from "@/types/NirmaanStack/Reimbursement";
+import type { ClaimRow } from "@/types/NirmaanStack/Reimbursement";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { RaiserLevel } from "@/utils/approvalTiers";
-import { approvalLanding } from "@/utils/reimbursements/monthLimit";
-import { approvalNeedsL1 } from "@/utils/reimbursements/rules";
+import { approvalLanding, type ApprovalStage } from "@/utils/reimbursements/monthLimit";
+import { TAB_LABELS, TAB_PENDING, approvalNeedsL1 } from "@/utils/reimbursements/rules";
+
+import type { DecisionOutcome } from "../hooks/useClaimDecisions";
+import { useClaimDecisions } from "../hooks/useClaimDecisions";
 
 export type Decision = "approve" | "reject";
-
-const APPROVE_API = "nirmaan_stack.api.reimbursements.review.approve_reimbursement";
-const REJECT_API = "nirmaan_stack.api.reimbursements.review.reject_reimbursement";
 
 interface Props {
     open: boolean;
     /** Kept by the page after closing, so the dialog still shows it while it animates out. */
     decision: Decision | null;
-    claim: Reimbursement | null;
+    stage: ApprovalStage;
+    claim: ClaimRow | null;
     claimantName: string;
     isOwn: boolean;
     /** The approver's level (`approvalTiers.raiserLevelOf`): Admin is L1, the CEO clears both; null for HR. */
     deciderLevel: RaiserLevel | null;
     onOpenChange: (open: boolean) => void;
-    onDone: () => void;
+    /** After the server answered with the claim moved. */
+    onDone: (outcome: DecisionOutcome) => void;
 }
 
-export function DecisionDialog({ open, decision, claim, claimantName, isOwn, deciderLevel, onOpenChange, onDone }: Props) {
-    const { toast } = useToast();
+export function DecisionDialog({
+    open, decision, stage, claim, claimantName, isOwn, deciderLevel, onOpenChange, onDone,
+}: Props) {
     const [reason, setReason] = useState("");
     const [acknowledged, setAcknowledged] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { call: approve, loading: approving } = useFrappePostCall(APPROVE_API);
-    const { call: reject, loading: rejecting } = useFrappePostCall(REJECT_API);
-    const busy = approving || rejecting;
+    const { approve, reject, busy } = useClaimDecisions();
 
-    const approvingClaim = open && decision === "approve" && claim ? claim.name : null;
-    const month = useMonthTotals(approvingClaim ? { claims: [approvingClaim] } : null);
-    const monthRow = approvingClaim ? month.byClaim.get(approvingClaim) : undefined;
-    // Where approving puts the claim's expense in Project Payments (owner, 2026-10-28).
-    const landing = decision === "approve" && claim
-        ? approvalLanding(claim.amount, monthRow ? monthRow.month_total : null, deciderLevel)
+    const approving = open && decision === "approve" && !!claim;
+    const showsMonth = approving;
+    const month = useMonthTotals(showsMonth && claim ? { claims: [claim.name] } : null);
+    const monthRow = showsMonth && claim ? month.byClaim.get(claim.name) : undefined;
+    const landing = approving && claim
+        ? approvalLanding(claim.amount, monthRow ? monthRow.month_total : null, deciderLevel, stage)
         : null;
-    const waitsForTick = decision === "approve"
-        && (month.isLoading || (monthTickNeeded(monthRow, month.failed) && !acknowledged));
+    const waitsForTick = showsMonth && (month.isLoading || (monthTickNeeded(monthRow, month.failed) && !acknowledged));
 
     const close = (next: boolean) => {
         if (!next) {
@@ -81,20 +81,21 @@ export function DecisionDialog({ open, decision, claim, claimantName, isOwn, dec
             return;
         }
         try {
-            if (decision === "approve") await approve({ name: claim.name, acknowledged: acknowledged ? 1 : 0 });
-            else await reject({ name: claim.name, reason: reason.trim() });
-            toast({
-                title: decision === "approve" ? `Approved ${claim.name}` : `Rejected ${claim.name}`,
-                description: isOwn ? undefined : `${claimantName} has been notified.`,
-                variant: "success",
-            });
+            const outcome = decision === "approve"
+                ? await approve(stage, [claim], { acknowledged, isCeo: deciderLevel === "ceo" })
+                : await reject(stage, [claim], reason.trim());
+            const refused = outcome.failed.find((f) => f.claim === claim.name);
+            if (refused && !outcome.moved.some((m) => m.claim === claim.name)) {
+                setError(refused.reason);
+                // The month may have moved on since the dialog opened: read it again, so a refusal for a missing
+                // tick shows the box to tick.
+                if (showsMonth) month.refresh();
+                return;
+            }
             close(false);
-            onDone();
+            onDone(outcome);
         } catch (e) {
             setError(getFrappeError(e));
-            // The month may have moved on since the dialog opened (another of this person's claims approved in
-            // another window): read the total again, so a refusal for a missing tick shows the box to tick.
-            if (decision === "approve") month.refresh();
         }
     };
 
@@ -105,7 +106,7 @@ export function DecisionDialog({ open, decision, claim, claimantName, isOwn, dec
                     <AlertDialogTitle>{decision === "approve" ? "Approve" : "Reject"} {claim?.name}?</AlertDialogTitle>
                     <AlertDialogDescription>
                         {decision === "approve"
-                            ? "The full amount is approved. To change the amount, reject it and the claimant raises a new claim."
+                            ? `${TAB_LABELS[stage]}. The full amount is approved. To change the amount, reject it and the claimant raises a new claim.`
                             : "Rejection is final. The claimant sees your reason and can delete the claim and raise a new one."}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -117,6 +118,12 @@ export function DecisionDialog({ open, decision, claim, claimantName, isOwn, dec
                         <dd className="break-words">{claim.title}</dd>
                         <dt className="text-muted-foreground">Amount</dt>
                         <dd className="font-semibold tabular-nums">{formatToIndianRupee(claim.amount)}</dd>
+                        {stage !== TAB_PENDING && claim.expense && (
+                            <>
+                                <dt className="text-muted-foreground">Expense</dt>
+                                <dd className="font-mono text-xs">{claim.expense}</dd>
+                            </>
+                        )}
                         <dt className="text-muted-foreground">Pay to</dt>
                         <dd className="break-words">
                             {claim.pay_to_account_name} · {claim.pay_to_bank_name}{" "}
@@ -124,13 +131,13 @@ export function DecisionDialog({ open, decision, claim, claimantName, isOwn, dec
                         </dd>
                     </dl>
                 )}
-                {decision === "approve" && (
+                {showsMonth && (
                     <MonthLimitNotice
                         row={monthRow}
                         isLoading={month.isLoading}
                         failed={month.failed}
                         place="decide"
-                        goesToL1={!!monthRow && approvalNeedsL1(monthRow.month_total, deciderLevel !== null)}
+                        goesToL1={stage === TAB_PENDING && !!monthRow && approvalNeedsL1(monthRow.month_total, deciderLevel !== null)}
                         acknowledged={acknowledged}
                         onAcknowledgedChange={(v) => { setAcknowledged(v); setError(null); }}
                         disabled={busy}
@@ -153,7 +160,8 @@ export function DecisionDialog({ open, decision, claim, claimantName, isOwn, dec
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <AlertDialogFooter>
                     <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-                    <Button onClick={confirm} disabled={busy || waitsForTick} variant={decision === "reject" ? "destructive" : "default"}>
+                    <Button onClick={confirm} disabled={busy || (decision === "approve" && waitsForTick)}
+                        variant={decision === "reject" ? "destructive" : "default"}>
                         {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {decision === "approve" ? `Approve ${claim ? formatToIndianRupee(claim.amount) : ""}` : "Reject claim"}
                     </Button>

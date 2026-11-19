@@ -12,6 +12,10 @@
  * While it submits nothing can change: every field is locked (a disabled fieldset, links included), Submit
  * runs once however fast it is clicked, and the dialog can't be closed (✕, Esc, outside click) until the
  * server answers -- so what is saved is exactly what was on screen.
+ *
+ * A Project Manager may claim up to ₹2,000 a month (owner, 2026-11-18; `rules.capProblem`): the form reads their own
+ * month (`claims.get_my_month`, without the claim being edited), shows what is left, and keeps Submit off above it.
+ * The server checks again on save.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -31,14 +35,16 @@ import { useUserData } from "@/hooks/useUserData";
 import {
     REIMBURSEMENT_DOCTYPE,
     type ClaimFile,
+    type MyMonth,
     type OwnBankAccount,
     type Reimbursement,
 } from "@/types/NirmaanStack/Reimbursement";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 import {
     DESCRIPTION_REQUIRED_ABOVE,
     TYPES,
+    capProblem,
     descriptionRequired,
     type ReimbursementType,
 } from "@/utils/reimbursements/rules";
@@ -50,6 +56,7 @@ const MY_ACCOUNT_API = "nirmaan_stack.api.reimbursements.bank_accounts.my_bank_a
 const RAISE_API = "nirmaan_stack.api.reimbursements.claims.raise_reimbursement";
 const UPDATE_API = "nirmaan_stack.api.reimbursements.claims.update_reimbursement";
 export const CLAIM_FILES_API = "nirmaan_stack.api.reimbursements.claims.get_claim_files";
+const MY_MONTH_API = "nirmaan_stack.api.reimbursements.claims.get_my_month";
 
 interface Props {
     open: boolean;
@@ -129,6 +136,14 @@ function ReimbursementForm({ claim, existingFiles, onDone, onCancel, onBusyChang
         useFrappeGetCall<{ message: OwnBankAccount | null }>(MY_ACCOUNT_API, undefined, "reimb_my_account");
     // One account per person, so it is always the one paid into: an edit re-copies it onto the claim.
     const account = accountData?.message ?? null;
+    // The Project Manager cap: this person's month without this claim, read fresh each time the form opens.
+    const { data: monthData, isValidating: readingMonth } = useFrappeGetCall<{ message: MyMonth }>(
+        MY_MONTH_API, claim ? { exclude: claim.name } : undefined, `reimb_my_month:${claim?.name ?? "new"}`,
+        { revalidateOnMount: true, revalidateOnFocus: false },
+    );
+    // While it is read again, the cached answer may be a claim behind (browser walk 2026-11-19): not shown or used.
+    const myMonth = readingMonth ? undefined : monthData?.message;
+    const checkingMonth = readingMonth && !!monthData?.message?.capped;
 
     // No default: the claimant picks what the claim was spent on.
     const [kind, setKind] = useState<ReimbursementType | null>(claim?.reimbursement_type ?? null);
@@ -148,6 +163,7 @@ function ReimbursementForm({ claim, existingFiles, onDone, onCancel, onBusyChang
     const amountValue = Number(amount);
     const needsDescription = descriptionRequired(amountValue);
     const keptCount = existingFiles.filter((f) => !removed.includes(f.file_url)).length;
+    const overCap = myMonth?.capped && amountValue > 0 ? capProblem(myMonth.used, amountValue, true) : null;
 
     // A field's error goes as soon as that field changes, rather than waiting for the next submit.
     const clear = (field: keyof Errors) => setErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
@@ -157,6 +173,7 @@ function ReimbursementForm({ claim, existingFiles, onDone, onCancel, onBusyChang
         if (!kind) e.type = "Pick the type of claim: Travel, Food or Others.";
         if (!title.trim()) e.title = "Enter a title.";
         if (!(amountValue > 0)) e.amount = "Enter an amount above ₹0.";
+        else if (overCap) e.amount = overCap;
         if (needsDescription && !description.trim()) {
             e.description = `Add a description. It's needed for a claim above ₹${DESCRIPTION_REQUIRED_ABOVE.toLocaleString("en-IN")}.`;
         }
@@ -256,7 +273,21 @@ function ReimbursementForm({ claim, existingFiles, onDone, onCancel, onBusyChang
                                 disabled={busy} placeholder="0.00" className="pl-7 text-base font-medium tabular-nums"
                                 onChange={(e) => { setAmount(e.target.value); clear("amount"); }} />
                         </div>
-                        {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
+                        {errors.amount ? <p className="text-xs text-destructive">{errors.amount}</p>
+                            : overCap ? <p className="text-xs text-destructive">{overCap}</p>
+                            : checkingMonth ? <p className="text-xs text-muted-foreground">Checking this month's claims...</p>
+                            : myMonth?.capped && myMonth.left !== null && (
+                                <p className={cn("text-xs", myMonth.left > 0 ? "text-muted-foreground" : "text-destructive")}>
+                                    {myMonth.left <= 0
+                                        ? `You have used this month's ${formatToRoundedIndianRupee(myMonth.cap)}. Project Managers can claim up to ${formatToRoundedIndianRupee(myMonth.cap)} a month.`
+                                        : <>
+                                            {claim ? "This claim can be up to " : "You can claim up to "}
+                                            <span className="font-medium text-foreground">{formatToIndianRupee(myMonth.left)}</span>
+                                            {claim ? " this month" : " more this month"}
+                                            {" "}(Project Managers: up to {formatToRoundedIndianRupee(myMonth.cap)} a month).
+                                        </>}
+                                </p>
+                            )}
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="reimb-description">
@@ -297,7 +328,7 @@ function ReimbursementForm({ claim, existingFiles, onDone, onCancel, onBusyChang
                 </p>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button>
-                    <Button onClick={submit} disabled={busy}>
+                    <Button onClick={submit} disabled={busy || !!overCap || checkingMonth}>
                         {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {saving === "uploading" ? "Uploading receipts..." : saving === "saving" ? "Merging receipts..." : claim ? "Save changes" : "Raise Reimbursement"}
                     </Button>

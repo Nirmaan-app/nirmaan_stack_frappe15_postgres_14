@@ -25,6 +25,18 @@ def settle_queue_link(record_name):
         "acct_pay_new_payments_q": record_name,
     }, quote_via=urllib.parse.quote)
 
+# A reimbursement's expense is paid on the Reimbursements page, not in Project Payments (ADR-0040 Amendment C):
+# its item opens that page's "Payment need to be paid" tab (`approved`) searched to the claim, on all months (the tab
+# opens on the current month by default, which would hide an older claim). The key prefix is the claims table's
+# urlSyncKey (`reimb_` + tab).
+def reimbursement_pay_link(claim_name):
+    return "/reimbursements?" + urllib.parse.urlencode({
+        "tab": "approved",
+        "reimb_approved_searchBy": "name",
+        "reimb_approved_q": claim_name,
+        "reimb_approved_month": "all",
+    }, quote_via=urllib.parse.quote)
+
 @frappe.whitelist()
 def get_pending_finance_items():
     expenses = []
@@ -54,18 +66,18 @@ def get_pending_finance_items():
     npe = frappe.get_all(
         "Non Project Expenses",
         filters={"status": "Approved"},
-        fields=["name", "type", "description", "amount"]
+        fields=["name", "type", "description", "amount", "reimbursement"]
     )
     for e in npe:
         expenses.append({
             "key": f"npe-{e.name}",
             "category": "Expense",
-            "tag": "Non-Project",
+            "tag": "Reimbursement" if e.reimbursement else "Non-Project",
             "title": e.type or e.description or e.name,
             "subtitle": e.description,
             "amount": e.amount,
             "amount_str": format_rupee(e.amount),
-            "linkTo": settle_queue_link(e.name),
+            "linkTo": reimbursement_pay_link(e.reimbursement) if e.reimbursement else settle_queue_link(e.name),
             "project": "Non-Project",
         })
 

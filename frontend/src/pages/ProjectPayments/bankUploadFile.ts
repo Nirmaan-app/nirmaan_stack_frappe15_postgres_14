@@ -19,6 +19,9 @@ import {
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
 
+/** The ICICI debit account the export dialog starts on (Project Payments' and Reimbursements' Export for Payment). */
+export const ICICI_DEBIT_ACCOUNT = "093705003327";
+
 /** The account a row is paid into: its holder name, account number and IFSC. */
 export type BankFileAccount = Pick<PayToAccount, "account_name" | "account_number" | "ifsc">;
 
