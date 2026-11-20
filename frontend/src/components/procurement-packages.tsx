@@ -441,7 +441,7 @@ export const ProcurementPackages: React.FC = () => {
                                     <div className="flex gap-1 flex-wrap">
                                       {(categoryMakeList || [])?.filter((i) => i?.category === cat?.name)?.length > 0 ?
                                         categoryMakeList?.filter((i) => i?.category === cat?.name)?.map((i) => (
-                                          <Badge>{i?.make}</Badge>
+                                          <Badge key={i?.name}>{i?.make}</Badge>
                                         )) : "--"
                                       }
                                     </div>
@@ -543,7 +543,7 @@ export const ProcurementPackages: React.FC = () => {
                                             <div className="flex gap-1 flex-wrap mb-4">
                                               {defaultOptions?.length > 0 && (
                                                 defaultOptions?.map((i) => (
-                                                  <Badge>{i?.make}
+                                                  <Badge key={i?.name}>{i?.make}
                                                     <X onClick={() => setDefaultOptions(defaultOptions?.filter((j) => j?.make !== i?.make))} className="ml-1 text-gray-200 w-6 h-6 cursor-pointer" />
                                                   </Badge>
                                                 ))
