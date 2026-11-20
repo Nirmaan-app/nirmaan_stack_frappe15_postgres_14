@@ -52217,3 +52217,31 @@ tsc 0 new; the full Python run that started 4 s before the owner withdrew full s
 B7 rulings (the reason list is first-match); owner 18:21 "ok b": fixed in the NEXT VAV slice together with a coverage check that fails on
 a present-but-wrong reason. **Open:** the QR-B entry design (next slice); the frontend served fixture is two assets behind; the Docker
 limit step after BCS-0 and VAV-2a (owner's go).
+
+## Slice VAV-2a2 (desktop) - the VAV band from the airflow or the inlet size, the CFM-or-inlet entry, source tags, the BACnet controller row, the reasons check, the thermowell-with-valve fix + HVAC v78 - 2026-11-19 / 20
+**Scope:** the part of VAV-2a the owner split off (QR-S (a)): B1 band from the maximum airflow, B2 inlet-size table, B3 the CFM-or-inlet
+typed entry (Calculator now, the panel at VAV-2b), B4 source tags + the shape default, B5 / B6 the Derivation reasons and a check that fails
+on a wrong one, B7 the Valve fixes (R7), B8 the controller-row blind spot, B9 HVAC v78, B10 the product preview of all VAV rows (stub
+answers, no model call). Rulings: QR-V (a) thermowell with valve = the thermowell; QR-E (a) an edge value -> the lower band; QR-C2 (a) for
+the BACnet over IP controller only -- its own row (description names it before any box words) decides by presence (owner 00:34 - 00:37).
+**Code:** K1 ecd6784f3 (band_from / source_tags / serves / the reasons check / E13, + tests), K1b 09c9bd2a7 (a range written from 0 is a
+range), K2 12cf88ff9 (HVAC v78 + the FINAL airflow reader + PIN 1-7 + the R7 tie test). The airflow reader changed three times -- K1 and
+K1b carry earlier versions; the final one (K2) drops a number glued to letters (a tag: VAV-0, Type-0, VAV-PID-150) unless the letters are
+an airflow word (Upto500, From525), reads a range only where written as one (the unit allowed on both numbers: 651cfm - 900cfm), and takes
+a lone 0 as no airflow. Corpus proof on 957 box rows (K1 / K1b / final): band, high and priced / not-priced changes 0; stub-vs-final range
+checks 0 / 0 (accepted 14:01). The 17 "Upto 500 max (min 50)" rows read 500 alone (a turn-down, not a range; chat-Claude 14:01).
+**Asset v78 (K2)** = v77 + the VAV keys above + the Valve Package E13 line with the two "(owner VR9)" tags stripped; every item and every
+other config byte-identical (PF2 on the live DB); loaded after a PROVED backup (vav2a_pre_v78_20261120_014901.dump), batch
+rmbulk-4aab6d0655db, snapshot BRMS-26-01166. **Replay (PF1):** 33,346 rows; 4 figure moves = exactly the four R7 thermowell rows (not priced
+-> 720 + 100); 0 else. The replay harness records no scope note, so the VR9 strip is shown by the cert (C7) and pinned by tests.
+**Preview (B10, loaded v78, stub, no model call):** 981 VAV rows, 912 priced / 69 not; ROUGH Rs 17.57 cr as built, 14.86 cr with no BACnet
+controller; extras share > 10 / 25 / 50 / 100 / 150 / 200 % = 648 / 226 / 205 / 194 / 193 / 66 of 897; 205 warnings; the K1 reader swapped
+into the same bundle moves 0 prices (162 rows change tag / note only). `2026-11-20_VAV-2a2_Preview.xlsx` (14 tabs) in the slice folder.
+**Tests:** Python 33 modules (the moved-pin files + every reader of the newest asset; 8 live pins found only by the run -> PIN 6 / 7) +
+test_vav2a2_keys 11; vitest related 135 / 135 files, 6,397; tsc 0 new (1,185); K1 / K1b / K2 through the host hook first, --no-verify for
+S1 only (K2: the count 320 = HEAD, no new oversized file; proof log, chat-Claude 14:42). **Cert:** C1-C10 PASS (21 cropped screenshots);
+the Calculator's untouched Shape stays blank (as built; absent_as_none not built). **Owed to VAV-2b (owner rulings, not built here):**
+QR-A2 (a) a lower limit only ("Above 3200 CFM") -> the next band up with a note (5 rows; as built meanwhile = the band of the stated figure);
+the six Misc-filed integrator rows count as integrator rows (YES); the per-sheet BACnet rule (controllers = VAVs on the sheet / 32 rounded
+up, shared over every box; replaces the per-box controller); the DDC panel rule (VAVs / 200 rounded up); the Duct Static Pressure Sensor
+one per 30 boxes. **Not pushed.**

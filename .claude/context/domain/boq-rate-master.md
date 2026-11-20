@@ -5703,10 +5703,77 @@ lines); B7 needs a model item; B9 shows in both.
 
 **Load-bearing:** the sheet rules settle the MODEL'S ITEMS before pricing (`vavSheetRules`, pricingSheetHelper.ts) -- a dropped extra
 leaves only its note; the helper-added cabling item carries `__added_by_helper`. A row naming "VAV box(es)" is a BOX row to the
-own-row test (a separate "BACnet controller for the VAV boxes" row is not counted -- blind spot kept from the agreed test).
+own-row test (a separate "BACnet controller for the VAV boxes" row is not counted -- blind spot kept from the agreed test;
+closed for the BACnet over IP controller by v78's `own_row_check.serves`, VAV-2a2).
 
-**Known caveat (owner 2026-11-19 18:21 "ok b"; fixed in the next VAV slice):** `derivation_reasons` is matched FIRST-MATCH by title
+**Known caveat (owner 2026-11-19 18:21 "ok b"; FIXED in VAV-2a2 / HVAC v78 - see the next section):** `derivation_reasons` is matched FIRST-MATCH by title
 pattern, and VAV-1's "^The misc item section" / "^The sensor section" patterns come before the VAV-2a B7 reason, so lines 9 / 11 of the VAV
 Box Derivation ("The misc item / sensor section's quantity per vav item is the count the row names") show the borrowed-section reason. The
 coverage check (`derivationCoverage`, UNREASONED) counts a present-but-wrong reason as covered. A later slice: put the new reasons first
 and make the coverage check test the right reason.
+
+## VAV Box (HVAC v78) - VAV-2a2 (2026-11-19 / 20) - band from the airflow or the inlet size, the CFM-or-inlet entry, source tags, the controller row, the reasons check
+
+Mint `scripts/_instruments/mint_hvac_v78_vav2a2.py` (build / load / verify). The key VALUES live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2a2Keys.json`, read by the mint and by the vav2a2* tests (`withV78Keys`,
+`withV78Valve` in `vav2a2.harness.ts` apply it to a scratch copy; idempotent on v78). `calculator_only` stays on (VAV-2b removes it).
+
+**What v78 adds to hvac_vav_box** (every item and every other config byte-identical except the Valve Package strings below; every model
+request identical except VAV's own; the eligible set unchanged):
+- `list_spec.attribute_definitions` + `airflow_cfm` and `inlet_size` (text), before `cfm_range`; their `panel_controls` (text) and
+  `panel_notes` (each says only one of the two is needed).
+- `list_spec.pricing.band_from` (B1 / B2 / B3; owner 2026-11-18 22:16 / 22:18 / 22:21 / 23:53, QR-3c (a) 2026-11-19 00:57, 13:31 /
+  13:46, QR-E (a) 2026-11-20 00:10): on a "VAV box" item the band (`cfm_range`) is WORKED OUT, never picked and never read from a model
+  band answer -- the airflow first (the maximum of a range, a range written from 0 included; a range crossing bands says so; a number with
+  no unit is CFM; another airflow unit refuses by name), else the inlet size by the owner's table (`inlet_table`, data: 6 / 8 / 10 / 12 /
+  14 / 16 / 24 inch; next size up; mm / 25.4 with a line; a tag number or two sizes is not a size), else not priced ("airflow not stated,
+  enter the CFM" on a row; "enter the CFM or the inlet size" in the Calculator). `edge` "lower": 450 CFM is 0-450, 8,000 is 4000-8000;
+  above 8,000 CFM / 24 inch -> not priced, "above the largest box on the sheet". CFM wins when both are given (the band says so).
+- `list_spec.pricing.source_tags` (B4): `{shape: "from BoQ"}`; the band's own tag comes from `band_from.tags` (from BoQ / from the maximum
+  of the range / from the inlet size table / from the CFM you typed / from the inlet size you typed (inlet size table)).
+- `list_spec.pricing.defaults.shape` (R4, owner 22:16 "2b"): a row whose reading says shape not stated -> Rectangular, amber, "shape not
+  stated - priced as Rectangular". Shape no longer offers "None" (the 12d-2 rule); an untouched Calculator Shape stays blank and withholds
+  the price (the Calculator's standing rule; chat-Claude 2026-11-20 01:03, absent_as_none NOT built).
+- `list_spec.pricing.own_row_check.serves` (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34 / 00:36 / 00:37): `{item_first: true,
+  extras: ["BACnet over IP controller"], presence_decides: true}` -- a row whose own DESCRIPTION names the BACnet over IP controller before
+  any box words is that controller's own row ("controller for BACNet integration above VAV Boxes with BMS"); presence decides, no quantity
+  test (one controller for many VAVs); words only in a row's notes never count (BOQ-26-00185 / 00281 r116). Every other extra keeps the
+  90% test; the integrator's own-row decision is as VAV-2a built it (the six Misc-filed integrator rows were ruled YES on 2026-11-20
+  14:10 -- owed to VAV-2b, not in v78).
+- `derivation_reasons`: the B7 quantity reason moved before VAV-1's borrowed-section reasons AND those two patterns narrowed
+  ("^The misc item section(?!'s quantity)", "^The sensor section(?!'s quantity)"), so the two "quantity per vav item is the count the row
+  names" lines (v77 lines 9 / 11, v78 lines 10 / 12 -- the shape-default line is new at step 5) show the 22:35 / 22:38 rulings; reasons for
+  the band, inlet, no-airflow, typed-entry, shape-default and controller-presence lines; the own-row reason names the B8 ruling.
+
+**Valve Package (R7, QR-V (a) 2026-11-20 00:10):** the two scope supply-row notes lose " (owner VR9)"; the Derivation gains E13
+("Thermowell with valve" is priced as the thermowell, its why in the detail). Code: `valveReviewNets` E13 -- a row whose own words are
+"thermowell with valve" prices the Misc Test Plug / Thermowell (720 + 100), a sizeless valve folded in, with a note; the pair-rule note
+loses "(owner QR-2)". The four stored rows (00140 r562, 00234 r222, 00261 r125, 00273 r222) move from "not priced" to 720 + 100.
+
+**The reasons check (B6, owner 2026-11-19 18:21; rule as reviewed 23:45):** `derivationCoverage(...).wrong` -- a line whose reason is
+present but WRONG (ANY other reason matches more of its title than the one shown); `dead` -- a reason no line shows. The latest-asset
+guard fails on WRONG for every guarded category and on DEAD for VAV Box; Ducting's 8 dead reasons ([33] [35] [39] [40] [41] [43] [47]
+[54], older wordings shadowed by the specific ones) are REPORTED, not failed (its config untouched).
+
+**Load-bearing:** `band_from` is read inside `priceOneItem`'s match loop (the band attribute of a band family) and in `itemFieldDefs`
+(the two typed boxes in one either-or group, the band read-only via `bandReadOnly`); `itemBlockView` shows the band's value, tag and line.
+A config without the key is unchanged (T3).
+
+**The airflow reader** (`readAirflowCfm`, itemListPricing.ts; final version in K2 12cf88ff9 -- K1 / K1b carry earlier ones): a number
+glued to letters, or to letters and a hyphen, is a tag or model number and is dropped (VAV-0, Type-0, VAV-01, T1, VAV-PID-150) unless
+the letters are an airflow word (`AIRFLOW_WORDS`: up / upto / to / from / cfm / approx / max / min / of / about / at -- "Upto500",
+"From525 to 1000", "CFM-650" read); a range only where written as one, the unit allowed on both numbers ("0 - 650 CFM", "651cfm - 900cfm",
+"600 CFM to 1000 CFM"), its 0 the low end; otherwise the largest number left; a lone 0 is no airflow; l/s, CMH, m3/h refuse as another
+unit. "Upto 500 CFM max (min 50 CFM)" reads 500 alone (the min is the box's turn-down, not a range; chat-Claude 2026-11-20 14:01).
+Corpus proof on 957 box rows: no band, high or priced change vs K1.
+
+**Owed to VAV-2b (owner rulings 2026-11-20, NOT in v78):** QR-A2 (a) a lower limit only ("Above 3200 CFM", "3700 CFM above") -> the
+next band up with a note "BoQ gives only a lower limit" (5 rows; v78 prices the band of the stated figure); the six Misc-filed integrator
+rows count as integrator rows; the per-sheet BACnet rule (controllers = VAVs on the sheet / 32 rounded up, the total shared over every box,
+replacing the per-box controller); the DDC panel rule (VAVs / 200 rounded up; BACnet x controllers + Duct Static Pressure Sensor 7,650 x
+sensors + 25,000 per panel; install 5,000 per panel; markups 0.4 / 0.6; shared over every box); the Duct Static Pressure Sensor (7,650 +
+500) one per 30 boxes.
+
+**Known caveats:** the 7-inch line names only the size used ("Band from the inlet size table: 8 inch -> 450-800 CFM"), and the mm
+conversion line runs into the table line with no separator (both as designed and pinned; cosmetic). The replay harness records no scope
+note, so a scope-note wording change is invisible to it (the VR9 strip was shown in the cert instead).
