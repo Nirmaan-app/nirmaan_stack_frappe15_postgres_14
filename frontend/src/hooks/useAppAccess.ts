@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMyPendingAssetActions } from "@/hooks/useUserAssignments";
 import { useUserData } from "@/hooks/useUserData";
@@ -51,8 +51,11 @@ export function useAppAccess(): AccessResult {
     [user_id, role, has_project, isLoading, declarations, audits, overdueAudits, held]
   );
 
-  // Read once per mount: the last real answer this browser saw.
-  const [remembered, setRemembered] = useState<RememberedAccess | null>(loadRememberedAccess);
+  // Read once per mount: the last real answer this browser saw. Only a render with no answer of this visit reads
+  // it (`startingAnswer`), so the answers saved below need not reach it.
+  const [remembered] = useState<RememberedAccess | null>(loadRememberedAccess);
+  // What was saved last, read and written only in the effect below.
+  const lastSaved = useRef(remembered);
 
   // The last real answer of this visit, for this person: a recheck never brings the spinner back (`keepSettled`).
   // Adjusted during render (so this render already uses it), only when a new real answer arrives.
@@ -67,11 +70,11 @@ export function useAppAccess(): AccessResult {
   // Remember each real answer for the next visit (only when it changes).
   useEffect(() => {
     if (!user_id || current.state === "loading") return;
-    if (remembered?.userId === user_id && remembered.state === current.state) return;
-    const next: RememberedAccess = { userId: user_id, state: current.state };
-    setRemembered(next);
-    saveRememberedAccess(next);
-  }, [user_id, current.state, remembered]);
+    const saved = lastSaved.current;
+    if (saved?.userId === user_id && saved.state === current.state) return;
+    lastSaved.current = { userId: user_id, state: current.state };
+    saveRememberedAccess(lastSaved.current);
+  }, [user_id, current.state]);
 
   return startingAnswer(previous, remembered, user_id, current);
 }
