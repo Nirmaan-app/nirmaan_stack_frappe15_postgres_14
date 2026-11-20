@@ -61,7 +61,7 @@ describe("column sets per view and tab (exact order and labels, no status column
 
   it("Payments, project view", () => {
     expect(labels("project", "payments")).toEqual([
-      "Against", "PO / WO / Expense ID", "Project", "Vendor", "Payment date", "UTR", "Amount Paid", "TDS", "Net Paid",
+      "Against", "PO / WO / Expense ID", "Project", "Vendor", "Payment date", "UTR / Ref", "Amount Paid", "TDS", "Net Paid",
     ]);
   });
 

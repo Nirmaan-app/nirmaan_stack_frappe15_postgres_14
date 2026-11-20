@@ -4,8 +4,8 @@ import { formatToCompactRupee } from "@/utils/FormatPrice";
 
 /**
  * Reports → Audit View: the pure rules behind the tab (F4). Which tab may be open in which view, the
- * column set of each table, the "Order outside range" mark and the summary-card sums. The rows come
- * from `api/reports/audit_view.get_audit_view_rows`; every key is always present, null where n/a.
+ * column set of each table and the summary-strip sums. The rows come from
+ * `api/reports/audit_view.get_audit_view_rows`; every key is always present, null where n/a.
  */
 
 /** The Report Type select: "All Project View" → project, "Non Project View" → nonproject. */
@@ -148,7 +148,8 @@ export interface AuditColumnSpec {
 
 /**
  * The columns of one table, in order. No status column anywhere. Non Project View swaps Project and
- * Vendor for Expense type, and UTR reads "Payment ref". Orders in Non Project View has no table: [].
+ * Vendor for Expense type, and UTR reads "Payment ref". All Project View's UTR column reads "UTR / Ref": a PO /
+ * WO payment's UTR, a project expense's payment ref. Orders in Non Project View has no table: [].
  */
 export const auditColumnSpecs = (view: AuditView, tab: AuditTab): AuditColumnSpec[] => {
   if (isAuditTabDisabled(view, tab)) return [];
@@ -184,7 +185,7 @@ export const auditColumnSpecs = (view: AuditView, tab: AuditTab): AuditColumnSpe
   return [
     against, id, ...who,
     { key: "date", label: "Payment date" },
-    { key: "utr", label: project ? "UTR" : "Payment ref" },
+    { key: "utr", label: project ? "UTR / Ref" : "Payment ref" },
     { key: "amount_paid", label: "Amount Paid" },
     { key: "tds", label: "TDS" },
     { key: "net_paid", label: "Net Paid" },
@@ -200,6 +201,8 @@ const datePart = (value: string | null | undefined): string | null => {
 /**
  * True when the row's order was created before the selected range: it is listed because its invoice
  * or payment date is inside the range. Never true without a from-date (ALL) or without an order date.
+ * The table's "Order created / Order outside range" line that read it is hidden for now (owner
+ * 2026-11-20); kept, with its tests, so the line can come back. Rows still carry `order_date`.
  */
 export const isOrderOutsideRange = (
   orderDate: string | null | undefined,
