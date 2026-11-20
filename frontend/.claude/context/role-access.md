@@ -398,6 +398,7 @@ links redirect to it (`pages/reports/ReportsIndex.tsx`).
 | WO (SR) | Y | Y | Y | - | Y | Y |
 | Payment › TDS Deduction | Y | - | - | - | - | Y |
 | Report Bulk Download† | Y | - | - | - | - | Y |
+| Audit View‡ | Y | - | - | - | - | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
 
@@ -405,6 +406,11 @@ links redirect to it (`pages/reports/ReportsIndex.tsx`).
 the project / vendor Bulk Download over every project, with Project and Vendor as table filters. Server-enforced
 too: every all-scope call checks `services/role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES`, so a typed
 `?tab=bulk_download` from anyone else shows and fetches nothing.
+
+‡Audit View (`AUDIT_VIEW_PROFILES` in `constants/roles.ts`, Accountant Lead too) lists every order, approved invoice
+and paid payment in one date range, Report Type All Project View / Non Project View (no Orders tab there).
+Server-enforced: both `api/reports/audit_view` endpoints check `services/role_profiles.AUDIT_VIEW_PROFILES`;
+`services/test_role_mirrors` pins the two lists together.
 
 The Payment tab is gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS` for TDS Deduction).
 Cheques are on their own page, the Cheque Tracker (above).

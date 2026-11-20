@@ -104,7 +104,7 @@ figure — the company pays the tax on top:
   only (`is_deductible`, `cheque_payments.has_no_tds_to_wait_for`, `total_tds_of` / `sync_total_tds`,
   `is_company_borne`). `TAX_COUNTED_PARENTS` = the orders whose RECORDED tax counts: Work Orders and POs.
   Every reader of recorded tax (Amount Paid writer, mismatch judge's paid figure, Vendor Ledger, Vendor
-  report, payment summary, request limits, project outflow, payments pop-up) goes through ONE source,
+  report, payment summary, request limits, project outflow, payments pop-up, Reports → Audit View) goes through ONE source,
   `payment_tds.counted_deductions_sql` (`paid_borne_tds_sql` for Paid payments). Asserted at import:
   `DEDUCTIBLE_PARENTS <= TAX_COUNTED_PARENTS`.
 - **A PO payment still stored gross counts its tax nowhere on top.** `counted_deductions_sql` drops a
