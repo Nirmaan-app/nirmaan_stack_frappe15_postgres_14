@@ -30,6 +30,9 @@ describe("VAV-2a2 B1 - the readers (pure)", () => {
     expect(readAirflowCfm("15000 -16900 CFM")).toEqual({ high: 16900, low: 15000 });
     expect(readAirflowCfm("8,000 cfm")).toEqual({ high: 8000, low: null });
     expect(readAirflowCfm(1350)).toEqual({ high: 1350, low: null });
+    // a range written from zero is a range (the B10 preview: BOQ-26-00218 'HVAC-2F' r145 "0 - 650 CFM", BOQ-26-00047 r4 "0-500")
+    expect(readAirflowCfm("0 - 650 CFM")).toEqual({ high: 650, low: 0 });
+    expect(readAirflowCfm("0-500")).toEqual({ high: 500, low: 0 });
   });
   it("NEGATIVE: nothing stated -> null; another airflow unit -> 'unit' (not converted)", () => {
     for (const v of ["", "None", "not stated", null, undefined, 0]) expect(readAirflowCfm(v)).toBeNull();
@@ -84,6 +87,12 @@ describe("VAV-2a2 B1 - the band from the airflow, on a BoQ row (the panel's comp
     expect(sheetTot(s.itemList)).toEqual(LINE_450_800);
     expect(fld(s, "cfm_range")).toMatchObject({ value: "450-800", sourceTag: BF.tags.range_max,
       note: "400-650 CFM crosses two bands (0-450 and 450-800) - priced on the band of the maximum, 650 CFM" });
+  });
+  it("POSITIVE (the B10 preview's row BOQ-26-00218 'HVAC-2F' r145): '0 - 650 CFM' is a range -> 'from the maximum of the range', crossing line", () => {
+    const s = row("0 - 650 CFM");
+    expect(sheetTot(s.itemList)).toEqual(LINE_450_800);
+    expect(fld(s, "cfm_range")).toMatchObject({ value: "450-800", sourceTag: BF.tags.range_max,
+      note: "0-650 CFM crosses two bands (0-450 and 450-800) - priced on the band of the maximum, 650 CFM" });
   });
   it("NEGATIVE (owner 23:53): F13 '15000 -16900 CFM' -> not priced, 'above the largest box on the sheet'; the model's own band answer is NOT read", () => {
     const s = row("15000 -16900 CFM", { cfm_range: "4000-8000" });

@@ -1834,9 +1834,11 @@ export function readAirflowCfm(v: unknown): { high: number; low: number | null }
   const t = v.trim();
   if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
   if (/l\s*\/\s*s|\blps\b|\bcmh\b|m3\s*\/\s*h|m³|cu\.?\s*m/i.test(t)) return "unit";
-  const nums = (t.replace(/(\d),(\d{3})\b/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
-  if (!nums.length) return null;
-  const high = Math.max(...nums), low = nums.length >= 2 ? Math.min(...nums) : null;
+  const nums = (t.replace(/(\d),(\d{3})\b/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+  // a range written from zero ("0 - 650 CFM") is still a range: its 0 is the low end (found in the B10 preview, BOQ-26-00218 r145)
+  const high = nums.length ? Math.max(...nums) : 0;
+  if (!(high > 0)) return null;
+  const low = nums.length >= 2 ? Math.min(...nums) : null;
   return { high, low: low !== null && low < high ? low : null };
 }
 
