@@ -4,7 +4,7 @@
 // Belt-and-braces: a server-side daily janitor (cleanup_orphan_commission_attachments)
 // catches anything missed here. So this hook is allowed to be best-effort.
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 interface UseReportAttachmentsParams {
     parent: string;
@@ -34,7 +34,10 @@ export const useReportAttachments = ({
 }: UseReportAttachmentsParams): UseReportAttachmentsResult => {
     const sessionFilesRef = useRef<Set<string>>(new Set());
     const isCommittedRef = useRef(isCommitted);
-    isCommittedRef.current = isCommitted;
+    // Layout effect, so the value is current before any passive cleanup below reads it.
+    useLayoutEffect(() => {
+        isCommittedRef.current = isCommitted;
+    });
 
     const track = useCallback((fileDocName: string) => {
         if (fileDocName) sessionFilesRef.current.add(fileDocName);

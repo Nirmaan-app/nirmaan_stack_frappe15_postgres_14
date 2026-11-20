@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     ColumnDef,
@@ -241,7 +241,10 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
     });
     const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
-    refetchRef.current = serverDataTable.refetch;
+    // Read only by the approve/reject handlers (via `refresh`), never during render.
+    useLayoutEffect(() => {
+        refetchRef.current = serverDataTable.refetch;
+    });
 
     const table = useReactTable({
         data: serverDataTable.data || [],
