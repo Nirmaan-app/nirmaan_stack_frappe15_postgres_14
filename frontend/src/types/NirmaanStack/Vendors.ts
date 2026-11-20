@@ -39,6 +39,11 @@ export interface Vendors{
 	vendor_gst?: string
 	/**	Vendor PAN : Data — for a GST vendor, always characters 3-12 of vendor_gst	*/
 	vendor_pan?: string
+	/** Udyam Registration Number (pages/vendors/utils/msme.ts). */
+	msme_id?: string
+	msme_attachment?: string
+	/** What Document AI read off the MSME certificate; read it with `readMsmeJson`. */
+	autofill_all_entities_json?: unknown
 	/**	TDS Deduction Percentage : Percent — Tax Deducted at Source rate for this
 	 *  vendor's payments, default 2. NOT related to the "TDS Items" /
 	 *  "TDS Repository" doctypes, where TDS means Technical Data Sheet.	*/

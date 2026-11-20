@@ -259,6 +259,15 @@ Procurement Exec). Estimates includes Billing Exec / Lead (`estimatesViewing`).
 | Cancel PO (PO Approved, not custom, no payments) | Y | Y | - | - | Y | - | - |
 | Revise PO | Y | Y | - | - | Y | - | - |
 | Mark Inactive | Y | Y | - | - | - | Y | - |
+| Upload Test Certificate (MTC) | Y | Y | Y¹ | Y¹ | Y | - | - |
+| Edit MTC | Y | Y | own¹ | own¹ | Y | - | - |
+| Delete MTC | Y | Y | - | - | Y | - | - |
+
+> ¹ **MTC for Project Manager / Project Lead (owner, 2026-11-19):** upload on POs of their **assigned projects** only,
+> edit only MTCs **they uploaded**, never delete. Client gates `canUploadMTC` / `canEditMTC` / `canManageMTC`
+> (`constants/roles.ts`); the server enforcement is the MTC controller — see
+> `.claude/context/domain/material-test-certificates.md`. All MTC actions also follow the PO status rule (Billable,
+> not Merged / Cancelled / Inactive).
 
 > **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit and Request Payment; GST for Billing & Notes stayed editable. **Request Payment was given back on 2026-09-24 and payment-terms edit on 2026-09-29 (owner)** — PMO now matches Procurement on the whole Payment Terms card (`POPaymentTermsCard.tsx`).
 
@@ -319,6 +328,11 @@ queue — edit & revert" below).
 | SR Link Clickable | Y | Y | Y | - | Y | Y |
 
 > **PMO note (2026-09-17):** PMO removed from `SR_ADMIN_ROLES` — no Approve WO / Approve Amended WO tabs; the lists (`ServiceRequestsTabs.tsx`) and approve views (`RenderSRComponent.tsx`, redirect) are guarded against direct-URL access. PMO also lost Record Paid Entry (`SRPaymentsSection.tsx`).
+
+> **WO lists — links and Vendor PDF (2026-11-19):** no new role rule. The All / Approved / Finalized WO lists show a
+> Project and a Vendor link icon (`components/helpers/NameWithLinkIcon.tsx`) to everyone who sees the list, PMs
+> included; inside a vendor's own page (`for_vendor`) the Vendor link is left out. The **Download PDF** button
+> ("Vendor Work Orders" print format) appears only on the Vendor page's Work Orders tab, for whoever can open it.
 
 **Key files:**
 - `ServiceRequestsTabs.tsx:23,45`

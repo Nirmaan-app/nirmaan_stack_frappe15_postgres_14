@@ -43,12 +43,29 @@ export interface DeliveryDocumentInfo {
   poNumber: string;
   isStub: boolean;        // true when document has no items mapped yet
   quantity?: number;      // this item's qty in the document — set only on item-level lists
+  isITM?: boolean;        // true when filed against an Internal Transfer Memo (poNumber then holds the ITM id)
 }
 
-// Data structure for PO-Wise view rows
+/** Whether a PO-Wise row is a Procurement Order or an incoming Internal Transfer Memo. */
+export type OrderSourceType = "PO" | "ITM";
+
+/**
+ * One incoming ITM (Approved or later) that carries an item into this project.
+ * `status` is the paid badge: an ITM counts as Fully Paid once Delivered, Unpaid before that.
+ */
+export interface ItemITMEntry {
+  itm: string;
+  itmStatus: string;            // ITM document status: Approved / Dispatched / Partially Delivered / Delivered
+  status: POStatus;
+  sourceName: string;           // source project name ("" when the ITM has none, e.g. from a warehouse)
+  orderedQty: number;
+}
+
+// Data structure for PO-Wise view rows (a PO or an incoming ITM)
 export interface POWiseDisplayItem {
-  poNumber: string;
-  vendorName: string;
+  type: OrderSourceType;
+  poNumber: string;             // PO number, or the ITM id when type is "ITM"
+  vendorName: string;           // vendor, or the ITM's source project name when type is "ITM"
   category: string;
   billingCategory: string;
   totalOrderedQty: number;
@@ -113,6 +130,9 @@ export interface MaterialUsageDisplayItem {
   transferredOut?: number;
   poDeliveredQty?: number;
   itmDeliveredQty?: number;
+  poOrderedQty?: number;         // PO-only part of orderedQuantity
+  itmOrderedQty?: number;        // ITM part of orderedQuantity (ITMs Approved or later)
+  itmNumbers?: ItemITMEntry[];   // incoming ITMs for this item, listed beside poNumbers
   isTransferredInItem?: boolean;
 }
 
@@ -354,7 +374,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       { header: 'MIR Qty', accessor: (item: MaterialUsageDisplayItem) => item.mirQuantity.toFixed(2) },
       { header: 'Total Amount', accessor: (item: MaterialUsageDisplayItem) => item.totalAmount?.toFixed(2) || "0.00" },
       { header: 'Delivery Status', accessor: (item: MaterialUsageDisplayItem) => item.deliveryStatus },
-      { header: 'PO Numbers', accessor: (item: MaterialUsageDisplayItem) => item.poNumbers?.map(p => p.po).join(', ') || "-" },
+      { header: 'PO / ITM Numbers', accessor: (item: MaterialUsageDisplayItem) => [...(item.poNumbers || []).map(p => p.po), ...(item.itmNumbers || []).map(i => i.itm)].join(', ') || "-" },
       { header: 'DC Count', accessor: (item: MaterialUsageDisplayItem) => (item.dcCount || 0).toString() },
       { header: 'MIR Count', accessor: (item: MaterialUsageDisplayItem) => (item.mirCount || 0).toString() },
       { header: 'Overall PO Status', accessor: (item: MaterialUsageDisplayItem) => item.overallPOPaymentStatus },
@@ -395,7 +415,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
 
   const tabs = [
     { label: "Item Wise", value: "Item Wise" },
-    { label: "PO Wise", value: "PO Wise" },
+    { label: "PO/ITM Wise", value: "PO Wise" }, // value stays "PO Wise": it is the mus_tab URL param
     { label: "DC Wise", value: "DC Wise" },
     { label: "MIR Wise", value: "MIR Wise" },
   ];
@@ -403,7 +423,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   const searchPlaceholder = activeTab === "Item Wise"
     ? "Search item name, vendor..."
     : activeTab === "PO Wise"
-      ? "Search PO, vendor, category..."
+      ? "Search PO / ITM, vendor, category..."
       : activeTab === "DC Wise"
         ? "Search DC no., PO, vendor..."
         : "Search MIR no., PO, vendor...";

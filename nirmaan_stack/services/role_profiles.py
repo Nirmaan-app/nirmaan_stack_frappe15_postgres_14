@@ -418,8 +418,25 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 
 
 def can_manage_mtc(user: str) -> bool:
-    """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
+    """True when `user` may upload, edit any and delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# May upload an MTC (owner, 2026-11-19): the managers plus Project Manager and Project Lead.
+# A PM / PL edits only the MTCs they uploaded, never deletes, and works only on the projects
+# assigned to them (`mtc_api.mtc_allowed_projects`). ENFORCEMENT boundary: the MTC controller.
+# Mirrored client-side by `frontend/src/constants/roles.ts::MTC_UPLOAD_PROFILES`.
+MTC_UPLOAD_PROFILES = MTC_MANAGE_PROFILES + MTC_PROJECT_SCOPED_PROFILES
+
+
+def can_upload_mtc(user: str) -> bool:
+    """True when `user` may upload an MTC. Administrator always passes."""
+    return has_role_profile(user, MTC_UPLOAD_PROFILES)
+
+
+def can_edit_mtc(user: str, owner: str | None) -> bool:
+    """True when `user` may edit an MTC uploaded by `owner`: a manager any, an uploader their own."""
+    return can_manage_mtc(user) or (bool(owner) and owner == user and can_upload_mtc(user))
 
 
 # Generate and void a generated invoice on a GST-off Work Order, and upload its signed copy (#1546 /

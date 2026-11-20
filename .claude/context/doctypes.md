@@ -62,7 +62,7 @@
 
 | Doctype | Purpose |
 |---------|---------|
-| **Vendors** | Vendor master with financial balances. Holds no bank fields: its bank account is its `payee` (Link to **Payee**, ADR-0033) |
+| **Vendors** | Vendor master with financial balances. Holds no bank fields: its bank account is its `payee` (Link to **Payee**, ADR-0033). MSME (owner, 2026-11-19): `msme_id` (Udyam number, `UDYAM-XX-00-0000000`), `msme_attachment` (the certificate) and `autofill_all_entities_json` (Long Text, what Document AI read off it). Optional, but **ID and certificate both or neither**, checked in `Vendors._validate_msme` only when either changes; the read data goes when the certificate goes |
 | **Vendor Category** | Vendor categorization |
 | **Customers** | Customer master |
 | **Items** | Item/product master |

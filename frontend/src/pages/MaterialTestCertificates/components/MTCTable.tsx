@@ -33,8 +33,10 @@ interface MTCTableProps {
   getUserName: (id?: string) => string;
   /** Tags items a revision removed or made non-billable. */
   poItems?: POLineInput[];
-  /** Edit / Delete render when true. */
-  canChange?: boolean;
+  /** Edit renders on the rows this returns true for. */
+  canEdit?: (mtc: MaterialTestCertificate) => boolean;
+  /** Delete renders when true. */
+  canDelete?: boolean;
   onEdit?: (mtc: MaterialTestCertificate) => void;
   onDelete?: (mtc: MaterialTestCertificate) => void;
   deletingName?: string | null;
@@ -50,7 +52,8 @@ export const MTCTable = ({
   mtcs,
   getUserName,
   poItems,
-  canChange = false,
+  canEdit,
+  canDelete = false,
   onEdit,
   onDelete,
   deletingName,
@@ -105,7 +108,7 @@ export const MTCTable = ({
                     View
                   </a>
                 </Button>
-                {canChange && onEdit && (
+                {canEdit?.(mtc) && onEdit && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -117,7 +120,7 @@ export const MTCTable = ({
                     <Pencil className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 )}
-                {canChange && onDelete && (
+                {canDelete && onDelete && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button

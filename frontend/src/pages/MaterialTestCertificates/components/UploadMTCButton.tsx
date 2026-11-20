@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
-import { canManageMTC } from "@/constants/roles";
+import { canUploadMTC } from "@/constants/roles";
 import { coverableLines, isPoOpenForMTC } from "@/utils/mtc";
 import type { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 
@@ -22,7 +22,7 @@ interface UploadMTCButtonProps {
 
 /**
  * "Upload Test Certificate" plus its create dialog. Used in the MTC card header and in the
- * PO summary's action row, so both follow one rule: managing profiles only, on a PO that
+ * PO summary's action row, so both follow one rule: `canUploadMTC` profiles, on a PO that
  * `isPoOpenForMTC` allows; disabled once every billable line has an MTC.
  */
 export const UploadMTCButton = ({ po, compact = false }: UploadMTCButtonProps) => {
@@ -31,7 +31,7 @@ export const UploadMTCButton = ({ po, compact = false }: UploadMTCButtonProps) =
   const [open, setOpen] = useState(false);
   const freeLines = useMemo(() => coverableLines(po?.items, mtcs), [po?.items, mtcs]);
 
-  if (!canManageMTC(role, user_id) || !isPoOpenForMTC(po?.billing_status, po?.status)) return null;
+  if (!canUploadMTC(role, user_id) || !isPoOpenForMTC(po?.billing_status, po?.status)) return null;
 
   const allCovered = freeLines.length === 0;
   const tooltip = allCovered && !isLoading ? "All billable items have an MTC" : compact ? LABEL : null;

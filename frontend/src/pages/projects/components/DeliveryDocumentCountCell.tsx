@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Truck, ClipboardCheck, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -82,12 +83,25 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
                   <TableCell className="text-sm text-gray-600 py-2">
                     <div className="flex items-center gap-1.5">
                       <span>{doc.referenceNumber || '-'}</span>
+                      {doc.isITM && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-600 border-blue-300">
+                          ITM
+                        </Badge>
+                      )}
                       {doc.isStub && (
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-orange-50 text-orange-600 border-orange-300">
                           Incomplete
                         </Badge>
                       )}
                     </div>
+                    {doc.isITM && (
+                      <Link
+                        to={`/internal-transfer-memos/${doc.poNumber}`}
+                        className="block text-[11px] font-mono text-blue-600 hover:underline"
+                      >
+                        {doc.poNumber}
+                      </Link>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-gray-600 py-2">
                     {doc.dcDate ? formatDate(doc.dcDate) : '-'}

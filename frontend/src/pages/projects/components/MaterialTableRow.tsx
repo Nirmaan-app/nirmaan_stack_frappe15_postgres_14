@@ -9,7 +9,7 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/comp
 import { FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-import { MaterialUsageDisplayItem, POStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
+import { ItemITMEntry, MaterialUsageDisplayItem, POStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { DeliveryDocumentCountCell } from './DeliveryDocumentCountCell';
@@ -37,16 +37,14 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
   // These values are calculated from the `item` prop to determine how to render certain elements.
   
   // Determines the text and color variant for the delivery status badge.
-  // Transfer-only items (no PO) use their stored status directly.
+  // Ordered and delivered both include incoming ITMs, so ITM-only rows get a real status too.
   const {
     deliveryStatusVariant,
     deliveryStatusText
-  } = item.isTransferredInItem
-    ? { deliveryStatusVariant: "default" as const, deliveryStatusText: "Not Ordered" as const }
-    : determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity);
+  } = determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity);
 
-  // Determines the overall payment status based on all associated purchase orders.
-  const overallPOPaymentStatus = determineOverallItemPOStatus(item.poNumbers);
+  // Determines the overall payment status from all POs and incoming ITMs (an ITM is paid once Delivered).
+  const overallPOPaymentStatus = determineOverallItemPOStatus([...(item.poNumbers || []), ...(item.itmNumbers || [])]);
 
   // Selects the correct badge color based on the overall payment status.
   let poStatusBadgeVariant: "success" | "warning" | "destructive" | "default" = "default";
@@ -83,7 +81,16 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       {/* Column: Ordered Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('orderedQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">
-          {item.orderedQuantity.toFixed(2)}
+          {(item.itmOrderedQty ?? 0) > 0 ? (
+            <QtyBreakdown
+              total={item.orderedQuantity}
+              poLabel="PO Ordered Quantity"
+              poQty={item.poOrderedQty ?? 0}
+              itmQty={item.itmOrderedQty ?? 0}
+            />
+          ) : (
+            item.orderedQuantity.toFixed(2)
+          )}
         </TableCell>
       )}
 
@@ -91,26 +98,12 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       {!hiddenColumns.has('deliveredQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">
           {(item.itmDeliveredQty ?? 0) > 0 ? (
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-default text-blue-600 underline decoration-dotted underline-offset-2">{item.deliveredQuantity.toFixed(2)}</span>
-                </TooltipTrigger>
-                <TooltipContent className="bg-gray-900 text-white border-gray-700 shadow-lg rounded-md p-2.5">
-                  <div className="text-xs space-y-1.5">
-                    <div className="flex justify-between gap-6">
-                      <span className="text-gray-300">PO Delivered Quantity</span>
-                      <span className="font-semibold tabular-nums text-white">{(item.poDeliveredQty ?? item.deliveredQuantity).toFixed(2)}</span>
-                    </div>
-                    <hr className="border-gray-700" />
-                    <div className="flex justify-between gap-6">
-                      <span className="text-gray-300">Internal Transfer Memo Qty</span>
-                      <span className="font-semibold tabular-nums text-white">{(item.itmDeliveredQty ?? 0).toFixed(2)}</span>
-                    </div>
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <QtyBreakdown
+              total={item.deliveredQuantity}
+              poLabel="PO Delivered Quantity"
+              poQty={item.poDeliveredQty ?? item.deliveredQuantity}
+              itmQty={item.itmDeliveredQty ?? 0}
+            />
           ) : (
             item.deliveredQuantity.toFixed(2)
           )}
@@ -184,9 +177,9 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
         </Badge>
       </TableCell>
       
-      {/* Column: PO Numbers (with Tooltip for multiple) */}
+      {/* Column: PO / ITM Numbers (with Tooltip for multiple) */}
       <TableCell className="text-center py-2 px-3">
-        {renderPONumbers(item.poNumbers)}
+        {renderPONumbers(item.poNumbers, item.itmNumbers)}
       </TableCell>
 
       {/* Column: Delivery Challans */}
@@ -224,6 +217,62 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
 // =================================================================================
 // 2. HELPER FUNCTIONS
 // =================================================================================
+
+interface QtyBreakdownProps {
+  total: number;
+  poLabel: string;
+  poQty: number;
+  itmQty: number;
+}
+
+/** A quantity whose hover splits it into its PO part and its Internal Transfer Memo part. */
+const QtyBreakdown: React.FC<QtyBreakdownProps> = ({ total, poLabel, poQty, itmQty }) => (
+  <TooltipProvider delayDuration={100}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-default text-blue-600 underline decoration-dotted underline-offset-2">{total.toFixed(2)}</span>
+      </TooltipTrigger>
+      <TooltipContent className="bg-gray-900 text-white border-gray-700 shadow-lg rounded-md p-2.5">
+        <div className="text-xs space-y-1.5">
+          <div className="flex justify-between gap-6">
+            <span className="text-gray-300">{poLabel}</span>
+            <span className="font-semibold tabular-nums text-white">{poQty.toFixed(2)}</span>
+          </div>
+          <hr className="border-gray-700" />
+          <div className="flex justify-between gap-6">
+            <span className="text-gray-300">Internal Transfer Memo Qty</span>
+            <span className="font-semibold tabular-nums text-white">{itmQty.toFixed(2)}</span>
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
+
+/** Paid-status badge shared by PO and ITM entries in the PO / ITM Number(s) popover. */
+const PaidStatusBadge: React.FC<{ status: POStatus }> = ({ status }) => (
+  <Badge
+    variant={
+      status === "Fully Paid" ? "default" :
+      status === "Partially Paid" ? "outline" :
+      "destructive"
+    }
+    className={`ml-2 text-xs shrink-0 ${
+      status === "Fully Paid" ? 'bg-green-100 text-green-700' :
+      status === "Partially Paid" ? 'bg-yellow-100 text-yellow-700' : ''
+    }`}
+  >
+    {status}
+  </Badge>
+);
+
+/** Label for the multi-document trigger: "2 POs", "1 ITM", "2 POs · 1 ITM". */
+function poItmCountLabel(poCount: number, itmCount: number): string {
+  const parts: string[] = [];
+  if (poCount > 0) parts.push(`${poCount} PO${poCount > 1 ? 's' : ''}`);
+  if (itmCount > 0) parts.push(`${itmCount} ITM${itmCount > 1 ? 's' : ''}`);
+  return parts.join(' · ');
+}
 
 /**
  * Renders the total PO amount for an item.
@@ -286,40 +335,51 @@ function renderPOAmount(poNumbers?: { po: string, status: POStatus, amount: numb
 }
 
 /**
- * Renders the PO numbers for an item.
- * - If 0 POs, shows a dash.
- * - If 1 PO, shows a direct link to the PO.
- * - If multiple POs, shows an aggregate count with a tooltip listing each PO, its amount, and status.
+ * Renders the PO and ITM numbers for an item.
+ * - If none, shows a dash.
+ * - If exactly one PO or one ITM, shows a direct link to it.
+ * - Otherwise, shows a count ("2 POs · 1 ITM") with a tooltip listing each PO (amount + paid status)
+ *   and each ITM (source project + paid status: Fully Paid once Delivered, Unpaid before).
  */
-function renderPONumbers(poNumbers?: { po: string, status: POStatus, amount: number }[]) {
-  // Case 1: No POs exist.
-  if (!poNumbers || poNumbers.length === 0) {
+function renderPONumbers(poNumbers?: { po: string, status: POStatus, amount: number }[], itmNumbers?: ItemITMEntry[]) {
+  const pos = poNumbers || [];
+  const itms = itmNumbers || [];
+
+  // Case 1: No POs or ITMs exist.
+  if (pos.length === 0 && itms.length === 0) {
     return <span className="text-xs text-muted-foreground">-</span>;
   }
 
-  // Case 2: Exactly one PO exists. Render a direct link.
-  if (poNumbers.length === 1) {
-    // `replaceAll` makes the PO number URL-safe.
+  // Case 2: Exactly one document. Render a direct link.
+  if (pos.length + itms.length === 1) {
+    if (pos.length === 1) {
+      // `replaceAll` makes the PO number URL-safe.
+      return (
+        <Link to={`po/${pos[0].po.replaceAll("/", "&=")}`} relative="path" className="text-blue-600 hover:underline text-xs font-mono">
+          {pos[0].po}
+        </Link>
+      );
+    }
     return (
-      <Link to={`po/${poNumbers[0].po.replaceAll("/", "&=")}`} relative="path" className="text-blue-600 hover:underline text-xs font-mono">
-        {poNumbers[0].po}
+      <Link to={`/internal-transfer-memos/${itms[0].itm}`} className="text-blue-600 hover:underline text-xs font-mono">
+        {itms[0].itm}
       </Link>
     );
   }
 
-  // Case 3: Multiple POs exist. Render a summary button with a detailed tooltip.
+  // Case 3: Multiple documents. Render a summary button with a detailed tooltip.
   return (
     <TooltipProvider delayDuration={100}>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="ghost" size="sm" className="h-auto p-1 text-xs text-blue-600 hover:bg-blue-50">
             <FileText className="h-3.5 w-3.5 mr-1" />
-            {poNumbers.length} POs
+            {poItmCountLabel(pos.length, itms.length)}
           </Button>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs md:max-w-sm bg-popover border shadow-lg rounded-md p-0">
           <ul className="list-none p-2 space-y-1">
-            {poNumbers.map(poEntry => (
+            {pos.map(poEntry => (
               <li key={poEntry.po} className="text-xs flex justify-between items-center gap-4">
                 <div className='flex flex-col items-start'>
                   <Link to={`po/${poEntry.po.replaceAll("/", "&=")}`} relative="path" className="text-blue-600 hover:underline">
@@ -327,19 +387,23 @@ function renderPONumbers(poNumbers?: { po: string, status: POStatus, amount: num
                   </Link>
                   <span className='font-mono text-muted-foreground'>{formatToIndianRupee(poEntry.amount)}</span>
                 </div>
-                <Badge 
-                  variant={
-                    poEntry.status === "Fully Paid" ? "default" : 
-                    poEntry.status === "Partially Paid" ? "outline" : 
-                    "destructive"
-                  }
-                  className={`ml-2 text-xs shrink-0 ${
-                    poEntry.status === "Fully Paid" ? 'bg-green-100 text-green-700' :
-                    poEntry.status === "Partially Paid" ? 'bg-yellow-100 text-yellow-700' : ''
-                  }`}
-                >
-                  {poEntry.status}
-                </Badge>
+                <PaidStatusBadge status={poEntry.status} />
+              </li>
+            ))}
+            {itms.map(itmEntry => (
+              <li key={itmEntry.itm} className="text-xs flex justify-between items-center gap-4">
+                <div className='flex flex-col items-start'>
+                  <div className="flex items-center gap-1.5">
+                    <Link to={`/internal-transfer-memos/${itmEntry.itm}`} className="text-blue-600 hover:underline">
+                      {itmEntry.itm}
+                    </Link>
+                    <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">ITM</span>
+                  </div>
+                  <span className='text-muted-foreground'>
+                    {itmEntry.sourceName ? `From ${itmEntry.sourceName} · ` : ''}{itmEntry.itmStatus}
+                  </span>
+                </div>
+                <PaidStatusBadge status={itmEntry.status} />
               </li>
             ))}
           </ul>

@@ -21,9 +21,9 @@ export function determineDeliveryStatus(deliveredQuantity: number, orderedQuanti
   return { deliveryStatusVariant, deliveryStatusText };
 }
 
-// Helper function to determine overall PO status for an item
+// Helper function to determine overall paid status for an item, across its POs and incoming ITMs
 export function determineOverallItemPOStatus(
-  poNumbersWithStatus?: { po: string; status: POStatus; }[]
+  poNumbersWithStatus?: { status: POStatus; }[]
 ): "Fully Paid" | "Partially Paid" | "Unpaid" | "N/A" {
   if (!poNumbersWithStatus || poNumbersWithStatus.length === 0) {
     return "N/A";

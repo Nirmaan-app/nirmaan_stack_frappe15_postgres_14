@@ -14,6 +14,7 @@ import { AddressView } from "@/components/address-view";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useGstOptions } from "@/hooks/useGstOptions";
+import { usePOHeaderDate } from "../hooks/usePOHeaderDate";
 
 interface POPdfProps {
   po: ProcurementOrder | null;
@@ -142,6 +143,8 @@ export const POPdf: React.FC<POPdfProps> = ({
   poPdfSheet,
   togglePoPdfSheet,
 }) => {
+  // Called before the early return below: hooks must run on every render.
+  const headerDate = usePOHeaderDate(po?.name, po?.creation);
   if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
   const { role } = useUserData();
@@ -396,7 +399,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                     <strong>PO Number:</strong> {po?.name}
                   </p>
                   <p>
-                    <strong>PO Date:</strong> {po?.creation ? formatDate(po.creation) : "N/A"}
+                    <strong>{headerDate.label}:</strong> {headerDate.date ? formatDate(headerDate.date) : "N/A"}
                   </p>
                 </div>
               </div>

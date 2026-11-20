@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CHEQUE, CUSTOMER_PO, INVOICE, TDS_CHALLAN, Entity, LineItem
+from .base import CHEQUE, CUSTOMER_PO, INVOICE, MSME_CERTIFICATE, TDS_CHALLAN, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -62,6 +62,23 @@ _TDS_CHALLAN_FIELDS = (
 # rules (`services/cheques/photo.py`) pick the cheque number out of `micr_line` and map the bank.
 # `micr_line` and `cheque_date` are strings: the MICR groups and the date boxes keep their zeros.
 _CHEQUE_FIELDS = ("bank_name", "micr_line", "cheque_date", "amount_in_figures", "payee")
+# A Udyam (MSME) certificate, read in FULL (owner, 2026-11-19): everything printed is stored on the
+# vendor (`Vendors.autofill_all_entities_json`). The three tables are arrays (`_MSME_TABLES`),
+# passed on as JSON-string entities like the customer PO's payment_terms.
+_MSME_FIELDS = (
+    "is_udyam_certificate", "udyam_registration_number", "enterprise_name", "enterprise_type",
+    "major_activity", "social_category",
+    "address_flat_door_block", "address_premises_building", "address_village_town",
+    "address_block", "address_road_street_lane", "address_city", "address_district",
+    "address_state", "address_pincode", "mobile", "email",
+    "date_of_incorporation", "date_of_commencement", "date_of_udyam_registration",
+    "district_industries_centre", "msme_di",
+)
+_MSME_TABLES = {
+    "units": ("unit_name", "unit_address"),
+    "nic_codes": ("nic_2_digit", "nic_4_digit", "nic_5_digit", "activity"),
+    "classification_history": ("classification_year", "enterprise_type", "classification_date"),
+}
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
     "igst_amount", "cgst_amount", "sgst_amount", "tax_amount",
@@ -185,6 +202,56 @@ _CHEQUE_PROMPT = (
 )
 
 
+_MSME_PROMPT = (
+    "Extract the listed fields from this Indian Udyam Registration Certificate (the MSME "
+    "certificate issued by the Ministry of MSME) and return JSON only.\n"
+    "- is_udyam_certificate = \"yes\" if this document is a Udyam Registration Certificate, "
+    "otherwise \"no\".\n"
+    "- udyam_registration_number = the UDYAM REGISTRATION NUMBER exactly as printed, in the form "
+    "UDYAM-XX-00-0000000 (two letters, two digits, seven digits). Keep leading zeros.\n"
+    "- enterprise_name = the NAME OF ENTERPRISE as printed.\n"
+    "- enterprise_type = the type of enterprise for the LATEST classification year shown: exactly "
+    "one of Micro, Small, Medium.\n"
+    "- major_activity = the MAJOR ACTIVITY as printed, e.g. Manufacturing, Services, Trading.\n"
+    "- social_category = the SOCIAL CATEGORY OF ENTREPRENEUR as printed, e.g. General, OBC, SC, ST.\n"
+    "- address_* = the OFFICIAL ADDRESS OF ENTERPRISE, one box each, exactly as printed: "
+    "address_flat_door_block (Flat/Door/Block No.), address_premises_building (Name of Premises/ "
+    "Building), address_village_town (Village/Town), address_block (Block), address_road_street_lane "
+    "(Road/Street/Lane), address_city (City), address_district (District, without the Pin), "
+    "address_state (State), address_pincode (the 6-digit Pin, as a string).\n"
+    "- mobile, email = the Mobile and Email in the official address, as printed.\n"
+    "- date_of_incorporation = the DATE OF INCORPORATION / REGISTRATION OF ENTERPRISE, as DD-MM-YYYY.\n"
+    "- date_of_commencement = the DATE OF COMMENCEMENT OF PRODUCTION/BUSINESS, as DD-MM-YYYY.\n"
+    "- date_of_udyam_registration = the DATE OF UDYAM REGISTRATION, as DD-MM-YYYY.\n"
+    "- district_industries_centre = the District Industries Centre named under 'For any assistance', "
+    "as printed.\n"
+    "- msme_di = the MSME-DI named under 'For any assistance', as printed.\n"
+    "- units = one object per row of the NAME OF UNIT(S) table: unit_name, and unit_address only if "
+    "the certificate prints one for that unit.\n"
+    "- nic_codes = one object per row of the NATIONAL INDUSTRY CLASSIFICATION CODE(S) table: "
+    "nic_2_digit, nic_4_digit, nic_5_digit (each with its code and text as printed, e.g. "
+    "\"32 - Other manufacturing\") and activity.\n"
+    "- classification_history = one object per row of a classification table (Classification Year, "
+    "Enterprise Type, Classification Date as DD-MM-YYYY), only if the certificate has one.\n"
+    "- If a field or table is not clearly present, return JSON null. Do NOT guess."
+)
+
+
+def _msme_schema():
+    """The MSME schema: the flat fields PLUS the certificate's three tables, each a nullable array."""
+    props: dict = {f: {"type": "string", "nullable": True} for f in _MSME_FIELDS}
+    for table, columns in _MSME_TABLES.items():
+        props[table] = {
+            "type": "array",
+            "nullable": True,
+            "items": {
+                "type": "object",
+                "properties": {c: {"type": "string", "nullable": True} for c in columns},
+            },
+        }
+    return {"type": "object", "properties": props}
+
+
 class _NonRetryable(Exception):
     """A failure that must not be retried (blocked / truncated / empty output)."""
 
@@ -301,6 +368,11 @@ class GeminiExtractor:
             fields = _CHEQUE_FIELDS
             prompt = _CHEQUE_PROMPT
             schema = _schema(fields)
+            is_invoice = False
+        elif doc_kind == MSME_CERTIFICATE:
+            fields = _MSME_FIELDS + tuple(_MSME_TABLES)
+            prompt = _MSME_PROMPT
+            schema = _msme_schema()
             is_invoice = False
         elif doc_kind == TDS_CHALLAN:
             # A challan receipt has no line-item table, so line_items stays [] like payment.
