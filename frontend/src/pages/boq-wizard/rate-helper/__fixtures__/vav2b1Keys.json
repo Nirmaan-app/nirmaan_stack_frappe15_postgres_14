@@ -291,6 +291,13 @@
     "blank_rows": "{n} box rows on this sheet have no quantity and are not counted in the number of VAVs.",
     "zero_row": "{Item} {rows} {has} quantity 0, so the {share} is added here. Remove it if the {item} is ordered on that row."
    }
+  },
+  "own_row_check_zero_rows": {
+   "line": "{Extra} {rows} {has} quantity 0, so the {extra} is added here. Remove it if the {extra} is ordered on that row.",
+   "attr_line": "{Extra} {rows} {has} quantity 0, so this box is priced with the integrator included, as its own words say. Change it to No if the integrator is ordered on that row."
+  },
+  "integrator_cabling_zero_rows": {
+   "line": "{Extra} {rows} {has} 0 metres, so the {extra} is added here ({qty} m per box). Remove it if the cabling is ordered on that row."
   }
  },
  "derivation_reasons": {
@@ -340,6 +347,10 @@
    {
     "title": "^The combination warning is the",
     "why": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); screen 7 (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)"
+   },
+   {
+    "title": "^An extra whose own row has quantity 0",
+    "why": "\"same shold apply to all extras\" (owner 2026-11-20 21:05) and \"a\" (21:47): an extra's own row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately - the extra is added with a note naming the row (integrator cabling: only when every cabling row is 0 / blank); VAV rows blank / 0 keep the 19 Nov 01:23 rule"
    }
   ]
  }

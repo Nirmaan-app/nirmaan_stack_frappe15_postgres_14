@@ -1429,6 +1429,18 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   // VAV-2b1 (R1 - R10, owner 2026-11-20 14:18 - 18:44): the shared items of a VAV sheet, then the families withdrawn per box
   for (const l of sheetSharesLines(pr, items)) add(l.title, l.detail, l.key);
+  // VAV-2b1 (rule 4, owner 2026-11-20 21:05 / 21:47 "a"): an extra's own row with quantity 0 -- its own line, after every earlier line
+  {
+    const oz = (pr.own_row_check as { zero_rows?: unknown } | undefined)?.zero_rows;
+    const cz = (pr.integrator_cabling as { zero_rows?: unknown; family?: unknown } | undefined)?.zero_rows;
+    if (oz || cz) {
+      add("An extra whose own row has quantity 0 on a sheet with VAV quantities is added to the boxes",
+          [oz ? "an extra (thermostat, sensor, piece, connection) whose own row on the sheet has quantity 0 or blank does not count as charged separately: it stays on the box row, with a note naming that row; the integrator's own row with quantity 0 leaves the box on 'Integrator Included = Yes'" : "",
+           cz ? `the integrator cabling is added at its metres per box when EVERY cabling row found has 0 or blank metres; a sheet where some cabling rows carry metres keeps the cabling rule` : "",
+           "the other side - the VAV rows' quantities blank or 0 - is unchanged: the separate row decides, not added"].filter(Boolean).join("; "),
+          oz ? "own_row_check" : "integrator_cabling");
+    }
+  }
   // VAV-2b1 (B6, owner 18:06 "more prominent"; screen 7): the warning's block -- a line of its own AFTER every earlier line, so no line moves
   {
     const heading = (pr.combination_warning as { heading?: unknown } | undefined)?.heading;

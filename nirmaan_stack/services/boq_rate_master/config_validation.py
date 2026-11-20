@@ -1043,8 +1043,16 @@ def _validate_own_row_check(oc, spec):
     the lines. Whether the input is a Pricing Input item is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.own_row_check"
     pr = spec.get("pricing") or {}
-    if not isinstance(oc, dict) or not (_OWN_ROW_CHECK_KEYS <= set(oc) <= _OWN_ROW_CHECK_KEYS | {"serves"}):
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_OWN_ROW_CHECK_KEYS))} (and optionally serves).")
+    if not isinstance(oc, dict) or not (_OWN_ROW_CHECK_KEYS <= set(oc) <= _OWN_ROW_CHECK_KEYS | {"serves", "zero_rows"}):
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_OWN_ROW_CHECK_KEYS))} (and optionally serves, zero_rows).")
+    # VAV-2b1 (rule 4, owner 2026-11-20 21:05 / 21:47): an own row with quantity 0 / blank on a sheet with VAV quantities is not charged
+    # separately -- the two lines (an extra; the integrator's attribute)
+    if "zero_rows" in oc:
+        zr = oc["zero_rows"]
+        if not isinstance(zr, dict) or set(zr) != {"line", "attr_line"}:
+            _vthrow(f"{loc}.zero_rows needs exactly line, attr_line.")
+        _sentence(zr, "line", f"{loc}.zero_rows", ("{rows}",))
+        _sentence(zr, "attr_line", f"{loc}.zero_rows", ("{rows}",))
     # VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): `serves` -- a row whose own description names the extra before any box
     # words counts as that extra's own row, for the extras it names by label
     if "serves" in oc:
@@ -1285,7 +1293,7 @@ def _validate_integrator_cabling(ic, pr):
     inputs (metres per box; the length-check share), the integrator words with their near / not-near windows, the cabling-row word tables,
     the per-metre units and the lines. The inputs being Pricing Input items is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.integrator_cabling"
-    if not isinstance(ic, dict) or set(ic) != _INTEGRATOR_CABLING_KEYS:
+    if not isinstance(ic, dict) or not (_INTEGRATOR_CABLING_KEYS <= set(ic) <= _INTEGRATOR_CABLING_KEYS | {"zero_rows"}):
         _vthrow(f"{loc} needs exactly {', '.join(sorted(_INTEGRATOR_CABLING_KEYS))}.")
     fams = set((pr.get("families") or {}).keys())
     for k in ("family", "box_family"):
@@ -1305,6 +1313,15 @@ def _validate_integrator_cabling(ic, pr):
     for k in ("priced_separately", "low_length"):
         if "{rows}" not in ic["lines"][k]:
             _vthrow(f"{loc}.lines.{k} must name {{rows}}.")
+
+
+def _validate_cabling_zero_rows(ic):
+    """VAV-2b1 (rule 4, owner 21:47 "a") -- `integrator_cabling.zero_rows`: the line when every cabling row is 0 / blank metres."""
+    if "zero_rows" in ic:
+        zr = ic["zero_rows"]
+        if not isinstance(zr, dict) or set(zr) != {"line"}:
+            _vthrow("list_spec.pricing.integrator_cabling.zero_rows needs exactly line.")
+        _sentence(zr, "line", "list_spec.pricing.integrator_cabling.zero_rows", ("{rows}",))
 
 
 def _validate_existing_boxes(eb, pr):
@@ -4238,6 +4255,7 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_own_row_check(pr["own_row_check"], spec)
     if "integrator_cabling" in pr:
         _validate_integrator_cabling(pr["integrator_cabling"], pr)
+        _validate_cabling_zero_rows(pr["integrator_cabling"])
     if "existing_boxes" in pr:
         _validate_existing_boxes(pr["existing_boxes"], pr)
     if "band_from" in pr:

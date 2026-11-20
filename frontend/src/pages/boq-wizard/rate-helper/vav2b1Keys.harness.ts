@@ -13,6 +13,7 @@ type Reason = { title?: string; why?: string };
 export type Keys3 = {
   items: Array<Json & { item_uid: string; kind: string; attributes: Json }>;
   pricing: { withdrawn_families: string[]; own_row_check_serves_also: string[]; combination_warning_heading: string; band_from_lower_limit: Json;
+    own_row_check_zero_rows: Json; integrator_cabling_zero_rows: Json;
     sheet_shares: Json & { count: Json; separate: Json } };
   derivation_reasons: { replace: Record<string, Reason>; new: Reason[] };
 };
@@ -20,7 +21,7 @@ const FIX = path.resolve(__dirname, "__fixtures__");
 export const KEYS3 = readJsonFixture<Keys3>(pathToFileURL(path.join(FIX, "vav2b1Keys.json")));
 
 /** What a test changes on the keys (the QR modes; keys taken out for KEY ABSENT = UNCHANGED). */
-export type V79Over = { blank?: "skip" | "sheet_off"; drop?: Array<"withdrawn_families" | "serves_also" | "heading" | "lower_limit" | "sheet_shares">;
+export type V79Over = { blank?: "skip" | "sheet_off"; drop?: Array<"withdrawn_families" | "serves_also" | "heading" | "lower_limit" | "sheet_shares" | "zero_rows">;
   separate?: Json };
 
 /** The next rate file's transformation of ONE hvac_vav_box config (the mint does the same in Python). Idempotent. */
@@ -31,6 +32,11 @@ export function withV79Keys(cfg: RateCategoryConfig, over: V79Over = {}): RateCa
   if (drop.has("withdrawn_families")) delete pr.withdrawn_families; else pr.withdrawn_families = [...KEYS3.pricing.withdrawn_families];
   const oc = pr.own_row_check as { serves?: Json } | undefined;
   if (oc?.serves) { if (drop.has("serves_also")) delete oc.serves.also; else oc.serves.also = [...KEYS3.pricing.own_row_check_serves_also]; }
+  // rule 4 (owner 21:05 / 21:47): the quantity-0 own rows
+  const oc2 = pr.own_row_check as Json | undefined;
+  if (oc2) { if (drop.has("zero_rows")) delete oc2.zero_rows; else oc2.zero_rows = structuredClone(KEYS3.pricing.own_row_check_zero_rows); }
+  const ic = pr.integrator_cabling as Json | undefined;
+  if (ic) { if (drop.has("zero_rows")) delete ic.zero_rows; else ic.zero_rows = structuredClone(KEYS3.pricing.integrator_cabling_zero_rows); }
   const cw = pr.combination_warning as Json | undefined;
   if (cw) { if (drop.has("heading")) delete cw.heading; else cw.heading = KEYS3.pricing.combination_warning_heading; }
   const bf = pr.band_from as Json | undefined;

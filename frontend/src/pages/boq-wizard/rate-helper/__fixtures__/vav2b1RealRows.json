@@ -17,6 +17,21 @@
    ]
   },
   {
+   "ref": "BOQ-26-00007 'HVAC BOQ' r386",
+   "kind": "cabling_row_qty0",
+   "category": "wiring_cabling",
+   "unit": "RM",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "Supply, laying, affecting connections and Testing of all necessary copper control wiring/ daisy chain cabling etc. as required for proper functioning & integration of VAVs with above controller. All cabling to be laid in MS conduits. Quoted price shall be inclusive of all necessary arrangement to make system complete & functional.",
+   "notes": [],
+   "headings": [
+    "CONTROLLER FOR BACNet INTEGRATION",
+    "VAV BOXES",
+    "SECTION 'B' - VAV BOXES"
+   ]
+  },
+  {
    "ref": "BOQ-26-00012 'HVAC - Low side' r256",
    "kind": "integrator_r13",
    "category": "hvac_misc",
@@ -51,6 +66,19 @@
    "notes": [],
    "headings": [
     "VAV INTEGRATOR"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00049 'Fitout HVAC' r180",
+   "kind": "thermostat_row_qty0",
+   "category": "hvac_sensors",
+   "unit": "Nos",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "SITC OF DIGITAL Thermostat connect to shared vav (including any additional accessories if required)",
+   "notes": [],
+   "headings": [
+    "AIR CONDITIONING WORKS"
    ]
   },
   {

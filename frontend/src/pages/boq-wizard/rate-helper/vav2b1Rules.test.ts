@@ -15,7 +15,7 @@ import { KEYS3, box, calc79, itemsV79, other, vav79 } from "./vav2b1.harness";
 import { COMING_SOON_REASON, makePricingSheetHelper, buildExtractionByRow } from "./pricingSheetHelper";
 
 type Json = Record<string, unknown>;
-const ALL_DROP = { drop: ["withdrawn_families", "serves_also", "heading", "lower_limit", "sheet_shares"] as Array<"withdrawn_families" | "serves_also" | "heading" | "lower_limit" | "sheet_shares"> };
+const ALL_DROP = { drop: ["withdrawn_families", "serves_also", "heading", "lower_limit", "sheet_shares", "zero_rows"] as Array<"withdrawn_families" | "serves_also" | "heading" | "lower_limit" | "sheet_shares" | "zero_rows"> };
 const sections = { hvac_misc: BY_ID.get("hvac_misc"), hvac_sensors: BY_ID.get("hvac_sensors") } as Record<string, unknown>;
 const strip = (x: unknown) => parseJson(JSON.stringify(x, (k, v) => (k === "shares" ? undefined : v)));
 

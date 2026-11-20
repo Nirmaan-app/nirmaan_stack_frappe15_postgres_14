@@ -7,7 +7,8 @@ What changes (owner rulings, VAV_Rulings_Capture_2026-11-18.md 20 Nov 14:10 - 19
                  + three Pricing Inputs: VAVs per BACnet controller 32, per DP sensor 30, per DDC panel 200 (R9, 15:23 "yes")
                  each inserted after the last item of its kind; NO item deleted or changed (the Differential Pressure Switch stays)
   hvac_vav_box   list_spec.pricing + sheet_shares (R1 / R3 / R5 - R8 / R10), withdrawn_families (R2 / R8), combination_warning.heading
-                 (R11), band_from.lower_limit (R12), own_row_check.serves.also (R13); derivation_reasons: line 19's reason replaced
+                 (R11), band_from.lower_limit (R12), own_row_check.serves.also (R13), own_row_check.zero_rows and
+                 integrator_cabling.zero_rows (rule 4, owner 21:05 / 21:47); derivation_reasons: line 19's reason replaced
                  (R7), the new reasons appended (each with the owner's words)
                  calculator_only STAYS true (VAV rows stay "coming soon"; VAV-2b2 removes it)
 Every other item and every other config byte-identical (the Sensors borrow-only config included: the DP sensor share reads the new
@@ -57,6 +58,10 @@ def vav_config(prev, K):
     pr["withdrawn_families"] = copy.deepcopy(P["withdrawn_families"])
     assert "also" not in pr["own_row_check"]["serves"]
     pr["own_row_check"]["serves"]["also"] = copy.deepcopy(P["own_row_check_serves_also"])
+    # rule 4 (owner 2026-11-20 21:05 / 21:47 "a"): an extra's own row with quantity 0 / blank on a sheet with VAV quantities
+    assert "zero_rows" not in pr["own_row_check"] and "zero_rows" not in pr["integrator_cabling"]
+    pr["own_row_check"]["zero_rows"] = copy.deepcopy(P["own_row_check_zero_rows"])
+    pr["integrator_cabling"]["zero_rows"] = copy.deepcopy(P["integrator_cabling_zero_rows"])
     assert "heading" not in pr["combination_warning"]
     pr["combination_warning"]["heading"] = P["combination_warning_heading"]
     assert "lower_limit" not in pr["band_from"]

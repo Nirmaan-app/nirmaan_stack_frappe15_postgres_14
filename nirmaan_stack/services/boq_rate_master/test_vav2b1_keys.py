@@ -168,3 +168,18 @@ class TestVav2b1Keys(unittest.TestCase):
             self.assertIn(i, ids)
         cfg = _vav(); del _pr(cfg)["sheet_shares"]
         self.assertFalse([i for i in config_validation.vav_sheet_input_ids(_pr(cfg)) if i.startswith("vav_vavs_per")])
+
+    def test_10_RULE4_zero_rows_validate_and_refuse_by_name(self):
+        """Rule 4 (owner 2026-11-20 21:05 'a, yes' / 21:47 'a'): own_row_check.zero_rows and integrator_cabling.zero_rows."""
+        cfg = _vav()
+        self.assertEqual(set(_pr(cfg)["own_row_check"]["zero_rows"]), {"line", "attr_line"})
+        self.assertEqual(set(_pr(cfg)["integrator_cabling"]["zero_rows"]), {"line"})
+        for k in ("own_row_check", "integrator_cabling"):
+            c = _vav(); del _pr(c)[k]["zero_rows"]; config_validation._validate_config(c)
+        c = _vav(); _pr(c)["own_row_check"]["zero_rows"] = {"line": "x"}
+        _refused(self, c, "own_row_check.zero_rows")
+        c = _vav(); _pr(c)["own_row_check"]["zero_rows"]["line"] = "added here."
+        _refused(self, c, "own_row_check.zero_rows")
+        c = _vav(); _pr(c)["integrator_cabling"]["zero_rows"] = {"line": "{rows} zero", "extra": 1}
+        _refused(self, c, "integrator_cabling.zero_rows")
+

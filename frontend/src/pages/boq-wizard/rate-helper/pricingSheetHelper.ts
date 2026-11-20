@@ -8020,6 +8020,13 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
   }
 
   // B3 / B4 / QR-C1 (owner 23:32; QR-3a / QR-4 (a) 00:57; 01:23 rate-only; QR-C1 (a) 13:31): each extra the row prices, against the sheet
+  // VAV-2b1 (rule 4, owner 2026-11-20 21:05 "a, yes" / "same shold apply to all extras" / 21:47 "a"): with `zero_rows`, an extra's own
+  // row whose quantity is 0 / blank, on a sheet whose VAV rows carry a quantity, does NOT count as charged separately -- the extra is
+  // kept (added) with the quantity-0 line naming the row. The other side (VAV rows blank / 0) is unchanged (19 Nov 01:23).
+  const sheetVavQty = lineItems.filter((l) => catOf(l.row) === ownCategory).reduce((a, l) => a + Math.max(0, qtyOf(l.row) ?? 0), 0);
+  const allZero = (rows: readonly number[]) => rows.length > 0 && rows.every((r) => !((qtyOf(r) ?? 0) > 0));
+  const zeroFill = (t: string, label: string, rows: readonly number[], more: Record<string, string> = {}) => fillAll(t, { Extra: label.charAt(0).toUpperCase() + label.slice(1),
+    extra: label.toLowerCase(), rows: vavRowsNamed(rows), has: new Set(rows).size > 1 ? "have" : "has", ...more });
   const oc = spec.own_row_check;
   if (oc) {
     const thr = scopeUpliftOf(items, oc.threshold_input);
@@ -8033,6 +8040,11 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
       const sep = others.filter((l) => vavSeparateRow(oc, e, l)).map((l) => l.row);
       if (!sep.length) continue;
       const base = { extra: e.label, rows: vavRowsNamed(sep) };
+      // VAV-2b1 (rule 4): the own row(s) all 0 / blank on a sheet with VAV quantities -> not charged separately: the extra stays, noted
+      if (oc.zero_rows && allZero(sep) && sheetVavQty > 0) {
+        lines.push(zeroFill(e.presence_only || e.target.attr ? oc.zero_rows.attr_line : oc.zero_rows.line, e.label, sep));
+        continue;
+      }
       // VAV-2a2 (B8; owner 2026-11-20 00:37 "VAV controlers have one to many mapping. one controller for many VAVs. so quantity rule should
       // not be applied here"): an extra `serves.presence_decides` covers (the BACnet over IP controller) is NOT added when the sheet prices it
       // on its own row -- presence decides, no quantity test; the note names the row(s). Every other extra keeps the 90% test.
@@ -8066,7 +8078,13 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
     const chain = [own, ...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ");
     const integ = onSheet.some((l) => vavIntegratorNamed(ic, l.text ?? "")) || vavIntegratorNamed(ic, chain);
     if (integ) {
-      const cab = others.filter((l) => vavCablingRow(ic, l) === "yes").map((l) => l.row);
+      const cab0 = others.filter((l) => vavCablingRow(ic, l) === "yes").map((l) => l.row);
+      // VAV-2b1 (rule 4, owner 21:47 "a"): EVERY cabling row found with 0 / blank metres, on a sheet with VAV quantities -> not charged
+      // separately: the cabling is added as if no cabling row were there, with the quantity-0 line naming the row(s); a sheet where SOME
+      // cabling rows carry metres keeps the 19 Nov rule
+      const cabZero = !!ic.zero_rows && allZero(cab0) && sheetVavQty > 0;
+      if (cabZero) lines.push(zeroFill(ic.zero_rows!.line, ic.family, cab0, { qty: String(scopeUpliftOf(items, ic.qty_input) ?? "-") }));
+      const cab = cabZero ? [] : cab0;
       const isCab = (it: ExtractedListItem) => !isSec(it) && famOf(it) === ic.family;
       const perBox = scopeUpliftOf(items, ic.qty_input);
       if (cab.length) {

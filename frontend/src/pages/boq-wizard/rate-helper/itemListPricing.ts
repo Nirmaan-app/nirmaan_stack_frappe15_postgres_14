@@ -1754,6 +1754,9 @@ export interface OwnRowCheck {
   count_units: string[];
   extras: OwnRowExtra[];
   lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string };
+  /** VAV-2b1 (rule 4, owner 21:05 / 21:47): an own row with quantity 0 / blank on a sheet with VAV quantities is not charged separately.
+   *  ABSENT => presence of the row decides, as VAV-2a built it. */
+  zero_rows?: { line: string; attr_line: string };
   /** VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): a row whose own description names the extra before any box words
    *  counts as that extra's own row (`item_first`), for the extras `extras` names by label (absent = every extra). ABSENT => a row naming
    *  a box is a box row, as VAV-2a built it. */
@@ -1789,6 +1792,8 @@ export interface IntegratorCabling {
   other_equipment_words: string;
   metre_units: string[];
   lines: { added: string; priced_separately: string; low_length: string; input_missing: string };
+  /** VAV-2b1 (rule 4, owner 21:47 "a"): every cabling row 0 / blank metres on a sheet with VAV quantities -> the cabling is added. ABSENT => as before. */
+  zero_rows?: { line: string };
 }
 /**
  * VAV-2a (B6; owner 2026-11-18 23:49 "onl;y dismatling same asinstalltion, dsimatling and refixing 1.5 times, only refixing 0.5 times if

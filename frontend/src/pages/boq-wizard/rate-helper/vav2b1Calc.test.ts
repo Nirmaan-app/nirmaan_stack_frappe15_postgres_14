@@ -27,7 +27,7 @@ describe("AC0 / T2 the Calculator: Add BACnet controller share, type 80 VAVs", (
     expect(v.sections!.adds.flatMap((a) => a.families.map((x) => x.family))).not.toContain("Differential Pressure Switch");
   });
   it("NEGATIVE (chat-Claude 19:40 (ii)): the same Calculator on the v78 config still offers both", () => {
-    const v = calc79(ST, {}, vav79({ drop: ["withdrawn_families", "sheet_shares", "heading", "lower_limit", "serves_also"] })).itemList!;
+    const v = calc79(ST, {}, vav79({ drop: ["withdrawn_families", "sheet_shares", "heading", "lower_limit", "serves_also", "zero_rows"] })).itemList!;
     expect((v.families ?? []).map((x) => x.family)).toContain("BACnet over IP controller");
     expect(v.sections!.adds.flatMap((a) => a.families.map((x) => x.family))).toContain("Differential Pressure Switch");
     expect(v.shares).toBeUndefined();
@@ -168,10 +168,15 @@ describe("B7 / R13 THE SIX INTEGRATOR ROWS FILED MISC: the box prices on the 'In
     expect(SIX.sort()).toEqual(["BOQ-26-00012 'HVAC - Low side' r256", "BOQ-26-00033 'VAV' r90", "BOQ-26-00071 'VAV WORKS' r49", "BOQ-26-00080 'HVAC ' r28",
       "BOQ-26-00140 'HVAC Lowside Works ' r289", "BOQ-26-00440 'VAV' r92"]);
   });
-  it.each(SIX)("POSITIVE (the real row) %s", (ref) => {
+  it.each(SIX)("POSITIVE (the real row) %s: with a quantity -> the box on the 'No' line naming the row; with quantity 0 (00140 r289) -> rule 4 (owner 21:05 / ANSWER 16 rule 3): the box stays on 'Yes', with the quantity-0 note", (ref) => {
     const v = sheet79({ 10: box(5, {}, { integrator_included: "Yes" }), 50: real(ref) })(10).itemList!;
-    expect(v.items[0].fields.find((x) => x.id === "integrator_included")?.value).toBe("No");
-    expect((v.sheetHeadingNotes ?? []).join(" ")).toMatch(/The VAV integrator is priced on its own row of this sheet \(row 50\)/);
+    const zero = !((real(ref).qty ?? 0) > 0);
+    expect(v.items[0].fields.find((x) => x.id === "integrator_included")?.value).toBe(zero ? "Yes" : "No");
+    expect((v.sheetHeadingNotes ?? []).join(" ")).toMatch(zero ? /VAV integrator row 50 has quantity 0, so this box is priced with the integrator included/
+      : /The VAV integrator is priced on its own row of this sheet \(row 50\)/);
+  });
+  it("the quantities of the six real rows as the BoQs have them: 00140 r289 alone is 0", () => {
+    expect(SIX.filter((ref) => !((real(ref).qty ?? 0) > 0))).toEqual(["BOQ-26-00140 'HVAC Lowside Works ' r289"]);
   });
   it.each(SIX)("NEGATIVE (vacuity, the real row) %s with `serves.also` absent -> the box stays on 'Integrator Yes' (what VAV-2a missed)", (ref) => {
     const v = vavSheet({ 10: box(5, {}, { integrator_included: "Yes" }), 50: real(ref) }, { cfg: vav79({ drop: ["serves_also"] }), items: itemsV79() })(10).itemList!;
