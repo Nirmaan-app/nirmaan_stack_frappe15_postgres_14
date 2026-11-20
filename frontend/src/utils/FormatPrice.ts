@@ -95,4 +95,17 @@ export const formatToLakhsNumber = (amount: number | string | undefined): string
   return roundedLakhs.toFixed(2);
 }
 
+/**
+ * A short figure in crores / lakhs: "₹3.23 Cr", "₹4.27 L", "₹45,000" (below a lakh, whole rupees).
+ * Negative values keep their sign; a missing or non-finite value reads "₹0".
+ */
+export const formatToCompactRupee = (value: number | null | undefined): string => {
+  const v = Number.isFinite(value) ? (value as number) : 0;
+  const a = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(2)} Cr`;
+  if (a >= 1e5) return `${sign}₹${(a / 1e5).toFixed(2)} L`;
+  return `${sign}₹${Math.round(a).toLocaleString("en-IN")}`;
+};
+
 export default formatToIndianRupee;
