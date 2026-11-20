@@ -13,7 +13,7 @@
  *   - No flag overlays, no row-detail panel (B2).
  *   - No editing affordances, no mark-as-done wiring (C/D).
  */
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   FrappeConfig,
@@ -213,7 +213,9 @@ const SheetReviewPage = () => {
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });
-  lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
+  useLayoutEffect(() => {
+    lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
+  });
 
   // Clear the takeover flag whenever a FRESH get_draft_lock_info payload reports editable (a
   // Reload / released event re-read found it free / mine / stale). Keyed on the payload identity
