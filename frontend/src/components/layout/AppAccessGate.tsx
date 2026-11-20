@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { Info } from "lucide-react";
@@ -23,11 +23,14 @@ export function AppAccessGate() {
   const navigate = useNavigate();
 
   // Worked out while rendering, not in an effect: the render that first sees the lock must already know whether
-  // to keep the page, or it would redirect before an effect could stop it.
-  const seen = useRef<AccessSeen | null>(null);
-  const grace = useRef<string | null>(null);
-  grace.current = gracePathAfter(seen.current, grace.current, { state, pathname });
-  seen.current = { state, pathname };
+  // to keep the page, or it would redirect before an effect could stop it. Kept as state, adjusted during render
+  // only when the state or path changes (with both unchanged, `gracePathAfter` returns the grace it was given).
+  const [gate, setGate] = useState<{ seen: AccessSeen | null; grace: string | null }>({ seen: null, grace: null });
+  let grace = gate.grace;
+  if (gate.seen === null || gate.seen.state !== state || gate.seen.pathname !== pathname) {
+    grace = gracePathAfter(gate.seen, gate.grace, { state, pathname });
+    setGate({ seen: { state, pathname }, grace });
+  }
 
   if (state === "loading") {
     return (
@@ -40,7 +43,7 @@ export function AppAccessGate() {
   if (state === "open") return <Outlet />;
   if (pathname === "/") return <AccessBlockedCard blockers={blockers} />;
   if (isPathOpen(pathname, user_id, openPaths)) return <Outlet />;
-  if (grace.current === pathname) {
+  if (grace === pathname) {
     return (
       <>
         <div
