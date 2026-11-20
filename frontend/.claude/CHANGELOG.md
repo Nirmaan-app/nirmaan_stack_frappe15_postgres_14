@@ -10,14 +10,15 @@ This file tracks significant changes made by Claude Code sessions.
 table. It now has **Paid** (status Paid, online or a cleared cheque), **Cheque Pending** (a cheque payment at
 Reconciliation Pending: its cheque is Issued, not cleared) and **Other Pending Payments** (Requested, CEO Pending,
 Approved, an online Reconciliation Pending, Rejected). A payment is in exactly one. Each sub-tab has its own columns,
-sort and search; Reference Doc links to the PO / WO and reads (PO) or (WO); Receipt shows "Attached" or "--"; Export
-is on. Counts and ₹ totals cover all the vendor's payments (Rejected are counted but left out of the total).
+sort and search; Reference Doc links to the PO / WO and reads (PO) or (WO); on Paid, the UTR opens its receipt, or
+shows a paperclip that opens the upload dialog when there is none (no separate Receipt column, no Payment ID line);
+Export is on. Counts and ₹ totals cover all the vendor's payments (Rejected are counted but left out of the total).
 
 | File | Change |
 |---|---|
 | `utils/vendorPayments/paymentGroups.ts` (new) + test | The group rule, each sub-tab's filters, the totals, Issued On and days waiting |
 | `pages/vendors/components/VendorPaymentsTabs.tsx` (new) | Sub-tab bar with counts, the total line |
-| `pages/vendors/components/VendorPaymentsTable.tsx` | Per-sub-tab columns; the attach-receipt button and its dialog removed |
+| `pages/vendors/components/VendorPaymentsTable.tsx` | Per-sub-tab columns; receipt kept in the UTR cell (link, or paperclip → `PaymentScreenshotDialog`) |
 | `pages/vendors/vendor.tsx` | The Payments tab shows `VendorPaymentsTabs` |
 
 **Cheques tab** (`c94d7f84a`). A new Vendor page tab: the Cheque Tracker narrowed to that vendor (Vendor / Payee

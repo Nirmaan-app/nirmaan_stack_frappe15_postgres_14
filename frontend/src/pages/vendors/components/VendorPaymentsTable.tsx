@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   DataTable,
@@ -11,7 +11,10 @@ import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import SITEURL from "@/constants/siteURL";
+import { Paperclip } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PaymentScreenshotDialog } from "./PaymentScreenshotDialog";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ChequeChip } from "@/components/cheques/ChequeChip";
@@ -107,10 +110,42 @@ const PaymentChequeOr = ({
   return <ChequeChip cheque={payment.cheque} chequeNo={chip?.cheque_no || payment.cheque_no || ""} status={chip?.status} />;
 };
 
-/** The Payment ID in small grey text, under a row's UTR or cheque. */
-const PaymentIdLine = ({ name }: { name: string }) => (
-  <span className="block text-[11px] font-normal text-muted-foreground">{name}</span>
-);
+/**
+ * A paid payment's UTR and its receipt in one cell: with a receipt, the UTR is a link that opens it; without one,
+ * the UTR is plain text and a paperclip opens the upload dialog (only when there is a UTR to attach it to).
+ */
+const UtrWithReceipt = ({ payment, onAttach }: { payment: ProjectPayments; onAttach: () => void }) => {
+  if (payment.payment_attachment) {
+    return (
+      <a
+        href={`${SITEURL}${payment.payment_attachment}`}
+        target="_blank"
+        rel="noreferrer"
+        className="text-blue-600 hover:underline"
+        title="Open the receipt"
+      >
+        <TruncatedText text={payment.utr} fallback="View receipt" />
+      </a>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <TruncatedText text={payment.utr} fallback="N/A" />
+      {payment.utr && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 p-0 text-primary hover:bg-primary/10"
+          onClick={onAttach}
+          aria-label="Attach the receipt"
+          title="Attach the receipt"
+        >
+          <Paperclip className="h-4 w-4" />
+        </Button>
+      )}
+    </span>
+  );
+};
 
 export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
   vendorId,
@@ -118,6 +153,9 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
   group,
   filters,
 }) => {
+  // The paid payment whose receipt is being attached (the paperclip in its UTR cell).
+  const [attaching, setAttaching] = useState<ProjectPayments | null>(null);
+
   const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => {
     const referenceDoc: ColumnDef<ProjectPayments> = {
       accessorKey: "document_name",
@@ -172,18 +210,10 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
           header: "UTR / Cheque",
           cell: ({ row, table }) => {
             const payment = row.original;
+            const utr = <UtrWithReceipt payment={payment} onAttach={() => setAttaching(payment)} />;
             return (
-              <div className="font-medium min-w-[150px] space-y-0.5">
-                {payment.cheque_no ? (
-                  <PaymentChequeOr
-                    payment={payment}
-                    table={table}
-                    fallback={<TruncatedText text={payment.utr} fallback="N/A" />}
-                  />
-                ) : (
-                  <TruncatedText text={payment.utr} fallback="N/A" />
-                )}
-                <PaymentIdLine name={payment.name} />
+              <div className="font-medium min-w-[150px]">
+                {payment.cheque_no ? <PaymentChequeOr payment={payment} table={table} fallback={utr} /> : utr}
               </div>
             );
           },
@@ -206,27 +236,6 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
           size: 140,
         },
         amount("Amount Paid"),
-        {
-          accessorKey: "payment_attachment",
-          header: "Receipt",
-          enableSorting: false,
-          cell: ({ row }) => {
-            const { payment_attachment } = row.original;
-            if (!payment_attachment) return <span className="text-sm text-muted-foreground">--</span>;
-            return (
-              <a
-                href={`${SITEURL}${payment_attachment}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-green-700 hover:underline"
-              >
-                Attached
-              </a>
-            );
-          },
-          meta: { excludeFromExport: true },
-          size: 130,
-        },
       ];
     }
 
@@ -236,13 +245,12 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
           accessorKey: "cheque_no",
           header: "Cheque",
           cell: ({ row, table }) => (
-            <div className="min-w-[160px] space-y-0.5">
+            <div className="min-w-[160px]">
               <PaymentChequeOr
                 payment={row.original}
                 table={table}
                 fallback={<span className="font-medium">Cheque {row.original.cheque_no}</span>}
               />
-              <PaymentIdLine name={row.original.name} />
             </div>
           ),
           meta: { exportValue: (row: ProjectPayments) => `Cheque ${row.cheque_no ?? ""}` },
@@ -334,6 +342,7 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
     isLoading,
     error,
     totalCount,
+    refetch,
     exportAllRows,
     isExporting,
     searchTerm,
@@ -353,7 +362,8 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
   if (error) return <AlertDestructive error={error} />;
 
   return (
-    <DataTable<ProjectPayments>
+    <>
+      <DataTable<ProjectPayments>
         table={table}
         columns={columns}
         isLoading={isLoading}
@@ -372,6 +382,20 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
         dateFilterColumns={DATE_FILTER_COLUMNS[group]}
         exportFileName={`vendor_payments_${group}_${vendorId}`}
       />
+      {attaching && (
+        <PaymentScreenshotDialog
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) setAttaching(null);
+          }}
+          paymentDoc={attaching}
+          onUploadSuccess={() => {
+            refetch();
+            setAttaching(null);
+          }}
+        />
+      )}
+    </>
   );
 };
 
