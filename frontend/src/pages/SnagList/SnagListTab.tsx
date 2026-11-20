@@ -316,7 +316,10 @@ export function SnagListTab({
     initialState: { columnVisibility: SNAG_INITIAL_COLUMN_VISIBILITY },
   });
 
-  refetchTableRef.current = refetch;
+  // Read only by `handleChanged` (a dialog's after-save callback), never during render.
+  React.useLayoutEffect(() => {
+    refetchTableRef.current = refetch;
+  });
 
   // --- Batch tabs ---
   // Counts come from the `by_batch` split of the ONE stats call this screen already
@@ -405,7 +408,10 @@ export function SnagListTab({
   // selection cannot survive a page / filter / search change without silently
   // re-pointing at different rows. Clear it whenever the visible set moves.
   const tableRef = React.useRef(table);
-  tableRef.current = table;
+  // Read by the effect below and the bulk handler, both after commit.
+  React.useLayoutEffect(() => {
+    tableRef.current = table;
+  });
   const viewKey = `${activeBatch}|${pagination.pageIndex}|${pagination.pageSize}|${searchTerm}|${selectedSearchField}|${JSON.stringify(columnFilters)}`;
   React.useEffect(() => {
     tableRef.current.resetRowSelection();
