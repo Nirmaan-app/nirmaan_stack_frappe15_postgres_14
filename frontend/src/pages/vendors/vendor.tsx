@@ -26,7 +26,7 @@ const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewC
 const VendorAccountCard = React.lazy(() => import("./components/VendorAccountCard"));
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorDeliveryNotesTable = React.lazy(() => import("./components/VendorDeliveryNotesTable"));
-const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
+const VendorPaymentsTabs = React.lazy(() => import("./components/VendorPaymentsTabs"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
@@ -219,7 +219,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     </div>
                 );
             case "vendorPayments":
-                return <VendorPaymentsTable
+                return <VendorPaymentsTabs
                     vendorId={vendorId}
                     projectOptions={projectOptions}
                 />;
