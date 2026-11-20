@@ -5777,3 +5777,99 @@ sensors + 25,000 per panel; install 5,000 per panel; markups 0.4 / 0.6; shared o
 **Known caveats:** the 7-inch line names only the size used ("Band from the inlet size table: 8 inch -> 450-800 CFM"), and the mm
 conversion line runs into the table line with no separator (both as designed and pinned; cosmetic). The replay harness records no scope
 note, so a scope-note wording change is invisible to it (the VR9 strip was shown in the cert instead).
+
+## VAV Box (HVAC v79) - VAV-2b1 (2026-11-20) - the shared items per sheet (BACnet controller, DP sensor, DDC panel), the shared-item block, the quantity-0 own rows, a lower airflow limit, integrator rows filed Misc
+
+Mint `scripts/_instruments/mint_hvac_v79_vav2b1.py` (build / load / verify). The key VALUES and the five new items live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2b1Keys.json`, read by the mint and by the vav2b1* tests (`withV79Keys`,
+`withV79Items` in `vav2b1Keys.harness.ts` apply it to a scratch copy; idempotent on v79). `calculator_only` stays on (VAV-2b2 removes it).
+Code: `vavSheetShares.ts` (pure: the decision, the sums, the edits), `pricingSheetHelper.ts` (`vavSheetSharesOf`, `withdrawnItemsOf`,
+`offeredFamilies`, the quantity-0 branch of `vavSheetRules`), `SharedItemBlock.tsx` (the blocks + `ReviewBlock`).
+
+**What v79 adds** (every v78 item and every other config byte-identical; every model request identical, VAV's included; the eligible
+set unchanged):
+- Items: "DDC Panel/ Controller" (VAV Box sheet, BCS 25,000 + 5,000, 0.4 / 0.6 -> 35,000 + 8,000; owner 15:23 / 15:24); "Duct Static
+  Pressure Sensor - Greystone/Honeywell" (Sensors row 11, BCS 7,650 + 500, 0.4 / 0.8 -> 10,710 + 900; it was not an item before; read
+  directly by the shares, so the Sensors config is unchanged); Pricing Inputs "VAV - VAVs per BACnet controller" 32, "... per DP
+  sensor" 30, "... per DDC panel" 200 (15:23 "yes"). The Differential Pressure Switch stays an item.
+- `list_spec.pricing.sheet_shares` (R1 / R3 / R5 - R8 / R10): per SHEET -
+  - the VAVs = the quantities of its VAV-filed box rows (box family "VAV box": VAV and CAV boxes for new supply incl. a "scope not
+    clear" row; NOT installation-only, existing-box work or other items - N1 - N3); a blank / 0 row counts 0 and the share's note says
+    how many; every box row blank / 0 -> nothing added + the rate-only note (QR-N (b), owner 19:46);
+  - the first match (R7, 15:20): a DDC controller / panel part of the box or its controller (`ddc_inclusive`, or `ddc` = without
+    "inclusive" -> its note, 14:42 / 14:45) -> the DDC panel share; else BACnet -> the BACnet controller share; else a plain
+    controller for the VAVs -> the BACnet share + the "check" note (15:16 / 15:19); else a controller by others -> nothing, noted;
+    the DP sensor share for any DP mention unless DDC (R8, 14:35 - 14:39). The reading is three attributes on the row's box item
+    (`controller_mention`, `controller_by_others`, `dp_sensor_mention`), answered by the model from VAV-2b2;
+  - the sums (14:18 / 14:31 / 14:39 / 15:23): count = VAVs / the Pricing Input, rounded up; BACnet / DP = count x the SKU's quoted
+    supply and install (ROUNDUP(BCS x (1 + markup))); DDC panel = (panels x 25,000 + controllers x 33,000 + sensors x 7,650) BCS
+    x (1 + the panel's supply markup), install panels x 5,000 x (1 + 0.6); per box = total / VAVs, supply and install each rounded to
+    the rupee (P1 f; e.g. 80 VAVs BACnet 1,733 + 120; DP 402 + 34; DDC 2,572 + 100); DDC replaces the BACnet and DP shares;
+  - separate rows (`separate.extras`, the product's `vavSeparateRow` on own_row_check's word tables, item named first): the BACnet
+    controller row; a "controller for the VAVs" row (own words say it controls the VAVs - 20:54 "option a", BOQ-26-00098 r70); an
+    integrator / router row is NOT the controller's row (19:46) unless its own words say it controls the VAVs (20:20 "option b",
+    BOQ-26-00188 r20 / 00393 r21); the DDC panel row; the DP / duct static pressure sensor row whatever it serves (QR-D3 (a); not an
+    air-flow monitoring station or a gauge). A separate row WITH a quantity -> nothing added, the note names it (presence decides, no
+    quantity test); a separate row with quantity 0 / blank on a sheet with VAV quantities -> NOT charged separately, the share is
+    added with the quantity-0 note (21:05 "a, yes").
+- `list_spec.pricing.withdrawn_families` (R2 / R8): "BACnet over IP controller", "Differential Pressure Switch" - no list offers them
+  per box; a model item of either is dropped with a line. A hand-entered one would still price (no screen offers it: a blind spot).
+- `own_row_check.serves.also` ["VAV integrator"] (R13): the item-first test for the integrator too - catches exactly the six
+  Misc-filed integrator rows VAV-2a missed (their descriptions name the VAV boxes after the integrator).
+- `own_row_check.zero_rows` / `integrator_cabling.zero_rows` (rule 4; owner 21:05 "same shold apply to all extras", 21:47 "a",
+  23:30 "option a for boq 140"): an extra's own row with quantity 0 / blank on a sheet whose VAV rows carry a quantity is not charged
+  separately - the per-box extra stays with the quantity-0 line; the integrator row with quantity 0 leaves the box on "Integrator
+  Yes" (BOQ-26-00140 r289); the integrator cabling is added when EVERY cabling row is 0 / blank metres. VAV rows blank / 0 unchanged.
+- `band_from.lower_limit` (R12, 14:10 "1a"): "Above 3200 CFM" -> 3200-4000, "3700 CFM above" -> 4000-8000, with the line and the tag
+  "BoQ gives only a lower limit"; a range is never read so.
+- `combination_warning.heading` "Review before using" (R11, 18:06; screen 7): the warning as the bordered amber block above the row
+  total; a share counts as an extra; the 0.5 stays until the owner re-sets it after the preview.
+- `derivation_reasons`: line 19's reason replaced by the per-sheet first match (R7); new reasons for every new line, each with the
+  owner's words (lesson: each new line shows its OWN reason - pinned).
+
+**The Calculator** (B5, screen 7, 18:39 / 18:41 / 18:44): three add buttons; a block per share - "Number of VAVs on the sheet" (EMPTY
+in the Calculator, pre-filled from the sheet on a BoQ row), "VAVs per ..." (the Pricing Input), the count (worked out; a count changed
+by hand is kept, "changed by you"), every box with its revert; the sum line; "Or type the amount" -> "Amount typed by you"; tags
+"added by the helper" / "added by you"; the edits under the override key `__shares__`. The Calculator and the BoQ row price a share
+through the same `sheetSharesView` (parity tested).
+
+**Load-bearing:** the shares join the row total BEFORE the combination warning (`computeItemList`); the decision runs only on a BoQ
+box row (`vavSheetSharesOf` returns null on the calculator, a non-box row, or without the key); a config without the keys prices as
+v78 (T3, tested on fixtures and in the preview's `no_shares` / `no_zero` variants).
+
+**Owed to VAV-2b2:** the model's three reading attributes and the guidance; the row panel layout; removing `calculator_only`; the
+paid run; re-setting the 50% after the owner reads this slice's preview.
+
+## VAV Box (HVAC v80) - VAV-2b1 K2 (2026-11-21) - the full-rate add, shares only on box rows, the Lot guard
+
+Mint `scripts/_instruments/mint_hvac_v80_vav2b1.py` (= v79 + only this; v79 as loaded 23:48:53 is never re-minted - two files never share a
+number). Keys in ONE file `__fixtures__/vav2b1KeysV80.json` (`withV80Keys` / `withV80Sensors`). No item changes (853).
+- Owner 01:07 / 01:09 "yes for both" / 01:15 / 01:21 "b" + "per unit rate" + "2 yes" / 01:31 / 01:32 + 01:36 "A" / 01:39:
+  - "Add VAV item" = the 6 own families (no plain per-box BACnet controller) + two FULL-RATE entries, "BACnet over IP controller (full
+    rate)" and "DDC Panel/ Controller (full rate)": each inserts the WHOLE (per-unit) mode of its share block (`sheet_shares.whole`) - the
+    same parts and figures, never divided over the boxes; BACnet: VAVs / 32 up controllers x (46,200 + 3,200), 1 controller while no VAVs
+    are typed; DDC: panel x 1 (fixed) + controllers VAVs / 32 up + sensors VAVs / 30 up, cost x (1 + the panel's supply markup), install =
+    the panel's 5,000 x 1.6 (80 VAVs = 2,13,730 per panel). On a BoQ row the VAVs are pre-filled = the sheet's counted VAVs / the row's
+    quantity, rounded up (blank / 0 / 1 -> the sheet's), with its line; the row's quantity enters only that pre-fill (the BoQ multiplies).
+    Every step shows in plain words with the real numbers (01:39).
+  - "Add sensor" = CO2 Sensor + the Duct Static Pressure Sensor (`user_addable`: a withdrawn family a list still offers; a plain item, typed
+    quantity, borrowed live from the Sensors sheet; v80 adds its family to hvac_sensors).
+  - The helper adds none of them (a model-read one is still dropped with its line); the Differential Pressure Switch is offered nowhere.
+  - A share and the full-rate block / item of the same item may sit together: both in the total, the review block counts both, a line under
+    the full-rate one ("... is also on this row. Check that ... is not counted twice.").
+  - Shares only on rows that price VAV boxes (01:16): a row priced per lot (`lot_units`) carries no helper share (`vavSheetOf`; found by
+    the 01:02 check on BOQ-26-00171 r153); the share buttons stay on any VAV-filed row ("b"); a share the USER adds on a row that is not a
+    counted box carries `sheet_shares.lines.not_box_row`.
+  - The DDC panel's own row: an enclosure / cabinet / box / plug top / socket FOR a DDC controller is not it (not_words; own rows 5 -> 2).
+- (c2) a family in `user_addable` is never asked of the model (extraction.build_items_spec leaves it out of a borrowed section's offered list):
+  every model request byte-identical v79 -> v80 except hvac_sensors' own (never sent: borrow-only, not eligible).
+- Load-bearing: `vavSheetOf` returns null without `sheet_shares` (every other category untouched - vav2b1SharedFileGate + the replay);
+  a row with no item line is priced by its full-rate blocks alone only when `sheet_shares.whole` exists (in this slice: the Calculator only -
+  VAV BoQ rows stay "coming soon", and the separate controller rows are filed Misc / Sensors / Panels).
+- K2b (the cert's wording findings): a borrowed section's "kinds offered" lists what its add list offers (a withdrawn, non-user-addable
+  family left out); the block line names the add buttons in the screen's order; the withdrawn line names the user-addable item; a
+  full-rate block says "per unit" ("Or type the amount (per unit)") and shows no "VAVs per panel" box for the fixed panel.
+- The Duct Static Pressure Sensor's rate has no Rate Master page (Sensors is borrow-only); it shows read-only in the Calculator's working
+  lines of the sensor item; no screen to change it was found (searched: the Rate Master category list, the Calculator).
+- Blind spots for VAV-2b2 / VAV-3: a non-box row whose words are misspelt ("exixting") and whose unit is a VAV unit could still be read as a
+  new box (r153 is caught by its Lot unit only); a per-box controller / DP switch state built in code still prices (no screen makes it).

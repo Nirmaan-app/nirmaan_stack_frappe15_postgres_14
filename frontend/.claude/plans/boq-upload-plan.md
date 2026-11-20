@@ -52245,3 +52245,25 @@ QR-A2 (a) a lower limit only ("Above 3200 CFM") -> the next band up with a note 
 the six Misc-filed integrator rows count as integrator rows (YES); the per-sheet BACnet rule (controllers = VAVs on the sheet / 32 rounded
 up, shared over every box; replaces the per-box controller); the DDC panel rule (VAVs / 200 rounded up); the Duct Static Pressure Sensor
 one per 30 boxes. **Not pushed.**
+## Slice VAV-2b1 (desktop) - the VAV shared items per sheet (BACnet controller / DDC panel / DP sensor), the shared-item and "Review before using" blocks, the quantity-0 own rows, the full-rate add, HVAC v79 + v80 - 2026-11-20 / 21
+**Scope:** R1 - R16 of the VAV-2b1 prompt (owner rulings 2026-11-20 14:10 - 19:51), then the owner's rulings during the run: QR-N (b), N1 - N3,
+QR-D2 / QR-D (r70) / QR-D3 (a), rule 4 (an extra's own row with quantity 0 does not count as charged separately; 21:05 / 21:47 / 23:30), and
+2026-11-21 01:07 - 01:39 (the full-rate add of the BACnet controller, DDC panel and Duct Static Pressure Sensor; shares only on rows that price
+VAV boxes; the DDC full rate with its components by the share's formula, per unit; the BoQ-row pre-fill; the separate BACnet row by the
+formula; "explain how the price came"). calculator_only stays ON (VAV BoQ rows "coming soon" until VAV-2b2). No model call, no paid run.
+**Code:** K1 df1667dcd (vavSheetShares.ts, SharedItemBlock.tsx, the shares in pricingSheetHelper / itemListPricing / itemListRuleOrder /
+config_validation, + tests), K1b 8ce6b2e94 (rule 4), K2 6d15674da (HVAC v79 + v80 files and mints, the full-rate (whole, per-unit) mode,
+user_addable, the Lot guard, the not-a-box warning, c2 in extraction.build_items_spec, every PIN as answered, + tests), K2b 9e8d1371b (the
+cert's wording findings: three Derivation sentences and "per unit" on full-rate blocks). All S1-only --no-verify with proof (count 320 = HEAD).
+**Assets:** v79 = v78 + the DDC Panel/ Controller SKU, the Duct Static Pressure Sensor item, three VAVs-per Pricing Inputs and the VAV keys
+(loaded 2026-11-20 23:48:53, rmbulk-4b66bb34b935, after a PROVED backup); v80 = v79 + only the full-rate add (VAV config + the Sensors
+DSP family; 853 items unchanged; loaded 2026-11-21 02:04:52, rmbulk-d53681678a0c, backup vav2a_pre_v80_vav2b1_20261121_020200.dump proved).
+v79 was live on the desktop only. Requests byte-identical v79 -> v80 except hvac_sensors' own (never sent).
+**Proofs:** PF1 the replay 33,346 rows = the P0 baseline byte for byte at K2 and at K2b (ac7 49b20b9a, ac7v2 0f40a9cb); PF2 848 v78 items
+byte-identical in v80, 14 / 16 configs identical, Electrical = v72. Preview (stub, v80): 981 VAV rows, 912 priced, 631 with a share, ROUGH
+15.40 cr (14.90 cr without shares); `2026-11-20_VAV-2b1_Preview.xlsx` (14 tabs incl. Owner review rows, Quantity-0 own rows, Ctrl row no
+longer counted).
+**Tests:** Python K2 set 49 / 49 modules; vitest related 104 / 104 files (5,092 at K2b); tsc 0 new (1,185); oxlint 0. **Cert:** C1 - C12 PASS
+(C1 with three wording lines, fixed in K2b and re-shot); owner cases S1 - S17 in `screenshots\owner_cases\` (five BoQ-row-only cases as notes);
+dev_isolate --verify PASS last. **Owed to VAV-2b2:** the model's three reading attributes; the row panel; removing calculator_only; routing
+the separate controller / DDC / DP rows to the VAV helper; the paid run; the 50% warning share; the misspelt-existing blind spot. **Not pushed.**
