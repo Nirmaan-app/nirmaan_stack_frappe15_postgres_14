@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Imperative handle for reading, undoing or clearing the drawing. */
@@ -103,9 +103,12 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
     // True while the Space bar holds the pen down.
     const spaceRef = useRef(false);
     const onStrokesChangeRef = useRef(onStrokesChange);
-    onStrokesChangeRef.current = onStrokesChange;
     const disabledRef = useRef(disabled);
-    disabledRef.current = disabled;
+    // Read only by event handlers and effects, so updating after commit (before paint) is enough.
+    useLayoutEffect(() => {
+        onStrokesChangeRef.current = onStrokesChange;
+        disabledRef.current = disabled;
+    });
 
     const [penDown, setPenDown] = useState(false);
     // True while the pen is down from a click (writing without holding the button).
