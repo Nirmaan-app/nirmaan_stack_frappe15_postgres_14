@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -850,7 +850,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
     useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
 
-    // The table's rows as of the last render, for `reviseRowSelection` (which runs on click).
+    // The table's rows as of the last commit, for `reviseRowSelection` (which runs on click).
     const rowsRef = useRef<Row<TData>[]>([]);
     const setRevisedRowSelection = useCallback(
         (updater: React.SetStateAction<RowSelectionState>) =>
@@ -908,7 +908,11 @@ export function useServerDataTable<TData extends { name: string }>({
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
-    rowsRef.current = table.getCoreRowModel().rows;
+    // Kept current after each commit (before paint, so a click never sees an older list); only the click reads it.
+    const coreRows = table.getCoreRowModel().rows;
+    useLayoutEffect(() => {
+        rowsRef.current = coreRows;
+    }, [coreRows]);
 
     // NEW: Toggle Item Search
     // const toggleItemSearch = useCallback(() => {
