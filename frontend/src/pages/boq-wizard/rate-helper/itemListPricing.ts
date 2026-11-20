@@ -778,6 +778,10 @@ export interface ItemListPricingSpec {
   sheet_shares?: SheetSharesSpec;
   /** VAV-2b1 (R2 / R8): own families and borrowed families no list offers and no row prices per box any more. ABSENT => as before. */
   withdrawn_families?: string[];
+  /** VAV-2b1 (owner 2026-11-21 01:07 / 01:09 "yes for both"): withdrawn families a list STILL OFFERS, added by the USER at their full
+   *  rate (the helper never adds them; a model-read one is still dropped). `share` = the sheet share of the same item: when both are on
+   *  one entry, `line` shows under the full-rate item. ABSENT => a withdrawn family is offered nowhere (v79). */
+  user_addable?: Array<{ family: string; share?: string; line?: string }>;
   /** VAV-2a2 (B4, the approved mockup): a field's source tag when the BoQ stated it ("from BoQ"), by attribute. ABSENT => no tag. */
   source_tags?: Record<string, string>;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as

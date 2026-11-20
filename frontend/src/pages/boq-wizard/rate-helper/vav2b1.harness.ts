@@ -6,17 +6,20 @@
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
 import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, makePricingSheetHelper, type ItemListSuggestion } from "./pricingSheetHelper";
-import { vav78 } from "./vav2a2.harness";
 import { ITEMS, VAV, surfaceMap, type CalcState } from "./vav1Vav.harness";
 import { boxItem, vavSheet, withInputs, type SheetRow } from "./vav2a.harness";
 import { SHARES_OVERRIDE_KEY, type SharesEditState } from "./vavSheetShares";
-import { KEYS3, REAL, withV79Items, withV79Keys, type V79Over } from "./vav2b1Keys.harness";
+import { KEYS3, KEYS80, REAL, withV79Items, withV79Keys, withV80Keys, withV80Sensors, type V79Over } from "./vav2b1Keys.harness";
+import { V78, assetByName } from "./v78ByName.harness";
 
-export { KEYS3, REAL, withV79Keys, type V79Over };
+export { KEYS3, KEYS80, REAL, withV79Keys, withV80Keys, withV80Sensors, type V79Over };
 type Json = Record<string, unknown>;
 
-/** the newest VAV config with the v78 keys and the next file's keys (a scratch copy) */
-export const vav79 = (over: V79Over = {}) => withV79Keys(vav78(), over);
+/** HVAC v78's VAV config READ BY FILE NAME (sha256 1cabaea4...) -- a scratch copy. VAV-2b1 K2 (PIN 17): the base of `vav79` and the v78
+ *  side of T3, so neither depends on which file is newest (BEFORE: `vav78()` = the newest config + the v78 keys, which on v79 is a hybrid) */
+export const vav78file = (): RateCategoryConfig => structuredClone(V78.byId.get(VAV)!);
+/** the v78 FILE's VAV config with the next file's keys (a scratch copy) = what the v79 mint wrote (pinned in vav2b1Rules) */
+export const vav79 = (over: V79Over = {}) => withV79Keys(vav78file(), over);
 
 /** the items with the next file's new items; `over` sets (or with null removes) a Pricing Input's factor */
 export function itemsV79(items: readonly RateMasterItem[] = withInputs(), over: Record<string, number | null> = {}): RateMasterItem[] {
@@ -57,3 +60,25 @@ export const sheet79 = (rows: Record<number, SheetRow>, over: V79Over = {}, item
   vavSheet(rows, { cfg: vav79(over), items });
 
 export { ITEMS, VAV };
+
+/** VAV-2b1 v80 (owner 2026-11-21 01:07 / 01:09): v79's VAV config + the full-rate add (`withV80Keys`), and the Sensors config with the
+ *  Duct Static Pressure Sensor family (`withV80Sensors`) -- scratch copies of the v79 keys on the v78 FILE, so they run the same before and
+ *  after the v80 mint */
+export const vav80 = (over: Parameters<typeof withV80Keys>[1] = {}) => withV80Keys(vav79(), over);
+/** the v79 FILE (by name, sha256 a5e43564...) -- the base of v80's Sensors config */
+export const V79 = assetByName("rate_master_hvac_all_v79.json", "a5e43564");
+export const sens80 = () => withV80Sensors(structuredClone(V79.byId.get("hvac_sensors")!));
+
+/** the calculator on v80's VAV and Sensors configs */
+export function calc80(state: CalcState, shares: SharesEditState = {}, cfg: RateCategoryConfig = vav80(), items: RateMasterItem[] = itemsV79()): ItemListSuggestion {
+  const m = surfaceMap();
+  m.set(VAV, cfg);
+  m.set("hvac_sensors", sens80());
+  const h = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map(), calculatorSurface: true });
+  return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "Nos",
+    ...(Object.keys(shares).length ? { [SHARES_OVERRIDE_KEY]: JSON.stringify(shares) } : {}) }) as unknown as ItemListSuggestion;
+}
+
+/** a BoQ sheet priced with v80's VAV and Sensors configs */
+export const sheet80 = (rows: Record<number, SheetRow>, over: Parameters<typeof withV80Keys>[1] = {}, items: RateMasterItem[] = itemsV79()) =>
+  vavSheet(rows, { cfg: vav80(over), items, also: [sens80()] });

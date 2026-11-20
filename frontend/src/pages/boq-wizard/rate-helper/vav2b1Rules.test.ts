@@ -8,10 +8,9 @@ import { describe, expect, it } from "vitest";
 import { parseJson } from "@/lib/parseJson";
 import { derivationCoverage } from "../../pricing/rate-master/derivationCoverage";
 import { scopeUses, vavSheetInputIds } from "../../pricing/rate-master/pricingInputReach";
-import { BY_ID, ITEMS, VAV, blk } from "./vav1Vav.harness";
+import { BY_ID, ITEMS, LATEST, VAV, blk } from "./vav1Vav.harness";
 import { boxItem, boqMap, vavSheet } from "./vav2a.harness";
-import { vav78 } from "./vav2a2.harness";
-import { KEYS3, box, calc79, itemsV79, other, vav79 } from "./vav2b1.harness";
+import { KEYS3, V79, box, calc79, itemsV79, other, vav78file, vav79 } from "./vav2b1.harness";
 import { COMING_SOON_REASON, makePricingSheetHelper, buildExtractionByRow } from "./pricingSheetHelper";
 
 type Json = Record<string, unknown>;
@@ -26,7 +25,7 @@ describe("T3 KEY ABSENT = UNCHANGED: with the new keys removed VAV prices as on 
     13: { qty: 4, items: [boxItem(), { vav_item: "BACnet over IP controller", vav_item_as_written: "controller", qty_per_box: "None", scope: "None" },
       { _section: "sensors", sensor: "Differential Pressure Switch", sensor_as_written: "DP switch", qty_per_box: "None" }] } };
   it.each([10, 11, 12, 13])("BoQ row %i: figures, items, notes and fields identical to v78", (r) => {
-    const v78 = vavSheet(ROWS, { cfg: vav78(), items: itemsV79() })(r);
+    const v78 = vavSheet(ROWS, { cfg: vav78file(), items: itemsV79() })(r);
     const off = vavSheet(ROWS, { cfg: vav79(ALL_DROP), items: itemsV79() })(r);
     expect(strip(off)).toEqual(strip(v78));
     expect(off.itemList!.shares).toBeUndefined();
@@ -34,7 +33,13 @@ describe("T3 KEY ABSENT = UNCHANGED: with the new keys removed VAV prices as on 
   it("the Calculator: the C4 case (box + BACnet over IP + thermostat + CO2) = v78's figures with the keys removed", () => {
     const C4 = { items: [blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "No", airflow_cfm: "650" }),
       blk("BACnet over IP controller")], sections: { misc: [blk("Digital Thermostat")], sensors: [blk("CO2 Sensor")] } };
-    expect(strip(calc79(C4, {}, vav79(ALL_DROP)))).toEqual(strip(calc79(C4, {}, vav78())));
+    expect(strip(calc79(C4, {}, vav79(ALL_DROP)))).toEqual(strip(calc79(C4, {}, vav78file())));
+  });
+  it("MINT PARITY: the v79 FILE's VAV config IS the v78 file's + the keys file (TS = the Python mint)", () => {
+    // VAV-2b1 K2 (v80 loaded): BEFORE the newest file was compared (v79 then); v80's own parity is in vav2b1V80
+    if (Number(LATEST.match(/v(\d+)/)![1]) >= 79) expect(V79.byId.get(VAV)).toEqual(vav79());
+    // NEGATIVE: the v78 file itself differs (the keys are not already in it)
+    expect(vav78file()).not.toEqual(vav79());
   });
 });
 
@@ -72,6 +77,19 @@ describe("T4 THE DERIVATION TAB: every rule with its reason, coverage 0 / 0 / 0 
     expect(text).toMatch(/An airflow written as a lower limit only takes the band above/);
     expect(text).toMatch(/A VAV integrator row naming the boxes it serves is the integrator's own row/);
     expect(text).toMatch(/The combination warning is the 'Review before using' block/);
+  });
+  it("C (4) (ANSWER 27): on the NEWEST file's VAV config AS IT IS (v79 once loaded; no v78 keys laid over it) the reasons check finds no DEAD, MISSING, ORPHAN, UNREASONED or WRONG, and line 19 as rewritten shows its OWN reason", () => {
+    if (Number(LATEST.match(/v(\d+)/)![1]) < 79) return;
+    const live = BY_ID.get(VAV)!;
+    const c = derivationCoverage(live, ITEMS, sections);
+    expect([c.missing, c.orphan, c.unreasoned, c.wrong, c.dead]).toEqual([[], [], [], [], []]);
+    const l19 = c.lines.find((l) => l.n === 19)!;
+    expect(l19.title).toBe("Per sheet, the first match decides which controller share the VAV boxes carry");
+    expect(l19.reason).toBe(Object.values(KEYS3.derivation_reasons.replace)[0].why);
+    // VACUITY: a reason no line matches, planted on a copy of the live config -> DEAD names it
+    const planted = structuredClone(live) as unknown as { list_spec: { pricing: { derivation_reasons: Array<{ title: string; why: string }> } } };
+    planted.list_spec.pricing.derivation_reasons.push({ title: "^A line no rule writes", why: "planted" });
+    expect(derivationCoverage(planted as never, ITEMS, sections).dead).toEqual([`reason ${planted.list_spec.pricing.derivation_reasons.length - 1} (^A line no rule writes)`]);   // reasons are numbered from 0
   });
   it("VACUITY (fixture): the sheet_shares key taken out -> its lines leave and line 19 is the v78 line again", () => {
     const off = derivationCoverage(vav79({ drop: ["sheet_shares"] }), itemsV79(), sections);

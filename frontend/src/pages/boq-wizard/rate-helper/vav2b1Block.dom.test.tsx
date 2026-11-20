@@ -65,7 +65,8 @@ describe("B5 the shared-item block in the Calculator (screen 7)", () => {
   it("POSITIVE three add buttons; added -> the block, tag 'added by you', VAVs EMPTY, the reason; type 80 -> 32 / 3 and the sum; revert; amount; remove", () => {
     const el = mountCalculator();
     const adds = q(el, "share-add-buttons")!;
-    expect([...adds.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Add DDC panel share", "Add BACnet controller share", "Add DP sensor share"]);
+    // PIN 18 (ANSWER 26 / 28; screen 7, owner 18:42): BEFORE ["Add DDC panel share", "Add BACnet controller share", "Add DP sensor share"] (the config order)
+    expect([...adds.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Add BACnet controller share", "Add DP sensor share", "Add DDC panel share"]);
     click(q(el, "share-add-bacnet"));
     const blk = () => q(el, "share-block-bacnet")!;
     expect(blk().textContent).toContain("Shared item - BACnet controller share");

@@ -23,6 +23,7 @@ import { vavSeparateRow } from "./pricingSheetHelper";
 import { BY_ID, ITEMS, VAV } from "./vav1Vav.harness";
 import { boxItem, vavSheet, withInputs } from "./vav2a.harness";
 import { KEYS2, vav78 } from "./vav2a2.harness";
+import { V78 } from "./v78ByName.harness";
 
 type Cfg = { category_id: string; list_spec: { sections?: Array<{ category_id?: string }>; pricing: Record<string, unknown> & { derivation_reasons?: Array<{ title?: string; why?: string }> } } };
 const borrowOnly = RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.filter((c) => c.fetch_only === true).map((c) => c.category_id));
@@ -125,8 +126,8 @@ describe("VAV-2a2 B6 - the stricter reasons check: a present-but-WRONG reason fa
     for (const sec of ["misc item", "sensor"]) expect(lines.find((x) => x.title === QTY_TITLE(sec))?.reason, sec).toContain(B7_WHY);
     expect(derivationCoverage(c, ITEMS, secs(c as unknown as Cfg)).wrong).toEqual([]);
   });
-  it("DEAD reasons (review 23:45 point 2): VAV Box on v78 has none; VAV on v77 has one ([14], hidden on 9 / 11)", () => {
-    const c = vav78();
+  it("v78 by name: the per-box controller, withdrawn on v79 - DEAD reasons (review 23:45 point 2): VAV Box on v78 has none; VAV on v77 has one ([14], hidden on 9 / 11)", () => {
+    const c = V78.cfg78();   // VAV-2b1 K2 (ANSWER 27 C (a)): the v78 FILE by name. BEFORE vav78() (the newest config + the v78 keys)
     expect(derivationCoverage(c, ITEMS, secs(c as unknown as Cfg)).dead).toEqual([]);
     const v77 = V77;
     expect(derivationCoverage(v77, ITEMS, secs(v77 as unknown as Cfg)).dead).toEqual(["reason 14 (^The (misc item|sensor) section's quantity per vav item is the count the row names)"]);
@@ -180,12 +181,12 @@ describe("VAV-2a2 B8 - a controller row naming the VAV boxes it serves (QR-C2 (a
     const oc = OC(null);
     expect(vavSeparateRow(oc, EX(oc, "BACnet over IP controller"), line(385, REAL, "No"))).toBe(false);
   });
-  it("panel entry point: box rows with a BACnet controller + the sheet's BMS-integration controller row (qty 0) -> not added, the note names it", () => {
+  it("v78 by name: the per-box controller, withdrawn on v79 - panel entry point: box rows with a BACnet controller + the sheet's BMS-integration controller row (qty 0) -> not added, the note names it", () => {
     const box = boxItem({ cfm_range: null, airflow_cfm: "650", inlet_size: "None" });
     const sheet = vavSheet({
       30: { text: "VAV box 650 CFM", qty: 10, items: [box, { vav_item: "BACnet over IP controller", vav_item_as_written: "BACnet controller", qty_per_box: "None", scope: "None" }] },
       385: { text: REAL, qty: 0, unit: "No", category: "hvac_misc" },
-    }, { cfg: vav78(), items: withInputs() });
+    }, { cfg: V78.cfg78(), items: withInputs() });   // VAV-2b1 K2 (ANSWER 27 C (a)): the v78 FILE by name. BEFORE cfg: vav78()
     const s = sheet(30);
     // the row also names an integrator, so VAV-2a's cabling rule adds its 2 m (no VAV cabling row on this sheet) -- unchanged
     expect(s.itemList?.items?.map((b) => b.family)).not.toContain("BACnet over IP controller");
@@ -197,23 +198,24 @@ describe("VAV-2a2 B8 - the controller's own row decides by PRESENCE (owner 2026-
   const ROW47 = "Supply, Installation and Testing of controller for BACNet integration above VAV Boxes with BMS. Controller should be suitable to be integrated with minimum 18Nos. of VAV Boxes.";
   const box = () => boxItem({ cfm_range: null, airflow_cfm: "650", inlet_size: "None" });
   const ctl = () => ({ vav_item: "BACnet over IP controller", vav_item_as_written: "BACnet controller", qty_per_box: "None", scope: "None" });
-  const sheet355 = (q47: number, cfg = vav78()) => vavSheet({
+  // VAV-2b1 K2 (ANSWER 27 C (a)): the v78 FILE by name (the three 00355 tests). BEFORE cfg = vav78()
+  const sheet355 = (q47: number, cfg = V78.cfg78()) => vavSheet({
     13: { text: "VAV box 650 CFM", qty: 1, items: [box(), ctl()] }, 14: { text: "VAV box 650 CFM", qty: 2, items: [box(), ctl()] },
     15: { text: "VAV box 650 CFM", qty: 1, items: [box(), ctl()] }, 16: { text: "VAV box 650 CFM", qty: 1, items: [box(), ctl()] },
     47: { text: ROW47, qty: q47, unit: "No", category: "hvac_misc" },
   }, { cfg, items: withInputs() });
-  it("BOQ-26-00355 'VAV BOX' (row 47 quantity 1 against 5 boxes): the controller is NOT added, the note names row 47", () => {
+  it("v78 by name: the per-box controller, withdrawn on v79 - BOQ-26-00355 'VAV BOX' (row 47 quantity 1 against 5 boxes): the controller is NOT added, the note names row 47", () => {
     const s = sheet355(1)(13);
     expect(s.itemList?.items?.map((b) => b.family)).toEqual(["VAV box"]);
     expect(JSON.stringify(s.itemList)).toContain("BACnet over IP controller is priced on its own row of this sheet (row 47) - not added to this row");
   });
-  it("BOQ-26-00355 'HVAC -1 Flr' (row 47 quantity 0): the controller is NOT added, the note names row 47", () => {
+  it("v78 by name: the per-box controller, withdrawn on v79 - BOQ-26-00355 'HVAC -1 Flr' (row 47 quantity 0): the controller is NOT added, the note names row 47", () => {
     const s = sheet355(0)(14);
     expect(s.itemList?.items?.map((b) => b.family)).toEqual(["VAV box"]);
     expect(JSON.stringify(s.itemList)).toContain("(row 47) - not added to this row");
   });
-  it("BOTH BEHAVIOURS (one config value): presence_decides off -> the quantity test as VAV-2a (1 of 5 = 20% < 90%: added, 'possible double counting')", () => {
-    const off = vav78({ serves: { item_first: true, extras: ["BACnet over IP controller"], presence_decides: false } });
+  it("v78 by name: the per-box controller, withdrawn on v79 - BOTH BEHAVIOURS (one config value): presence_decides off -> the quantity test as VAV-2a (1 of 5 = 20% < 90%: added, 'possible double counting')", () => {
+    const off = V78.cfg78({ serves: { item_first: true, extras: ["BACnet over IP controller"], presence_decides: false } });   // BEFORE vav78({...})
     const s = sheet355(1, off)(13);
     expect(s.itemList?.items?.map((b) => b.family)).toEqual(["VAV box", "BACnet over IP controller"]);
     expect(JSON.stringify(s.itemList)).toContain("BACnet over IP controller added - possible double counting - also priced in row 47.");
@@ -225,15 +227,15 @@ describe("VAV-2a2 B8 - the controller's own row decides by PRESENCE (owner 2026-
     }, { cfg: vav78(), items: withInputs() })(30);
     expect(JSON.stringify(s.itemList)).toContain("Digital thermostat added - possible double counting - also priced in row 31.");
   });
-  it("NEGATIVE: a box row never counts as the controller's row, presence or not", () => {
+  it("v78 by name: the per-box controller, withdrawn on v79 - NEGATIVE: a box row never counts as the controller's row, presence or not", () => {
     const s = vavSheet({
       30: { text: "VAV box 650 CFM", qty: 10, items: [box(), ctl()] },
       31: { text: "Installation of VAV Units with BACnet controller", qty: 10 },
-    }, { cfg: vav78(), items: withInputs() })(30);
+    }, { cfg: V78.cfg78(), items: withInputs() })(30);   // VAV-2b1 K2 (ANSWER 27 C (a)): the v78 FILE by name. BEFORE cfg: vav78()
     expect(s.itemList?.items?.map((b) => b.family)).toEqual(["VAV box", "BACnet over IP controller"]);
   });
-  it("the Derivation tab states it, with its own reason (R10)", () => {
-    const l = linesOf(vav78()).find((x) => /^A BACnet over IP controller priced on its own row of the sheet is not added to the boxes/.test(x.title));
+  it("v78 by name: the per-box controller, withdrawn on v79 - the Derivation tab states it, with its own reason (R10)", () => {
+    const l = linesOf(V78.cfg78()).find((x) => /^A BACnet over IP controller priced on its own row of the sheet is not added to the boxes/.test(x.title));   // BEFORE linesOf(vav78())
     expect(l).toBeTruthy();
     expect(l!.reason).toContain("one controller for many VAVs, so the quantity rule is not applied (owner 2026-11-20 00:37)");
   });

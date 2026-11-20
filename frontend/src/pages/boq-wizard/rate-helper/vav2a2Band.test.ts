@@ -10,6 +10,7 @@ import { bandForCfm, bandOf, readAirflowCfm, readInletSize, type BandFrom } from
 import { TAB, blk, tabEntry } from "./vav1Vav.harness";
 import { boxItem, calcWith, tot as sheetTot, vavSheet } from "./vav2a.harness";
 import { KEYS2, cfmInside, tabEntryTyped, vav78 } from "./vav2a2.harness";
+import { V78 } from "./v78ByName.harness";
 
 const BF = KEYS2.pricing.band_from as unknown as BandFrom;
 const L = BF.lines;
@@ -216,7 +217,7 @@ describe("VAV-2a2 B3 - the CFM-or-inlet entry in the calculator (the panel's sha
     expect(reason(calc78([box({ airflow_cfm: "9000" })]))).toContain("9000 CFM is above the largest box on the sheet");
   });
   it("C6 through the CFM entry: box + BACnet over IP + thermostat + CO2 = 83,930 + 7,000 with the combination warning", () => {
-    const s = calc78([box({ airflow_cfm: "650" }), blk("BACnet over IP controller")], { misc: [blk("Digital Thermostat")], sensors: [blk("CO2 Sensor")] });
+    const s = V78.calc78([box({ airflow_cfm: "650" }), blk("BACnet over IP controller")], { misc: [blk("Digital Thermostat")], sensors: [blk("CO2 Sensor")] });
     expect(tot(s)).toEqual([83930, 7000]);
     expect(s.itemList?.combinationWarning).toBe("This rate combines the box with 3 extras (Rs 66,130 of Rs 90,930). Review each item before using.");
   });

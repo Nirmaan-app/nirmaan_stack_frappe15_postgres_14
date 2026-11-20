@@ -56,6 +56,29 @@ export interface SheetShareDef {
   replaces_line?: string;
 }
 
+/** VAV-2b1 v80: one full-rate (whole, per unit) entry of a share. */
+export interface ShareWholeDef {
+  /** its key in the edit state ("bacnet_whole") */
+  key: string;
+  /** the share whose parts and sums it uses */
+  share: string;
+  /** the item-list entry ("BACnet over IP controller (full rate)") */
+  label: string;
+  heading: string;
+  /** one unit of the row ("controller", "panel") -- the pre-fill line */
+  unit_word: string;
+  /** parts whose count is fixed, not worked out from the VAVs (DDC: the panel inside is always 1, owner 01:22) */
+  fixed?: Record<string, number>;
+  /** the count of each worked-out part while no VAV count is known (BACnet: 1, owner 01:36 "A" -- the user types it) */
+  count_without_vavs?: number;
+  /** on a BoQ row with a quantity above 1: "{V} VAVs on the sheet / {q} {unit}s on this row = {n} per {unit}" */
+  prefill_line: string;
+  /** under this block when the share of the same item is also on the entry */
+  line?: string;
+  /** " per unit" */
+  per_unit: string;
+}
+
 /** The separate-row tests, one list per share kind (the `OwnRowExtra` shape, run by the product's `vavSeparateRow`). */
 export interface ShareSeparateRows {
   extras: Array<{ share: string; label: string; words: string; needs_vav?: boolean; not_words?: string; near_words?: string;
@@ -81,7 +104,12 @@ export interface SheetSharesSpec {
   labels: { vavs: string; count_suffix: string; typed: string; typed_supply: string; typed_install: string; amount_typed: string;
     tag_helper: string; tag_user: string; from_sheet: string; typed_by_you: string; changed_by_you: string; from_input: string;
     worked_out: string; need_vavs: string; no_sku: string; per_box: string };
-  lines: { not_added: string; check: string; ddc_not_inclusive: string; by_others: string; rate_only: string; blank_rows: string; zero_row: string };
+  /** VAV-2b1 v80 (owner 2026-11-21 01:07 / 01:21 / 01:31 / 01:32 "A"): the FULL-RATE, per-unit mode of a share -- the same parts and sums, NOT
+   *  divided over the boxes; added by the USER from the item list (never by the helper). ABSENT => no full-rate entries. */
+  whole?: ShareWholeDef[];
+  lines: { not_added: string; check: string; ddc_not_inclusive: string; by_others: string; rate_only: string; blank_rows: string; zero_row: string;
+    /** VAV-2b1 v80 (owner 01:16 + his "b" 01:21): under a share the USER adds on a BoQ row that is not a counted VAV box row. ABSENT => none */
+    not_box_row?: string };
 }
 
 /** The pricer's edits to ONE share block (the panel keeps them under `SHARES_OVERRIDE_KEY`, row-scoped). */
@@ -160,6 +188,16 @@ const rowsNamed = (rows: readonly number[]) => {
 /** A share's separate rows on the sheet: those with a quantity above 0 (charged separately) and those with quantity 0 / blank. */
 export type SeparateRows = Readonly<Record<string, { charged: readonly number[]; zero: readonly number[] } | readonly number[]>>;
 
+/** VAV-2b1 v80. PURE. The sheet's VAVs as the decision counts them (counted rows' quantities; null = none counted, or every counted row
+ *  blank / 0, or "sheet_off" with a blank one) -- also the full-rate blocks' pre-fill on a row that is not itself a counted box. */
+export function sheetVavsOf(spec: SheetSharesSpec, rows: readonly SheetVavRow[]): number | null {
+  const boxes = rows.filter((r) => r.counted);
+  const blank = boxes.filter((r) => !(typeof r.qty === "number" && r.qty > 0));
+  const sum = boxes.reduce((a, r) => a + (typeof r.qty === "number" && r.qty > 0 ? r.qty : 0), 0);
+  const off = boxes.length > 0 && (blank.length === boxes.length || (spec.count.blank === "sheet_off" && blank.length > 0));
+  return boxes.length && !off ? sum : null;
+}
+
 /**
  * VAV-2b1 (B1 / B2). PURE. The sheet's decision: the VAVs, then the first match (DDC, else BACnet, else a plain controller, else by
  * others / nothing), each against its separate rows (`separate[share]`: presence decides for a row with a quantity above 0; a row with
@@ -233,6 +271,8 @@ export interface SharedItemView {
 export interface SharesView {
   blocks: SharedItemView[];
   adds: Array<{ id: string; label: string }>;
+  /** VAV-2b1 v80: the full-rate entries the item list offers (each inserts its whole block) */
+  wholeAdds: Array<{ id: string; label: string }>;
   editState: SharesEditState;
   /** the priced blocks' per-box figures added up */
   totals: { supply_rate: number; install_rate: number };
@@ -271,7 +311,9 @@ export function skuUnitFigures(it: RateMasterItem): { supply: number; install: n
  * (live). A share whose number of VAVs is unknown prices nothing (the row total does not wait for it).
  */
 export function sheetSharesView(spec: SheetSharesSpec, decision: SheetShareDecision | null, edits: SharesEditState,
-  items: readonly RateMasterItem[], inputOf: (id: string) => number | null): SharesView {
+  items: readonly RateMasterItem[], inputOf: (id: string) => number | null,
+  /** VAV-2b1 v80: on a BoQ row, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
+  row?: { sheetVavs: number | null; qty: number | null }): SharesView {
   const L = spec.labels;
   const helperIds = new Set(decision?.add ?? []);
   let active = spec.shares.filter((s) => (helperIds.has(s.id) && !edits[s.id]?.removed) || (edits[s.id]?.added && !edits[s.id]?.removed));
@@ -279,11 +321,24 @@ export function sheetSharesView(spec: SheetSharesSpec, decision: SheetShareDecis
   active = active.filter((s) => !replaced.has(s.id));
   const blocks = active.map((s) => priceShare(spec, s, helperIds.has(s.id) && !edits[s.id]?.added ? "helper" : "user",
     decision?.vavs ?? null, decision?.shareNotes?.[s.id] ?? [], edits[s.id] ?? {}, items, inputOf));
+  // VAV-2b1 v80: the full-rate (whole, per unit) blocks the user added, after the shares
+  const shareIds = new Set(active.map((s) => s.id));
+  for (const w of spec.whole ?? []) {
+    const e = edits[w.key];
+    const s = spec.shares.find((x) => x.id === w.share);
+    if (!s || !e?.added || e.removed) continue;
+    blocks.push(priceShare(spec, s, "user", null, [], e, items, inputOf, { w, row: row ?? null, shareOn: shareIds.has(s.id) }));
+  }
   const priced = blocks.filter((b) => b.figures);
   const activeIds = new Set(active.map((s) => s.id));
   return {
     blocks,
-    adds: spec.shares.filter((s) => !activeIds.has(s.id) && !replaced.has(s.id)).map((s) => ({ id: s.id, label: s.add_label })),
+    // the add buttons in screen 7's order (owner 2026-11-20 18:42; ANSWER 26 / 28): a share that REPLACES others (DDC) is listed after the
+    // ones it replaces -- a display order only, read from the config's own `replaces`; the first match (DDC, BACnet, plain) is untouched
+    adds: spec.shares.filter((s) => !activeIds.has(s.id) && !replaced.has(s.id))
+      .sort((a, b) => Number((a.replaces?.length ?? 0) > 0) - Number((b.replaces?.length ?? 0) > 0))
+      .map((s) => ({ id: s.id, label: s.add_label })),
+    wholeAdds: (spec.whole ?? []).filter((w) => !(edits[w.key]?.added && !edits[w.key]?.removed)).map((w) => ({ id: w.key, label: w.label })),
     editState: edits,
     totals: { supply_rate: priced.reduce((a, b) => a + b.figures!.supply_rate, 0), install_rate: priced.reduce((a, b) => a + b.figures!.install_rate, 0) },
     priced: priced.length,
@@ -292,11 +347,26 @@ export function sheetSharesView(spec: SheetSharesSpec, decision: SheetShareDecis
   };
 }
 
-function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | "user", sheetVavs: number | null, notes: string[],
-  e: ShareEdit, items: readonly RateMasterItem[], inputOf: (id: string) => number | null): SharedItemView {
+type WholeMode = { w: ShareWholeDef; row: { sheetVavs: number | null; qty: number | null } | null; shareOn: boolean };
+
+function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | "user", sheetVavs0: number | null, notes0: string[],
+  e: ShareEdit, items: readonly RateMasterItem[], inputOf: (id: string) => number | null, whole?: WholeMode): SharedItemView {
   const L = spec.labels;
   const set = e.set ?? {};
   const typedV = num(set.vavs);
+  // VAV-2b1 v80 (owner 01:31 "yes"): a full-rate block on a BoQ row pre-fills its VAVs = the sheet's VAVs / the row's quantity, rounded up
+  // (quantity blank / 0 / 1 -> the sheet's); the Calculator starts empty
+  const notes = [...notes0];
+  let sheetVavs = sheetVavs0;
+  let prefillLine: string | null = null;
+  if (whole) {
+    const sv = whole.row?.sheetVavs ?? null, q = whole.row?.qty ?? null;
+    sheetVavs = sv !== null && sv > 0 ? (q !== null && q > 1 ? up(sv / q) : sv) : null;
+    if (sheetVavs !== null && q !== null && q > 1 && typedV === null) {
+      prefillLine = fill(whole.w.prefill_line, { V: sv as number, q, n: sheetVavs, unit: whole.w.unit_word });
+    }
+    if (whole.shareOn && whole.w.line) notes.push(whole.w.line);
+  }
   const vavs = typedV ?? sheetVavs;
   const fields: ShareFieldView[] = [];
   const srcLabel = (src: ShareFieldView["source"]) => ({ sheet: L.from_sheet, typed: L.typed_by_you, changed: L.changed_by_you,
@@ -310,14 +380,18 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
     const per = typedPer ?? inputPer;
     field(`${p.id}_per`, p.per_label, per, typedPer !== null ? "changed" : per !== null ? "input" : "none", set[`${p.id}_per`] !== undefined);
     const typedCount = num(set[`${p.id}_count`]);
-    const count = typedCount ?? (vavs !== null && vavs > 0 && per !== null && per > 0 ? up(vavs / per) : null);
+    const fixed = whole?.w.fixed?.[p.id];
+    const count = typedCount ?? (fixed !== undefined ? fixed : vavs !== null && vavs > 0 && per !== null && per > 0 ? up(vavs / per)
+      : whole && whole.w.count_without_vavs !== undefined ? whole.w.count_without_vavs : null);
     field(`${p.id}_count`, `${p.label}${L.count_suffix}`, count, typedCount !== null ? "changed" : count !== null ? "worked_out" : "none", set[`${p.id}_count`] !== undefined);
-    return { p, count, sku: shareSkuOf(items, p.sku) };
+    return { p, count, sku: shareSkuOf(items, p.sku), per, typed: typedCount !== null, fixed: fixed !== undefined };
   });
   const amount = { supply: e.amount?.supply ?? "", install: e.amount?.install ?? "" };
-  const base = { id: s.id, heading: s.heading, label: s.label, origin, tag: origin === "helper" ? L.tag_helper : L.tag_user, fields, notes,
-    amount, ...(s.replaces_line ? { replacesLine: s.replaces_line } : {}) };
-  const calc = shareSum(s, parts, vavs, L);
+  const base = whole
+    ? { id: whole.w.key, heading: whole.w.heading, label: whole.w.label, origin, tag: L.tag_user, fields, notes, amount }
+    : { id: s.id, heading: s.heading, label: s.label, origin, tag: origin === "helper" ? L.tag_helper : L.tag_user, fields, notes,
+      amount, ...(s.replaces_line ? { replacesLine: s.replaces_line } : {}) };
+  const calc = shareSum(s, parts, vavs, L, whole ? { w: whole.w, prefillLine } : undefined);
   // a typed final amount (per box) replaces the sum line (18:44 "yes to all"); a side left blank keeps the worked-out figure
   const ts = num(e.amount?.supply), ti = num(e.amount?.install);
   if (ts !== null || ti !== null) {
@@ -327,13 +401,55 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
   return { ...base, amountTyped: false, ...calc };
 }
 
-type PricedPart = { p: SharePart; count: number | null; sku: RateMasterItem | null };
+type PricedPart = { p: SharePart; count: number | null; sku: RateMasterItem | null; per?: number | null; typed?: boolean; fixed?: boolean };
+
+/** VAV-2b1 v80 (owner 01:21 / 01:22 / 01:36 "A"; 01:39 "the helper panel should explain how the price came"). PURE. A full-rate block's
+ *  sum, every step in plain words with the real numbers: the VAVs per unit (the pre-fill, on a row), each count from the VAVs, cost and
+ *  quoted figures labelled, the markup shown -- PER UNIT, never divided over the boxes. DDC: (panel x 1 + controllers + sensors) cost x
+ *  (1 + the panel's markup) = supply; the panel's installation x (1 + its markup) = installation (the controllers' and sensors' installation
+ *  is in the panel's). */
+function wholeSum(s: SheetShareDef, parts: readonly PricedPart[], vavs: number | null, L: SheetSharesSpec["labels"], w: ShareWholeDef,
+  prefillLine: string | null): { figures: { supply_rate: number; install_rate: number } | null; sumLines: string[]; reason?: string } {
+  if (parts.some((x) => x.count === null)) return { sumLines: prefillLine ? [prefillLine] : [], figures: null, reason: L.need_vavs };
+  const word = (x: PricedPart) => { const l = x.p.label.toLowerCase(); return x.count === 1 ? l.replace(/s$/, "") : l; };
+  const one = (x: PricedPart) => x.p.label.toLowerCase().replace(/s$/, "");
+  const countStep = (x: PricedPart) => x.fixed || x.typed || vavs === null || !(vavs > 0) || !x.per
+    ? `${x.count} ${word(x)}${x.typed ? ` (${L.changed_by_you.toLowerCase()})` : x.fixed ? "" : vavs === null ? " (type the number of VAVs to work it out)" : ""}`
+    : `${vavs} VAVs / ${x.per} per ${one(x)} = ${x.count} ${word(x)} (rounded up)`;
+  const lines: string[] = prefillLine ? [prefillLine] : [];
+  if (s.bcs_of) {
+    const own = parts.find((x) => x.p.id === s.bcs_of)!;
+    const ou = skuUnitFigures(own.sku!);
+    let bcsS = 0;
+    for (const x of parts) {
+      const c = skuUnitFigures(x.sku!).bcsSupply;
+      bcsS += (x.count as number) * c;
+      lines.push(x === own ? `${countStep(x)} x ${fig(c)} cost = ${fig((x.count as number) * c)}`
+        : `${countStep(x)} x ${fig(c)} cost = ${fig((x.count as number) * c)} (their installation is in the ${one(own)}'s ${fig(ou.bcsInstall)})`);
+    }
+    const bcsI = (own.count as number) * ou.bcsInstall;
+    const qs = up(bcsS * (1 + ou.ms)), qi = up(bcsI * (1 + ou.mi));
+    lines.push(`cost ${fig(bcsS)} x ${1 + ou.ms} = ${fig(qs)} supply`);
+    lines.push(`installation ${own.count} ${word(own)} x ${fig(ou.bcsInstall)} cost x ${1 + ou.mi} = ${fig(qi)}`);
+    lines.push(`= ${fig(qs)} + ${fig(qi)} = ${fig(qs + qi)} per ${w.unit_word}`);
+    return { figures: { supply_rate: qs, install_rate: qi }, sumLines: lines };
+  }
+  const x = parts[0];
+  const u = skuUnitFigures(x.sku!);
+  const ts = (x.count as number) * u.supply, ti = (x.count as number) * u.install;
+  lines.push(countStep(x));
+  lines.push(`${x.count} x ${fig(u.supply)} supply + ${x.count} x ${fig(u.install)} installation = ${fig(ts)} + ${fig(ti)} = ${fig(ts + ti)}${w.per_unit}`);
+  lines.push(`(one ${one(x)}: ${fig(u.bcsSupply)} cost x ${1 + u.ms} = ${fig(u.supply)} supply; ${fig(u.bcsInstall)} cost x ${1 + u.mi} = ${fig(u.install)} installation)`);
+  return { figures: { supply_rate: ts, install_rate: ti }, sumLines: lines };
+}
 
 /** PURE. The sum of one share (or why it cannot be worked out yet). */
-function shareSum(s: SheetShareDef, parts: readonly PricedPart[], vavs: number | null, L: SheetSharesSpec["labels"]):
+function shareSum(s: SheetShareDef, parts: readonly PricedPart[], vavs: number | null, L: SheetSharesSpec["labels"],
+  w?: { w: ShareWholeDef; prefillLine: string | null }):
   { figures: { supply_rate: number; install_rate: number } | null; sumLines: string[]; reason?: string } {
   const missingSku = parts.find((x) => !x.sku);
   if (missingSku) return { sumLines: [], figures: null, reason: fill(L.no_sku, { item: missingSku.p.sku.value }) };
+  if (w) return wholeSum(s, parts, vavs, L, w.w, w.prefillLine);
   if (vavs === null || !(vavs > 0) || parts.some((x) => x.count === null)) {
     return { sumLines: [], figures: null, reason: L.need_vavs };
   }

@@ -47,7 +47,11 @@ describe(`VAV-1 T1 parity on ${LATEST}: the VAV Box tab, 86 lines, product = tab
     expect(tot(calc({ items: [blk("Conical piece")] }))).toEqual([1680, 0]);
     expect(tot(calc({ items: [blk("Integrator cabling")] }))).toEqual([196, 0]);
     expect(tot(calc({ items: [blk("VAV installation - any size")] }))).toEqual([0, 2400]);
-    expect(VAV_ITEMS.length).toBe(91);
+    // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE 91 -- + the "DDC Panel/ Controller" (owner 2026-11-20 15:23 / 15:24),
+    // priced only as the DDC panel share (vav2b1Shares), never per box: its own stored figures 25,000 + 5,000 BCS at 0.4 / 0.6
+    expect(VAV_ITEMS.length).toBe(92);
+    const ddc = VAV_ITEMS.find((i) => i.attributes.vav_item === "DDC Panel/ Controller");
+    expect([ddc?.rates.cost_supply, ddc?.rates.cost_install, ddc?.rates.supply_markup, ddc?.rates.install_markup]).toEqual([25000, 5000, 0.4, 0.6]);
     expect(VAV_ITEMS.find((i) => i.attributes.vav_item === "Integrator cabling")?.unit).toBe("Mtr");
   });
 });
@@ -116,7 +120,8 @@ describe(`VAV-1 T4 live borrow on ${LATEST}: no second copy`, () => {
       expect(bf.bands!.map((b) => b.value)).toEqual(edges.slice(1).map((m, i) => `${edges[i]}-${m}`));
       expect(bf.inlet_table!.map((r) => [r.inch, r.band])).toEqual([6, 8, 10, 12, 14, 16, 24].map((inch, i) => [inch, bf.bands![i].value]));
       // ... and band_from holds no other number than its declared mm per inch, and only its declared keys
-      expect(Object.keys(bf).sort()).toEqual(["airflow_attr", "attr", "bands", "edge", "families", "group", "inlet_attr", "inlet_table", "lines", "mm_per_inch", "tags"]);
+      // VAV-2b1 K2 (HVAC v79; mechanical authority): + "lower_limit" (owner 2026-11-20 14:10 "1a"; words / line / tag, no number). BEFORE the 11 keys without it
+      expect(Object.keys(bf).sort()).toEqual(["airflow_attr", "attr", "bands", "edge", "families", "group", "inlet_attr", "inlet_table", "lines", "lower_limit", "mm_per_inch", "tags"]);
       const rest = JSON.stringify({ ...bf, bands: null, inlet_table: null, mm_per_inch: null });
       expect(rest.match(/\d+(?:\.\d+)?/g) ?? []).toEqual(["25.4"]);
       expect(bf.mm_per_inch).toBe(25.4);
@@ -125,9 +130,49 @@ describe(`VAV-1 T4 live borrow on ${LATEST}: no second copy`, () => {
       (bad.band_from as { lines: Record<string, string> }).lines.crosses += " 4200";
       expect(hits(scanned(bad))).toEqual(["4200"]);
     }
+    // VAV-2b1 K2 (PIN 12, ANSWER 27 condition (ii)): the scan has NO skipped path for the v79 keys -- sheet_shares and withdrawn_families
+    // are scanned like every other key (condition (i): the skip list is band_from's two declared data keys only, above). VACUITY x 2:
+    // a borrowed figure planted beside a name in withdrawn_families, and one inside a share part's SKU name, each goes red
+    const pr79 = pricingOf(cfg) as { withdrawn_families?: string[]; sheet_shares?: { shares: Array<{ parts: Array<{ sku?: { value?: string } }> }> } };
+    if (pr79.withdrawn_families && pr79.sheet_shares) {
+      const a = structuredClone(pricingOf(cfg)) as typeof pr79;
+      a.withdrawn_families!.push("2170");
+      expect(hits(scanned(a as Record<string, unknown>))).toEqual(["2170"]);
+      const b = structuredClone(pricingOf(cfg)) as typeof pr79;
+      const part = b.sheet_shares!.shares.flatMap((s) => s.parts).find((p) => p.sku?.value)!;
+      part.sku!.value += " 11130";
+      expect(hits(scanned(b as Record<string, unknown>))).toEqual(["11130"]);
+      // condition (iii): the three counts are READ from the Pricing Inputs -- each share part names an input id; no 32 / 30 / 200 is held
+      const ss = JSON.stringify(pr79.sheet_shares);
+      // the NUMBER leaves only (a word table's regex holds quantifiers such as {0,30}, which are not counts -- found on v80's DDC words)
+      // ANSWER 45 (a): a NUMBER leaf, or a leaf whose WHOLE string is a bare number ("32", " 200 "), is a count held in the config; a number
+      // inside a longer string or a regex is not
+      const counts = (root: unknown): number[] => {
+        const out: number[] = [];
+        const walk = (o: unknown): void => {
+          if (typeof o === "number") out.push(o);
+          else if (typeof o === "string" && /^\s*\d+(\.\d+)?\s*$/.test(o)) out.push(Number(o));
+          else if (o && typeof o === "object") Object.values(o).forEach(walk);
+        };
+        walk(root);
+        return out.filter((x) => x === 32 || x === 30 || x === 200);
+      };
+      expect(counts(pr79.sheet_shares)).toEqual([]);
+      // VACUITY x 2: a number leaf 32 and a string leaf "200" planted in a copy -> both seen
+      const plant = structuredClone(pr79.sheet_shares) as unknown as { labels: Record<string, unknown> };
+      plant.labels.planted_number = 32;
+      plant.labels.planted_string = " 200 ";
+      expect(counts(plant).sort()).toEqual([200, 32].sort());
+      expect(ss).toContain("vav_vavs_per_bacnet_controller");
+      expect(ss).toContain("vav_vavs_per_dp_sensor");
+      expect(ss).toContain("vav_vavs_per_ddc_panel");
+    }
     // the borrowed items are the Misc / Sensors items themselves
     expect(ITEMS.filter((i) => i.kind === "hvac_misc_item").length).toBe(24);
-    expect(ITEMS.filter((i) => i.kind === "hvac_sensor_item").length).toBe(2);
+    // VAV-2b1 K2 (HVAC v79; mechanical authority): BEFORE 2 -- + the Sensors sheet's "Duct Static Pressure Sensor" (Greystone/Honeywell; owner
+    // 2026-11-20 14:35), ONE item on the Sensors sheet, read live by the DP sensor share (no VAV copy: VAV_ITEMS hold no sensor item)
+    expect(ITEMS.filter((i) => i.kind === "hvac_sensor_item").map((i) => i.attributes.sensor).sort()).toEqual(["CO2 Sensor", "Differential Pressure Switch", "Duct Static Pressure Sensor"]);
+    expect(VAV_ITEMS.some((i) => /Static Pressure/i.test(JSON.stringify(i)))).toBe(false);
   });
 });
 

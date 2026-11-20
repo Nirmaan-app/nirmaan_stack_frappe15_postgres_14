@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { combinationWarningOf, sectionQtyFromRow, ITEM_LIST_OVERRIDE_KEY } from "./pricingSheetHelper";
 import { blk, D2 } from "./vav1Vav.harness";
 import { COMBINATION_WARNING, boxItem, calcWith, tot, vavBare, vavSheet, vavWith, withInputs } from "./vav2a.harness";
+import { V78 } from "./v78ByName.harness";
 
 const CW = { combination_warning: COMBINATION_WARNING };
 const QTY = { misc: { qty_attr: "qty_per_box" }, sensors: { qty_attr: "qty_per_box" } };
@@ -21,7 +22,7 @@ const C4 = { items: [BOX, blk("BACnet over IP controller")], sections: { misc: [
 
 describe("VAV-2a B9 - the combination warning (calculator = the panel's own compute)", () => {
   it("POSITIVE C4: box + BACnet over IP + thermostat + CO2 = 83,930 + 7,000; extras 66,130 > 50% of 24,800 -> the warning with its figures", () => {
-    const v = calcWith(vavWith(CW), C4).itemList!;
+    const v = V78.calcWith(V78.vavWith(CW), C4).itemList!;
     expect(tot(v)).toEqual([83930, 7000]);
     expect(v.combinationWarning).toBe("This rate combines the box with 3 extras (Rs 66,130 of Rs 90,930). Review each item before using.");
   });

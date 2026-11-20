@@ -69,7 +69,12 @@ function compareBorrowed(): Row[] {
     ["sensors", "Sensors", TAB.sensors, "CO2 Sensor"], ["sensors", "Sensors", TAB.sensors, "Differential Pressure Switch"]];
   for (const [sec, sheet, src, fam] of sheets) {
     const button = adds.find((a) => a.id === sec);
-    if (!button || !button.families.some((f) => f.family === fam)) throw new Error(`no '${fam}' under the ${sec} add button`);
+    // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): a family the config WITHDRAWS (the Differential Pressure Switch, owner
+    // 2026-11-20 14:35 / 14:37, R8) is NOT offered under its add button -- asserted -- and is still priced from its own tab's item when entered
+    // (the blind spot the report names). BEFORE: every one of the five had to be under its add button
+    const withdrawn = ((BY_ID.get(VAV) as unknown as { list_spec: { pricing: { withdrawn_families?: string[] } } }).list_spec.pricing.withdrawn_families ?? []).includes(fam);
+    if (withdrawn) { if (button?.families.some((f) => f.family === fam)) throw new Error(`withdrawn '${fam}' is still offered under the ${sec} add button`); }
+    else if (!button || !button.families.some((f) => f.family === fam)) throw new Error(`no '${fam}' under the ${sec} add button`);
     const v = view(calc({ items: [], sections: { [sec]: [blk(fam)] } }));
     const r = src[fam];
     const cs = v?.totals?.supply_rate ?? null, ci = v?.totals?.install_rate ?? null;

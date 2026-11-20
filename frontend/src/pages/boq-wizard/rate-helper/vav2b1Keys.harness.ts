@@ -68,3 +68,58 @@ export function withV79Items(items: readonly RateMasterItem[]): RateMasterItem[]
 /** VAV-2b1: real rows of the 84 VAV sheets (description, own notes, unit, quantity, category), copied from VAV-D0's read-only dump */
 export type RealRow = { ref: string; kind: string; category: string; unit: string | null; qty: number | null; description: string; notes: string[]; headings: string[] };
 export const REAL = readJsonFixture<{ rows: RealRow[] }>(pathToFileURL(path.join(FIX, "vav2b1RealRows.json"))).rows;
+
+/** VAV-2b1 v80 (owner 2026-11-21 01:07 / 01:09 "yes for both"): the full-rate add of the three shared items (ONE file,
+ *  `__fixtures__/vav2b1KeysV80.json`, also read by mint_hvac_v80_vav2b1.py). Applied to the v79 VAV config and the Sensors config. */
+type CopyOf = Record<string, { copy_of: string }>;
+type ValueAdd = { value: string; before: string };
+export type KeysV80 = {
+  vav: { families_add: CopyOf; vav_item_values_add?: ValueAdd; withdrawn_add: string[]; sensors_section_families_add: string[];
+    user_addable: Array<{ family: string; share?: string; line?: string }>; derivation_reasons_new: Reason[]; sheet_shares_lines_add?: Record<string, string>;
+    sheet_shares_whole?: Json[]; separate_not_words_add?: Record<string, string> };
+  sensors: { families_add: CopyOf; sensor_values_add: ValueAdd };
+};
+export const KEYS80 = readJsonFixture<KeysV80>(pathToFileURL(path.join(FIX, "vav2b1KeysV80.json")));
+type ListCfg = { list_spec: { family_attribute_id: string; attribute_definitions: Array<{ id: string; values?: string[] }>;
+  sections?: Array<{ id: string; families?: string[] }>; pricing: Json & { families: Record<string, unknown> } } };
+const addFamilies = (c: ListCfg, add: CopyOf) => {
+  for (const [f, d] of Object.entries(add)) if (!c.list_spec.pricing.families[f]) c.list_spec.pricing.families[f] = structuredClone(c.list_spec.pricing.families[d.copy_of]);
+};
+const addValue = (c: ListCfg, add: ValueAdd) => {
+  const def = c.list_spec.attribute_definitions.find((d) => d.id === c.list_spec.family_attribute_id);
+  if (!def?.values || def.values.includes(add.value)) return;
+  const at = def.values.indexOf(add.before);
+  def.values.splice(at < 0 ? def.values.length : at, 0, add.value);
+};
+
+/** v80's transformation of ONE hvac_vav_box config (on v79's; the mint does the same in Python). Idempotent. `drop: ["user_addable"]`
+ *  takes out only the offer (the vacuity: the families stay withdrawn and offered nowhere). */
+export function withV80Keys(cfg: RateCategoryConfig, over: { drop?: Array<"user_addable"> } = {}): RateCategoryConfig {
+  const c = structuredClone(cfg) as unknown as ListCfg;
+  const pr = c.list_spec.pricing as Json & { families: Record<string, unknown>; withdrawn_families?: string[]; derivation_reasons?: Reason[] };
+  const k = KEYS80.vav;
+  addFamilies(c, k.families_add);
+  if (k.vav_item_values_add) addValue(c, k.vav_item_values_add);
+  pr.withdrawn_families = [...(pr.withdrawn_families ?? []), ...k.withdrawn_add.filter((f) => !(pr.withdrawn_families ?? []).includes(f))];
+  const sec = (c.list_spec.sections ?? []).find((s) => s.id === "sensors");
+  if (sec) sec.families = [...(sec.families ?? []), ...k.sensors_section_families_add.filter((f) => !(sec.families ?? []).includes(f))];
+  if ((over.drop ?? []).includes("user_addable")) delete pr.user_addable; else pr.user_addable = structuredClone(k.user_addable);
+  const ss = pr.sheet_shares as { lines?: Record<string, string>; whole?: Json[]; separate?: { extras: Array<{ label: string; not_words?: string }> } } | undefined;
+  if (ss?.lines && k.sheet_shares_lines_add) Object.assign(ss.lines, k.sheet_shares_lines_add);
+  if (ss && k.sheet_shares_whole) ss.whole = structuredClone(k.sheet_shares_whole);
+  for (const [label, words] of Object.entries(k.separate_not_words_add ?? {})) {
+    const e = ss?.separate?.extras.find((x) => x.label === label);
+    if (e && !(e.not_words ?? "").includes(words)) e.not_words = e.not_words ? `${e.not_words}|${words}` : words;
+  }
+  const rs = (pr.derivation_reasons ??= []);
+  for (const r of k.derivation_reasons_new) if (!rs.some((x) => x.title === r.title)) rs.push({ ...r });
+  return c as unknown as RateCategoryConfig;
+}
+
+/** v80's transformation of the borrow-only hvac_sensors config: the Duct Static Pressure Sensor as a family. Idempotent. */
+export function withV80Sensors(cfg: RateCategoryConfig): RateCategoryConfig {
+  const c = structuredClone(cfg) as unknown as ListCfg;
+  addFamilies(c, KEYS80.sensors.families_add);
+  addValue(c, KEYS80.sensors.sensor_values_add);
+  return c as unknown as RateCategoryConfig;
+}

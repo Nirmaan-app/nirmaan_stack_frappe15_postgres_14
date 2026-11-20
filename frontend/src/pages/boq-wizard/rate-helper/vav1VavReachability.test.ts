@@ -6,7 +6,9 @@
  */
 import { describe, expect, it } from "vitest";
 import type { RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
-import { BY_ID, LATEST, VAV, VAV_ITEMS, bandFromOf, blk, calc, view } from "./vav1Vav.harness";
+import { BY_ID, ITEMS, LATEST, VAV, VAV_ITEMS, bandFromOf, blk, calc, view } from "./vav1Vav.harness";
+import { calc79 } from "./vav2b1.harness";
+import { applyShareEdit, type SharesEditState } from "./vavSheetShares";
 
 const up = (x: number) => Math.ceil(x - 1e-9);
 const own = (i: RateMasterItem) => [up(Number(i.rates.cost_supply) * (1 + Number(i.rates.supply_markup))), up(Number(i.rates.cost_install) * (1 + Number(i.rates.install_markup)))];
@@ -31,9 +33,22 @@ function combos(family: string): Array<Record<string, string>> {
 
 describe(`VAV-1 T2 reachability on ${LATEST}: every VAV item from the calculator's dropdowns`, () => {
   const menu = (view(calc({ items: [] }))?.families ?? []).map((f) => f.family);
-  it("the calculator's VAV Box menu offers the 7 VAV families", () => {
-    expect(menu).toEqual(["VAV box", "VAV Integrator", "BACnet over IP controller", "Duct connection", "Conical piece", "Integrator cabling",
-      "VAV installation - any size"]);
+  // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): on a config with `withdrawn_families` the BACnet over IP controller is no
+  // longer offered per box (owner 2026-11-20 14:18, R2) and the three share buttons are (B5). BEFORE (unconditional): the 7 families below
+  const spec = (BY_ID.get(VAV) as unknown as { list_spec: { pricing: { withdrawn_families?: string[]; sheet_shares?: unknown } } }).list_spec.pricing;
+  it("the calculator's VAV Box menu offers the 7 VAV families (6 + the three share buttons where the per-box controller is withdrawn)", () => {
+    const seven = ["VAV box", "VAV Integrator", "BACnet over IP controller", "Duct connection", "Conical piece", "Integrator cabling", "VAV installation - any size"];
+    if (spec.withdrawn_families) {
+      expect(menu).toEqual(seven.filter((f) => !spec.withdrawn_families!.includes(f)));
+      expect(menu).not.toContain("BACnet over IP controller");
+      expect(calc79({ items: [] }, {}, BY_ID.get(VAV)!, ITEMS).itemList!.shares!.adds.map((a) => a.id)).toEqual(["bacnet", "dp", "ddc"]);   // screen 7's order (owner 18:42); the first match stays DDC first
+      // VAV-2b1 K2 (v80; PIN 13 / 14, ANSWER 44): where the config carries full-rate entries, the item list offers exactly the two (owner 01:07 / 01:36 "A")
+      const whole = (spec as { sheet_shares?: { whole?: Array<{ key: string; label: string }> } }).sheet_shares?.whole;
+      if (whole) expect(calc79({ items: [] }, {}, BY_ID.get(VAV)!, ITEMS).itemList!.shares!.wholeAdds).toEqual([
+        { id: "bacnet_whole", label: "BACnet over IP controller (full rate)" }, { id: "ddc_whole", label: "DDC Panel/ Controller (full rate)" }]);
+    } else {
+      expect(menu).toEqual(seven);
+    }
   });
   it("91 / 91 reached; no GAP", () => {
     const reached = new Set<string>();
@@ -48,9 +63,27 @@ describe(`VAV-1 T2 reachability on ${LATEST}: every VAV item from the calculator
         reached.add(String(hit[0].item_uid));
       }
     }
+    // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): the BACnet over IP controller (withdrawn per box, R2) and the DDC Panel/
+    // Controller (a share only, R9) are reached through the Calculator's share blocks: added, 32 VAVs typed, priced, and the block's sum
+    // shows the item's OWN figures. BEFORE: every VAV item through the per-box dropdowns, `reached.size` 91
+    if (spec.sheet_shares) {
+      const ed = (...ops: Parameters<typeof applyShareEdit>[1][]) => ops.reduce<SharesEditState>((a, op) => applyShareEdit(a, op), {});
+      const inr = (n: number) => n.toLocaleString("en-IN");
+      for (const [name, id] of [["BACnet over IP controller", "bacnet"], ["DDC Panel/ Controller", "ddc"]] as const) {
+        const it = VAV_ITEMS.find((i) => i.attributes.vav_item === name)!;
+        expect(menu, name).not.toContain(name);
+        const s = calc79({ items: [] }, ed({ op: "add", share: id }, { op: "set", share: id, field: "vavs", value: "32" }), BY_ID.get(VAV)!, ITEMS);
+        const b = s.itemList!.shares!.blocks.find((x) => x.id === id)!;
+        expect(b.figures, name).not.toBeNull();
+        const want = id === "bacnet" ? `(${inr(own(it)[0])} + ${inr(own(it)[1])})` : inr(Number(it.rates.cost_supply));
+        expect(b.sumLines.join(" | "), name).toContain(want);
+        reached.add(String(it.item_uid));
+      }
+    }
     const gaps = VAV_ITEMS.filter((i) => !reached.has(String(i.item_uid))).map((i) => `${i.attributes.vav_item} ${JSON.stringify(i.attributes)}`);
     expect(gaps).toEqual([]);
-    expect(reached.size).toBe(91);
+    expect(reached.size).toBe(VAV_ITEMS.length);
+    expect(reached.size).toBe(spec.sheet_shares ? 92 : 91);
   });
   it("NEGATIVE: the box family offers exactly the sheet's facts (2 shapes, 3 types, Yes / No, 7 bands) -- 84 combinations, each priced", () => {
     const f = view(calc({ items: [blk("VAV box")] }))?.items?.[0]?.fields ?? [];

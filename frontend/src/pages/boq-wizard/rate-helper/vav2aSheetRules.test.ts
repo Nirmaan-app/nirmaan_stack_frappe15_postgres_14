@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { ITEM_LIST_OVERRIDE_KEY, vavCablingRow, vavIntegratorNamed, vavNearHit, vavRowsNamed, vavSeparateRow } from "./pricingSheetHelper";
 import { blk } from "./vav1Vav.harness";
 import { KEYS, boxItem, calcWith, tot, vavBare, vavFull, vavSheet, withInputs, type SheetRow } from "./vav2a.harness";
+import { V78 } from "./v78ByName.harness";
 
 type Oc = Parameters<typeof vavSeparateRow>[0];
 type Ic = Parameters<typeof vavCablingRow>[0];
@@ -89,11 +90,14 @@ describe("VAV-2a B3 - an extra charged on its own row of the same sheet (QR-4 (a
 
 describe("VAV-2a B4 - rate-only BoQs: quantities blank or 0 -> the separate row decides (NOT added)", () => {
   it("the separate row's quantity 0 (BOQ-26-00049 r180: 'SITC OF DIGITAL Thermostat connect to shared vav', qty 0) -> not added, the rate-only line", () => {
+    // VAV-2a keys (no zero_rows). On v79 the owner's quantity-0 rule (2026-11-20 21:05 / 21:47) ADDS this - see vav2b1Zero (VAV-2b1 K2, wording only; ANSWER 23 (1))
     const v = v30({ 180: { text: "SITC OF DIGITAL Thermostat connect to shared vav (including any additional accessories if required)", qty: 0, category: "hvac_sensors" } }, 67);
     expect(tot(v)).toEqual([BOX, BOX_I]);
     expect(notes(v)).toEqual(["Digital thermostat is priced on its own row of this sheet (row 180) - not added to this row (the quantities are blank or 0, so the separate row decides). Add it here if this row should also include it."]);
   });
   it("the VAV rows' quantity 0 / blank, or the separate row's blank -> not added the same way", () => {
+    // VAV-2a keys (no zero_rows). On v79 the owner's quantity-0 rule (2026-11-20 21:05 / 21:47) ADDS the thermostat for the THIRD case (the
+    // separate row's blank, the VAV rows 10) - see vav2b1Zero; the VAV rows 0 / blank stay "not added" on v79 too (VAV-2b1 K2, wording only)
     expect(tot(v30({ 40: { text: "Thermostat", qty: 10, category: "hvac_sensors" } }, 0))).toEqual([BOX, BOX_I]);
     expect(tot(v30({ 40: { text: "Thermostat", qty: 10, category: "hvac_sensors" } }, null))).toEqual([BOX, BOX_I]);
     expect(tot(v30({ 40: { text: "Thermostat", qty: null, category: "hvac_sensors" } }))).toEqual([BOX, BOX_I]);
@@ -208,6 +212,8 @@ describe("VAV-2a B5 - the integrator cabling", () => {
     expect(notes(v)).toEqual(["Integrator cabling is priced on its own row of this sheet (rows 184, 185, 186) - not added to this row."]);
   });
   it("the 70% check only changes the NOTE: 10 m against 2 m x 10 boxes x 70% = 14 -> the longer note; quantities blank -> the plain note", () => {
+    // VAV-2a keys (no zero_rows). On v79 the owner's quantity-0 rule (2026-11-20 21:05 / 21:47) ADDS the 2 m for r(null) and r(0) (every cabling
+    // row blank / 0 metres) - see vav2b1Zero (BOQ-26-00007 r386); the 10 / 14 m cases are unchanged (VAV-2b1 K2, wording only)
     const r = (q: number | null) => ({ 60: { text: "Armoured cable for VAV to VAV Looping", unit: "Rmt", qty: q, category: "wiring_cabling" }, ...integ });
     const low = v30(r(10), 10, vavFull(), withInputs(), []);
     expect(tot(low)).toEqual([BOX, BOX_I]);
@@ -226,11 +232,12 @@ describe("VAV-2a B5 - the integrator cabling", () => {
       { cfg: vavFull() })(30).itemList!;
     expect(tot(v)).toEqual([BOX + 392, BOX_I]);
   });
-  it("NEGATIVE: no integrator on the sheet (or only a heat-meter integrator) -> no cabling rule; a row with no VAV box -> none", () => {
+  it("NEGATIVE: no integrator on the sheet (or only a heat-meter integrator) -> no cabling rule; a row with no VAV box -> none (that part: v78 by name: the per-box controller, withdrawn on v79)", () => {
     expect(tot(v30({}, 10, vavFull(), withInputs(), []))).toEqual([BOX, BOX_I]);
     expect(tot(v30({ 50: { text: "BTU meter with integrator, flow sensor", qty: 2, category: "hvac_valve_package" } }, 10, vavFull(), withInputs(), []))).toEqual([BOX, BOX_I]);
     expect(vavNearHit("BTU meter with integrator and flow sensor", "\\b(integrators?)\\b", "vav|bms|meter", 120, "heat\\s*meter|btu|flow", 80)).toBeNull();
-    const noBox = vavSheet({ 30: { text: "controller", qty: 10, items: [{ vav_item: "BACnet over IP controller", qty_per_box: "None" }] }, ...integ }, { cfg: vavFull() })(30).itemList!;
+    // VAV-2b1 K2 (ANSWER 27 C (a)): the no-box part on the v78 FILE by name - the per-box controller, withdrawn on v79. BEFORE cfg: vavFull()
+    const noBox = vavSheet({ 30: { text: "controller", qty: 10, items: [{ vav_item: "BACnet over IP controller", qty_per_box: "None" }] }, ...integ }, { cfg: V78.vavWith(KEYS.pricing) })(30).itemList!;
     expect(noBox.items.map((b) => b.family)).toEqual(["BACnet over IP controller"]);
   });
 });

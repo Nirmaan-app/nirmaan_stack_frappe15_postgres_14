@@ -202,6 +202,18 @@ function withoutVav1(items: RateMasterItem[]): RateMasterItem[] {
 }
 
 /**
+ * VAV-2b1 (owner 2026-11-20 14:35 / 15:23 / 15:24): HVAC v79's FIVE new items -- the DDC Panel/ Controller, the Duct Static Pressure Sensor
+ * and the three VAVs-per counts -- which the served fixture predates (its refresh is VAV-2b2's); set aside on the stored side FIRST; it
+ * throws unless exactly these 5 uids are there, so it cannot pass vacuously.
+ */
+const VAV2B1_UIDS = new Set(["rmi-51319c433867", "rmi-3654468a63fc", "rmi-d616123412ee", "rmi-e36d6423ffeb", "rmi-323d5c801232"]);
+function withoutVav2b1(items: RateMasterItem[]): RateMasterItem[] {
+  const hit = items.filter((it) => VAV2B1_UIDS.has(String(it.item_uid)));
+  if (hit.length !== 5) throw new Error(`VAV-2b1's 5 items (v79) are not exactly there: ${hit.length}`);
+  return items.filter((it) => !VAV2B1_UIDS.has(String(it.item_uid)));
+}
+
+/**
  * VAV-2a (owner QR-S (a) 2026-11-19 13:31; B3 / B5 / B6 / B9): HVAC v77's EIGHT Pricing Inputs, which the served fixture predates -- set
  * aside on the stored side FIRST (before VAV-1's); it throws unless exactly those 8 are there, so it cannot pass vacuously.
  */
@@ -285,7 +297,8 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // INVERTED at VAV-1 K2 (HVAC v76; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
     // withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(storedHvac))))))], ...] -- the 96 VAV-1 items set aside first (`withoutVav1`)
     // VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): withoutVav2a first (BEFORE the chain started at withoutVav1(storedHvac))
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(withoutVav1(withoutVav2a(storedHvac))))))))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
+    // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): withoutVav2b1 first (BEFORE the chain started at withoutVav2a(storedHvac))
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(withoutVp1(withoutDu1(withoutDu3(withoutVav1(withoutVav2a(withoutVav2b1(storedHvac)))))))))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

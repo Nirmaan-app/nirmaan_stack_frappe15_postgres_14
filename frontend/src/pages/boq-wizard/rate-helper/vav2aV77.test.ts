@@ -11,6 +11,8 @@ import { derivationCoverage } from "../../pricing/rate-master/derivationCoverage
 import { computePricingInputReach } from "../../pricing/rate-master/pricingInputReach";
 import { BY_ID, ITEMS, LATEST, VAV, blk, calc, D2, tot } from "./vav1Vav.harness";
 import { KEYS } from "./vav2a.harness";
+import { V78 } from "./v78ByName.harness";
+import { KEYS3 } from "./vav2b1Keys.harness";
 
 const C = BY_ID.get(VAV)! as unknown as { calculator_only?: boolean; list_spec: { pricing: Record<string, unknown>; sections: Array<Record<string, unknown>> } };
 const BOX = blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "No", cfm_range: "450-800" });
@@ -24,13 +26,28 @@ describe(`VAV-2a on ${LATEST}`, () => {
     for (const [k, v] of Object.entries(KEYS.pricing)) {
       const got = structuredClone(C.list_spec.pricing[k]) as Record<string, unknown>;
       if (k === "own_row_check" && version >= 78) delete got.serves;
+      // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority; VAV-2a2's PIN 3 idiom): v79 adds sub-keys to three blocks the VAV-2a
+      // keys own -- taken out here ONLY, each pinned to the VAV-2b1 keys file below. BEFORE: compared as stored
+      if (version >= 79 && k === "own_row_check") delete got.zero_rows;
+      if (version >= 79 && k === "integrator_cabling") delete got.zero_rows;
+      if (version >= 79 && k === "combination_warning") delete got.heading;
       expect(got, k).toEqual(v);
+    }
+    if (version >= 79) {
+      // POSITIVE: the sub-keys taken out are EXACTLY the VAV-2b1 keys file's (owner 2026-11-20 18:06 heading; 21:05 / 21:47 quantity 0)
+      const pr = C.list_spec.pricing as Record<string, Record<string, unknown>>;
+      expect(pr.own_row_check.zero_rows).toEqual(KEYS3.pricing.own_row_check_zero_rows);
+      expect(pr.integrator_cabling.zero_rows).toEqual(KEYS3.pricing.integrator_cabling_zero_rows);
+      expect(pr.combination_warning.heading).toBe(KEYS3.pricing.combination_warning_heading);
     }
     // POSITIVE (chat-Claude's review 2026-11-20 00:52, PIN 3): on v78 the serves key is EXACTLY what the owner ruled -- item first; the
     // BACnet over IP controller only; presence decides (QR-C2 (a) 00:34; 00:37 "one controller for many VAVs")
+    // VAV-2b1 K2 (HVAC v79; mechanical authority): serves gains `also` ["VAV integrator"] (R13) -- compared without it, and it pinned to the
+    // keys file. BEFORE: serves compared as stored
     if (version >= 78) {
-      expect((C.list_spec.pricing.own_row_check as { serves?: unknown }).serves)
-        .toEqual({ item_first: true, extras: ["BACnet over IP controller"], presence_decides: true });
+      const serves = structuredClone((C.list_spec.pricing.own_row_check as { serves?: Record<string, unknown> }).serves)!;
+      if (version >= 79) { expect(serves.also).toEqual(KEYS3.pricing.own_row_check_serves_also); delete serves.also; }
+      expect(serves).toEqual({ item_first: true, extras: ["BACnet over IP controller"], presence_decides: true });
     }
     for (const [id, ks] of Object.entries(KEYS.sections)) {
       const s = C.list_spec.sections.find((x) => x.id === id)!;
@@ -54,8 +71,8 @@ describe(`VAV-2a on ${LATEST}`, () => {
     expect(v.combinationWarning).toBeUndefined();
   });
   it("AC0 / C4: box + BACnet over IP + thermostat + CO2 (BOQ-26-00318 r173) = 83,930 + 7,000 with the combination warning and its figures", () => {
-    const v = calc(C4).itemList!;
-    expect(tot(calc(C4))).toEqual([83930, 7000]);
+    const v = V78.calc(C4).itemList!;
+    expect(tot(V78.calc(C4))).toEqual([83930, 7000]);
     expect(v.combinationWarning).toBe("This rate combines the box with 3 extras (Rs 66,130 of Rs 90,930). Review each item before using.");
   });
   it("AC0 / C1: the Derivation tab states every VAV-2a rule with its reason; the cabling line reads BCS cost 140 per metre, quoted 196", () => {

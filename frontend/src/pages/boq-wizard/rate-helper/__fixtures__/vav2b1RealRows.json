@@ -260,6 +260,26 @@
     "VAV INTEGRATOR",
     "VAV WORKS -HONEYWELL MAKE"
    ]
+  },
+  {
+   "ref": "BOQ-26-00313 'HVAC' r202",
+   "kind": "ddc_row",
+   "category": "hvac_misc",
+   "unit": "Set",
+   "qty": 2.0,
+   "description": "Supply, Installation, Testing & Commissioning of DDC Controller with I/O module etc. as per the technical specification",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00171 'HVAC' r153",
+   "kind": "lot_bms_row",
+   "category": "hvac_vav_box",
+   "unit": "Lot",
+   "qty": 1.0,
+   "description": "Modifications and reconnecting the all VAVs to the exixting BMS System and creating the VAV maping",
+   "notes": [],
+   "headings": []
   }
  ]
 }

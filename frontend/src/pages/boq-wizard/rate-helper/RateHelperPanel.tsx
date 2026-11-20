@@ -1488,7 +1488,8 @@ function ItemListBlocks({
       />
     </div>
   );
-  const familyPicker = (title: string, families: ItemListView["families"] = view.families) => (
+  // VAV-2b1 v80 (owner 01:07 "using that" / 01:32): the full-rate entries sit in the item list and insert their whole block
+  const familyPicker = (title: string, families: ItemListView["families"] = view.families, wholes: Array<{ id: string; label: string }> = []) => (
     <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="item-family-picker">
       <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{title}</div>
       {families.map((f) => (
@@ -1499,6 +1500,17 @@ function ItemListBlocks({
           className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
         >
           {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+        </button>
+      ))}
+      {onShares && wholes.map((w) => (
+        <button
+          key={w.id}
+          type="button"
+          onClick={() => { onShares({ op: "add", share: w.id }); setPicker(null); }}
+          className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+          data-testid={`item-whole-add-${w.id}`}
+        >
+          {w.label} <span className="text-[11px] text-muted-foreground">&middot; per unit</span>
         </button>
       ))}
       <button type="button" onClick={() => setPicker(null)} className="border-t px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-muted">
@@ -1749,6 +1761,12 @@ function ItemListBlocks({
           {b.helperLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-helper-line">
               {b.helperLine}
+            </p>
+          )}
+          {/* VAV-2b1 (owner 2026-11-21 01:07 / 01:09): a full-rate item beside the sheet share of the same item */}
+          {b.doubleCountLine && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-double-count-line">
+              {b.doubleCountLine}
             </p>
           )}
           {/* VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219): never on a block with no family ("priced as  (your rule)"),
@@ -2182,7 +2200,7 @@ function ItemListBlocks({
           VAV-2b1 (B6): with a heading it is the "Review before using" block directly above the row total instead */}
       {!section && view.combinationWarning && !view.reviewHeading && <UnitNoteBox note={view.combinationWarning} testId="item-combination-warning" />}
       {!section && (picker?.mode === "add" ? (
-        familyPicker(view.sections ? view.sections.addLabel : "Add an item")
+        familyPicker(view.sections ? view.sections.addLabel : "Add an item", view.families, view.shares?.wholeAdds ?? [])
       ) : picker?.mode === "add_section" ? (
         familyPicker(
           view.sections?.adds.find((a) => a.id === picker.section)?.addLabel ?? "",

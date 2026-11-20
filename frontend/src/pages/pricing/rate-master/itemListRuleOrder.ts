@@ -2767,5 +2767,21 @@ function sheetSharesLines(pr: Record<string, unknown>, items: ReadonlyArray<Rule
     out.push({ key: "withdrawn_families", title: `The ${list(wd)} ${wd.length > 1 ? "are" : "is"} no longer added to each box`,
       detail: "no add list offers them per box and a model item of them is dropped with a line; their SKUs stay in the Rate Master as the shared items' rates" });
   }
+  // VAV-2b1 v80 (owner 01:15 / 01:21 / 01:31 / 01:32 "A"): the full-rate, per-unit blocks
+  const wh = ss && Array.isArray((ss as { whole?: unknown }).whole) ? ((ss as { whole: Array<{ label?: unknown }> }).whole) : [];
+  if (wh.length) {
+    out.push({ key: "sheet_shares_whole", title: "A full-rate block prices the item per unit, by the same sums as its share, not divided over the boxes",
+      detail: [`the entries ${list(wh.map((w) => `'${String(w.label ?? "")}'`))} in the item list, added by the user only`,
+        "the number of VAVs is typed (calculator) or pre-filled on a BoQ row as the sheet's VAVs / the row's quantity, rounded up (blank, 0 or 1: the sheet's); the counts follow it (the DDC panel inside is always 1; no VAVs typed: one controller)",
+        "the row's quantity enters only that pre-fill; with the share of the same item also on the entry, a line under the full-rate block says to check it is not counted twice"].join("; ") });
+  }
+  // VAV-2b1 (owner 2026-11-21 01:07 / 01:09 "yes for both"): the withdrawn items the USER may still add at their full rate
+  const ua = Array.isArray(pr.user_addable) ? (pr.user_addable as Array<{ family?: unknown; line?: unknown }>) : [];
+  if (ua.length) {
+    const fams = ua.map((u) => String(u.family ?? ""));
+    out.push({ key: "user_addable", title: `The ${list(fams)} can be added by hand at ${fams.length > 1 ? "their" : "its"} full rate`,
+      detail: [`the add lists still offer ${fams.length > 1 ? "them" : "it"}; the helper never adds ${fams.length > 1 ? "them" : "it"} by itself (a model item is still dropped with its line)`,
+        "with the sheet share of the same item also on the entry, both are in the total, the review block counts both, and a line under the full-rate item says to check it is not counted twice"].join("; ") });
+  }
   return out;
 }

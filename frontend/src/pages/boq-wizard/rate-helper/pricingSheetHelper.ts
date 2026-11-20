@@ -154,7 +154,7 @@ import type {
   WorkingsAttribute,
   WorkingsGroup,
 } from "./rateHelperTypes";
-import { SHARES_OVERRIDE_KEY, decideSheetShares, decodeShareEdits, sheetSharesView, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
+import { SHARES_OVERRIDE_KEY, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
 const WIRING_CATEGORY_ID = "wiring_cabling";
@@ -238,6 +238,11 @@ export type RowContextWithUnit = RateHelperRowContext & {
   /** VAV-2b1 (B1 / B2): the sheet's shared-item decision (`vavSheetSharesOf`), set by `compute` on a BoQ row of a config declaring
    *  `pricing.sheet_shares`. Absent everywhere else (the calculator: the pricer adds the shares). */
   sheetShares?: SheetShareDecision;
+  /** VAV-2b1 v80: a BoQ row of a `sheet_shares` config that is NOT a counted VAV box row (the decision gave nothing): a share the user adds
+   *  here carries `sheet_shares.lines.not_box_row` */
+  sheetSharesNotBox?: true;
+  /** VAV-2b1 v80: on a BoQ row of a `sheet_shares` config, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
+  sheetWholeRow?: { sheetVavs: number | null; qty: number | null };
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -1640,8 +1645,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // VAV-2a (B3-B6): the VAV sheet rules settle the model's items first -- only a config declaring their keys, only on a BoQ row
       const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
       // VAV-2b1 (B1 / B2): the sheet's shared items -- only a config declaring `sheet_shares`, only on a BoQ box row
-      const shareDec = !paint && !two && !vavSheet?.existing ? vavSheetSharesOf(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, category.category_id) : null;
-      const withShares = shareDec ? { ...withIns, sheetShares: shareDec } : withIns;
+      const sheetOf = !paint && !two ? vavSheetOf(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, category.category_id) : null;
+      const shareDec = !vavSheet?.existing ? sheetOf?.decision ?? null : null;
+      const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
+      const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null } } : {};
+      const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}) };
       const out1v = computeItemList(category, listSpec, items, withShares, (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
       const out1 = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
       const v1 = (out1 as ItemListSuggestion).itemList;
@@ -2695,6 +2703,9 @@ export interface ItemBlockView {
   source: "model" | "user" | "helper";
   /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
   helperLine?: string;
+  /** VAV-2b1 (owner 01:07 / 01:09): a full-rate item the user added while the sheet share of the same item is also on the entry
+   *  (`user_addable[].line`) */
+  doubleCountLine?: string;
   changedByYou?: true;
   /** VAV-2a (B5): the helper ADDED this item (the integrator cabling) -- the panel says "added by the helper"; removable as any item */
   helperAdded?: true;
@@ -7525,7 +7536,7 @@ function computeItemList(
   const ownCount = blocks.length;
   const lines = ownCount + sectionViews.length;
   const ownOk = ownCount === 0 || ownView.rowPriced;
-  const rowPriced = lines > 0 && ownOk && sectionViews.every((sv) => sv.view.rowPriced);
+  let rowPriced = lines > 0 && ownOk && sectionViews.every((sv) => sv.view.rowPriced);
   const bad = blocks.filter((b) => b.state !== "priced").length + sectionViews.filter((sv) => !sv.view.rowPriced).length;
   const values: Record<string, number> = {};
   if (rowPriced) {
@@ -7538,18 +7549,43 @@ function computeItemList(
   // VAV-2b1 (B3 / B5): the row's shared items -- their per-box figures join the row total, each its own line (a share counts as an
   // extra for the warning: owner 15:02 "option a", BOQ-26-00087); only a config declaring `sheet_shares`
   const shares = spec.sheet_shares ? sheetSharesView(spec.sheet_shares, ctx.sheetShares ?? null, decodeShareEdits(overrides?.[SHARES_OVERRIDE_KEY]),
-    items, (id) => scopeUpliftOf(items, id)) : undefined;
+    items, (id) => scopeUpliftOf(items, id), ctx.sheetWholeRow) : undefined;
   if (rowPriced && shares && shares.priced && typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
     values.supply_rate += shares.totals.supply_rate;
     values.install_rate += shares.totals.install_rate;
     values.combined_rate = values.supply_rate + values.install_rate;
   }
+  // VAV-2b1 v80 (owner 01:15 / 01:16 / 01:32): a row with NO item line priced by its full-rate block(s) alone -- the separate controller /
+  // DDC panel row (or the Calculator with only that block): the blocks are the row's price, per unit
+  const wholeKeys = new Set((spec.sheet_shares?.whole ?? []).map((w) => w.key));
+  const wholeBlocks = (shares?.blocks ?? []).filter((b) => wholeKeys.has(b.id));
+  if (!rowPriced && lines === 0 && shares && wholeBlocks.length && wholeBlocks.every((b) => b.figures)) {
+    rowPriced = true;
+    values.supply_rate = shares.totals.supply_rate;
+    values.install_rate = shares.totals.install_rate;
+    values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  // VAV-2b1 v80 (owner 01:16; his "b" 01:21): the share buttons stay on a row that is not a VAV box row; a share the user adds there warns
+  const nb = spec.sheet_shares?.lines.not_box_row;
+  // (a SHARE only -- a full-rate block is meant for exactly such a separate row)
+  const shareIdsNb = new Set((spec.sheet_shares?.shares ?? []).map((x) => x.id));
+  if (ctx.sheetSharesNotBox && nb && shares) for (const b of shares.blocks) if (b.origin === "user" && shareIdsNb.has(b.id)) b.notes = [...b.notes, nb];
+  // VAV-2b1 (owner 2026-11-21 01:07 / 01:09): a full-rate item the USER added while the sheet share of the same item is on the entry
+  // -> its double-count line under it (both stay in the total; the review block counts both)
+  const ua = spec.user_addable ?? [];
+  if (ua.length && shares?.blocks.length) {
+    const on = new Set(shares.blocks.map((b) => b.id));
+    const mark = (b: ItemBlockView) => { const u = ua.find((x) => x.family === b.family && x.share && on.has(x.share) && x.line); if (u) b.doubleCountLine = u.line; };
+    blocks.forEach(mark);
+    for (const sv of sectionViews) (sv.view.items ?? []).forEach(mark);
+  }
   // VAV-2a (B9): the combination-row warning, on the row's catalogue lines (before any scope pick) -- only a config declaring it
   const combo = rowPriced && spec.combination_warning ? combinationWarningOf(spec.combination_warning, blocks, sectionViews, values, items, shares?.priced ?? 0) : undefined;
   const reason = rowPriced ? undefined
     : (ownCount > 0 && !ownView.rowPriced ? ownView.reason : undefined) ?? sectionViews.find((sv) => !sv.view.rowPriced)?.view.reason ?? ownView.reason;
+  const shown = lines || wholeBlocks.length;
   const basis = rowPriced
-    ? `Rate master: ${categoryLabel(category)} · ${lines} item${lines === 1 ? "" : "s"}`
+    ? `Rate master: ${categoryLabel(category)} · ${shown} item${shown === 1 ? "" : "s"}`
     : lines === 0 ? "Add an item to price" : "Complete the missing attributes to price";
   const derivation = rowPriced
     ? [`Row total per 1 ${rowUnit}: supply ${values.supply_rate} + install ${values.install_rate}`]
@@ -7568,7 +7604,7 @@ function computeItemList(
       adds: resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
         id: r.s.id,
         addLabel: r.s.add_label,
-        families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family) && !(spec.withdrawn_families ?? []).includes(f.family)
+        families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family) && !hiddenFamilies(spec).includes(f.family)
           && items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
       })),
       independent,
@@ -8117,9 +8153,16 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
   return { ext: same ? ext : { ...ext, items: its }, lines };
 }
 
-/** VAV-2b1 (R2 / R8). PURE. The families no list offers per box any more (`withdrawn_families`), out of the own family list. */
+/** VAV-2b1 (R2 / R8; owner 2026-11-21 01:07 / 01:09). PURE. The withdrawn families NO list offers: `withdrawn_families` less the ones
+ *  the user may still add at full rate (`user_addable`). */
+export function hiddenFamilies(spec: ItemListPricingSpec): string[] {
+  const ua = new Set((spec.user_addable ?? []).map((u) => u.family));
+  return (spec.withdrawn_families ?? []).filter((f) => !ua.has(f));
+}
+
+/** VAV-2b1 (R2 / R8). PURE. The families no list offers per box any more (`hiddenFamilies`), out of the own family list. */
 export function offeredFamilies(spec: ItemListPricingSpec): ReturnType<typeof familyChoices> {
-  const w = spec.withdrawn_families ?? [];
+  const w = hiddenFamilies(spec);
   return w.length ? familyChoices(spec).filter((f) => !w.includes(f.family)) : familyChoices(spec);
 }
 
@@ -8152,6 +8195,14 @@ export function withdrawnItemsOf(spec: ItemListPricingSpec, ext: ExtractionRowWi
  */
 export function vavSheetSharesOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
   extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, ownCategory: string): SheetShareDecision | null {
+  return vavSheetOf(spec, ctx, ext, extractionByRow, rowCats, ownCategory)?.decision ?? null;
+}
+
+/** VAV-2b1 v80. PURE. `vavSheetSharesOf`'s decision AND the sheet's counted VAVs (for the full-rate blocks' pre-fill, on any BoQ row of the
+ *  sheet -- a separate controller row included). Null when the key is absent, on the calculator, or with no sheet. */
+export function vavSheetOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, ownCategory: string):
+  { decision: SheetShareDecision | null; sheetVavs: number | null } | null {
   const sh = spec.sheet_shares;
   if (!sh || ctx.noRow === true || !ctx.sheetLines) return null;
   const fa = familyAttr(spec);
@@ -8177,7 +8228,11 @@ export function vavSheetSharesOf(spec: ItemListPricingSpec, ctx: RowContextWithU
   };
   const vavRows = onSheet.filter((l) => !l.preamble && catOf(l.row) === ownCategory).map((l) => rowOf(l.row, l.text ?? ""));
   const me = vavRows.find((r) => r.row === ctx.excelRow) ?? rowOf(ctx.excelRow, [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | "));
-  if (!me.counted) return null;
+  // owner 19:48 N2 / 01:16 ("share should be appliacble only for rows which is pricing the vava boxes"); found by the 01:02 check
+  // (BOQ-26-00171 r153, a Lot row of BMS work): a row priced per lot is not a VAV box row -> the helper makes no share on it
+  // the VAVs every box row of the sheet counts (the same count the shares divide by)
+  const sheetVavs = sheetVavsOf(sh, vavRows);
+  if (!me.counted || isLotUnit(spec, ctx.unit)) return { decision: null, sheetVavs };
   const rows = vavRows.some((r) => r.row === ctx.excelRow) ? vavRows : [...vavRows, me];
   const oc = spec.own_row_check;
   const separate: Record<string, { charged: number[]; zero: number[] }> = {};
@@ -8205,7 +8260,7 @@ export function vavSheetSharesOf(spec: ItemListPricingSpec, ctx: RowContextWithU
       separate[s.id] = { charged: [...hit].filter((r) => (qtyOf(r) ?? 0) > 0), zero: [...hit].filter((r) => !((qtyOf(r) ?? 0) > 0)) };
     }
   }
-  return decideSheetShares(sh, rows, separate);
+  return { decision: decideSheetShares(sh, rows, separate), sheetVavs };
 }
 
 /** VAV-2a (B6). PURE. The existing-box row: each priced own line's installation x the factor (rounded up to the rupee), supply 0, the

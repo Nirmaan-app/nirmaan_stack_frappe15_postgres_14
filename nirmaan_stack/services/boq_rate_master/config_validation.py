@@ -1178,8 +1178,11 @@ def _validate_sheet_shares(ss, spec):
     the separate-row tests (the own-row extra shape, by share); the labels and lines. Whether each input is a Pricing Input item and each
     SKU an item is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.sheet_shares"
-    if not isinstance(ss, dict) or set(ss) != _SHEET_SHARES_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))}.")
+    # VAV-2b1 v80 (owner 01:15 - 01:36): the optional `whole` list (the full-rate, per-unit mode of a share)
+    if not isinstance(ss, dict) or set(ss) - {"whole"} != _SHEET_SHARES_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))} (and optionally whole).")
+    if "whole" in ss:
+        _validate_sheet_shares_whole(ss["whole"], ss, f"{loc}.whole")
     pr = spec.get("pricing") or {}
     rd = ss["reading"]
     if not isinstance(rd, dict) or set(rd) != _SHEET_SHARES_READING:
@@ -1258,7 +1261,12 @@ def _validate_sheet_shares(ss, spec):
             _vthrow(f"{loc}.separate.artefact_words keys must be share ids.")
         _pattern(v, f"{loc}.separate.artefact_words.{k}")
     _lines_exactly(ss["labels"], _SHEET_SHARES_LABELS, f"{loc}.labels")
-    _lines_exactly(ss["lines"], _SHEET_SHARES_LINES, f"{loc}.lines")
+    # VAV-2b1 v80 (owner 01:16 / "b" 01:21): the optional not_box_row line (under a share the user adds on a row that is not a VAV box row)
+    _lines_exactly({k: v for k, v in ss["lines"].items() if k not in _SHEET_SHARES_LINES_OPTIONAL} if isinstance(ss["lines"], dict) else ss["lines"],
+                   _SHEET_SHARES_LINES, f"{loc}.lines")
+    for k in _SHEET_SHARES_LINES_OPTIONAL:
+        if k in ss["lines"]:
+            _sentence(ss["lines"], k, f"{loc}.lines")
     for k in ("not_added", "rate_only"):
         if "{share}" not in ss["lines"][k]:
             _vthrow(f"{loc}.lines.{k} must name {{share}}.")
@@ -1278,6 +1286,59 @@ def _validate_withdrawn_families(wd, spec):
             known |= set(s.get("families") or [])
     if not isinstance(wd, list) or not wd or len(set(wd)) != len(wd) or not all(isinstance(f, str) and f in known for f in wd):
         _vthrow(f"{loc} must list families of this config or of its sections, each once.")
+
+
+def _validate_sheet_shares_whole(wl, ss, loc):
+    """VAV-2b1 v80 (owner 2026-11-21 01:15 / 01:21 / 01:31 / 01:32 "A") -- `sheet_shares.whole`: each entry a full-rate, per-unit mode of ONE
+    share (`share` an id of `shares`), its edit key (unique, not a share id), its list label / heading / unit word, the pre-fill line naming
+    {V} {q} {n} {unit}, the per-unit suffix; optional `fixed` counts (parts of that share -> a positive whole number), optional
+    `count_without_vavs` (a positive whole number) and the double-count `line`."""
+    shares = {sh.get("id"): sh for sh in ss.get("shares") or [] if isinstance(sh, dict)}
+    if not isinstance(wl, list) or not wl:
+        _vthrow(f"{loc} must be a non-empty list.")
+    keys = set()
+    for w in wl:
+        if not isinstance(w, dict) or not {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit"} <= set(w) \
+                or not set(w) <= {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit", "fixed", "count_without_vavs", "line"}:
+            _vthrow(f"{loc} entries need key / share / label / heading / unit_word / prefill_line / per_unit (fixed / count_without_vavs / line optional).")
+        if w["share"] not in shares or not _nonempty_str(w["key"]) or w["key"] in shares or w["key"] in keys:
+            _vthrow(f"{loc}.share must name a share and key must be a new, unique edit key.")
+        keys.add(w["key"])
+        for k in ("label", "heading", "unit_word", "per_unit"):
+            if not _nonempty_str(w[k]):
+                _vthrow(f"{loc}.{k} must be a non-empty string.")
+        if not all(t in w["prefill_line"] for t in ("{V}", "{q}", "{n}", "{unit}")):
+            _vthrow(f"{loc}.prefill_line must name {{V}}, {{q}}, {{n}} and {{unit}}.")
+        parts = {p.get("id") for p in shares[w["share"]].get("parts") or [] if isinstance(p, dict)}
+        fx = w.get("fixed", {})
+        if not isinstance(fx, dict) or not all(k in parts and isinstance(v, int) and not isinstance(v, bool) and v > 0 for k, v in fx.items()):
+            _vthrow(f"{loc}.fixed must map parts of its share to positive whole numbers.")
+        cw = w.get("count_without_vavs", 1)
+        if not isinstance(cw, int) or isinstance(cw, bool) or cw < 1:
+            _vthrow(f"{loc}.count_without_vavs must be a positive whole number.")
+        if "line" in w and not _nonempty_str(w["line"]):
+            _vthrow(f"{loc}.line must be a non-empty sentence.")
+
+
+def _validate_user_addable(ua, spec):
+    """VAV-2b1 (owner 2026-11-21 01:07 / 01:09) -- `list_spec.pricing.user_addable`: withdrawn families a list still offers (added by the
+    user at full rate), each once, each a member of `withdrawn_families`; `share` (optional) an id of `sheet_shares.shares`; `line`
+    (optional, with `share`) the non-empty double-count line."""
+    loc = "list_spec.pricing.user_addable"
+    pr = spec.get("pricing") or {}
+    wd = pr.get("withdrawn_families") or []
+    shares = {sh.get("id") for sh in ((pr.get("sheet_shares") or {}).get("shares") or []) if isinstance(sh, dict)}
+    if not isinstance(ua, list) or not ua:
+        _vthrow(f"{loc} must be a non-empty list.")
+    seen = set()
+    for u in ua:
+        if not isinstance(u, dict) or not set(u) <= {"family", "share", "line"} or u.get("family") not in wd or u.get("family") in seen:
+            _vthrow(f"{loc} entries must carry family (a withdrawn family, each once) and optional share / line.")
+        seen.add(u["family"])
+        if "share" in u and u["share"] not in shares:
+            _vthrow(f"{loc}.share must name a share of sheet_shares.")
+        if "line" in u and ("share" not in u or not _nonempty_str(u["line"])):
+            _vthrow(f"{loc}.line must be a non-empty sentence, with its share.")
 
 
 def _validate_source_tags(st, spec):
@@ -1805,12 +1866,15 @@ _PRICING_KEYS = _PRICING_KEYS | {"family_alias_needs", "no_sku_refuse_default"}
 # VAV-2b1 (owner 2026-11-20 14:18 - 18:44): `sheet_shares` -- the shared items of a VAV sheet (BACnet controller / DP sensor / DDC panel
 # shares, per sheet, each its own line); `withdrawn_families` -- families no list offers per box any more. Each arrives WITH its shape check.
 _PRICING_KEYS = _PRICING_KEYS | {"sheet_shares", "withdrawn_families"}
+# VAV-2b1 (owner 2026-11-21 01:07 / 01:09): `user_addable` -- withdrawn families a list still offers, added by the user at full rate.
+_PRICING_KEYS = _PRICING_KEYS | {"user_addable"}
 _SHEET_SHARES_KEYS = {"reading", "count", "shares", "separate", "labels", "lines"}
 _SHEET_SHARES_READING = {"controller_attr", "by_others_attr", "dp_attr", "values", "yes"}
 _SHEET_SHARES_VALUES = {"ddc_inclusive", "ddc", "bacnet", "controller"}
 _SHEET_SHARES_LABELS = {"vavs", "count_suffix", "typed", "typed_supply", "typed_install", "amount_typed", "tag_helper", "tag_user", "from_sheet",
                         "typed_by_you", "changed_by_you", "from_input", "worked_out", "need_vavs", "no_sku", "per_box"}
 _SHEET_SHARES_LINES = {"not_added", "check", "ddc_not_inclusive", "by_others", "rate_only", "blank_rows", "zero_row"}
+_SHEET_SHARES_LINES_OPTIONAL = {"not_box_row"}
 _SHARE_KEYS = {"id", "label", "heading", "add_label", "parts", "item"}
 _SHARE_OPTIONAL = {"bcs_of", "replaces", "replaces_line"}
 _SHARE_PART_KEYS = {"id", "label", "per_label", "per_input", "sku"}
@@ -4264,6 +4328,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_sheet_shares(pr["sheet_shares"], spec)
     if "withdrawn_families" in pr:
         _validate_withdrawn_families(pr["withdrawn_families"], spec)
+    if "user_addable" in pr:
+        _validate_user_addable(pr["user_addable"], spec)
     if "source_tags" in pr:
         _validate_source_tags(pr["source_tags"], spec)
     if "two_insulations" in pr:

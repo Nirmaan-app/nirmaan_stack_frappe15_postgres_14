@@ -156,24 +156,40 @@ class TestHvacAssetV76(FrappeTestCase):
     def test_05_v76_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(CUR))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 78)  # VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
-        self.assertEqual(nums, list(range(1, 79)))  # VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
+        self.assertEqual(nums[-1], 80)  # VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE nums[-1] == 79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE nums[-1] == 78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
+        self.assertEqual(nums, list(range(1, 81)))  # VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE list(range(1, 80)); VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE list(range(1, 79)); VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
 
     def test_06_live_catalogue_is_v76(self):
         # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): the live VAV config is v77's (v76 + the VAV-2a keys); Sensors and Misc are
         # still v76's byte for byte. BEFORE: every one of the three compared with v76's config.
         # VAV-2a2 K2 (HVAC v78 LOADED; mechanical authority): the live VAV config is v78's (band_from, source_tags, the shape default, the BACnet serves reading);
         # Sensors and Misc still v76's. BEFORE: the VAV config compared with v77's
-        with open(_asset_path("rate_master_hvac_all_v78.json"), "r", encoding="utf-8") as fh:
+        # VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority; PIN 19, ANSWER 33): the live VAV config is the NEWEST file's (sheet_shares,
+        # withdrawn_families, zero_rows, lower_limit, heading); Sensors and Misc still v76's. BEFORE: the VAV config compared with v78's
+        # VAV-2b1 K2 (HVAC v80 LOADED; PIN 26, the hvac_sensors identity line, ANSWER 46): the live VAV AND Sensors configs are the NEWEST file's
+        # (v80 adds the Duct Static Pressure Sensor family to Sensors); Misc still v76's byte for byte. BEFORE: line opened v79's file, the
+        # VAV config compared with it, Sensors and Misc with v76's; the negative half widened: v76's Sensors config != the compared file's
+        with open(_asset_path("rate_master_hvac_all_v80.json"), "r", encoding="utf-8") as fh:
             v77 = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
         for cid in (VAV, SENS, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-            self.assertEqual(_norm(live), _norm(v77[cid] if cid == VAV else self.cfg[cid]), cid)
+            self.assertEqual(_norm(live), _norm(v77[cid] if cid in (VAV, SENS) else self.cfg[cid]), cid)
         self.assertNotEqual(_norm(self.cfg[VAV]), _norm(v77[VAV]))
+        self.assertNotEqual(_norm(self.cfg[SENS]), _norm(v77[SENS]))
+        # ANSWER 46: the old guarantee in its narrower form -- v80's Sensors with ONLY the Duct Static Pressure Sensor family and its choice
+        # value taken out == v76's Sensors byte for byte; the normaliser asserts it removed exactly those (so it cannot pass vacuously)
+        s80 = json.loads(json.dumps(v77[SENS]))
+        fams = s80["list_spec"]["pricing"]["families"]
+        self.assertIn("Duct Static Pressure Sensor", fams)
+        del fams["Duct Static Pressure Sensor"]
+        fdef = [d for d in s80["list_spec"]["attribute_definitions"] if d["id"] == s80["list_spec"]["family_attribute_id"]][0]
+        self.assertEqual(fdef["values"].count("Duct Static Pressure Sensor"), 1)
+        fdef["values"].remove("Duct Static Pressure Sensor")
+        self.assertEqual(_norm(s80), _norm(self.cfg[SENS]))
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 848)  # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE 840 (+ 8 VAV-2a Pricing Inputs)
+        self.assertEqual(n, 853)  # VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority): BEFORE 848 (+ the DDC Panel/ Controller, the Duct Static Pressure Sensor, 3 VAV-2b1 Pricing Inputs); VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE 840 (+ 8 VAV-2a Pricing Inputs)
         f = frappe.db.sql("""select rates from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind='hvac_pricing_input'
                              and attributes::text like %s""", ('%"' + UPLIFT + '"%',))
         self.assertTrue(f)

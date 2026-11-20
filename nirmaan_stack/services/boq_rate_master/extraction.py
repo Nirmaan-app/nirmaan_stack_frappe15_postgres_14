@@ -936,6 +936,11 @@ def build_items_spec(cfg, configs=None, discipline=None):
         # borrower's items are not offered here. Every other borrowed category (Insulation under Piping / Ducting) asks its whole
         # question exactly as before, so those requests are byte-identical.
         offered = s.get("families") if ((target.get("list_spec") or {}).get("borrowers_ask_offered_only") is True) else None
+        # VAV-2b1 v80 (chat-Claude's call (c2), 2026-11-21 01:23; owner 01:07 / 01:09 "by the user only"): a family the borrower offers
+        # only for the USER to add (`list_spec.pricing.user_addable`) is never asked of the model -- the section asks what it asked before
+        user_only = {u.get("family") for u in ((spec.get("pricing") or {}).get("user_addable") or []) if isinstance(u, dict)}
+        if isinstance(offered, list) and user_only:
+            offered = [f for f in offered if f not in user_only]
         fam_id = sub.get("family_attribute_id")
         tfams = ((target.get("list_spec") or {}).get("pricing") or {}).get("families") or {}
         if isinstance(offered, list) and offered and fam_id:

@@ -85,7 +85,8 @@ export type SheetRow = { items?: Item[]; unit?: string; qty?: number | null; tex
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
 
 /** a BoQ sheet: rows by excel row, model items on the rows that have them; `cats` = the page's category of each row */
-export function vavSheet(rows: Record<number, SheetRow>, opts: { cfg?: RateCategoryConfig; items?: RateMasterItem[]; cats?: Record<number, string> } = {}) {
+export function vavSheet(rows: Record<number, SheetRow>, opts: { cfg?: RateCategoryConfig; items?: RateMasterItem[]; cats?: Record<number, string>;
+  /** VAV-2b1 v80: other configs of the map replaced (the Sensors config with its new family) */ also?: RateCategoryConfig[] } = {}) {
   const cfg = opts.cfg ?? vavWith();
   // VAV-2a2 (B1): on a config with `band_from` the band is worked out from the airflow the BoQ states -- a box item that names a band and no
   // airflow / inlet size is given the airflow one below the band's max (inside it under either edge rule), as the BoQ would state it
@@ -98,7 +99,9 @@ export function vavSheet(rows: Record<number, SheetRow>, opts: { cfg?: RateCateg
   const results = Object.entries(rows).filter(([, r]) => r.items).map(([er, r]) => ({
     excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VAV, attributes: {}, items: r.items!.map((it) => mi(asRead(it))),
   }));
-  const helper = makePricingSheetHelper({ configsByCategory: boqMap(cfg), items: opts.items ?? withInputs(), extractionByRow: buildExtractionByRow(results as never) });
+  const map = boqMap(cfg);
+  for (const c of opts.also ?? []) map.set(c.category_id, c);
+  const helper = makePricingSheetHelper({ configsByCategory: map, items: opts.items ?? withInputs(), extractionByRow: buildExtractionByRow(results as never) });
   // the page's rows: a heading above a row = its parent chain (`parent` = the heading's excel row), as `rowHeadings` reads it
   const priced = Object.entries(rows).map(([er, r]) => ({ source_row_number: Number(er), row_index: Number(er), effective_parent_index: r.parent ?? -1,
     ...(r.qty === null ? {} : { qty_total: r.qty ?? 1 }), node_type: r.node ?? "Line Item", description: r.text ?? "", unit: r.unit ?? "Nos",

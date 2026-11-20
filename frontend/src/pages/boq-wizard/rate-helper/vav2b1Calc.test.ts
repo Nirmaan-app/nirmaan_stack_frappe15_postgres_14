@@ -22,7 +22,8 @@ describe("AC0 / T2 the Calculator: Add BACnet controller share, type 80 VAVs", (
   it("POSITIVE before any share: the three add buttons and no block; the per-box BACnet controller and the DP switch are offered by NO list", () => {
     const v = calc79(ST).itemList!;
     expect(v.shares!.blocks).toEqual([]);
-    expect(v.shares!.adds.map((a) => a.label)).toEqual(["Add DDC panel share", "Add BACnet controller share", "Add DP sensor share"]);
+    // PIN 18 (ANSWER 26 / 28; screen 7, owner 18:42): BEFORE ["Add DDC panel share", "Add BACnet controller share", "Add DP sensor share"] (the config order)
+    expect(v.shares!.adds.map((a) => a.label)).toEqual(["Add BACnet controller share", "Add DP sensor share", "Add DDC panel share"]);
     expect((v.families ?? []).map((x) => x.family)).not.toContain("BACnet over IP controller");
     expect(v.sections!.adds.flatMap((a) => a.families.map((x) => x.family))).not.toContain("Differential Pressure Switch");
   });
@@ -192,6 +193,39 @@ describe("B7 / R13 THE SIX INTEGRATOR ROWS FILED MISC: the box prices on the 'In
     expect(sheet79({ 10: box(80, { controller: "bacnet" }), 50: real("BOQ-26-00355 'VAV BOX' r47") })(10).itemList!.shares!.blocks).toEqual([]);
     const s = sheet79({ 10: box(80, { controller: "bacnet" }), 50: real("BOQ-26-00007 'HVAC BOQ' r385") })(10);
     expect(s.itemList!.shares!.blocks.map((b) => [b.id, b.notes])).toEqual([["bacnet", ["Controller row 50 has quantity 0, so the BACnet controller share is added here. Remove it if the controller is ordered on that row."]]]);
+  });
+  // ANSWER 27 C (2) / (3) (chat-Claude 2026-11-21 00:37): what vav2a2Rules' re-pointed per-box-controller tests no longer prove on the
+  // newest file, carried on v79 (the per-box controller is withdrawn; the SHARE is what the controller row decides now)
+  it("C (2) BOQ-26-00355 r47 on v79: 'VAV BOX' (quantity 1) -> no share, the note names the row; 'HVAC -1 Flr' (the same words, quantity 0) -> the share + the quantity-0 note", () => {
+    const r47 = real("BOQ-26-00355 'VAV BOX' r47");
+    const one = sheet79({ 10: box(5, { controller: "bacnet" }), 50: { ...r47, qty: 1 } })(10);
+    expect(one.itemList!.shares!.blocks).toEqual([]);
+    expect(JSON.stringify(one.itemList)).toContain("BACnet controller share not added: the sheet prices it on its own row (row 50).");
+    const zero = sheet79({ 10: box(5, { controller: "bacnet" }), 50: { ...r47, qty: 0 } })(10);
+    expect(zero.itemList!.shares!.blocks.map((b) => [b.id, b.notes])).toEqual([["bacnet", ["Controller row 50 has quantity 0, so the BACnet controller share is added here. Remove it if the controller is ordered on that row."]]]);
+    // VACUITY: no controller row on the sheet -> the share is added with NO row note (so the two results above come from row 47)
+    const none = sheet79({ 10: box(5, { controller: "bacnet" }) })(10);
+    expect(none.itemList!.shares!.blocks.map((b) => [b.id, b.notes])).toEqual([["bacnet", []]]);
+  });
+  it("C (3) a BOX row never counts as the controller's row on v79: 'Installation of VAV Units with BACnet controller' leaves the share on; the controller's own wording takes it off", () => {
+    const boxLike = sheet79({ 10: box(10, { controller: "bacnet" }), 31: { ...box(10), text: "Installation of VAV Units with BACnet controller" } })(10);
+    expect(boxLike.itemList!.shares!.blocks.map((b) => b.id)).toEqual(["bacnet"]);
+    expect(JSON.stringify(boxLike.itemList)).not.toContain("prices it on its own row");
+    // VACUITY: the same sheet with a controller row in its own words (filed Misc) -> no share, the note names it
+    const ctl = sheet79({ 10: box(10, { controller: "bacnet" }), 31: { text: "BACnet over IP controller for the VAV boxes", qty: 1, category: "hvac_misc", unit: "Nos" } })(10);
+    expect(ctl.itemList!.shares!.blocks).toEqual([]);
+    expect(JSON.stringify(ctl.itemList)).toContain("(row 31)");
+  });
+  it("SCREEN 7 (owner 2026-11-20 18:42 'this is ok'; ANSWER 28): the Calculator's add buttons are EXACTLY the mockup's three, in its order", () => {
+    // the mockup spec's line (input/VAV_Mockup_Screens_2026-11-19.md line 59), verbatim
+    const SCREEN7 = `ADD buttons: "+ Add BACnet controller share", "+ Add DP sensor share", "+ Add DDC panel share".`;
+    const want = [...SCREEN7.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(want).toHaveLength(3);
+    const shown = calc79(ST).itemList!.shares!.adds.map((a) => `+ ${a.label}`);
+    expect(shown).toEqual(want);
+    // VACUITY: the config's list order used directly (the first-match order) is NOT the screen's -> a build that showed it would go red
+    const spec = (vav79() as unknown as { list_spec: { pricing: { sheet_shares: { shares: Array<{ add_label: string }> } } } }).list_spec.pricing.sheet_shares;
+    expect(spec.shares.map((s) => `+ ${s.add_label}`)).not.toEqual(want);
   });
   it("box item helper default reads as a counted box (sanity for the fixtures)", () => {
     expect(boxItem().vav_item).toBe("VAV box");
