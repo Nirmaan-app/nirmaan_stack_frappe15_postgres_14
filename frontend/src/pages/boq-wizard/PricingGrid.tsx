@@ -4081,7 +4081,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // re-anchor -- a ref so those closures always read the current mode without re-registering.
   const twoPaneRef = useRef(false);
   // V2 (nav/search to unmounted rows): focusCell / jumpToRow are defined BEFORE the virtualizer, so
-  // they reach it through refs (assigned right after useVirtualizer, synced each render). virtualizedRef
+  // they reach it through refs (synced after each commit by a layout effect beside useVirtualizer). virtualizedRef
   // mirrors the `virtualized` prop; scrollRowIntoWindowRef scrolls the window to a row index so an
   // OFF-window nav/jump target mounts before we focus it. Refs keep both closures reference-stable
   // (deps [] / [onRevealRow]) -> the row memo (focusCell / onJumpToRow props) is untouched.
@@ -4094,10 +4094,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
   // Latest draftRates + a latest-state "commit one cell" fn, so a debounced fire / flush
-  // reads CURRENT state at fire time (a captured value would be stale). Synced each render.
+  // reads CURRENT state at fire time (a captured value would be stale). Synced after each commit (layout effect).
   const draftRatesRef = useRef<Record<string, string>>({});
   const autoSaveCellRef = useRef<(rowIndexField: number, col: string) => void>(() => {});
-  // Latest rows snapshot (synced each render) -- the post-save propagation trigger reads
+  // Latest rows snapshot (synced after each commit by a layout effect) -- the post-save propagation trigger reads
   // it to check a corresponding cell's CURRENT priced state at save-resolve time.
   const rowsRef = useRef<PricedRow[]>(rows);
   // BCS-S3a -- the cost layer's twin plumbing, kept in its OWN maps/refs throughout so a cost
@@ -4570,7 +4570,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   }, []);
 
   // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
-  // excelRow -> array index (rowsRef is synced each render), then focuses + centers that row's
+  // excelRow -> array index (rowsRef is synced after each commit), then focuses + centers that row's
   // col-0 cell (registered in cellRefs, a stable ref); a target not in the rendered set is a
   // safe no-op. Reference-stable (deps []: only refs are read) -> memo-safe as a row prop. The
   // imperative scrollToRow (search / review-strip) delegates here so there is ONE jump path.
@@ -5578,7 +5578,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       // cell; onFocus sets activeCell, giving a visible landing. Safe no-op if not rendered.
       scrollToRow: (excelRow) => jumpToRow(excelRow),
       // Slice B (undo/redo): the ribbon buttons call these; they delegate to the LATEST closures
-      // via refs (synced each render), so the handle need not rebuild when rows/override change.
+      // via refs (synced after each commit), so the handle need not rebuild when rows/override change.
       undo: () => undoRef.current(),
       redo: () => redoRef.current(),
       // U1 rate-helper: delegate to the latest applyRate via a ref (like undo/redo) so the handle
@@ -5728,7 +5728,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     },
   });
   // V2: sync the refs the (earlier-defined) focusCell / jumpToRow read to reach the virtualizer for
-  // an off-window nav/jump target. Assigned each render -- the virtualizer instance is stable, so
+  // an off-window nav/jump target. Synced after each commit (layout effect) -- the virtualizer instance is stable, so
   // these never destabilize those useCallbacks (which read the refs, not these values).
   useLayoutEffect(() => {
     virtualizedRef.current = virtualized;

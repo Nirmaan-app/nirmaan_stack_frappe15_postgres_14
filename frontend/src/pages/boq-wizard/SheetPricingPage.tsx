@@ -1061,7 +1061,7 @@ const SheetPricingPage = () => {
     typeof window !== "undefined" &&
     window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
@@ -1140,7 +1140,7 @@ const SheetPricingPage = () => {
   >({});
   // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
   // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
-  // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
+  // is unavailable. Synced after each commit by a layout effect (cheap; the value is already memo-stable per fetch).
   const catDataRef = useRef<{ message: GetSheetCategoriesResolvedResponse } | undefined>(undefined);
   useLayoutEffect(() => {
     catDataRef.current = catData;
@@ -1160,7 +1160,7 @@ const SheetPricingPage = () => {
     null,
   );
   // Mirrors classification_frozen so the STABLE onCategoryClick can short-circuit while frozen
-  // without becoming a new callback (which would defeat the grid's row memo). Set during render.
+  // without becoming a new callback (which would defeat the grid's row memo). Synced after each commit (layout effect).
   const classificationFrozenRef = useRef(false);
   const onCategoryClick = useCallback(
     (excelRow: number, cellEl: HTMLElement) => {
@@ -1434,7 +1434,7 @@ const SheetPricingPage = () => {
   // reuse). Refs (not state) -- read in render, written in a layout effect after commit; no extra render.
   const prevRowsRef = useRef<PricedRow[]>([]);
   const rowsSourceSigRef = useRef<string>("");
-  // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
+  // Refs synced after each commit (layout effect below) so the toggle + reveal callbacks stay reference-stable
   // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
   const collapsedRef = useRef(collapsed);
   const byRowIndexRef = useRef<Map<number, CollapseRow>>(new Map());

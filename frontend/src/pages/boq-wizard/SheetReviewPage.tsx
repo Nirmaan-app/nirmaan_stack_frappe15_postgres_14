@@ -209,7 +209,7 @@ const SheetReviewPage = () => {
   // fresh editable get_draft_lock_info payload arrives.
   const [takenOver, setTakenOver] = useState(false);
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (the pricing lockCtxRef pattern). Updated each render.
+  // WITHOUT recreating them (the pricing lockCtxRef pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });

@@ -107,7 +107,7 @@ const SheetSpokePage = () => {
     typeof window !== "undefined" &&
     window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (the A2 ref-for-changing-values pattern). Updated each render.
+  // WITHOUT recreating them (the A2 ref-for-changing-values pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });
