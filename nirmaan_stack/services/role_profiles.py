@@ -162,6 +162,11 @@ AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
 MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# The Audit View report (Reports → Audit View): Admin and Accountants. Read-only, but it reads every
+# order, invoice and payment with `frappe.get_all`, so this is the ENFORCEMENT boundary for
+# `api/reports/audit_view`. Mirrored client-side by `frontend/src/constants/roles.ts::AUDIT_VIEW_PROFILES`.
+AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
@@ -299,6 +304,12 @@ def assert_amount_paid_mismatch_access(user: str) -> None:
     """Refuse a user outside `AMOUNT_PAID_MISMATCH_PROFILES`. Both of the report's endpoints start with it."""
     if not has_role_profile(user, AMOUNT_PAID_MISMATCH_PROFILES):
         raise frappe.PermissionError(_("Only an Admin or Accountant Lead may use the Amount Paid Mismatch report."))
+
+
+def assert_audit_view_access(user: str) -> None:
+    """Refuse a user outside `AUDIT_VIEW_PROFILES`. Both of the Audit View report's endpoints start with it."""
+    if not has_role_profile(user, AUDIT_VIEW_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or an Accountant may use the Audit View report."))
 
 
 BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"
