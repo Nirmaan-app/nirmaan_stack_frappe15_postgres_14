@@ -379,12 +379,26 @@ the vendor screens, and raisers only from an Expense Request (later tickets of #
 
 ### Cheque Tracker (`cheque-tracker/`, spec #1477)
 
-Admin, Accountant, Accountant Lead and Procurement (`CHEQUE_ACCESS_PROFILES` in `constants/roles.ts`); Project
-Managers are not in it. The `/cheque-tracker` route guard and the sidebar link read it, and the server enforces the
-same list (`services/role_profiles.CHEQUE_ACCESS_PROFILES`) in every `api/cheques/` endpoint. Row buttons come from
-`utils/cheques/chequeRowActions.ts`: Clear and Cancel for Admin, Accountant and Accountant Lead only; Edit as
-`canEditCheque` allows (accounts: any cheque; Procurement: only the Pending cheques it created, #1482). It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
+Two role lists, one for using cheques and one for only looking at them:
+
+| List (`constants/roles.ts`, mirrored in `services/role_profiles.py`) | Who | Used by |
+|---|---|---|
+| `CHEQUE_ACCESS_PROFILES` | Admin, Accountant, Accountant Lead, Procurement | The `/cheque-tracker` route guard and sidebar link; on the server, every `api/cheques/` endpoint that records or edits (`save_cheque`, `pickers`, through `assert_cheque_access`) |
+| `CHEQUE_VIEW_PROFILES` | `CHEQUE_ACCESS_PROFILES` + PMO Executive (owner, 2026-11-20) | The Vendor page's Cheques tab; on the server, only the read endpoints `list_cheques.get_cheques`, `list_cheques.get_cheque_facets` and `cheque_detail.get_cheque` (through `assert_cheque_view_access`) |
+
+Project Managers are in neither list. PMO can only VIEW: no Cheque Tracker page, and no row or detail buttons,
+because the buttons come from the accounts list below, not from the view list. The two lists are pinned to their
+server twins by `services/test_role_mirrors.py`.
+
+Row buttons come from `utils/cheques/chequeRowActions.ts`: Cancel for Admin, Accountant and Accountant Lead only
+(`CHEQUE_ACCOUNTS_PROFILES`; the server's `cheque_status` checks the same list). Nobody clears a cheque by hand: only
+an imported bank line does (#1516). Edit as `canEditCheque` allows (accounts: any cheque; Procurement: only cheques it created,
+an Approval Pending Payment cheque or an Issued Security Deposit, #1482). It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
 links redirect to it (`pages/reports/ReportsIndex.tsx`).
+
+**Vendor page › Cheques tab** (`pages/cheque-tracker/components/ChequeTrackerTabs.tsx` with `vendorId`): the same
+tabs, summary, rows and buttons as the Cheque Tracker, narrowed to one vendor (`utils/cheques/chequeTabs.chequeTabFiltersFor`),
+with the Vendor / Payee column hidden. Shown to `CHEQUE_VIEW_PROFILES` and the Administrator user.
 
 ---
 
@@ -508,6 +522,8 @@ Compliance reminders (GSTR, TDS, PF…). Rules and the Next Due Date: `../../../
 | Items | Add/Edit Products | Y | Y | - | - | - |
 | Vendors | Export Ledger | Y | Y | - | Y (Accountant) | - |
 | Vendors | Bulk Download tab (`canBulkDownloadVendor`; a typed `?tab=bulkDownload` from anyone else is redirected) | Y | Y | - | - | Accountant, Accountant Lead, Procurement profiles only |
+| Vendors | Payments tab (sub-tabs Paid / Cheque Pending / Other Pending Payments; no role check of its own, rows follow Project Payments read) | Y | Y | URL only | URL only | Accountant, Accountant Lead, Procurement (sidebar); other roles only by a link or typed URL |
+| Vendors | Cheques tab (`CHEQUE_VIEW_PROFILES`; see Cheque Tracker) | Y | View only | - | - | Accountant, Accountant Lead, Procurement profiles |
 
 **Key files:**
 - `project.tsx:1045,1058`
