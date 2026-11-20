@@ -621,6 +621,19 @@ export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
 ];
 
 /**
+ * Reports > Audit View: every order, approved invoice and paid payment in one date range (All Project
+ * View and Non Project View). Admin, Accountant and Accountant Lead.
+ *
+ * UI gate only. Mirrored server-side by `role_profiles.AUDIT_VIEW_PROFILES`, the enforcement boundary:
+ * both endpoints in `api/reports/audit_view` refuse anyone outside it. Change the two together.
+ */
+export const AUDIT_VIEW_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
  * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
  * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
  * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.

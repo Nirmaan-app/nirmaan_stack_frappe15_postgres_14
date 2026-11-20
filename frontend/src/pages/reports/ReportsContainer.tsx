@@ -3,13 +3,14 @@ import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
+import { AuditViewReportType, DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
 import { paymentTabReports } from './config/paymentTab.config';
 import {
     AMOUNT_PAID_MISMATCH_PROFILES,
+    AUDIT_VIEW_PROFILES,
     MATERIAL_PROCUREMENT_PROFILES,
     PROCUREMENT_PROFILES,
     RECONCILE_2B_REPORT_PROFILES,
@@ -34,6 +35,7 @@ const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductio
 // The same Bulk Download screen as the project and vendor tabs, over every project the user may read.
 const BulkDownloadPage = React.lazy(() => import('@/pages/BulkDownload/BulkDownloadPage').then((m) => ({ default: m.BulkDownloadPage })));
 const ALL_PROJECTS_SCOPE = { kind: "all", id: "", name: "All projects" } as const;
+const AuditViewReport = React.lazy(() => import('./components/AuditViewReport'));
 // The Cheque Payment report is the Cheque Tracker now, its own page (#1483); `ReportsIndex` redirects old links.
 
 // Define options for the selector
@@ -85,6 +87,11 @@ const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] 
     { label: 'TDS Deduction', value: 'TDS Deduction' },
 ];
 
+const auditViewReportOptions: { label: string; value: AuditViewReportType }[] = [
+    { label: 'All Project View', value: 'All Project View' },
+    { label: 'Non Project View', value: 'Non Project View' },
+];
+
 export default function ReportsContainer() {
     const { role, user_id } = useUserData(); // Get current user's role
     const selectedReportType = useReportStore((state) => state.selectedReportType);
@@ -100,7 +107,7 @@ export default function ReportsContainer() {
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS || urlTab === REPORTS_TABS.PAYMENT_TDS || urlTab === REPORTS_TABS.BULK_DOWNLOAD) return urlTab;
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS || urlTab === REPORTS_TABS.PAYMENT_TDS || urlTab === REPORTS_TABS.BULK_DOWNLOAD || urlTab === REPORTS_TABS.AUDIT_VIEW) return urlTab;
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
@@ -212,6 +219,9 @@ export default function ReportsContainer() {
         if (canBulkDownloadAllProjects(role, user_id)) {
             availableTabs.push({ label: "Report Bulk Download", value: REPORTS_TABS.BULK_DOWNLOAD });
         }
+        if (AUDIT_VIEW_PROFILES.includes(role)) {
+            availableTabs.push({ label: "Audit View", value: REPORTS_TABS.AUDIT_VIEW });
+        }
         return availableTabs;
     }, [role, user_id]);
 
@@ -287,6 +297,8 @@ export default function ReportsContainer() {
         } else if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
             const allowed = paymentTabReports(role);
             return paymentTdsReportOptions.filter(option => allowed.includes(option.value));
+        } else if (activeTab === REPORTS_TABS.AUDIT_VIEW) {
+            return AUDIT_VIEW_PROFILES.includes(role) ? auditViewReportOptions : [];
         }
         return [];
     }, [activeTab, role, hiddenOrderReports]);
@@ -399,6 +411,9 @@ export default function ReportsContainer() {
         if (activeTab === REPORTS_TABS.BULK_DOWNLOAD) {
             // No Report Type select (`currentReportOptions` is []): the wizard's own type cards choose.
             return <BulkDownloadPage key="all" scope={ALL_PROJECTS_SCOPE} />;
+        }
+        if (activeTab === REPORTS_TABS.AUDIT_VIEW) {
+            return <AuditViewReport view={selectedReportType === 'Non Project View' ? 'nonproject' : 'project'} />;
         }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
             return (
