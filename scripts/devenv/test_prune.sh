@@ -257,7 +257,7 @@ git config -f "$R" devbox.default contabo
 git config -f "$R" box.contabo.ssh t@contabo-test
 git config -f "$R" box.contabo.checkout work/x/variants/master
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$L/scripts/devenv/"
 cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
 #!/bin/bash
 # Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
@@ -277,6 +277,8 @@ git -C "$L" config core.hooksPath "$T/no-hooks"
 git -C "$L" add -A; git -C "$L" commit -q --no-verify -m base
 CH="$T/boxes/t@contabo-test"; CO="$CH/work/x/variants/master"
 git clone -q "$L" "$CO"; git -C "$CO" config user.name box; git -C "$CO" config user.email box@example.com
+git init -q --bare "$T/github.git"; git -C "$T/github.git" fetch -q "$L" master:develop   # the org repo's develop
+git -C "$L" config devbox.org-repo "$T/github.git"; git -C "$CO" config devbox.org-repo "$T/github.git"
 mkdir -p "$CH/.stub"; echo Linux > "$CH/.stub/uname"; : > "$CH/.stub/procs"
 CROOT="$(cd "$CH/work/x" && pwd -P)"
 bwt() { echo "$CROOT/benches/$1/apps/nirmaan_stack"; }

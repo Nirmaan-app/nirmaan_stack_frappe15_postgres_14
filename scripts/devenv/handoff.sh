@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Hand a branch between the laptop and a dev box (a VM built with bootstrap.sh). Run on the laptop, from any checkout
-# of the repo. Commits travel as git bundles over SSH; nothing here talks to GitHub, and nothing is a push.
+# of the repo. Commits travel as git bundles over SSH; nothing here writes to GitHub, and nothing is a push.
 #
 #   handoff.sh status <box> <branch>   where the branch stands on both sides (read-only)
-#   handoff.sh to <box> <branch>       give the box the laptop's commits on <branch>
+#   handoff.sh to <box> <branch> [--contains-develop]
+#                                      give the box the laptop's commits on <branch>. With --contains-develop (task.sh
+#                                      start passes it) the box reads GitHub's develop itself and refuses a tip that
+#                                      lacks it (develop.sh): exit 4, and the box's branch stays as it was
 #   handoff.sh from <box> <branch>     bring the box's commits on <branch> back to the laptop
 #
 # <box> is a box name from the registry (scripts/devenv/boxes.sh), which holds its SSH target and checkout.
 # Exit 3: the box did not answer; run the same command again once it is awake.
+# Exit 4: the box refused the branch (--contains-develop); its branches stay as they were.
 #
 # Rules (the same as env_sync.sh's laptop/desktop loop):
 # - Fast-forward only. A side whose branch has commits the other lacks is never overwritten: status says DIVERGED,
@@ -17,7 +21,7 @@
 #   files; otherwise the transfer is refused and both sides stay as they were.
 # - On the box, an agent works on a handed-over branch with: scripts/devenv/devenv.sh create <task> --on <branch>
 #
-# The script runs itself on the box (piped over SSH), so the box needs no copy of it.
+# The script runs itself on the box (piped over SSH, after develop.sh), so the box needs no copy of either.
 # The whole body sits in { ... } so bash parses it before running: editing this file mid-run is safe.
 {
 set -euo pipefail
@@ -51,11 +55,18 @@ if [ "${1:-}" = _box ]; then
     dirty)    # the worktree holding branch $2, if it has uncommitted changes to tracked files
       wt="$(git worktree list --porcelain | awk -v ref="refs/heads/$2" '/^worktree /{p=substr($0,10)} $0=="branch "ref{print p}')"
       [ -n "$wt" ] && [ -n "$(git -C "$wt" status --porcelain --untracked-files=no)" ] && echo "$wt" || true ;;
-    receive)  # $2 branch, $3 bundle file in the box user's home or "-" (the box has the commit), $4 commit, $5 old box commit or ""
+    receive|receive-develop)  # $2 branch, $3 bundle file in the box user's home or "-" (the box has the commit), $4 commit, $5 old box commit or ""
+      # (ssh drops an empty argument, so the develop check rides on the command's name, not a sixth argument)
       if [ "$3" != - ]; then
         f="$HOME/$3"
         git bundle verify -q "$f" >/dev/null 2>&1 || { rm -f "$f"; die "the bundle does not verify on the box"; }
         git fetch -q "$f" "refs/heads/$2:refs/handoff/$2" --force; rm -f "$f"
+      fi
+      if [ "$1" = receive-develop ]; then
+        # Before the branch moves, so a refusal leaves the box's branches as they were.
+        why="$( { d="$(develop_tip)" && start_point_verdict "$(start_vs_develop "$4" "$d")" "$4" "$d"; } 2>&1)" || {
+          git update-ref -d "refs/handoff/$2" 2>/dev/null || true
+          echo "STOP  the box refuses $2: ${why#STOP  }" >&2; exit 4; }
       fi
       [ "$(git rev-parse -q --verify "refs/heads/$2" || true)" = "${5:-}" ] || die "$2 moved on the box since the check; run status again"
       ff_branch "$2" "$4" "${5:-}"; git update-ref -d "refs/handoff/$2" 2>/dev/null || true
@@ -73,13 +84,14 @@ fi
 SELF="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
 cd "$(dirname "$SELF")"; cd "$(git rev-parse --show-toplevel)"
 . "$(dirname "$SELF")/boxes.sh"
-CMD="${1:-}"; BR="${3:-}"
-case "$CMD" in status|to|from) ;; *) sed -n '2,20p' "$SELF"; exit 1 ;; esac
+CMD="${1:-}"; BR="${3:-}"; OPT="${4:-}"
+case "$CMD" in status|to|from) ;; *) sed -n '2,24p' "$SELF"; exit 1 ;; esac
 [ -n "${2:-}" ] && [ -n "$BR" ] || die "usage: handoff.sh $CMD <box> <branch>"
+case "$CMD:$OPT:${5:-}" in *::|to:--contains-develop:) ;; *) die "usage: handoff.sh $CMD <box> <branch>$([ "$CMD" != to ] || echo ' [--contains-develop]')" ;; esac
 git check-ref-format --branch "$BR" >/dev/null || die "not a branch name: $BR"
 box_load "$2"
 box_reach
-box() { box_ssh bash -s -- _box "$BOX_CO" "$@" < "$SELF"; }
+box() { box_ssh bash -s -- _box "$BOX_CO" "$@" < <(cat "$(dirname "$SELF")/develop.sh" "$SELF"); }
 here_has() { git cat-file -e "$1^{commit}" 2>/dev/null; }
 FILE="handoff-$(echo "$BR" | tr '/' '_')-$$.bundle"
 
@@ -115,13 +127,14 @@ case "$CMD" in
       DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
       *) die "$V: the box has commits on $BR the laptop lacks. Run 'handoff.sh from $BOX_NAME $BR' first." ;;
     esac
-    if [ "$(box has "$L")" = yes ]; then box receive "$BR" - "$L" "$R"
+    RECEIVE=receive; [ -z "$OPT" ] || RECEIVE=receive-develop
+    if [ "$(box has "$L")" = yes ]; then box "$RECEIVE" "$BR" - "$L" "$R"
     else
       tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
       basis=(); while read -r c; do here_has "$c" && basis+=("^$c"); done < <(box known)
       git bundle create -q "$tmp/$FILE" "refs/heads/$BR" ${basis[@]+"${basis[@]}"} || die "could not bundle $BR"
       box_scp "$tmp/$FILE" "BOX:$FILE"
-      box receive "$BR" "$FILE" "$L" "$R"
+      box "$RECEIVE" "$BR" "$FILE" "$L" "$R"
     fi
     ok "handed $BR to box $BOX_NAME: box at ${L:0:9} (was $([ -n "$R" ] && echo "${R:0:9}" || echo none)). Work there with: devenv.sh create <task> --on $BR" ;;
   from)

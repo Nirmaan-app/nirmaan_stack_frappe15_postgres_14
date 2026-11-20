@@ -2,11 +2,17 @@
 # One command per stage of an agent task on a dev box. Run on the laptop, from any checkout of the repo.
 #
 #   task.sh start <name> [--box <box>] [--brief <file>] [--from <ref>] [--no-agent]
-#       branch box/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
-#       outside the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on
-#       -> start Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first
-#       reply in its session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
+#       branch box/<name> off the start point -> hand it to the box -> copy the brief to the box (private, outside
+#       the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on -> start
+#       Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first reply in its
+#       session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
 #       --no-agent stops before Claude.
+#       The start point is <ref>, else the HEAD of the checkout you run task.sh from (only commits travel: start WARNs
+#       when that checkout has uncommitted changes); on a rerun, the box/<name> already made. It must hold GitHub's
+#       develop as it is now (scripts/devenv/develop.sh: how develop is found, and the rule). Equal or ahead starts;
+#       behind or diverged STOPs before anything changes, saying what to do. The box reads develop itself when the
+#       branch arrives and refuses it by the same rule, before any env; start then takes back the branch and record
+#       it made, so a rerun begins from the updated start point.
 #       Write the brief from scripts/devenv/BRIEF_TEMPLATE.md, keeping the filled copy outside the repo.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report, kept at
@@ -59,9 +65,14 @@ ok() { echo "ok    $*"; }
 step() { echo; echo "== $*"; }
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+HERE_CO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 cd "$(git -C "$SELF_DIR" rev-parse --show-toplevel)"
+# The checkout whose HEAD start takes: the one task.sh runs from, when it is a checkout of this repo; else its own.
+[ -n "$HERE_CO" ] && [ "$(git -C "$HERE_CO" rev-parse --path-format=absolute --git-common-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ] \
+  || HERE_CO="$PWD"
 . "$SELF_DIR/boxes.sh"
 . "$SELF_DIR/landed.sh"
+. "$SELF_DIR/develop.sh"
 
 # The one rule for a task's state: task_state <alive> <report word> <dod> <idle>. alive: 1 or 0 for a claude process
 # whose folder is the task's env, - when the box did not answer. A finished Claude session stays alive waiting for
@@ -485,7 +496,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,50p' "$0"; exit 1 ;;
+  *) sed -n '2,56p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -507,7 +518,7 @@ Never push, never open a PR, never touch GitHub issues. If the task cannot be do
 EOF
 }
 
-BRIEF=""; FROM="master"; AGENT=1; FLAG_BOX=""
+BRIEF=""; FROM=""; AGENT=1; FLAG_BOX=""
 while [ $# -gt 0 ]; do
   [ "$CMD" = start ] || die "task.sh $CMD takes no options (the box comes from the record)"
   case "$1" in
@@ -544,20 +555,42 @@ case "$CMD" in
     [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
       || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
     [ "$AGENT" = 0 ] || agent_ready
+    if START="$(git rev-parse -q --verify "refs/heads/$BRANCH")"; then START_IS="the existing $BRANCH"
+    else
+      START="$(git -C "$HERE_CO" rev-parse -q --verify "${FROM:-HEAD}^{commit}")" || die "no commit '${FROM:-HEAD}' in $HERE_CO"
+      if [ -n "$FROM" ]; then START_IS="--from $FROM"; else START_IS="HEAD of $HERE_CO"; fi
+      if [ "$START" = "$(git -C "$HERE_CO" rev-parse -q --verify HEAD || true)" ] && [ -n "$(git -C "$HERE_CO" status --porcelain)" ]; then
+        echo "WARN  $HERE_CO has uncommitted changes: only commits go to the box, so the agent will not see them"
+      fi
+    fi
+    DEVELOP="$(develop_tip)"
+    if V="$(start_point_verdict "$(start_vs_develop "$START" "$DEVELOP")" "$START" "$DEVELOP")"; then ok "start point, $START_IS: $V"
+    else die "start point, $START_IS: $V"; fi
     box_reach
 
     step "1. branch $BRANCH"
-    if git rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null; then ok "$BRANCH exists (at $(git rev-parse --short "$BRANCH"))"
+    MADE=0
+    if git rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null; then ok "$BRANCH exists (at ${START:0:9})"
     else
-      git branch "$BRANCH" "$FROM"; ok "made $BRANCH from $FROM ($(git rev-parse --short "$FROM"))"
+      git branch "$BRANCH" "$START"; MADE=1; ok "made $BRANCH from $START_IS (${START:0:9})"
       # watch and done compare them with the ref later: a reset of the ref under the task is found before the merge.
-      git config "devbox-task.$NAME.from" "$FROM"; git config "devbox-task.$NAME.base" "$(git rev-parse "$FROM^{commit}")"
+      # Without --from the ref is the branch HEAD was on (none when detached: then nothing is recorded).
+      FROM_REF="${FROM:-$(git -C "$HERE_CO" symbolic-ref -q --short HEAD || true)}"
+      [ -z "$FROM_REF" ] || { git config "devbox-task.$NAME.from" "$FROM_REF"; git config "devbox-task.$NAME.base" "$START"; }
     fi
     git config "$RECORD" "$BOX_NAME"
     export BOX_STARTED=1
 
     step "2. hand it to box $BOX_NAME"
-    "$SELF_DIR/handoff.sh" to "$BOX_NAME" "$BRANCH" | tail -1
+    RC=0; "$SELF_DIR/handoff.sh" to "$BOX_NAME" "$BRANCH" --contains-develop | tail -1 || RC=$?
+    if [ "$RC" = 4 ]; then
+      # The box refused before its branch moved. Take back what this run made here, so the rerun branches afresh.
+      [ "$MADE" = 0 ] || git update-ref -d "refs/heads/$BRANCH" "$START"
+      [ -n "$REC" ] || git config --unset "$RECORD"
+      [ "$MADE" = 0 ] || { git config --unset "devbox-task.$NAME.from" || true; git config --unset "devbox-task.$NAME.base" || true; }
+      die "box $BOX_NAME refused $BRANCH (above), and this start took back the branch and record it made. Fix what it names, then start again."
+    fi
+    [ "$RC" = 0 ] || exit "$RC"
 
     step "3. brief"
     box_ssh "mkdir -p ~/$DIR && chmod 700 ~/claude-artifacts ~/claude-artifacts/dod ~/$DIR 2>/dev/null; true"
