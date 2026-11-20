@@ -13,7 +13,7 @@ import { type ExtractedListItem } from "./itemListPricing";
 import { buildExtractionByRow, makePricingSheetHelper, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
 import { rowHeadings, rowQuantitiesOf, sheetCategoriesOf, sheetLinesOf } from "./rateSuggestionModel";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
-import { BY_ID, ITEMS, VAV, calc, surfaceMap, type CalcState } from "./vav1Vav.harness";
+import { BY_ID, ITEMS, VAV, bandFromOf, calc, surfaceMap, type CalcState } from "./vav1Vav.harness";
 
 export { VAV, ITEMS, BY_ID };
 
@@ -87,8 +87,16 @@ const KINDS = ["supply_rate", "install_rate", "combined_rate"];
 /** a BoQ sheet: rows by excel row, model items on the rows that have them; `cats` = the page's category of each row */
 export function vavSheet(rows: Record<number, SheetRow>, opts: { cfg?: RateCategoryConfig; items?: RateMasterItem[]; cats?: Record<number, string> } = {}) {
   const cfg = opts.cfg ?? vavWith();
+  // VAV-2a2 (B1): on a config with `band_from` the band is worked out from the airflow the BoQ states -- a box item that names a band and no
+  // airflow / inlet size is given the airflow one below the band's max (inside it under either edge rule), as the BoQ would state it
+  const bf = bandFromOf(cfg);
+  const asRead = (it: Item): Item => {
+    if (!bf || !bf.families.includes(String(it.vav_item)) || typeof it[bf.attr] !== "string" || bf.airflow_attr in it || bf.inlet_attr in it) return it;
+    const hit = bf.bands.find((x) => x.value === it[bf.attr]);
+    return hit ? { ...it, [bf.airflow_attr]: `${hit.max - 1} CFM` } : it;
+  };
   const results = Object.entries(rows).filter(([, r]) => r.items).map(([er, r]) => ({
-    excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VAV, attributes: {}, items: r.items!.map(mi),
+    excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VAV, attributes: {}, items: r.items!.map((it) => mi(asRead(it))),
   }));
   const helper = makePricingSheetHelper({ configsByCategory: boqMap(cfg), items: opts.items ?? withInputs(), extractionByRow: buildExtractionByRow(results as never) });
   // the page's rows: a heading above a row = its parent chain (`parent` = the heading's excel row), as `rowHeadings` reads it

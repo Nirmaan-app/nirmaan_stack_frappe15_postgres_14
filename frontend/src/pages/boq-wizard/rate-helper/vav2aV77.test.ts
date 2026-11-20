@@ -20,7 +20,18 @@ const version = Number(LATEST.match(/v(\d+)/)![1]);
 describe(`VAV-2a on ${LATEST}`, () => {
   it("B10: the VAV config carries EXACTLY the keys file's values; calculator_only stays true", () => {
     expect(version).toBeGreaterThanOrEqual(77);
-    for (const [k, v] of Object.entries(KEYS.pricing)) expect(C.list_spec.pricing[k], k).toEqual(v);
+    // VAV-2a2 (v78): own_row_check gains `serves` (B8); every VAV-2a value is still there unchanged
+    for (const [k, v] of Object.entries(KEYS.pricing)) {
+      const got = structuredClone(C.list_spec.pricing[k]) as Record<string, unknown>;
+      if (k === "own_row_check" && version >= 78) delete got.serves;
+      expect(got, k).toEqual(v);
+    }
+    // POSITIVE (chat-Claude's review 2026-11-20 00:52, PIN 3): on v78 the serves key is EXACTLY what the owner ruled -- item first; the
+    // BACnet over IP controller only; presence decides (QR-C2 (a) 00:34; 00:37 "one controller for many VAVs")
+    if (version >= 78) {
+      expect((C.list_spec.pricing.own_row_check as { serves?: unknown }).serves)
+        .toEqual({ item_first: true, extras: ["BACnet over IP controller"], presence_decides: true });
+    }
     for (const [id, ks] of Object.entries(KEYS.sections)) {
       const s = C.list_spec.sections.find((x) => x.id === id)!;
       for (const [k, v] of Object.entries(ks)) expect(s[k], `${id}.${k}`).toEqual(v);

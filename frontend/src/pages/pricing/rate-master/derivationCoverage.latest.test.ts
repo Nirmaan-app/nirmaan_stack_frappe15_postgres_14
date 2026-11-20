@@ -39,6 +39,11 @@ describe(`DU-1 THE GUARD on ${latest}: MISSING / ORPHAN = 0`, () => {
       expect(r.orphan).toEqual([]);
       // DU-1 Part B: a category that declares its reasons gives every line one (UNREASONED 0)
       if (Array.isArray((C[id].list_spec.pricing as { derivation_reasons?: unknown }).derivation_reasons)) expect(r.unreasoned).toEqual([]);
+      // VAV-2a2 (B6; owner 2026-11-19 18:21 "ok b"; the rule as reviewed 23:45): no line shows a present-but-WRONG reason, every category;
+      // a reason no line shows (DEAD) fails for VAV Box; Ducting's are REPORTED, not failed (its config stays byte-identical, R9)
+      expect(r.wrong).toEqual([]);
+      if (id === "hvac_vav_box") expect(r.dead).toEqual([]);
+      if (id === "hvac_ducting") expect(r.dead.map((x) => Number(x.split(" ")[1]))).toEqual([33, 35, 39, 40, 41, 43, 47, 54]);
       // VAV-1: Sensors is a borrow-only category of 2 items (7 lines); every other guarded category has more than 10
       expect(r.lines.length).toBeGreaterThan(id === "hvac_sensors" ? 5 : 10);
     });

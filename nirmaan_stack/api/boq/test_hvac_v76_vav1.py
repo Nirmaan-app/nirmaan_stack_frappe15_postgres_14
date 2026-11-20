@@ -156,13 +156,15 @@ class TestHvacAssetV76(FrappeTestCase):
     def test_05_v76_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(CUR))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 77)  # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
-        self.assertEqual(nums, list(range(1, 78)))  # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
+        self.assertEqual(nums[-1], 78)  # VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
+        self.assertEqual(nums, list(range(1, 79)))  # VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
 
     def test_06_live_catalogue_is_v76(self):
         # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): the live VAV config is v77's (v76 + the VAV-2a keys); Sensors and Misc are
         # still v76's byte for byte. BEFORE: every one of the three compared with v76's config.
-        with open(_asset_path("rate_master_hvac_all_v77.json"), "r", encoding="utf-8") as fh:
+        # VAV-2a2 K2 (HVAC v78 LOADED; mechanical authority): the live VAV config is v78's (band_from, source_tags, the shape default, the BACnet serves reading);
+        # Sensors and Misc still v76's. BEFORE: the VAV config compared with v77's
+        with open(_asset_path("rate_master_hvac_all_v78.json"), "r", encoding="utf-8") as fh:
             v77 = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
         for cid in (VAV, SENS, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))

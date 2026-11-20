@@ -1825,6 +1825,9 @@ export interface BandFrom {
            inlet_above: string; not_size: string; not_cfm: string };
 }
 
+/** VAV-2a2 (B1): words glued to an airflow number that are NOT a tag (`readAirflowCfm`). */
+const AIRFLOW_WORDS: ReadonlySet<string> = new Set(["up", "upto", "to", "from", "cfm", "approx", "max", "min", "of", "about", "at"]);
+
 /** VAV-2a2 (B1): the CFM a cell states -- a number, or text: "650", "650 CFM", "8,000 cfm", "500-650", "Up to 650 CFM", "15000 -16900
  *  CFM". The largest number is the airflow (the range's maximum), the smallest the low end when two are written. Null when nothing is
  *  stated ("", "None", "not stated"); "unit" when the text names an airflow unit other than CFM (l/s, cmh, m3/h -- not ruled: refused). PURE. */
@@ -1834,12 +1837,23 @@ export function readAirflowCfm(v: unknown): { high: number; low: number | null }
   const t = v.trim();
   if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
   if (/l\s*\/\s*s|\blps\b|\bcmh\b|m3\s*\/\s*h|m³|cu\.?\s*m/i.test(t)) return "unit";
-  const nums = (t.replace(/(\d),(\d{3})\b/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
-  // a range written from zero ("0 - 650 CFM") is still a range: its 0 is the low end (found in the B10 preview, BOQ-26-00218 r145)
-  const high = nums.length ? Math.max(...nums) : 0;
-  if (!(high > 0)) return null;
-  const low = nums.length >= 2 ? Math.min(...nums) : null;
-  return { high, low: low !== null && low < high ? low : null };
+  // a tag or model number ("VAV-0", "Type-0", "VAV-01", "T1", "VAV-PID-150") is not an airflow: a number glued to letters (or to
+  // letters and a hyphen) is taken out before anything is read (chat-Claude's review 2026-11-20 13:16) -- UNLESS the letters are an
+  // airflow word ("Upto500", "From525 to 1000", "CFM-650"): those are split from the number and read (review 13:27)
+  const u = t.replace(/(\d),(\d{3})\b/g, "$1$2").replace(/([A-Za-z]+)([-_/]?)(\d+(?:\.\d+)?)/g,
+    (_m, w: string, sep: string, n: string) => (AIRFLOW_WORDS.has(w.toLowerCase()) ? `${w} ${sep}${n}` : " "));
+  // a range is read only where it is WRITTEN as one ("0 - 650 CFM", "500-650", "From 2525 to 3000", "651cfm - 900cfm", "1000 CFM -1500
+  // CFM": the unit may stand on both numbers -- laptop's corpus read 2026-11-20 13:53); its 0 is its low end
+  const r = u.match(/(\d+(?:\.\d+)?)\s*(?:cfm\s*)?(?:-|–|—|\bto\b)\s*(\d+(?:\.\d+)?)/i);
+  if (r) {
+    const a = Number(r[1]), b = Number(r[2]);
+    const high = Math.max(a, b), low = Math.min(a, b);
+    return high > 0 ? { high, low: low < high ? low : null } : null;
+  }
+  // otherwise the largest number left is the airflow (no unit = CFM); a lone 0 is not an airflow
+  const nums = (u.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return null;
+  return { high: Math.max(...nums), low: null };
 }
 
 /** VAV-2a2 (B2): an inlet size as written -- ONE number, in inches (a bare number, ", inch, in) or in mm (converted), with only

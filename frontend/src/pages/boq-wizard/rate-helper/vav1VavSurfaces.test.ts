@@ -17,14 +17,16 @@ import { calculatorRowFor } from "../../pricing/PricingCalculator";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import { COMING_SOON_REASON, buildExtractionByRow, isCalculatorOnlyConfig, isEligibleConfig, makePricingSheetHelper, rowUsesPreRunHelper } from "./pricingSheetHelper";
 import { RATE_MASTER_CONFIG_TARGETS } from "./rateHelperPlumbing";
-import { BY_ID, D2, ITEMS, LATEST, VAV, calc, surfaceMap, tot } from "./vav1Vav.harness";
+import { BY_ID, D2, ITEMS, LATEST, VAV, calc, surfaceMap, tot, bandFromOf } from "./vav1Vav.harness";
 
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
 const cell = (value: string) => ({ value, confidence: 0.9 });
 /** a BoQ row on the BoQ pricing page's construction (NO calculator flag), with or without a run reading of it */
 function boqRow(category: string, map: Map<string, RateCategoryConfig> = surfaceMap(), inRun = true) {
   const items = [{ attributes: { vav_item: cell("VAV box"), shape: cell("Rectangular"), vav_type: cell("AHRI Certified"), integrator_included: cell("Yes"),
-    cfm_range: cell("450-800"), vav_item_as_written: cell("VAV box 750 CFM") } }];
+    cfm_range: cell("450-800"), vav_item_as_written: cell("VAV box 750 CFM"),
+    // VAV-2a2 (v78, B1): the band is worked out from the airflow the row states ("750 CFM" -> 450-800), never read from a band answer
+    ...(bandFromOf(map.get(VAV)) ? { airflow_cfm: cell("750 CFM") } : {}) } }];
   const h = makePricingSheetHelper({ configsByCategory: map, items: ITEMS,
     extractionByRow: inRun ? buildExtractionByRow([{ excel_row: 30, description: "750 CFM", category_id: category, attributes: {}, items }] as never) : new Map() });
   return h.compute({ excelRow: 30, description: "750 CFM", nodeType: "Line Item", category, discipline: "HVAC", rateKinds: KINDS, unit: "Nos",
@@ -127,10 +129,27 @@ describe(`VAV-1 T5 built categories on ${LATEST} vs v75`, () => {
     + "('Lot', 'Nos/Ro') the same way -- e.g. Temperature Gauge / Thermometer (stocked per Nos), Pressure Gauge (stocked per Nos), Rubber Bellows / "
     + "Expansion Joint (stocked per Nos), Test Plug / Thermowell (stocked per Nos), Paint (stocked per sq.m or per sq.ft), Fire Retardant Spray Paint "
     + "(stocked per sq.m or per sq.ft), Air Balancing (stocked per sq.m or per CFM or per sq.ft)";
+  /** VAV-2a2 R7: undo exactly the v78 Valve changes (the two supply-row notes back to v75's text, the E13 rule line out) -- and check
+   *  there IS exactly one E13 line and the two notes differ from v75 by the tag alone, so nothing else can hide in the undo */
+  const withoutR7 = (c: RateCategoryConfig, v75: RateCategoryConfig): RateCategoryConfig => {
+    type V = { list_spec: { pricing: { rule_lines: Array<{ rule: string }>; scope: { supply_row: { with_row: string; no_row: string } } } } };
+    const out = structuredClone(c) as unknown as V, old = v75 as unknown as V;
+    const sr = out.list_spec.pricing.scope.supply_row, sr0 = old.list_spec.pricing.scope.supply_row;
+    expect(sr.with_row).toBe(sr0.with_row.replace(" (owner VR9)", ""));
+    expect(sr.no_row).toBe(sr0.no_row.replace(" (owner VR9)", ""));
+    sr.with_row = sr0.with_row; sr.no_row = sr0.no_row;
+    expect(out.list_spec.pricing.rule_lines.filter((r) => r.rule === "E13")).toHaveLength(1);
+    out.list_spec.pricing.rule_lines = out.list_spec.pricing.rule_lines.filter((r) => r.rule !== "E13");
+    return out as unknown as RateCategoryConfig;
+  };
   for (const [id, line] of [["hvac_valve_package", 45], ["hvac_ducting", 63]] as const) {
     it(`${id}: its own config byte-identical; its Derivation tab equal except the two nested Misc lines under line ${line} (QR-C3)`, () => {
-      expect(JSON.stringify(BY_ID.get(id))).toBe(JSON.stringify(C75.get(id)));
-      const was = tab(C75, I75, id), now = tab(BY_ID, ITEMS, id);
+      // VAV-2a2 (HVAC v78; owner QR-V (a) 2026-11-20 00:10, R7): the Valve Package config's DECLARED changes -- the two scope notes lose
+      // " (owner VR9)" and the Derivation gains the E13 line -- are undone on a copy before the byte comparison; every other byte is pinned
+      const cur = new Map(BY_ID);
+      if (id === "hvac_valve_package" && Number(LATEST.match(/v(\d+)/)![1]) >= 78) cur.set(id, withoutR7(BY_ID.get(id)!, C75.get(id)!));
+      expect(JSON.stringify(cur.get(id))).toBe(JSON.stringify(C75.get(id)));
+      const was = tab(C75, I75, id), now = tab(cur, ITEMS, id);
       expect(now.length).toBe(was.length);
       const moved: string[] = [];
       now.forEach((l, i) => {

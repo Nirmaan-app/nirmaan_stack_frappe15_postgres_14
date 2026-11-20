@@ -18,7 +18,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { LATEST, TAB, TYPES, blk, calc, view, type TabLine } from "./vav1Vav.harness";
+import { BY_ID, LATEST, TAB, TYPES, VAV, bandFromOf, blk, calc, view, type TabLine } from "./vav1Vav.harness";
 
 type Row = { sheet: string; row: number; fields: string; sheet_supply: number; sheet_install: number; calc_supply: number | null;
   calc_install: number | null; equal: "y" | "n"; modification: string };
@@ -37,6 +37,9 @@ function drive(family: string, want: Record<string, string>) {
     if (v === undefined || !f.options!.includes(v)) throw new Error(`field ${f.skuAttr} offers ${JSON.stringify(f.options)}, not '${v}'`);
     picked[f.skuAttr] = v;
   }
+  // VAV-2a2 (B3): on a `band_from` config the band has no options -- it is entered through the typed CFM (the harness's `typedBand`)
+  const bf = bandFromOf(BY_ID.get(VAV));
+  if (bf && bf.families.includes(family) && want[bf.attr] !== undefined && !(bf.attr in picked)) picked[bf.attr] = want[bf.attr];
   return { picked, v: view(calc({ items: [blk(family, picked)] })) };
 }
 

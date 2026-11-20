@@ -33,6 +33,31 @@ describe("VAV-2a2 B1 - the readers (pure)", () => {
     // a range written from zero is a range (the B10 preview: BOQ-26-00218 'HVAC-2F' r145 "0 - 650 CFM", BOQ-26-00047 r4 "0-500")
     expect(readAirflowCfm("0 - 650 CFM")).toEqual({ high: 650, low: 0 });
     expect(readAirflowCfm("0-500")).toEqual({ high: 500, low: 0 });
+    expect(readAirflowCfm("0 to 650")).toEqual({ high: 650, low: 0 });
+    expect(readAirflowCfm("From 2525 to 3000 Cfm (max air qty)")).toEqual({ high: 3000, low: 2525 });
+  });
+  it("NEGATIVE (chat-Claude's review 2026-11-20 13:16): a tag or model number beside the airflow is NOT a range from 0; '0 CFM' is no airflow", () => {
+    expect(readAirflowCfm("VAV-0 650 CFM")).toEqual({ high: 650, low: null });
+    expect(readAirflowCfm("VAV-01 500 CFM")).toEqual({ high: 500, low: null });
+    expect(readAirflowCfm("Type-0, 450 CFM")).toEqual({ high: 450, low: null });
+    expect(readAirflowCfm("T1 1200 cfm")).toEqual({ high: 1200, low: null });
+    expect(readAirflowCfm("0 CFM")).toBeNull();
+    expect(readAirflowCfm("Up to 650 CFM")).toEqual({ high: 650, low: null });
+  });
+  it("THE FORMS TABLE (chat-Claude's review 2026-11-20 13:16 / 13:27): words glued to the number, a unit first or glued, a tag before, a count beside", () => {
+    const table: Array<[string, { high: number; low: number | null } | "unit" | null]> = [
+      ["Upto500 CFM", { high: 500, low: null }], ["From525 to 1000", { high: 1000, low: 525 }], ["CFM: 650", { high: 650, low: null }],
+      ["CFM 650", { high: 650, low: null }], ["CFM-650", { high: 650, low: null }], ["VAV-PID-150 650 CFM", { high: 650, low: null }],
+      ["2 nos 650 CFM", { high: 650, low: null }], ["650 CFM x 2", { high: 650, low: null }], ["650CFM", { high: 650, low: null }],
+      ["650cfm", { high: 650, low: null }], ["1,200 CFM", { high: 1200, low: null }], ["350-650CFM", { high: 650, low: 350 }], ["650 l/s", "unit"],
+      // the unit on BOTH numbers is still a range (the 13 corpus texts the laptop read 2026-11-20 13:53; 37 real rows; K1 read them right)
+      ["651cfm - 900cfm", { high: 900, low: 651 }], ["901cfm - 1500cfm", { high: 1500, low: 901 }], ["100 CFM - 600 CFM", { high: 600, low: 100 }],
+      ["600 CFM - 1000 CFM", { high: 1000, low: 600 }], ["1000 CFM -1500 CFM", { high: 1500, low: 1000 }], ["17000 CFM - 17900 CFM", { high: 17900, low: 17000 }],
+      ["18000 CFM - 19000 CFM", { high: 19000, low: 18000 }], ["1500 CFM -2000 CFM", { high: 2000, low: 1500 }], ["2000 CFM -3000 CFM", { high: 3000, low: 2000 }],
+      ["3000 CFM -4000 CFM", { high: 4000, low: 3000 }], ["4000 CFM -5000 CFM", { high: 5000, low: 4000 }], ["5000 CFM -6000 CFM", { high: 6000, low: 5000 }],
+      ["6000 CFM -7000 CFM", { high: 7000, low: 6000 }], ["651cfm-900cfm", { high: 900, low: 651 }], ["600 CFM to 1000 CFM", { high: 1000, low: 600 }],
+    ];
+    for (const [text, want] of table) expect(readAirflowCfm(text), text).toEqual(want);
   });
   it("NEGATIVE: nothing stated -> null; another airflow unit -> 'unit' (not converted)", () => {
     for (const v of ["", "None", "not stated", null, undefined, 0]) expect(readAirflowCfm(v)).toBeNull();
@@ -93,6 +118,12 @@ describe("VAV-2a2 B1 - the band from the airflow, on a BoQ row (the panel's comp
     expect(sheetTot(s.itemList)).toEqual(LINE_450_800);
     expect(fld(s, "cfm_range")).toMatchObject({ value: "450-800", sourceTag: BF.tags.range_max,
       note: "0-650 CFM crosses two bands (0-450 and 450-800) - priced on the band of the maximum, 650 CFM" });
+  });
+  it("NEGATIVE (review 13:16): 'VAV-0 650 CFM' on a row -> 450-800 'from BoQ', no crossing line; '0 CFM' -> airflow not stated", () => {
+    const s = row("VAV-0 650 CFM");
+    expect(fld(s, "cfm_range")).toMatchObject({ value: "450-800", sourceTag: BF.tags.boq });
+    expect(fld(s, "cfm_range")?.note).toBeUndefined();
+    expect(row("0 CFM").itemList?.items?.[0]?.reason).toContain(L.none_row);
   });
   it("NEGATIVE (owner 23:53): F13 '15000 -16900 CFM' -> not priced, 'above the largest box on the sheet'; the model's own band answer is NOT read", () => {
     const s = row("15000 -16900 CFM", { cfm_range: "4000-8000" });

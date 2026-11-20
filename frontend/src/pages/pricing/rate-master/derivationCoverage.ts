@@ -25,7 +25,9 @@ import { itemListRuleOrder, type RuleOrderItem, type RuleOrderLine } from "./ite
 export const CODE_RULES: Readonly<Record<string, readonly string[]>> = {
   // VP-3 / VP-4 / VP-5 `valveReviewNets` (gated `spec.kind === VALVE_NETS_KIND`) + VP-4 T1 (`NB_NOTE_KINDS`)
   hvac_valve_item: ["D1", "D2", "D3", "D4", "D5", "D7b", "D7c", "R1", "R2", "R3", "R4", "W1", "W2",
-                    "E1", "E2", "E3", "E4", "E6", "E7", "E8", "E9", "E10", "T1"],
+                    "E1", "E2", "E3", "E4", "E6", "E7", "E8", "E9", "E10", "T1",
+                    // VAV-2a2 (R7, QR-V (a) 2026-11-20 00:10): "Thermowell with Valve" -> the thermowell; its line is HVAC v78's E13
+                    "E13"],
   // VP-4 T1 on a Misc block (`NB_NOTE_KINDS`); Misc's other rules are config shapes
   hvac_misc_item: ["T1"],
   // DU-1 Part B: the Ducting rules written in code -- the sheet-gauge axis (DR2 / DR3 / DR4 / DR12, `readGauge` / `gaugeBandFor`),

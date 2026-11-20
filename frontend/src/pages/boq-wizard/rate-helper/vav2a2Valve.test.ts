@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig } from "../../pricing/rate-master/rateMasterTypes";
+import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
 import { CODE_RULES, derivationCoverage } from "../../pricing/rate-master/derivationCoverage";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import { buildExtractionByRow, makePricingSheetHelper, type ItemListSuggestion } from "./pricingSheetHelper";
@@ -82,7 +83,12 @@ describe("VAV-2a2 R7 - 'Thermowell with Valve' is priced as the thermowell (QR-V
 
 describe("VAV-2a2 R7 - the owner tags are gone from the scope notes", () => {
   it("v78 Valve config: the two supply-row notes carry no '(owner VR9)'; every other text of the config unchanged", () => {
-    const before = BY_ID.get(VALVE)!, after = withV78Valve(before);
+    // "before" = the v77 FILE's Valve config (the newest asset is v78 from K2 on)
+    const before = readJsonFixture<{ category_configs: RateCategoryConfig[] }>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v77.json", import.meta.url))
+      .category_configs.find((c) => c.category_id === VALVE)!;
+    const after = withV78Valve(before);
+    // ... and the newest asset carries exactly that transformation (on v78; idempotent on v77)
+    expect(withV78Valve(BY_ID.get(VALVE)!)).toEqual(after);
     const sr = (x: RateCategoryConfig) => (x as unknown as { list_spec: { pricing: { scope: { supply_row: { with_row: string; no_row: string } } } } }).list_spec.pricing.scope.supply_row;
     expect(sr(after).with_row).toBe("Supply row(s) of this valve on this sheet: {rows}.");
     expect(sr(after).no_row).toBe("The sheet does not quote this valve's supply on another row, so the uplift applies. Switch back to Supply + installation if the BoQ supplies it too.");

@@ -131,5 +131,43 @@ class TestVav2a2Keys(unittest.TestCase):
         self.assertEqual(json.dumps(before, sort_keys=True), json.dumps(_v77()["category_configs"], sort_keys=True))
 
 
+
+VALVE = "hvac_valve_package"
+
+
+def _asset(v):
+    with open(os.path.join(DATA, "rate_master_hvac_all_v%d.json" % v), encoding="utf-8") as f:
+        return json.load(f)
+
+
+class TestV78ValveIsV75PlusR7(unittest.TestCase):
+    """chat-Claude's review 2026-11-20 14:29 (PIN 6): the Python side ties v78's Valve Package config to v75's by EXACTLY the R7 changes
+    (owner QR-V (a), 2026-11-20 00:10): the two scope.supply_row notes lose " (owner VR9)" and the Derivation gains ONE E13 rule line.
+    Undo exactly those on a copy and the config equals v75's byte for byte; every Valve item is unchanged. Reads the v78 FILE (K2)."""
+
+    def test_01_v78_valve_minus_exactly_R7_equals_v75_byte_for_byte(self):
+        v75 = next(c for c in _asset(75)["category_configs"] if c["category_id"] == VALVE)
+        v78 = next(c for c in _asset(78)["category_configs"] if c["category_id"] == VALVE)
+        self.assertNotEqual(json.dumps(v75, sort_keys=True), json.dumps(v78, sort_keys=True))   # NEGATIVE: they do differ
+        undone = copy.deepcopy(v78)
+        sr, sr0 = undone["list_spec"]["pricing"]["scope"]["supply_row"], v75["list_spec"]["pricing"]["scope"]["supply_row"]
+        for k in ("with_row", "no_row"):
+            self.assertIn(" (owner VR9)", sr0[k], k)
+            self.assertEqual(sr[k], sr0[k].replace(" (owner VR9)", ""), k)   # the tag alone differs
+            sr[k] = sr0[k]
+        lines = undone["list_spec"]["pricing"]["rule_lines"]
+        self.assertEqual([l["rule"] for l in lines].count("E13"), 1)
+        self.assertNotIn("E13", [l["rule"] for l in v75["list_spec"]["pricing"]["rule_lines"]])
+        undone["list_spec"]["pricing"]["rule_lines"] = [l for l in lines if l["rule"] != "E13"]
+        self.assertEqual(json.dumps(undone, ensure_ascii=False), json.dumps(v75, ensure_ascii=False))   # byte for byte, key order too
+
+    def test_02_every_valve_item_is_unchanged_v75_to_v78(self):
+        def valve_items(v):
+            return sorted((json.dumps(i, sort_keys=True, ensure_ascii=False) for i in _asset(v)["items"] if i["kind"] == "hvac_valve_item"))
+        a, b = valve_items(75), valve_items(78)
+        self.assertEqual(len(b), 124)
+        self.assertEqual(a, b)
+
+
 if __name__ == "__main__":
     unittest.main()

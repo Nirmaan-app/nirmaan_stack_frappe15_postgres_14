@@ -38,11 +38,29 @@ export type Block = { base: null; family: string; attrs: Record<string, string>;
 export type CalcState = { items: Block[]; sections?: Record<string, Block[]> };
 export const blk = (family: string, attrs: Record<string, string> = {}, qty?: string): Block => ({ base: null, family, attrs, ...(qty ? { qty } : {}) });
 
+/** VAV-2a2 (B3, owner 2026-11-19 13:31 / 13:46): on a config with `band_from` the band is never picked -- the user types the CFM or the inlet
+ *  size. A band a test PICKS (cfm_range) is entered the v78 way: a CFM one below the band's max, inside it under either edge rule. */
+type BandFromCfg = { attr: string; families: string[]; airflow_attr: string; inlet_attr: string; bands: Array<{ value: string; max: number }> };
+export const bandFromOf = (cfg: RateCategoryConfig | undefined): BandFromCfg | undefined =>
+  (cfg as unknown as { list_spec?: { pricing?: { band_from?: BandFromCfg } } } | undefined)?.list_spec?.pricing?.band_from;
+export function typedBand(state: CalcState, bf: BandFromCfg | undefined): CalcState {
+  if (!bf) return state;
+  const one = (b: Block): Block => {
+    const band = b.attrs[bf.attr];
+    if (!bf.families.includes(b.family) || band === undefined || bf.airflow_attr in b.attrs || bf.inlet_attr in b.attrs) return b;
+    const hit = bf.bands.find((x) => x.value === band);
+    const { [bf.attr]: _picked, ...rest } = b.attrs;
+    return { ...b, attrs: hit ? { ...rest, [bf.airflow_attr]: String(hit.max - 1) } : rest };
+  };
+  return { ...state, items: state.items.map(one) };
+}
+
 /** the calculator's own construction (PricingCalculator.tsx) on a config map, VAV Box picked, the row unit Nos */
 export function calc(state: CalcState, map: Map<string, RateCategoryConfig> = surfaceMap(), items: RateMasterItem[] = ITEMS, unit = "Nos", scope?: string): ItemListSuggestion {
   // VAV-1 (QR-A (a)): `calculatorSurface: true` is the calculator's one difference from the BoQ page's construction
   const h = makePricingSheetHelper({ configsByCategory: map, items, extractionByRow: new Map(), calculatorSurface: true });
-  return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: unit, ...(scope ? { [SCOPE_OVERRIDE_KEY]: scope } : {}) }) as unknown as ItemListSuggestion;
+  const st = typedBand(state, bandFromOf(map.get(VAV)));
+  return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(st), [ROW_UNIT_OVERRIDE_KEY]: unit, ...(scope ? { [SCOPE_OVERRIDE_KEY]: scope } : {}) }) as unknown as ItemListSuggestion;
 }
 export const view = (s: ItemListSuggestion): ItemListView | undefined => s.itemList;
 export const tot = (s: ItemListSuggestion) => [s.itemList?.totals?.supply_rate ?? null, s.itemList?.totals?.install_rate ?? null];

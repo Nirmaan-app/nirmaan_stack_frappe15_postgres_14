@@ -96,8 +96,35 @@ describe(`VAV-1 T4 live borrow on ${LATEST}: no second copy`, () => {
     const vavText = JSON.stringify(VAV_ITEMS);
     for (const name of ["Digital Thermostat", "Temperature Gauge", "Transformation Pieces", "CO2 Sensor", "Differential Pressure Switch"]) expect(vavText).not.toContain(name);
     const cfg = BY_ID.get(VAV)!;
-    const pricing = JSON.stringify((cfg as unknown as { list_spec: { pricing: unknown } }).list_spec.pricing);
-    for (const fig of ["3000", "4200", "1450", "2175", "800", "1280", "7950", "11130", "1550", "2170"]) expect(pricing).not.toMatch(new RegExp(`\\b${fig}\\b`));
+    const FIGS = ["3000", "4200", "1450", "2175", "800", "1280", "7950", "11130", "1550", "2170"];
+    const pricingOf = (c: unknown) => (c as { list_spec: { pricing: Record<string, unknown> } }).list_spec.pricing;
+    /** VAV-2a2 (v78; chat-Claude's review 2026-11-20 00:30 point 1): `band_from` is scanned like every other key EXCEPT the numeric values
+     *  at its two declared DATA keys -- the band edges (`bands`) and the inlet-size table (`inlet_table`) -- skipped by key path */
+    const scanned = (pr: Record<string, unknown>) => {
+      const c = structuredClone(pr) as Record<string, unknown> & { band_from?: Record<string, unknown> };
+      if (c.band_from) { c.band_from = { ...c.band_from, bands: "<skipped: the band edges>", inlet_table: "<skipped: the inlet table>" }; }
+      return JSON.stringify(c);
+    };
+    const hits = (text: string) => FIGS.filter((fig) => new RegExp(`\\b${fig}\\b`).test(text));
+    expect(hits(scanned(pricingOf(cfg)))).toEqual([]);
+    const bf = pricingOf(cfg).band_from as { bands?: Array<{ value: string; max: number }>; inlet_table?: Array<{ inch: number; band: string }> } & Record<string, unknown> | undefined;
+    if (bf) {
+      // POSITIVE PIN: the skipped values are EXACTLY the owner's table (2026-11-18 22:18) -- edges 0 / 450 / 800 / 1350 / 2100 / 3200 / 4000 /
+      // 8000 CFM, inlet sizes 6 / 8 / 10 / 12 / 14 / 16 / 24 inch -- each band named by its own edges
+      const edges = [0, 450, 800, 1350, 2100, 3200, 4000, 8000];
+      expect(bf.bands!.map((b) => b.max)).toEqual(edges.slice(1));
+      expect(bf.bands!.map((b) => b.value)).toEqual(edges.slice(1).map((m, i) => `${edges[i]}-${m}`));
+      expect(bf.inlet_table!.map((r) => [r.inch, r.band])).toEqual([6, 8, 10, 12, 14, 16, 24].map((inch, i) => [inch, bf.bands![i].value]));
+      // ... and band_from holds no other number than its declared mm per inch, and only its declared keys
+      expect(Object.keys(bf).sort()).toEqual(["airflow_attr", "attr", "bands", "edge", "families", "group", "inlet_attr", "inlet_table", "lines", "mm_per_inch", "tags"]);
+      const rest = JSON.stringify({ ...bf, bands: null, inlet_table: null, mm_per_inch: null });
+      expect(rest.match(/\d+(?:\.\d+)?/g) ?? []).toEqual(["25.4"]);
+      expect(bf.mm_per_inch).toBe(25.4);
+      // VACUITY (a fixture copy): a borrowed figure put into band_from -> the guard goes red
+      const bad = structuredClone(pricingOf(cfg));
+      (bad.band_from as { lines: Record<string, string> }).lines.crosses += " 4200";
+      expect(hits(scanned(bad))).toEqual(["4200"]);
+    }
     // the borrowed items are the Misc / Sensors items themselves
     expect(ITEMS.filter((i) => i.kind === "hvac_misc_item").length).toBe(24);
     expect(ITEMS.filter((i) => i.kind === "hvac_sensor_item").length).toBe(2);
