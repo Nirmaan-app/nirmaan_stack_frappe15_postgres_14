@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeFileUpload } from "frappe-react-sdk";
 import { AlertTriangle, Ban, Loader2 } from "lucide-react";
@@ -99,7 +99,10 @@ export const PaymentModeFields = ({
 	// A photo replaced while the first is still uploading or read must not land the first one's values.
 	const uploadSession = useRef(0);
 	const valueRef = useRef(value);
-	valueRef.current = value;
+	// Read only when a photo read comes back (after an await), so the committed value is the one to fill over.
+	useLayoutEffect(() => {
+		valueRef.current = value;
+	});
 	const reader = useChequePhotoReader<PaymentModeValue>(
 		() => valueRef.current,
 		(fill) => onChange((prev) => ({ ...prev, ...fill })),
