@@ -161,3 +161,6 @@ findings.
   shape: neither is in `oxlint --help` yet (bulk suppressions are still being designed, oxc discussion #22198);
 - `OXLINT_TSGOLINT_PATH` still points oxlint at tsgolint (`lint_same_twice.mjs` runs from the repo root);
 - `node scripts/lint_same_twice.mjs --whole-tree --runs 10` still gives one result.
+
+**React Doctor runs beside oxlint (#1698).** It checks React rules, not types, so it adds to the checks above and
+replaces none; how it runs and what fails a PR are in `frontend/CODING_STANDARDS.md` § React Doctor.
