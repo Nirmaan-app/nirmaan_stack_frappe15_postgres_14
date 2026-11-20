@@ -223,7 +223,8 @@ It adds to ADR-0049's checks; it checks no types.
 - **What fails a PR** (CI step "React Doctor", `node scripts/react_doctor_new.mjs --base <PR base sha>`): an
   error-level finding the PR brings, counted per file and rule against the PR's base commit. A count may fall, never
   rise; a new file or rule is new; an old finding in a file the PR touches passes. Warnings never fail. CI names the
-  file, line and rule; `node_modules/.bin/react-doctor why <file>:<line>` (with the three flags) explains one.
+  file, line and rule; `yarn doctor why <file>:<line>` explains one (its subcommands send telemetry too
+  unless the flags come first, as `yarn doctor` puts them).
 - CI also scans the tree twice and fails when the two scans differ (`node scripts/react_doctor_new.mjs --twice`),
   since the comparison counts findings.
 - **Fix a finding at its cause:** a list item's key comes from the data (an id or name unique in that list), not
