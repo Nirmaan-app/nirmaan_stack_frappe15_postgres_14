@@ -502,6 +502,25 @@ def assert_cheque_access(user: str) -> None:
         raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
 
 
+# Viewing cheques (owner, 2026-11-20): the Vendor page's Cheques tab is for everyone with a Vendors link in the
+# sidebar, so PMO may READ the cheque list, its facets and a cheque's detail. Only the read endpoints use this;
+# recording, editing and cancelling stay on `assert_cheque_access` / the accounts checks. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_VIEW_PROFILES`.
+CHEQUE_VIEW_PROFILES = CHEQUE_ACCESS_PROFILES + (PMO_EXECUTIVE_PROFILE,)
+
+
+def can_view_cheques(user: str) -> bool:
+    """True when `user` may read the cheque list and a cheque's detail. Administrator passes."""
+    return has_role_profile(user, CHEQUE_VIEW_PROFILES)
+
+
+def assert_cheque_view_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_VIEW_PROFILES` (Project Managers included). The read-only cheque endpoints
+    start with it."""
+    if not can_view_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view cheques."))
+
+
 def assert_cheque_form_access(user: str) -> None:
     """Refuse a user who may neither use cheques nor request a payment (create on Project Payments).
     For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""

@@ -4,14 +4,14 @@
 """The Cheque detail view: photo, header (type, cheque, Cheque/Payment Date and issue date, #1520, and the
 bank line that cleared it, #1484), lines and full status history (#1412, spec #1407).
 
-Read-only. Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
+Read-only. Who: `CHEQUE_VIEW_PROFILES`: the cheque users and PMO, read-only (Project Managers are refused).
 """
 
 import frappe
 
 from nirmaan_stack.services.cheques.rules import bank_label
 from nirmaan_stack.services.cheques.writer import CHEQUES
-from nirmaan_stack.services.role_profiles import assert_cheque_access
+from nirmaan_stack.services.role_profiles import assert_cheque_view_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
            "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type",
@@ -34,7 +34,7 @@ def get_cheque(name: str) -> dict:
     is oldest first, each row with the changer's full name. `bank_label` is the typed name for an
     Others bank.
     """
-    assert_cheque_access(frappe.session.user)
+    assert_cheque_view_access(frappe.session.user)
     doc = frappe.get_doc(CHEQUES, name)
     out = {field: doc.get(field) for field in _HEADER}
     out["bank_label"] = bank_label(doc.bank or "", doc.bank_name)

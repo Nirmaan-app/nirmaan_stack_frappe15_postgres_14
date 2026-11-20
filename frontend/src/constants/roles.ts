@@ -831,6 +831,12 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
+/**
+ * Who may VIEW cheques (owner, 2026-11-20): the Vendor page's Cheques tab, for everyone with a Vendors link in the
+ * sidebar, so PMO too. Read-only for PMO: its rows offer no Edit or Cancel (`chequeRowActions`). Mirrors
+ * `services/role_profiles.py::CHEQUE_VIEW_PROFILES`, which the read endpoints in `api/cheques/` enforce.
+ */
+export const CHEQUE_VIEW_PROFILES: readonly string[] = [...CHEQUE_ACCESS_PROFILES, PMO_EXECUTIVE_PROFILE];
 
 // ---------------------------------------------------------------------------
 // Reimbursements (owner, 2026-10-21/22). Mirrored server-side by `REIMBURSEMENT_*` in
