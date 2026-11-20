@@ -1335,7 +1335,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       const thr = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === oc.threshold_input);
       const tf = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
       const exs = oc.extras as Array<{ label?: unknown; presence_only?: unknown; target?: { attr?: unknown; to?: unknown } }>;
-      const counted = exs.filter((e) => !e.presence_only && !e.target?.attr).map((e) => String(e.label ?? ""));
+      // VAV-2b1 (R2 / R8): an extra whose family is withdrawn is no longer checked per box
+      const wd = Array.isArray(pr.withdrawn_families) ? (pr.withdrawn_families as unknown[]).map(String) : [];
+      const counted = exs.filter((e) => !e.presence_only && !e.target?.attr && !wd.includes(String((e.target as { family?: unknown } | undefined)?.family ?? "")))
+        .map((e) => String(e.label ?? ""));
       add(`An extra the sheet charges on its own row is checked against that row`,
           [`the extras checked: ${list(counted)}`,
            `a separate row = its own words name the extra; a counted row (not per metre), not a box row, not work on an existing box; no AHU / plant-room / fan / VFD / static-pressure / IAQ / VRF words in it or its headings; pieces and duct connections must name VAV`,
@@ -1345,10 +1348,19 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            `quantities blank or 0 on either side (a rate-only BoQ) -> the separate row decides: NOT added, the note naming the rows`,
            `the same sheet only; never in the calculator (it has no sheet)`].join("; "), "own_row_check");
       // VAV-2a2 (B8; owner 2026-11-20 00:37 "one controller for many VAVs. so quantity rule should not be applied here"): its own line
-      if (oc.serves?.presence_decides) {
+      const ssLine = sheetSharesFirstMatchLine(pr);
+      if (ssLine) add(ssLine.title, ssLine.detail, "sheet_shares");
+      else if (oc.serves?.presence_decides) {
         const who = Array.isArray(oc.serves.extras) ? list((oc.serves.extras as unknown[]).map(String)) : "extra";
         add(`A ${who} priced on its own row of the sheet is not added to the boxes, whatever its quantity`,
             `presence decides, with no quantity test (one serves many boxes); the note names the row(s); every other extra keeps the quantity test`, "own_row_check");
+      }
+      // VAV-2b1 (R13, owner 2026-11-20 14:10 "2 yes"): the item-first test for the integrator too
+      const also = Array.isArray((oc.serves as { also?: unknown } | undefined)?.also) ? ((oc.serves as { also: unknown[] }).also).map(String) : [];
+      if (also.length) {
+        add(`A ${list(also)} row naming the boxes it serves is the integrator's own row`,
+            `a row whose own description names the ${list(also)} BEFORE any VAV box ('Network controller or Router ... to connect the VAV with the BMS') counts as its own row, whatever category it is filed under; words only in a row's notes never count`,
+            "own_row_check");
       }
       for (const e of exs.filter((x) => x.presence_only || x.target?.attr)) {
         add(`A ${String(e.label ?? "")} priced on its own row of the sheet changes the box line, without a quantity test`,
@@ -1406,6 +1418,24 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           `on a BoQ row: '${plainSentence(String(bf.lines?.none_row ?? ""))}'; in the calculator: '${plainSentence(String(bf.lines?.none_typed ?? ""))}'`, "band_from");
       add(`The user types the CFM or the inlet size, and only one of the two is needed`,
           `two typed boxes in place of a band picker, in the calculator and on the panel; the CFM wins when both are typed, and the band field says so; the band is shown read-only with where it came from`, "band_from");
+      // VAV-2b1 (R12, owner 2026-11-20 14:10 "1a")
+      const ll = (bf as { lower_limit?: { tag?: unknown } }).lower_limit;
+      if (ll && typeof ll === "object") {
+        add(`An airflow written as a lower limit only takes the band above the stated figure's band`,
+            `'Above 3200 CFM' -> ${String(bandAbove(bands, "3200", bf.edge) ?? "")} (not the stated figure's band); '3700 CFM above' -> the band above 3700's; a range is never read this way; the tag '${String(ll.tag ?? "")}' and a line saying the BoQ gives only a lower limit`,
+            "band_from");
+      }
+    }
+  }
+  // VAV-2b1 (R1 - R10, owner 2026-11-20 14:18 - 18:44): the shared items of a VAV sheet, then the families withdrawn per box
+  for (const l of sheetSharesLines(pr, items)) add(l.title, l.detail, l.key);
+  // VAV-2b1 (B6, owner 18:06 "more prominent"; screen 7): the warning's block -- a line of its own AFTER every earlier line, so no line moves
+  {
+    const heading = (pr.combination_warning as { heading?: unknown } | undefined)?.heading;
+    if (typeof heading === "string" && heading) {
+      add(`The combination warning is the '${heading}' block directly above the row total`,
+          `a bordered amber block with a warning icon and the heading '${heading}', then the same sentence; a shared item counts as an extra`,
+          "combination_warning");
     }
   }
   // ── 11. ADP-3a (owner 2026-10-20): the refusals that name what to change -- ADDED as their own group, LAST, so no
@@ -2636,3 +2666,94 @@ const ELECTRICAL_TEXT: { [K in ElcKey]: (f: NonNullable<ElcFacts[K]>) => [string
   mi_item: () => ["One catalogue item per row, by name", "A row naming several items is not priced here"],
   mi_price: () => ["Supply and install", "The item's own BoQ supply and install rates, as they stand; no Pricing Input and no rounding"],
 };
+
+// ── VAV-2b1: the shared-item lines (R1 - R10) -- every count and rate read from the config and the catalogue, never written here ──
+
+type SsPart = { id?: unknown; label?: unknown; per_label?: unknown; per_input?: unknown; sku?: { kind?: unknown; attr?: unknown; value?: unknown } };
+type SsShare = { id?: unknown; label?: unknown; parts?: SsPart[]; bcs_of?: unknown; replaces?: unknown };
+
+/** VAV-2b1 (R12). PURE. The band above the band of `cfm` ("3200" -> the band after the one 3200 falls in, by the edge rule). */
+function bandAbove(bands: Array<{ value?: unknown; max?: unknown }>, cfm: string, edge: unknown): string | null {
+  const v = Number(cfm);
+  const i = bands.findIndex((b, k) => (edge === "upper" && k < bands.length - 1 ? v < Number(b.max) : v <= Number(b.max) + 1e-9));
+  return i >= 0 && bands[i + 1] ? String(bands[i + 1].value ?? "") : null;
+}
+
+/** VAV-2b1 (R7). PURE. Line 19 rewritten: the per-sheet first match (null without `sheet_shares`). */
+function sheetSharesFirstMatchLine(pr: Record<string, unknown>): { title: string; detail: string } | null {
+  const ss = pr.sheet_shares as { shares?: SsShare[] } | undefined;
+  if (!ss || typeof ss !== "object" || !Array.isArray(ss.shares)) return null;
+  const lab = (id: string) => String(ss.shares!.find((x) => x.id === id)?.label ?? id);
+  return {
+    title: "Per sheet, the first match decides which controller share the VAV boxes carry",
+    detail: [`a DDC controller / panel that is part of the VAV box or its controller -> the ${lab("ddc")}`,
+      `else BACnet (any form) for the VAVs -> the ${lab("bacnet")}`,
+      `else a plain controller for the VAVs -> the ${lab("bacnet")} with the note asking to check (only when no row of the sheet says BACnet)`,
+      "else nothing; a controller by the BMS vendor / by others adds nothing (a note says so)",
+      "a mention that belongs to other equipment (an AHU's DDC, a controller for VFD operation) or only names makes ('single OEM') does not count",
+      "the per-box controller is no longer added"].join("; "),
+  };
+}
+
+/** VAV-2b1 (R1 - R10). PURE. The shared-item lines and the withdrawn-families line, in order, each with the key it states. */
+function sheetSharesLines(pr: Record<string, unknown>, items: ReadonlyArray<RuleOrderItem>): Array<{ title: string; detail: string; key: string }> {
+  const out: Array<{ title: string; detail: string; key: string }> = [];
+  const ss = pr.sheet_shares as { count?: { box_families?: unknown; blank?: unknown }; shares?: SsShare[];
+    separate?: { extras?: Array<{ share?: unknown; label?: unknown }> } } | undefined;
+  const input = (id: unknown) => {
+    const it = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === id);
+    const v = Number((it?.rates as { factor?: unknown } | undefined)?.factor);
+    return `the Pricing Input '${pricingInputLabel(String(id ?? ""), items)}'${Number.isFinite(v) ? ` (${String(v)} today)` : ""}`;
+  };
+  const sku = (p: SsPart) => items.find((x) => String(x.kind ?? "") === String(p.sku?.kind ?? "")
+    && (x.attributes as Record<string, unknown> | undefined)?.[String(p.sku?.attr ?? "")] === p.sku?.value);
+  const rates = (p: SsPart) => {
+    const r = (sku(p)?.rates ?? {}) as Record<string, unknown>;
+    const n = (k: string) => Number(r[k]);
+    const q = (c: string, m: string) => (Number.isFinite(n(c)) && Number.isFinite(n(m)) ? Math.ceil(n(c) * (1 + n(m)) - 1e-9) : NaN);
+    return { bcsS: n("cost_supply"), bcsI: n("cost_install"), ms: n("supply_markup"), mi: n("install_markup"), qs: q("cost_supply", "supply_markup"), qi: q("cost_install", "install_markup") };
+  };
+  if (ss && typeof ss === "object" && Array.isArray(ss.shares)) {
+    const fams = Array.isArray(ss.count?.box_families) ? (ss.count!.box_families as unknown[]).map(String) : [];
+    out.push({ key: "sheet_shares", title: "A sheet's VAVs are the quantities of its VAV box rows", detail: [
+      `the rows filed VAV Box whose item is a ${list(fams.map(famWordRaw))} for new supply (of every size and type); installation-only rows, work on existing boxes and other items are not counted and carry no share`,
+      ss.count?.blank === "sheet_off" ? "any counted row with a blank or 0 quantity -> nothing added on the sheet, a note asks the pricer to add the share"
+        : "a row with a blank or 0 quantity counts 0 (the note says how many); every counted row blank or 0 -> nothing added, a note asks the pricer to add the share",
+      "worked per sheet, never per BoQ; never in the calculator, where the user types the number of VAVs"].join("; ") });
+    for (const sh of ss.shares) {
+      const parts = Array.isArray(sh.parts) ? sh.parts : [];
+      const label = String(sh.label ?? sh.id ?? "");
+      const named = list(parts.map((p) => String(p.label ?? "").toLowerCase()));
+      const counts = parts.map((p) => `${String(p.label ?? "").toLowerCase()} = VAVs / ${input(p.per_input)}, rounded up`).join("; ");
+      let sum: string;
+      if (typeof sh.bcs_of === "string") {
+        const own = parts.find((p) => p.id === sh.bcs_of);
+        const o = own ? rates(own) : null;
+        sum = `BCS supply = ${parts.map((p) => `${String(p.label ?? "").toLowerCase()} x ${String(rates(p).bcsS)} (the ${String(p.sku?.value ?? "")} SKU's supply)`).join(" + ")}, x ${o ? String(1 + o.ms) : "-"}; BCS installation = ${String(own?.label ?? "").toLowerCase()} x ${o ? String(o.bcsI) : "-"}, x ${o ? String(1 + o.mi) : "-"} (the ${String(own?.sku?.value ?? "")} SKU's markups); each rounded up to the rupee`;
+      } else {
+        const p = parts[0];
+        const r = p ? rates(p) : null;
+        sum = `total = ${String(p?.label ?? "").toLowerCase()} x the ${String(p?.sku?.value ?? "")} SKU (${r ? `${String(r.qs)} + ${String(r.qi)} quoted` : "-"}), supply and installation`;
+      }
+      const repl = Array.isArray(sh.replaces) ? (sh.replaces as unknown[]).map((id) => String(ss.shares!.find((x) => x.id === id)?.label ?? id)) : [];
+      out.push({ key: "sheet_shares", title: `The ${label} spreads the ${named} over every VAV box of the sheet`, detail: [counts, sum,
+        "the share per box = the total / the VAVs, supply and installation each rounded to the rupee, on every counted box of the sheet as its own item (never folded into the box rate)",
+        ...(repl.length ? [`with it, no ${list(repl)} on the row (never counted twice)`] : [])].join("; ") });
+    }
+    const sep = Array.isArray(ss.separate?.extras) ? ss.separate!.extras! : [];
+    out.push({ key: "sheet_shares", title: "A shared item priced on its own row of the sheet is not added to the boxes", detail: [
+      ...ss.shares.map((sh) => `${String(sh.label ?? "")}: ${list(sep.filter((e) => e.share === sh.id).map((e) => String(e.label ?? "").toLowerCase()))}`),
+      "a row with a quantity above 0: presence decides, no quantity test (one serves many boxes); the note names the row(s); a row whose own description names the item BEFORE any VAV box counts; never in the calculator",
+      "a separate row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately: the share is added, with a note naming that row"].join("; ") });
+    out.push({ key: "sheet_shares", title: "Each shared item is its own block the user can add, remove and edit", detail: [
+      "the number of VAVs (pre-filled from the sheet on a BoQ row; empty in the calculator, where the block prices nothing until it is typed), the VAVs per item and each count, every box with its revert",
+      "a count changed by hand is kept and marked 'changed by you'; 'Or type the amount' replaces the sum with 'Amount typed by you'",
+      `the add buttons: ${list(ss.shares.map((sh) => `'${String(sh.label ?? "")}'`))}; the calculator and the BoQ row price a share through the same sums`].join("; ") });
+  }
+  const wd = Array.isArray(pr.withdrawn_families) ? (pr.withdrawn_families as unknown[]).map(String) : [];
+  if (wd.length) {
+    out.push({ key: "withdrawn_families", title: `The ${list(wd)} ${wd.length > 1 ? "are" : "is"} no longer added to each box`,
+      detail: "no add list offers them per box and a model item of them is dropped with a line; their SKUs stay in the Rate Master as the shared items' rates" });
+  }
+  return out;
+}

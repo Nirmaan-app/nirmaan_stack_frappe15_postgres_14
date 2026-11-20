@@ -1,0 +1,346 @@
+{
+ "_about": "VAV-2b1 (2026-11-20): the keys HVAC's next rate file adds -- ONE file read by the mint script (scripts/_instruments/mint_hvac_v79_vav2b1.py) and by the vav2b1 tests (vav2b1.harness.ts withV79Keys). Owner rulings: VAV_Rulings_Capture_2026-11-18.md, 20 Nov 14:10 - 18:44.",
+ "items": [
+  {
+   "kind": "hvac_vav_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "VAV Box",
+    "vav_item": "DDC Panel/ Controller",
+    "item_name": "DDC Panel/ Controller",
+    "remarks": "VAV-2b1 new SKU: \"Add the DDC nael SKu and name it as DDC Panel/ Controllor\" (owner 2026-11-20 15:23; spelling \"DDC Panel/ Controller\" agreed 15:24); BCS 25,000 supply + 5,000 install, the VAV sheet markups. The panel's own part only: the DDC panel share adds the BACnet controllers' and DP sensors' supply to it (14:30 / 14:31 / 15:23)."
+   },
+   "rates": {
+    "cost_supply": 25000.0,
+    "supply_markup": 0.4,
+    "cost_install": 5000.0,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "VAV Box",
+    "row": 0
+   },
+   "item_uid": "rmi-51319c433867"
+  },
+  {
+   "kind": "hvac_sensor_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Sensors",
+    "sensor": "Duct Static Pressure Sensor",
+    "item_name": "Duct Static Pressure Sensor - Greystone/Honeywell",
+    "make": "Greystone/Honeywell"
+   },
+   "rates": {
+    "cost_supply": 7650.0,
+    "supply_markup": 0.4,
+    "cost_install": 500.0,
+    "install_markup": 0.8
+   },
+   "source": {
+    "sheet": "Sensors",
+    "row": 11
+   },
+   "item_uid": "rmi-3654468a63fc"
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "VAV boxes per BACnet controller",
+   "attributes": {
+    "item": "vav_vavs_per_bacnet_controller",
+    "name": "VAV - VAVs per BACnet controller",
+    "remarks": "\"1 backnet controlor is required for every 32 VAVs\" (owner 2026-11-20 14:18); the three counts are Pricing Inputs (15:23 \"yes\"). The controllers on a sheet = its VAVs / this, rounded up.",
+    "shared_by": "vav"
+   },
+   "rates": {
+    "factor": 32.0
+   },
+   "source": {
+    "sheet": "Pricing Inputs",
+    "row": 0
+   },
+   "item_uid": "rmi-d616123412ee"
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "VAV boxes per DP sensor",
+   "attributes": {
+    "item": "vav_vavs_per_dp_sensor",
+    "name": "VAV - VAVs per DP sensor",
+    "remarks": "\"DP sensor qty is also not per VAV but 1 sensor per 30 boxes\" (owner 2026-11-20 14:35); a Pricing Input (15:23 \"yes\"). The sensors on a sheet = its VAVs / this, rounded up.",
+    "shared_by": "vav"
+   },
+   "rates": {
+    "factor": 30.0
+   },
+   "source": {
+    "sheet": "Pricing Inputs",
+    "row": 0
+   },
+   "item_uid": "rmi-e36d6423ffeb"
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "VAV boxes per DDC panel",
+   "attributes": {
+    "item": "vav_vavs_per_ddc_panel",
+    "name": "VAV - VAVs per DDC panel",
+    "remarks": "\"1 panel is sufficient for upto 200 VAVs\" (owner 2026-11-20 14:30; 14:42 \"we calculate number of panels as VaVs/ 200 round up\"); a Pricing Input (15:23 \"yes\").",
+    "shared_by": "vav"
+   },
+   "rates": {
+    "factor": 200.0
+   },
+   "source": {
+    "sheet": "Pricing Inputs",
+    "row": 0
+   },
+   "item_uid": "rmi-323d5c801232"
+  }
+ ],
+ "pricing": {
+  "withdrawn_families": [
+   "BACnet over IP controller",
+   "Differential Pressure Switch"
+  ],
+  "own_row_check_serves_also": [
+   "VAV integrator"
+  ],
+  "combination_warning_heading": "Review before using",
+  "band_from_lower_limit": {
+   "words": "\\babove\\b|\\bmore\\s+than\\b|\\bexceeding\\b|>",
+   "line": "The BoQ gives only a lower limit (\"{said}\"): priced one band up, {band} (the stated figure's band is {stated}).",
+   "tag": "BoQ gives only a lower limit"
+  },
+  "sheet_shares": {
+   "reading": {
+    "controller_attr": "controller_mention",
+    "by_others_attr": "controller_by_others",
+    "dp_attr": "dp_sensor_mention",
+    "values": {
+     "ddc_inclusive": "ddc_inclusive",
+     "ddc": "ddc",
+     "bacnet": "bacnet",
+     "controller": "controller"
+    },
+    "yes": "Yes"
+   },
+   "count": {
+    "box_families": [
+     "VAV box"
+    ],
+    "blank": "skip"
+   },
+   "shares": [
+    {
+     "id": "ddc",
+     "label": "DDC panel share",
+     "heading": "Shared item - DDC panel share",
+     "add_label": "Add DDC panel share",
+     "parts": [
+      {
+       "id": "panels",
+       "label": "Panels",
+       "per_label": "VAVs per panel",
+       "per_input": "vav_vavs_per_ddc_panel",
+       "sku": {
+        "kind": "hvac_vav_item",
+        "attr": "vav_item",
+        "value": "DDC Panel/ Controller"
+       }
+      },
+      {
+       "id": "controllers",
+       "label": "Controllers",
+       "per_label": "VAVs per controller",
+       "per_input": "vav_vavs_per_bacnet_controller",
+       "sku": {
+        "kind": "hvac_vav_item",
+        "attr": "vav_item",
+        "value": "BACnet over IP controller"
+       }
+      },
+      {
+       "id": "sensors",
+       "label": "Sensors",
+       "per_label": "VAVs per sensor",
+       "per_input": "vav_vavs_per_dp_sensor",
+       "sku": {
+        "kind": "hvac_sensor_item",
+        "attr": "sensor",
+        "value": "Duct Static Pressure Sensor"
+       }
+      }
+     ],
+     "bcs_of": "panels",
+     "replaces": [
+      "bacnet",
+      "dp"
+     ],
+     "replaces_line": "Replaces the BACnet and DP sensor shares on this row.",
+     "item": "DDC panel"
+    },
+    {
+     "id": "bacnet",
+     "label": "BACnet controller share",
+     "heading": "Shared item - BACnet controller share",
+     "add_label": "Add BACnet controller share",
+     "parts": [
+      {
+       "id": "controllers",
+       "label": "Controllers",
+       "per_label": "VAVs per controller",
+       "per_input": "vav_vavs_per_bacnet_controller",
+       "sku": {
+        "kind": "hvac_vav_item",
+        "attr": "vav_item",
+        "value": "BACnet over IP controller"
+       }
+      }
+     ],
+     "item": "controller"
+    },
+    {
+     "id": "dp",
+     "label": "DP sensor share",
+     "heading": "Shared item - DP sensor share",
+     "add_label": "Add DP sensor share",
+     "parts": [
+      {
+       "id": "sensors",
+       "label": "Sensors",
+       "per_label": "VAVs per sensor",
+       "per_input": "vav_vavs_per_dp_sensor",
+       "sku": {
+        "kind": "hvac_sensor_item",
+        "attr": "sensor",
+        "value": "Duct Static Pressure Sensor"
+       }
+      }
+     ],
+     "item": "DP sensor"
+    }
+   ],
+   "separate": {
+    "extras": [
+     {
+      "share": "ddc",
+      "label": "DDC panel row",
+      "words": "\\bddc\\b[^|]{0,40}(panel|controller)|(panel|controller)[^|]{0,40}\\bddc\\b",
+      "needs_vav": true,
+      "item_first": true,
+      "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+     },
+     {
+      "share": "bacnet",
+      "label": "BACnet controller row",
+      "words": "bac\\s*-?\\s*net[^|]{0,60}controller|controller[^|]{0,60}bac\\s*-?\\s*net",
+      "item_first": true,
+      "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box",
+      "not_integrator_rows": true,
+      "controls_vav_words": "\\b(monitor(s|ing)?\\s+and\\s+)?control(s|ling)?\\s+(all\\s+)?(of\\s+)?(the\\s+)?vavs?\\b"
+     },
+     {
+      "share": "bacnet",
+      "label": "Controller for the VAVs row",
+      "words": "\\b(monitor(s|ing)?\\s+and\\s+)?control(s|ling)?\\s+(all\\s+)?(of\\s+)?(the\\s+)?vavs?\\b",
+      "item_first": true,
+      "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+     },
+     {
+      "share": "dp",
+      "label": "Duct static pressure sensor row",
+      "words": "(duct|supply\\s+air)[^|]{0,40}(static\\s+)?pressure\\s+(sensor|t[a-z]{0,3}ns{1,2}ducer|transmitter)|static\\s+pressure\\s+(sensor|t[a-z]{0,3}ns{1,2}ducer|transmitter)|pressure\\s+sensors?\\s+to\\s+be\\s+installed\\s+in\\s+supply\\s+air\\s+ducts|\\bDPS\\b|differential\\s+pressure\\s+(sensor|transmitter|switch)|\\bDP\\s*(sensor|switch|transmitter)",
+      "item_first": true,
+      "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box|air\\s*flow\\s+monitoring|gauge"
+     }
+    ],
+    "artefact_words": {
+     "dp": "\\bFCUs?\\b|fan\\s*coil|chiller|pump|filter|basement|car\\s*park|kitchen|\\bvrf\\b|\\bvrv\\b|\\biaq\\b|attenuator"
+    }
+   },
+   "labels": {
+    "vavs": "Number of VAVs on the sheet",
+    "count_suffix": " needed",
+    "typed": "Or type the amount (per box)",
+    "typed_supply": "Supply",
+    "typed_install": "Install",
+    "amount_typed": "Amount typed by you",
+    "tag_helper": "added by the helper",
+    "tag_user": "added by you",
+    "from_sheet": "pre-filled from the sheet",
+    "typed_by_you": "typed by you",
+    "changed_by_you": "changed by you",
+    "from_input": "Pricing Input",
+    "worked_out": "worked out",
+    "need_vavs": "Type the number of VAVs on the sheet to price this share.",
+    "no_sku": "Not priced - the Rate Master has no '{item}' item.",
+    "per_box": " per box"
+   },
+   "lines": {
+    "not_added": "{share} not added: the sheet prices it on its own row ({rows}). Add it here if the boxes should also carry it.",
+    "check": "BACnet controller share added. The BoQ mentions a controller but does not say BACnet. Check, and remove it if not required.",
+    "ddc_not_inclusive": "DDC panel share added. The BoQ mentions a DDC panel but does not say the price includes it. Remove it if not required.",
+    "by_others": "No controller share: the BoQ says the VAV controllers are by the BMS vendor / by others.",
+    "rate_only": "{share} not added: the box quantities on this sheet are blank or 0, so the number of VAVs is not known. Add it with the button and type the number of VAVs.",
+    "blank_rows": "{n} box rows on this sheet have no quantity and are not counted in the number of VAVs.",
+    "zero_row": "{Item} {rows} {has} quantity 0, so the {share} is added here. Remove it if the {item} is ordered on that row."
+   }
+  }
+ },
+ "derivation_reasons": {
+  "replace": {
+   "^A BACnet over IP controller priced on its own row of the sheet is not added": {
+    "title": "^Per sheet, the first match decides which controller share",
+    "why": "first match per sheet: a DDC panel, else BACnet, else a plain controller, else nothing (owner 2026-11-20 15:19 / 15:20 \"this is correct\"); a controller counts only when it is for controlling the VAVs (15:36 / 15:40); another equipment's DDC or BACnet and a line about makes do not count (14:56; 15:05 \"1 yes 2 yes\"); by the BMS vendor / by others adds nothing (15:19 \"2 ok\"). This replaces the per-box controller and its own-row line (14:18)"
+   }
+  },
+  "new": [
+   {
+    "title": "^A sheet's VAVs are the quantities of its VAV box rows",
+    "why": "\"totals number of VAVs in the BoQ (of all size and type)\", worked per sheet (owner 2026-11-20 14:18; 14:22 \"2 each sheet\"); quantities blank or 0 -> nothing added and a note asks the pricer to add it (14:22 \"4 yes\")"
+   },
+   {
+    "title": "^The BACnet controller share spreads",
+    "why": "\"1 backnet controlor is required for every 32 VAVs ... we calculate the total price of the backnet controlor required and then amortize it over the number of VAVs\" (owner 2026-11-20 14:18); any BACnet mention, every box gets the share, rounded to the rupee (14:22, 14:23 \"allbxes getshare also\", 14:25)"
+   },
+   {
+    "title": "^The DP sensor share spreads",
+    "why": "\"Duct Static Pressure Sensor Greystone/Honeywell ... 1 sensor per 30 boxes\", for every DP sensor mention (owner 2026-11-20 14:35 / 14:37); never counted twice with the DDC panel (14:39)"
+   },
+   {
+    "title": "^The DDC panel share spreads",
+    "why": "\"DDC controllor price is worked as a sum of (Bacnet cost + DP Sensor cost + 25000) supply BCS and 5000 install BCS. standard markups apply. 1 panel is sufficient for upto 200 VAVs ... if we are including the price of DDC, then we dont add bacnet or DP sensor price separately\" (owner 2026-11-20 14:30); \"Bacnet cost will be rate*qty required\" (14:31); 0.6 on the installation (14:39); supply only of the controllers and sensors (15:23); a DDC mention without 'inclusive' still adds it, with its note (14:42 \"5\", 14:45); no minimum number of VAVs (15:02 \"option a\")"
+   },
+   {
+    "title": "^A shared item priced on its own row of the sheet is not added",
+    "why": "a separate row for the item -> nothing added, a note names the row; presence decides, no quantity test (owner 2026-11-20 00:37 \"VAV controlers have one to many mapping\"; 15:20); an integrator / router row counts only for the integrator, never as the controller's own row (19:46 \"integrator row does not count for controller it counts only for integrator\"; 19:50 \"a\" on 'Network controller or Router' rows) -- unless its own words make it a controller FOR THE VAVs, even if also called a router (20:20 \"yes these rows are bacnet controlloer option b\": 'Router / Supervisory Controller ... to monitor and Control the VAVs'); a row whose own description says it controls the VAVs is the controller's row even with no BACnet word (20:54 \"option a\": BOQ-26-00098 r70 'VAV Master Controller ... monitor and control all VAV status'); a separate row with quantity 0 on a sheet whose VAV rows carry a quantity does not count as charged separately - the share is added with a note (21:05 \"a, yes\"; 20:56 \"but the quantity for the master controller is zero, then we should price it with the Vav rows\")"
+   },
+   {
+    "title": "^Each shared item is its own block the user can add, remove and edit",
+    "why": "\"they should all have separate lines in the panel which can be added/deleted or edited by the user\" (owner 2026-11-20 15:02; 15:05 \"option c\"); the number of VAVs pre-filled from the sheet on a BoQ row and empty in the calculator (18:39; 18:41 \"a\"); screen 7 (18:42 \"this is ok\"); the usual revert icons (18:44)"
+   },
+   {
+    "title": "^The .+ (is|are) no longer added to each box",
+    "why": "the per-box controller goes, replaced by the per-sheet share (owner 2026-11-20 14:18); the Differential Pressure Switch is no longer used for VAV (14:35 / 14:37; 15:23 \"yes and starts borrowing the Duct Static Pressure sensor\")"
+   },
+   {
+    "title": "^An airflow written as a lower limit only",
+    "why": "\"Above 3200 CFM\" / \"3700 CFM above\" -> the next band up, with a note that the BoQ gives only a lower limit (owner 2026-11-20 14:10 \"1a\")"
+   },
+   {
+    "title": "^A VAV integrator row naming the boxes it serves",
+    "why": "the six Misc-filed integrator rows count as separate integrator rows (owner 2026-11-20 14:10 \"2 yes\")"
+   },
+   {
+    "title": "^The combination warning is the",
+    "why": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); screen 7 (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)"
+   }
+  ]
+ }
+}

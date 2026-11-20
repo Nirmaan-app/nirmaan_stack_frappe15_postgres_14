@@ -422,7 +422,10 @@ export function vavSheetInputIds(pr: Record<string, unknown>): string[] {
   const ic = loose(pr.integrator_cabling);
   const eb = loose(pr.existing_boxes);
   const kinds = (Array.isArray(eb.kinds) ? eb.kinds : []).map(loose).flatMap((k) => [k.factor_input, k.with_row_input]);
-  const ids = [cw.share_input, oc.threshold_input, ic.qty_input, ic.length_input, ...kinds].filter((x): x is string => typeof x === "string" && x !== "");
+  // VAV-2b1 (R9, owner 2026-11-20 15:23 "yes"): the three counts of the shared items (VAVs per controller / sensor / panel)
+  const ss = loose(pr.sheet_shares);
+  const per = (Array.isArray(ss.shares) ? ss.shares : []).map(loose).flatMap((sh) => (Array.isArray(sh.parts) ? sh.parts : []).map(loose).map((pt) => pt.per_input));
+  const ids = [cw.share_input, oc.threshold_input, ic.qty_input, ic.length_input, ...kinds, ...per].filter((x): x is string => typeof x === "string" && x !== "");
   return [...new Set(ids)];
 }
 

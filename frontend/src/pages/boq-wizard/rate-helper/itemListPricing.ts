@@ -26,6 +26,7 @@
 //
 // NOT ELIGIBLE YET (P8): nothing here is wired into `pricingSheetHelper`; `isEligibleConfig` still reads
 // `pipelines`, which the ADP config keeps empty. Slice 6 wires the panel.
+import type { SheetSharesSpec } from "./vavSheetShares";
 import {
   buildModuleLadder,
   fitModuleLadder,
@@ -772,6 +773,11 @@ export interface ItemListPricingSpec {
   /** VAV-2a2 (B1 / B2 / B3 / B4): the band attribute worked out from the airflow or the inlet size, never picked. ABSENT => the band
    *  is a choice as before. See `BandFrom`. */
   band_from?: BandFrom;
+  /** VAV-2b1 (R1 / R3 / R5 - R8, R10): the shared items of a VAV sheet (BACnet controller / DP sensor / DDC panel shares). ABSENT => none.
+   *  See `vavSheetShares.ts`. */
+  sheet_shares?: SheetSharesSpec;
+  /** VAV-2b1 (R2 / R8): own families and borrowed families no list offers and no row prices per box any more. ABSENT => as before. */
+  withdrawn_families?: string[];
   /** VAV-2a2 (B4, the approved mockup): a field's source tag when the BoQ stated it ("from BoQ"), by attribute. ABSENT => no tag. */
   source_tags?: Record<string, string>;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
@@ -1703,6 +1709,9 @@ export interface ListSection {
  * Display only: no figure moves. ABSENT => no warning, byte-identical.
  */
 export interface CombinationWarning {
+  /** VAV-2b1 (R11, owner 18:06 "more prominent"; screen 7): the heading of the bordered amber block above the row total. ABSENT => the
+   *  plain amber note as VAV-2a built it. */
+  heading?: string;
   box_families: string[];
   share_input: string;
   line: string;
@@ -1750,7 +1759,10 @@ export interface OwnRowCheck {
    *  a box is a box row, as VAV-2a built it. */
   serves?: { item_first: boolean; extras?: string[];
     /** owner 2026-11-20 00:37 (one controller for many VAVs): for these extras a separate row decides by PRESENCE, no quantity test */
-    presence_decides?: boolean };
+    presence_decides?: boolean;
+    /** VAV-2b1 (R13, owner 2026-11-20 14:10 "2 yes"): more extras the item-first test applies to (the VAV integrator), WITHOUT the presence
+     *  removal `extras` gets. ABSENT => as VAV-2a2 built it. */
+    also?: string[] };
 }
 /**
  * VAV-2a (B5; owner 2026-11-18 23:14 / 23:18; 2026-11-19 01:29 "VAV must be mentioned in cabling description"; 01:34 a heading naming VAV
@@ -1823,6 +1835,9 @@ export interface BandFrom {
   tags: { boq: string; range_max: string; inlet: string; typed_cfm: string; typed_inlet: string };
   lines: { crosses: string; inlet: string; mm: string; both_typed: string; none_row: string; none_typed: string; above: string;
            inlet_above: string; not_size: string; not_cfm: string };
+  /** VAV-2b1 (R12, owner 2026-11-20 14:10 "1a"): an airflow written as a LOWER LIMIT only ("Above 3200 CFM", "3700 CFM above") takes the
+   *  band ABOVE the band of the stated figure, with `line` and the tag `tag`. ABSENT => the stated figure's band, as before. */
+  lower_limit?: { words: string; line: string; tag: string };
 }
 
 /** VAV-2a2 (B1): words glued to an airflow number that are NOT a tag (`readAirflowCfm`). */
@@ -1883,6 +1898,21 @@ export function bandForCfm(bf: Pick<BandFrom, "bands" | "edge">, cfm: number): s
   return null;
 }
 
+/** VAV-2b1 (R12). PURE. A lower-limit-only airflow ("Above 3200 CFM"): the band above the stated figure's band, its line and tag;
+ *  null when the key is absent, the text is a range or names no lower-limit word; the refusal when no band is above. */
+export function lowerLimitBand(bf: BandFrom, said: string, stated: string, low: number | null):
+  { band: string; line: string; tag: string } | { refuse: string } | null {
+  const ll = bf.lower_limit;
+  if (!ll || low !== null || !said) return null;
+  let re: RegExp;
+  try { re = new RegExp(ll.words, "i"); } catch { return null; }
+  if (!re.test(said)) return null;
+  const i = bf.bands.findIndex((b) => b.value === stated);
+  const next = i >= 0 ? bf.bands[i + 1] : undefined;
+  if (!next) return { refuse: fillBand(bf.lines.above, { cfm: said }) };
+  return { band: next.value, line: fillBand(ll.line, { said, stated, band: next.value }), tag: ll.tag };
+}
+
 /** What `bandOf` decided for one item: the band and its source, or the refusal sentence. */
 export type BandRead =
   | { band: string; source: "boq" | "range_max" | "inlet" | "typed_cfm" | "typed_inlet"; tag: string; lines: string[] }
@@ -1903,14 +1933,18 @@ export function bandOf(bf: BandFrom, cell: (id: string) => unknown, typedOf: (id
   if (air === "unit") return { refuse: fillBand(bf.lines.not_cfm, { said: said(bf.airflow_attr) }) };
   if (air) {
     const lowN = air.low;
-    const band = bandForCfm(bf, air.high);
-    if (band === null) return { refuse: fillBand(bf.lines.above, { cfm: fmtBand(air.high) }) };
+    const stated = bandForCfm(bf, air.high);
+    if (stated === null) return { refuse: fillBand(bf.lines.above, { cfm: fmtBand(air.high) }) };
+    const ll = lowerLimitBand(bf, said(bf.airflow_attr), stated, lowN);
+    if (ll && "refuse" in ll) return ll;
+    const band = ll ? ll.band : stated;
     const typed = typedOf(bf.airflow_attr);
     const lines: string[] = [];
     if (typed && inl !== null) lines.push(bf.lines.both_typed);
     const lowBand = lowN !== null && lowN < air.high ? bandForCfm(bf, lowN) : null;
     if (lowBand !== null && lowBand !== band) lines.push(fillBand(bf.lines.crosses, { low: fmtBand(lowN!), high: fmtBand(air.high), low_band: lowBand, band }));
     const source = typed ? "typed_cfm" : lowN !== null ? "range_max" : "boq";
+    if (ll) return { band, source, tag: ll.tag, lines: [...lines, ll.line] };
     return { band, source, tag: bf.tags[source], lines };
   }
   if (inl === "not_size") return { refuse: fillBand(bf.lines.not_size, { said: said(bf.inlet_attr) }) };

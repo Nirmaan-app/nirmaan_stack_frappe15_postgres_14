@@ -13463,7 +13463,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "own_row_check", "integrator_cabling", "existing_boxes", "combination_warning",
                             # INVERTED at VAV-2a2 (owner R1-R4, 2026-11-18 / 19; HVAC v78) by mechanical authority: BEFORE the set
                             # ended at "combination_warning". Both keys are read only by VAV Box; v7 predates them, ADP declares none
-                            "band_from", "source_tags"})
+                            "band_from", "source_tags",
+                            # INVERTED at VAV-2b1 K1 (owner 2026-11-20 14:18 - 18:44; PIN 4 accepted 20:53) by mechanical authority: BEFORE
+                            # the set ended at "source_tags". Both keys are read only by VAV Box; v7 predates them, ADP declares none
+                            "sheet_shares", "withdrawn_families"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)

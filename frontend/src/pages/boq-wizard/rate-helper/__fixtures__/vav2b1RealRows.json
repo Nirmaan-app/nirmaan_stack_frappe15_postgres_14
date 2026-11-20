@@ -1,0 +1,237 @@
+{
+ "_about": "VAV-2b1: real rows of the 84 VAV sheets, copied from VAV-D0 read-only dump (sheets_full_units.jsonl) for the vav2b1 tests: description, own notes, headings, unit, quantity, category.",
+ "rows": [
+  {
+   "ref": "BOQ-26-00007 'HVAC BOQ' r385",
+   "kind": "controller_row",
+   "category": "hvac_misc",
+   "unit": "No",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "Supply, Installation and Testing of controller for BACNet integration above VAV Boxes with BMS. Controller should be suitable to be integrated with minimum 55Nos. of VAV Boxes. Integrator shall be capable of soft integration with BMS system.",
+   "notes": [],
+   "headings": [
+    "CONTROLLER FOR BACNet INTEGRATION",
+    "VAV BOXES",
+    "SECTION 'B' - VAV BOXES"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00012 'HVAC - Low side' r256",
+   "kind": "integrator_r13",
+   "category": "hvac_misc",
+   "unit": "Set",
+   "qty": 2.0,
+   "node": "Line Item",
+   "description": "Supply and Installation of BACnet control for integrating all the VAVs which includes Supply and Installation of VAV router to integrate VAVs on BMS system for monitoring and Controlling. The router shall be provided in MS powder coated enclosure with all necessary accessories such as indication lamps, control wiring , control transformer, terminals , cables, cable trays,etc.necessary cabling and terminal provision. The set shall be inclusive of required number of routers to connect all the VAV units in the project.(Router capacity to be consider 30-35 VAV)",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00020 'HVAC_-19TH FLOOR' r194",
+   "kind": "bacnet_v78_vrf_adaptor",
+   "category": "hvac_misc",
+   "unit": "Set",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "Unification adaptor for connecting between central remote controller and BMS Computer on BACnet protocol.",
+   "notes": [],
+   "headings": [
+    "EQUIPMENT"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00033 'VAV' r90",
+   "kind": "integrator_r13_edge",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 2.0,
+   "node": "Line Item",
+   "description": "Supply,installation,testing & comissioning of all necessary Network controller or Router, Interface to connect the proposed floor BACNET MS/TP VAV with the main BMS system via Native BACnet / IP. Network controller or Router - Shall automatic rout BACnet messages between BACnet IP, BACnet Ethernet, BACnet PTP, and BACnet MS/TP ports and sub-lan networks. It shall conformance to ANSI/ASHRAE standard 135-2008 for designated “router” functions. The controller shall support foreign device registration with BACnet Broadcast Management Devices (BBMD). Total no. of network controller shall be based on manufacturer requirement. 1 network controller / router panel shall not exceed integrating / connecting 30 VAV boxes. The Network controller or Router shall be housed in a suitable metal enclosure with proper power protection. Integrator to have necessary convertors for taking into BOS system .necessary software. Integration of vav router to BMS via cat 6 cable to be part of scope. Integrator to be with RS485 port",
+   "notes": [],
+   "headings": [
+    "VAV INTEGRATOR"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00071 'VAV WORKS' r49",
+   "kind": "integrator_r13",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply,installation,testing & commissioning of all necessary Network controller or Router, Interface to connect the proposed floor VAV with the main SCADA system via Modbus RS485 /TCP/IP , It shall confermance to ANSI/ASHRAE standard 135-2008 for designated “router” functions. Total no. of network controller shall be based on manufacturer requirement. 1 network controller / router panel shall not exceed integrating / connecting 60 VAV boxes. The Network controller or Router shall be housed in a suitable metal enclosure with proper power protection. Integration of vav router to SCADA via cat 6 cable to be part of scope. Integrator to be with RS485 port",
+   "notes": [],
+   "headings": [
+    "VAV INTEGRATOR",
+    "VAV WORKS",
+    "VAV WORKS"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00080 'HVAC ' r28",
+   "kind": "integrator_r13",
+   "category": "hvac_misc",
+   "unit": "No",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply, Installation and Testing of Integrator for BMS connectivity of all VAV Boxes with neccessary sensors copper control cabling as required. The integrator shall also include daisy control wiring connecting VAV Boxes. price shall be inclusive of necessary conduting, copper control cabling from the integrator to the VAVs as per \"Approved Shop Drawings\".",
+   "notes": [],
+   "headings": [
+    "INTEGRATOR FOR VAV BOXES",
+    "EQUIPMENT"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00098 'VAV' r59",
+   "kind": "integrator_router_r59",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply installation testing and commissioning of Bacnet IP Router for BMS connectivity.upto 20 vavs per Loop with Rs 485 port.",
+   "notes": [],
+   "headings": [
+    "VAV Thermostats with cables & Conduit."
+   ]
+  },
+  {
+   "ref": "BOQ-26-00098 'VAV' r70",
+   "kind": "controller_for_vavs_r70",
+   "category": "hvac_misc",
+   "unit": "Set",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "All VAVs to be interlinked with LAN connectivity, with one centralized 7\" display provided to monitor and control all VAV status, temperature readings, and opening percentage. The system shall communicate over BACnet/IP. Scope includes complete setup of the display interface, necessary network switches/routers, and integration of all VAVs onto a common Interface with future compatibility to BMS. Scope also includes any required cabling and network hardware for full functionality. The quoted cost includes complete integration of all VAVs into the Interface. Master controller to be BMS compactible as future they can integrate if needed based on the requirement.",
+   "notes": [],
+   "headings": [
+    "VAV Master Controller."
+   ]
+  },
+  {
+   "ref": "BOQ-26-00137 'LOWSIDE OFFICE WORKS' r161",
+   "kind": "afms_not_dp",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 4.0,
+   "node": "Line Item",
+   "description": "Supply, installation, testing, and commissioning of Air Flow Monitoring Station (AFMS) suitable for measuring and monitoring airflow in supply/return/ exhaust air ducts as specified. The AFMS shall comprise an aerodynamically designed multi-port averaging airflow sensor (pitot array or equivalent), differential pressure transmitter, and necessary signal conditioning to ensure accurate airflow measurement over a broad range of velocities. The sensor shall be constructed of corrosion-resistant aluminum/stainless steel and designed to provide amplified differential pressure output for enhanced accuracy. The differential pressure transmitter shall be factory-calibrated, capable of providing 0–10V/4–20mA output for integration with the Building Management System (BMS). The AFMS assembly shall include mounting hardware, airflow tap points, isolation valves (where required), and airtight duct penetration seals. Installation shall ensure correct placement per manufacturer-recommended straight duct lengths upstream and downstream for reliable measurement. The system shall be calibrated, tested, and commissioned on-site, with all wiring, termination, labeling, and integration with BMS completed as per project specifications and OEM guidelines. Complete in all respects.",
+   "notes": [],
+   "headings": [
+    "AIR DISTRIBUTION SYSTEM"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00140 'HVAC Lowside Works ' r289",
+   "kind": "integrator_r13",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "Supply,installation,testing & commissioning of all necessary Network controller or Router, Interface to connect the proposed floor VAV with the main SCADA system via Modbus RS485 /TCP/IP , It shall confermance to ANSI/ASHRAE standard 135-2008 for designated “router” functions. Total no. of network controller shall be based on manufacturer requirement. 1 network controller / router panel shall not exceed integrating / connecting 60 VAV boxes. The Network controller or Router shall be housed in a suitable metal enclosure with proper power protection. Integration of vav router to SCADA via cat 6 cable to be part of scope. Integrator to be with RS485 port",
+   "notes": [],
+   "headings": [
+    "For 1st,2nd &3rd floor -Supply installation & testing commissioning of Digital thermostat 2no with all necessary supports /necessary logic of operation as per drawings should be include while costing",
+    "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00188 'HVAC - VAV BOQ' r20",
+   "kind": "edge_undecided",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply, installation testing and commissioning of Router / Supervisory Controller which will manage the VAV information and communicates on BACnet®/ LONWORKS® protocol to monitor and Control the VAVs from HVAC software on PC in accordance with the approved shop drawings and technical specifications. Connecting the final daisy loop from all VAV to Supervisory Controller shall be part of the scope. The communication between Supervisory controller and HVAC software in PC should be on IP. Cost include powder coated Panel for Supervisory Controller of required size with 24 Volts provision which includes power cable, plug, transformer and with all necessary accessories for mounting on wall in accordance with the approved shop drawings and technical specifications.",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00218 'HVAC-2F' r164",
+   "kind": "integrator_router",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Suplly, installation, configuration and commissioning of interface unit provided with RS485 Modbus / Bacnet. Integrator & router shall be provided at the BMS room. Parameters shall be including shown on the MODSCAN / Backstack / Cimetrics software before integrating to IBMS, scope shall include all mapping details & ID setting in the VAV. Suitable to connect 60 Nos VAV.",
+   "notes": [],
+   "headings": [
+    "VAV Integrator",
+    "VAV SYSTEM"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00245 'HVAC ' r41",
+   "kind": "gauge_not_dp",
+   "category": "hvac_valve_package",
+   "unit": null,
+   "qty": 0.0,
+   "node": "Line Item",
+   "description": "Differential Pressure gauge | Nos",
+   "notes": [],
+   "headings": [
+    "Field Instruments",
+    "CHILLED WATER PIPING & ACCESSORIES",
+    "The work includes supply, fabrication, erection, testing, and commissioning of the complete air-conditioning system. The tenderer shall fill in the columns of rate and amount and submit the same along with the all technical details, all the taxes & duties"
+   ]
+  },
+  {
+   "ref": "BOQ-26-00352 'HVAC ' r267",
+   "kind": "dp_row",
+   "category": "hvac_sensors",
+   "unit": "No.",
+   "qty": 3.0,
+   "node": "Line Item",
+   "description": "DPS | Supply, Installation and Testing of pressure sensors to be installed in supply air ducts. Quoted price shall be inclusive of necessary conduting, copper control cabling from the sensors to the respective VFDs.",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00355 'VAV BOX' r47",
+   "kind": "controller_row",
+   "category": "hvac_misc",
+   "unit": "No",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply, Installation and Testing of controller for BACNet integration above VAV Boxes with BMS. Controller should be suitable to be integrated with minimum 18Nos. of VAV Boxes. Integrator shall be capable of soft integration with BMS system.",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00393 '1.2 HVAC - VAV BOQ' r21",
+   "kind": "edge_undecided",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply, installation, testing and commissioning of Router / Supervisory Controller which will manage the VAV information and communicates on BACnet®/ LONWORKS® protocol to monitor and Control the VAVs from HVAC software on PC in accordance with the approved shop drawings and technical specifications. Connecting the final daisy loop from all VAV to Supervisory Controller shall be part of the scope. The communication between Supervisory controller and HVAC software in PC should be on IP. Cost include powder coated Panel for Supervisory Controller of required size with 24 Volts provision which includes power cable, plug, transformer and with all necessary accessories for mounting on wall in accordance with the approved shop drawings and technical specifications.",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00393 '1.2 HVAC - VAV BOQ' r31",
+   "kind": "dp_row_ahu",
+   "category": "hvac_sensors",
+   "unit": "Nos",
+   "qty": 4.0,
+   "node": "Line Item",
+   "description": "Supply, Installation, Testing & Commissioning of Duct type Static Pressure Sensor inside AHU Plenum. The sensor shall be capacitive type with 4 - 20mA Output with necessory control cables in accordance with the approved shop drawings and technical specifications.",
+   "notes": [],
+   "headings": []
+  },
+  {
+   "ref": "BOQ-26-00440 'VAV' r92",
+   "kind": "integrator_r13_edge",
+   "category": "hvac_misc",
+   "unit": "Nos",
+   "qty": 1.0,
+   "node": "Line Item",
+   "description": "Supply,installation,testing & comissioning of all necessary Network controller or Router, Interface to connect the proposed floor BACNET MS/TP VAV with the main BMS system via Native BACnet / IP. Network controller or Router - Shall automatic rout BACnet messages between BACnet IP, BACnet Ethernet, BACnet PTP, and BACnet MS/TP ports and sub-lan networks. It shall conformance to ANSI/ASHRAE standard 135-2008 for designated “router” functions. The controller shall support foreign device registration with BACnet Broadcast Management Devices (BBMD). Total no. of network controller shall be based on manufacturer requirement. 1 network controller / router panel shall not exceed integrating / connecting 20 VAV boxes. The Network controller or Router shall be housed in a suitable metal enclosure with proper power protection. Integrator to have necessary convertors for taking into BOS system .necessary software. Integration of vav router to BMS via cat 6 cable to be part of scope. Integrator to be with RS485 port",
+   "notes": [],
+   "headings": [
+    "VAV INTEGRATOR",
+    "VAV WORKS -HONEYWELL MAKE"
+   ]
+  }
+ ]
+}

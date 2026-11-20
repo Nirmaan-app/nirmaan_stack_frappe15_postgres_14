@@ -35,6 +35,8 @@ import {
   type ShownAttribute,
 } from "./pricingSheetHelper";
 import { moneyValue } from "./attributeWorkingLines";
+import { ReviewBlock, SharedItems } from "./SharedItemBlock";
+import { SHARES_OVERRIDE_KEY, applyShareEdit, type ShareEditOp } from "./vavSheetShares";
 import { floorBoxValue, isFloorRaised } from "./conductorFloor";
 import {
   attrDisplayValue,
@@ -749,6 +751,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
                         onIncludes={(v) => setAttr(helper.id, EXTRAS_INCLUDES_KEY, v)}
                         onScope={(v) => setAttr(helper.id, SCOPE_OVERRIDE_KEY, v)}
+                        onShares={(op) => setAttr(helper.id, SHARES_OVERRIDE_KEY, JSON.stringify(applyShareEdit(itemList.shares?.editState, op)))}
                       />
                     </div>
                   )}
@@ -1442,6 +1445,7 @@ function ItemListBlocks({
   onRowQty,
   onIncludes,
   onScope,
+  onShares,
   section,
 }: {
   view: ItemListView;
@@ -1453,6 +1457,8 @@ function ItemListBlocks({
   onIncludes?: (value: string) => void;
   /** VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice */
   onScope?: (value: string) => void;
+  /** VAV-2b1 (B5): an edit to the row's shared-item blocks */
+  onShares?: (op: ShareEditOp) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
@@ -2169,9 +2175,12 @@ function ItemListBlocks({
       {(view.sections?.independent ?? []).map(drawSection)}
       {/* VP-1 (N5, owner VR1; mockup boards 12a / 12b): the sheet-heading note -- an amber box after the items, on every state of
           the row (with or without an item); display only */}
+      {/* VAV-2b1 (B5, screen 7): the row's shared items, each its own block, then their add buttons */}
+      {!section && view.shares && onShares && <SharedItems shares={view.shares} onShares={onShares} />}
       {!section && (view.sheetHeadingNotes ?? []).map((n) => <UnitNoteBox key={n} note={n} testId="item-sheet-heading-note" />)}
-      {/* VAV-2a (B9, owner 2026-11-19 12:49 / 12:59): the combination-row warning -- the same amber box, panel and calculator alike */}
-      {!section && view.combinationWarning && <UnitNoteBox note={view.combinationWarning} testId="item-combination-warning" />}
+      {/* VAV-2a (B9, owner 2026-11-19 12:49 / 12:59): the combination-row warning -- the same amber box, panel and calculator alike;
+          VAV-2b1 (B6): with a heading it is the "Review before using" block directly above the row total instead */}
+      {!section && view.combinationWarning && !view.reviewHeading && <UnitNoteBox note={view.combinationWarning} testId="item-combination-warning" />}
       {!section && (picker?.mode === "add" ? (
         familyPicker(view.sections ? view.sections.addLabel : "Add an item")
       ) : picker?.mode === "add_section" ? (
@@ -2211,6 +2220,7 @@ function ItemListBlocks({
           <Plus className="h-3 w-3" /> Add item
         </button>
       ))}
+      {!section && view.combinationWarning && view.reviewHeading && <ReviewBlock heading={view.reviewHeading} note={view.combinationWarning} />}
       {!section && <div
         className={cn(
           "rounded-md border px-2 py-1.5",
