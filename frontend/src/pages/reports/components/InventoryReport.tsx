@@ -222,7 +222,8 @@ function SummaryTable({ projectId }: { projectId: string }) {
           billingCategory: item.billingCategory || "N/A",
           unit: item.unit ?? "",
           poNumbers: poEntries,
-          poQuantity: item.orderedQuantity,
+          // PO-only: Material Usage's orderedQuantity also counts incoming ITMs.
+          poQuantity: item.poOrderedQty ?? item.orderedQuantity,
           latestDNQuantity: item.deliveredQuantity,
           remainingQty: remaining?.remaining_quantity ?? null,
           maxRate: maxEntry?.quote ?? 0,

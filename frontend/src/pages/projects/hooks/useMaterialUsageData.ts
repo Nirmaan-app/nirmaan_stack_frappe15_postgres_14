@@ -4,7 +4,7 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
 import { orderPaymentStatus } from '@/utils/projects/projectPaid';
-import { DCMIRItemDisplay, DCMIRWiseDisplayItem, DeliveryDocumentInfo, DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus, POWiseChildItem, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
+import { DCMIRItemDisplay, DCMIRWiseDisplayItem, DeliveryDocumentInfo, DeliveryStatus, ItemITMEntry, MaterialUsageDisplayItem, OrderSourceType, OverallItemPOStatus, POStatus, POWiseChildItem, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import { PODeliveryDocuments } from '@/types/NirmaanStack/PODeliveryDocuments';
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -24,6 +24,32 @@ const addItemDoc = (list: DeliveryDocumentInfo[], docInfo: DeliveryDocumentInfo,
   if (existing) existing.quantity = (existing.quantity || 0) + qty;
   else list.push({ ...docInfo, quantity: qty });
 };
+
+const ITM_DOCTYPE = "Internal Transfer Memo";
+
+// An ITM has no payments: it counts as paid once Delivered, unpaid before that.
+const itmPaidStatus = (itmStatus: string): POStatus => itmStatus === "Delivered" ? "Fully Paid" : "Unpaid";
+
+/** One incoming ITM line for an item, as returned by `get_transfer_summary`. */
+interface TransferSummaryITM {
+  itm: string;
+  status: string;
+  source_project: string | null;
+  source_project_name: string | null;
+  ordered_qty: number;
+  received_qty: number;
+}
+
+/** Per-item ITM aggregates from `get_transfer_summary`. */
+interface TransferSummaryItem {
+  transferred_out: number;
+  transferred_in: number;
+  ordered_in?: number;
+  itms?: TransferSummaryITM[];
+  item_name?: string;
+  unit?: string;
+  category?: string;
+}
 
 export function useMaterialUsageData(projectId: string) {
   const {
@@ -55,12 +81,13 @@ export function useMaterialUsageData(projectId: string) {
     message: PODeliveryDocuments[]
   }>(
     "nirmaan_stack.api.po_delivery_documentss.get_project_po_delivery_documents",
-    { project_id: projectId },
+    // ITM-filed DCs/MIRs too: Item-wise and PO-wise views list them beside the PO ones.
+    { project_id: projectId, include_itm: 1 },
     projectId ? `po_delivery_docs_${projectId}` : undefined
   );
 
   const { data: transferData } = useFrappeGetCall<{
-    message: { data: Record<string, { transferred_out: number; transferred_in: number; item_name?: string; unit?: string; category?: string }> }
+    message: { data: Record<string, TransferSummaryItem> }
   }>(
     "nirmaan_stack.api.internal_transfers.project_transfers.get_transfer_summary",
     { project_id: projectId },
@@ -110,11 +137,12 @@ export function useMaterialUsageData(projectId: string) {
         itemCount: doc.items?.length || 0,
         poNumber: poId,
         isStub,
+        isITM: doc.parent_doctype === ITM_DOCTYPE,
       };
 
       const isDC = doc.type === "Delivery Challan";
 
-      // Build poDeliveryMap
+      // Build poDeliveryMap (keyed by parent: a PO number or an ITM id)
       const poKey = poId;
       if (!poMap.has(poKey)) {
         poMap.set(poKey, { dcs: [], mirs: [] });
@@ -266,9 +294,21 @@ export function useMaterialUsageData(projectId: string) {
       item.mirCount = deliveryData?.mirs?.length || 0;
     });
 
-    // Merge ITM transfer data into existing PO rows
+    // Incoming ITMs (Approved or later) for an item, shaped for the PO / ITM Number(s) column.
+    const toITMEntries = (itmData: TransferSummaryItem): ItemITMEntry[] =>
+      (itmData.itms || []).map(i => ({
+        itm: i.itm,
+        itmStatus: i.status,
+        status: itmPaidStatus(i.status),
+        sourceName: i.source_project_name || "",
+        orderedQty: i.ordered_qty || 0,
+      }));
+
+    // Merge ITM transfer data into existing PO rows.
+    // Ordered = PO ordered + ITM ordered (Approved or later); Delivered = PO received + ITM received.
     const transferSummary = transferData?.message?.data || {};
     flatList.forEach(item => {
+      item.poOrderedQty = item.orderedQuantity; // PO-only value (Inventory Report reads this)
       if (!item.itemId) return;
       const itmData = transferSummary[item.itemId];
       if (itmData) {
@@ -276,10 +316,15 @@ export function useMaterialUsageData(projectId: string) {
         item.itmDeliveredQty = itmData.transferred_in || 0;
         item.poDeliveredQty = item.deliveredQuantity; // save PO-only value
         item.deliveredQuantity += item.itmDeliveredQty; // combined
+        item.itmOrderedQty = itmData.ordered_in || 0;
+        item.orderedQuantity += item.itmOrderedQty; // combined
+        item.itmNumbers = toITMEntries(itmData);
+        item.deliveryStatus = determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity).deliveryStatusText;
+        item.overallPOPaymentStatus = determineOverallItemPOStatus([...(item.poNumbers || []), ...item.itmNumbers]);
       }
     });
 
-    // Create rows for items transferred IN but not in any PO for this project
+    // Create rows for items coming in by ITM but not in any PO for this project
     Object.entries(transferSummary).forEach(([itemId, itmData]) => {
       // Skip if item already exists in table (handled by merge above)
       const alreadyExists = Array.from(usageByItemKey.keys()).some(
@@ -287,11 +332,15 @@ export function useMaterialUsageData(projectId: string) {
       );
       if (alreadyExists) return;
 
-      // Only create row if there's transferred_in qty
-      if (!(itmData.transferred_in > 0)) return;
+      // Only create a row when an incoming ITM carries this item
+      const orderedIn = itmData.ordered_in || 0;
+      const transferredIn = itmData.transferred_in || 0;
+      if (!(orderedIn > 0 || transferredIn > 0)) return;
 
       const category = itmData.category || "Transferred In";
       const itemKey = `${category}_${itemId}`;
+      const itmNumbers = toITMEntries(itmData);
+      const deliveryData = itemDeliveryMap.get(itemKey);
 
       const newItem: MaterialUsageDisplayItem = {
         uniqueKey: `itm_transfer_${itemId}`,
@@ -299,18 +348,25 @@ export function useMaterialUsageData(projectId: string) {
         categoryName: category,
         itemName: itmData.item_name || itemId,
         unit: itmData.unit || "",
-        orderedQuantity: 0,
-        deliveredQuantity: itmData.transferred_in,
-        dcQuantity: 0,
-        mirQuantity: 0,
+        orderedQuantity: orderedIn,
+        deliveredQuantity: transferredIn,
+        dcQuantity: deliveryData?.dcQty || 0,
+        mirQuantity: deliveryData?.mirQty || 0,
+        deliveryChallans: deliveryData?.dcs || [],
+        dcCount: deliveryData?.dcs?.length || 0,
+        mirs: deliveryData?.mirs || [],
+        mirCount: deliveryData?.mirs?.length || 0,
         totalAmount: 0,
         poNumbers: [],
-        deliveryStatus: "Not Ordered",
-        overallPOPaymentStatus: "N/A",
+        itmNumbers,
+        deliveryStatus: determineDeliveryStatus(transferredIn, orderedIn).deliveryStatusText,
+        overallPOPaymentStatus: determineOverallItemPOStatus(itmNumbers),
         billingCategory: resolveBillingCategory(itemId, category),
         transferredOut: itmData.transferred_out || 0,
-        itmDeliveredQty: itmData.transferred_in,
+        itmDeliveredQty: transferredIn,
         poDeliveredQty: 0,
+        itmOrderedQty: orderedIn,
+        poOrderedQty: 0,
         isTransferredInItem: true,
       };
 
@@ -339,9 +395,9 @@ export function useMaterialUsageData(projectId: string) {
     return map;
   }, [allPoItems]);
 
-  // --- Compute PO-wise aggregated items (from raw po_item_data, NOT from allMaterialUsageItems) ---
+  // --- Compute PO-wise aggregated items (from raw po_item_data + incoming ITMs, NOT from allMaterialUsageItems) ---
   const poWiseItems = useMemo((): POWiseDisplayItem[] => {
-    if (allPoItems.length === 0) return [];
+    const transferSummary = transferData?.message?.data || {};
 
     // --- Step 1: Build per-PO DC/MIR item delivery map ---
     // Key: "poNumber_category_itemId" → { dcQty, mirQty, dcs[], mirs[] }
@@ -364,6 +420,7 @@ export function useMaterialUsageData(projectId: string) {
         itemCount: doc.items.length,
         poNumber: poId,
         isStub: false,
+        isITM: doc.parent_doctype === ITM_DOCTYPE,
       };
       for (const item of doc.items) {
         const key = `${poId}_${item.category}_${item.item_id}`;
@@ -382,7 +439,10 @@ export function useMaterialUsageData(projectId: string) {
     }
 
     // --- Step 2: Group raw PO items by PO, then by category_itemId within each PO ---
+    // (Step 2b adds one group per incoming ITM, keyed by the ITM id.)
     const poGroupMap = new Map<string, {
+      type: OrderSourceType;
+      sourceName: string;           // ITM source project name; unused for POs
       categories: Set<string>;
       childItemMap: Map<string, POWiseChildItem>;
       totalOrderedQty: number;
@@ -412,6 +472,8 @@ export function useMaterialUsageData(projectId: string) {
 
       if (!poGroupMap.has(poNumber)) {
         poGroupMap.set(poNumber, {
+          type: "PO",
+          sourceName: "",
           categories: new Set(),
           childItemMap: new Map(),
           totalOrderedQty: 0, totalDeliveryNoteQty: 0,
@@ -452,6 +514,48 @@ export function useMaterialUsageData(projectId: string) {
       group.totalOrderedQty += qty;
       group.totalDeliveryNoteQty += recvQty;
       group.totalAmount += amount;
+    }
+
+    // --- Step 2b: One group per incoming ITM (Approved or later), children from the transfer summary ---
+    for (const [itemId, itmData] of Object.entries(transferSummary)) {
+      const category = itmData.category || "Transferred In";
+      const itemKey = `${category}_${itemId}`;
+      for (const itmLine of itmData.itms || []) {
+        if (!poGroupMap.has(itmLine.itm)) {
+          poGroupMap.set(itmLine.itm, {
+            type: "ITM",
+            sourceName: itmLine.source_project_name || "",
+            categories: new Set(),
+            childItemMap: new Map(),
+            totalOrderedQty: 0, totalDeliveryNoteQty: 0,
+            totalDCQty: 0, totalMIRQty: 0, totalAmount: 0,
+            poStatus: itmPaidStatus(itmLine.status),
+          });
+        }
+        const group = poGroupMap.get(itmLine.itm)!;
+        group.categories.add(category);
+        const delivery = poItemDeliveryMap.get(`${itmLine.itm}_${itemKey}`);
+        group.childItemMap.set(itemKey, {
+          itemId,
+          itemName: itmData.item_name || itemId,
+          categoryName: category,
+          unit: itmData.unit || "",
+          billingCategory: resolveBillingCategory(itemId, category),
+          orderedQuantity: itmLine.ordered_qty || 0,
+          deliveredQuantity: itmLine.received_qty || 0,
+          dcQuantity: delivery?.dcQty || 0,
+          mirQuantity: delivery?.mirQty || 0,
+          quote: 0,
+          tax: 0,
+          amount: 0,
+          deliveryChallans: delivery?.dcs || [],
+          dcCount: delivery?.dcs?.length || 0,
+          mirs: delivery?.mirs || [],
+          mirCount: delivery?.mirs?.length || 0,
+        });
+        group.totalOrderedQty += itmLine.ordered_qty || 0;
+        group.totalDeliveryNoteQty += itmLine.received_qty || 0;
+      }
     }
 
     // Compute PO-level DC/MIR totals from child items
@@ -508,6 +612,8 @@ export function useMaterialUsageData(projectId: string) {
 
         if (!poGroupMap.has(poNumber)) {
           poGroupMap.set(poNumber, {
+            type: doc.parent_doctype === ITM_DOCTYPE ? "ITM" : "PO",
+            sourceName: "",
             categories: new Set([orphan.categoryName]),
             childItemMap: new Map([[orphanKey, orphan]]),
             totalOrderedQty: 0, totalDeliveryNoteQty: 0,
@@ -532,8 +638,9 @@ export function useMaterialUsageData(projectId: string) {
       const items = Array.from(group.childItemMap.values());
 
       return {
+        type: group.type,
         poNumber,
-        vendorName: vendorByPO.get(poNumber) || '',
+        vendorName: group.type === "ITM" ? group.sourceName : (vendorByPO.get(poNumber) || ''),
         category: categories.length === 1 ? categories[0] : `Multiple (${categories.length})`,
         billingCategory: items.some(i => i.billingCategory === "Billable")
           ? "Billable"
@@ -552,7 +659,7 @@ export function useMaterialUsageData(projectId: string) {
         items,
       };
     });
-  }, [allPoItems, billingCategoryMap, poDeliveryDocsData, poDeliveryMap, vendorByPO, getIndividualPOStatus]);
+  }, [allPoItems, billingCategoryMap, poDeliveryDocsData, poDeliveryMap, vendorByPO, getIndividualPOStatus, transferData]);
 
   // --- Compute DC-wise and MIR-wise aggregated items ---
   const { dcWiseItems, mirWiseItems } = useMemo((): { dcWiseItems: DCMIRWiseDisplayItem[]; mirWiseItems: DCMIRWiseDisplayItem[] } => {
@@ -573,6 +680,8 @@ export function useMaterialUsageData(projectId: string) {
     });
 
     for (const doc of docs) {
+      // DC Wise / MIR Wise stay PO-only (ITM-filed docs are loaded for the Item-wise and PO-wise views).
+      if (doc.parent_doctype === ITM_DOCTYPE) continue;
       const isStub = doc.is_stub === 1;
       const poId = doc.parent_docname || doc.procurement_order || "";
 
