@@ -555,7 +555,10 @@ case "$CMD" in
     [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
       || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
     [ "$AGENT" = 0 ] || agent_ready
-    if START="$(git rev-parse -q --verify "refs/heads/$BRANCH")"; then START_IS="the existing $BRANCH"
+    if START="$(git rev-parse -q --verify "refs/heads/$BRANCH")"; then
+      START_IS="the existing $BRANCH (an earlier start made it; another name starts afresh)"
+      [ -z "$FROM" ] || [ "$(git -C "$HERE_CO" rev-parse -q --verify "$FROM^{commit}" || true)" = "$START" ] \
+        || die "$BRANCH already exists at ${START:0:9}, not at --from $FROM: start under another name"
     else
       START="$(git -C "$HERE_CO" rev-parse -q --verify "${FROM:-HEAD}^{commit}")" || die "no commit '${FROM:-HEAD}' in $HERE_CO"
       if [ -n "$FROM" ]; then START_IS="--from $FROM"; else START_IS="HEAD of $HERE_CO"; fi
@@ -588,7 +591,9 @@ case "$CMD" in
       [ "$MADE" = 0 ] || git update-ref -d "refs/heads/$BRANCH" "$START"
       [ -n "$REC" ] || git config --unset "$RECORD"
       [ "$MADE" = 0 ] || { git config --unset "devbox-task.$NAME.from" || true; git config --unset "devbox-task.$NAME.base" || true; }
-      die "box $BOX_NAME refused $BRANCH (above), and this start took back the branch and record it made. Fix what it names, then start again."
+      TOOK=""; [ "$MADE" = 0 ] || TOOK="$BRANCH"; [ -n "$REC" ] || TOOK="${TOOK:+$TOOK and }its record"
+      [ -n "$TOOK" ] && V="this start took back $TOOK" || V="$BRANCH and its record were there before this start, so they stay"
+      die "box $BOX_NAME refused $BRANCH (above); $V. Fix what it names, then start again."
     fi
     [ "$RC" = 0 ] || exit "$RC"
 

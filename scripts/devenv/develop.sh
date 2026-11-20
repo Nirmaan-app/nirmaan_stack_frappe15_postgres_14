@@ -1,9 +1,9 @@
 # A task's start point against GitHub's develop. Sourced (never run) by task.sh on the laptop, and sent to a box ahead of
 # handoff.sh, so both sides judge a start point by the same rule. The caller defines die. bash 3.2 safe.
 #
-# develop is always the org repo's, never a fork's: git config devbox.org-repo <url> when set, else the first remote
-# whose URL ends in the org repo's path (on the owner's laptop upstream, on a box origin). Its tip is read with
-# git ls-remote, which writes nothing: a local upstream/develop may be stale.
+# develop is always the org repo's, never a fork's or a mirror's: git config devbox.org-repo <url> when set, else the
+# first remote whose URL is github.com's org repo (on the owner's laptop upstream, on a box origin). Its tip is read
+# with git ls-remote, which writes nothing: a local upstream/develop may be stale.
 #
 # The start point against develop's tip, and what task.sh start does about it (start_point_verdict):
 #   equal     start
@@ -19,16 +19,17 @@ org_repo() {
   ORG_REPO="$(git config devbox.org-repo || true)"
   [ -n "$ORG_REPO" ] && return 0
   ORG_REPO="$(git config --get-regexp '^remote\..*\.url$' | awk -v p="$(echo "$ORG_REPO_PATH" | tr A-Z a-z)" '
-    tolower($2) ~ ("[/:]" p "(\\.git)?/?$") {sub(/^remote\./, "", $1); sub(/\.url$/, "", $1); print $1; exit}' || true)"
+    tolower($2) ~ ("github\\.com[/:]" p "(\\.git)?/?$") {sub(/^remote\./, "", $1); sub(/\.url$/, "", $1); print $1; exit}' || true)"
   [ -n "$ORG_REPO" ]
 }
 
 # develop_tip: print the commit develop is at on GitHub now, or STOP.
 develop_tip() {
-  local d
+  local out d
   org_repo || die "no remote of $(git rev-parse --show-toplevel) points at the org repo $ORG_REPO_PATH, so develop cannot be checked. Add one: git remote add upstream https://github.com/$ORG_REPO_PATH.git (or set git config devbox.org-repo <url>)"
-  d="$(git ls-remote "$ORG_REPO" refs/heads/develop 2>/dev/null | awk '{print $1; exit}' || true)"
-  [ -n "$d" ] || die "could not read develop from $ORG_REPO (git ls-remote $ORG_REPO refs/heads/develop): offline, or no access"
+  out="$(git ls-remote "$ORG_REPO" refs/heads/develop 2>&1 || true)"
+  d="$(printf '%s\n' "$out" | awk '$2 == "refs/heads/develop" {print $1; exit}')"
+  [ -n "$d" ] || die "could not read develop from $ORG_REPO (git ls-remote $ORG_REPO refs/heads/develop): $(printf '%s' "$out" | tr '\n' ' ')"
   echo "$d"
 }
 
