@@ -169,6 +169,15 @@ has "box/t-keep and its record were there before this start, so they stay" "box 
 same "$(git -C "$L" rev-parse -q --verify box/t-keep || true) $(git -C "$L" config devbox-task.t-keep.box || true)" "$(git -C "$L" rev-parse HEAD) box" "the earlier branch and record stay"
 [ -z "$(git -C "$BOX" for-each-ref refs/handoff refs/heads/box/t-keep)" ] || fail "the box keeps no ref of the refused rerun"
 pass "the box keeps no ref of the refused rerun"
+run /bin/bash "$L/scripts/devenv/handoff.sh" to box box/t-keep   # a plain handoff: the box already has the tip
+rc_is 0 "a plain handoff.sh to does not check develop"
+start t-keep --box box --no-agent
+rc_is 1 "box: a branch the box already has at the laptop's tip is still checked against the box's develop"
+has "STOP  the box refuses box/t-keep:" "box: the in-sync refusal is the box's"
+[ ! -d "$(wt t-keep)" ] || fail "box: no env made for a refused in-sync branch"; pass "box: no env made for a refused in-sync branch"
+same "$(git -C "$BOX" rev-parse box/t-keep)" "$(git -C "$L" rev-parse HEAD)" "box: the in-sync branch, there before this start, stays"
+[ -z "$(git -C "$BOX" for-each-ref refs/handoff)" ] || fail "box: no refs/handoff left after the in-sync refusal"
+pass "box: no refs/handoff left after the in-sync refusal"
 git -C "$BOX" remote set-url origin "$T/gh/elsewhere.git"
 start t-race --box box --no-agent
 rc_is 1 "box: no org remote on the box refuses"; has "STOP  the box refuses box/t-race: no remote of " "box: the box names its checkout"; has "points at the org repo" "box: says the box lacks the org remote"

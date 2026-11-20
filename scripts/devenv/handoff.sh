@@ -6,7 +6,8 @@
 #   handoff.sh to <box> <branch> [--contains-develop]
 #                                      give the box the laptop's commits on <branch>. With --contains-develop (task.sh
 #                                      start passes it) the box reads GitHub's develop itself and refuses a tip that
-#                                      lacks it (develop.sh): exit 4, and the box's branch stays as it was
+#                                      lacks it (develop.sh): exit 4, and the box's branch stays as it was. It checks
+#                                      even when the box already has the branch at the laptop's tip
 #   handoff.sh from <box> <branch>     bring the box's commits on <branch> back to the laptop
 #
 # <box> is a box name from the registry (scripts/devenv/boxes.sh), which holds its SSH target and checkout.
@@ -69,7 +70,7 @@ if [ "${1:-}" = _box ]; then
           echo "STOP  the box refuses $2: ${why#STOP  }" >&2; exit 4; }
       fi
       [ "$(git rev-parse -q --verify "refs/heads/$2" || true)" = "${5:-}" ] || die "$2 moved on the box since the check; run status again"
-      ff_branch "$2" "$4" "${5:-}"; git update-ref -d "refs/handoff/$2" 2>/dev/null || true
+      [ "$4" = "${5:-}" ] || ff_branch "$2" "$4" "${5:-}"; git update-ref -d "refs/handoff/$2" 2>/dev/null || true
       echo "box $2 now at $(git rev-parse --short "refs/heads/$2")" ;;
     send)     # $2 branch, $3 output file in the box user's home, then the commits the laptop has: bundle what it lacks, or print "none"
       br="$2" out="$HOME/$3"; shift 3
@@ -121,7 +122,8 @@ case "$CMD" in
     esac ;;
   to)
     case "$V" in
-      IN_SYNC) ok "box already has $BR at ${L:0:9}"; exit 0 ;;
+      # With --contains-develop the box still checks the tip it already has: it never skips its own develop check.
+      IN_SYNC) [ -n "$OPT" ] || { ok "box already has $BR at ${L:0:9}"; exit 0; } ;;
       LAPTOP_AHEAD|ONLY_LAPTOP) ;;
       NOWHERE) die "no branch $BR on the laptop" ;;
       DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
