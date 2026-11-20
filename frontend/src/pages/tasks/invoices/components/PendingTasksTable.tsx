@@ -123,7 +123,10 @@ export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentTy
         }, []),
     });
 
-    resetRecheckRef.current = resetRecheck;
+    // Both refs are read only by `onApplied` above, after the re-check request returns.
+    React.useLayoutEffect(() => {
+        resetRecheckRef.current = resetRecheck;
+    });
 
     const openQueueRecheck = useCallback(() => {
         setRecheckOpen(true);
@@ -273,7 +276,9 @@ export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentTy
         }
     }, [invoices]);
 
-    refetchRef.current = refetch;
+    React.useLayoutEffect(() => {
+        refetchRef.current = refetch;
+    });
 
     const isLoadingOverall = attachmentsLoading;
     const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
