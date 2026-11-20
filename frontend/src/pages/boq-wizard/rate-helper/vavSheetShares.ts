@@ -266,6 +266,10 @@ export interface SharedItemView {
   amount: { supply: string; install: string };
   notes: string[];
   replacesLine?: string;
+  /** VAV-2b1 K2b (the cert's finding): a full-rate block says "per unit" where a share says "per box" -- its figure line's suffix and its
+   *  typed-amount label (ABSENT on a share = the labels' per_box / typed) */
+  perLabel?: string;
+  typedLabel?: string;
 }
 
 export interface SharesView {
@@ -378,7 +382,10 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
     const typedPer = num(set[`${p.id}_per`]);
     const inputPer = inputOf(p.per_input);
     const per = typedPer ?? inputPer;
-    field(`${p.id}_per`, p.per_label, per, typedPer !== null ? "changed" : per !== null ? "input" : "none", set[`${p.id}_per`] !== undefined);
+    // VAV-2b1 K2b: a part whose count a full-rate block fixes (the DDC panel inside, always 1) shows no "VAVs per" box -- it plays no part
+    if (whole?.w.fixed?.[p.id] === undefined) {
+      field(`${p.id}_per`, p.per_label, per, typedPer !== null ? "changed" : per !== null ? "input" : "none", set[`${p.id}_per`] !== undefined);
+    }
     const typedCount = num(set[`${p.id}_count`]);
     const fixed = whole?.w.fixed?.[p.id];
     const count = typedCount ?? (fixed !== undefined ? fixed : vavs !== null && vavs > 0 && per !== null && per > 0 ? up(vavs / per)
@@ -388,7 +395,8 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
   });
   const amount = { supply: e.amount?.supply ?? "", install: e.amount?.install ?? "" };
   const base = whole
-    ? { id: whole.w.key, heading: whole.w.heading, label: whole.w.label, origin, tag: L.tag_user, fields, notes, amount }
+    ? { id: whole.w.key, heading: whole.w.heading, label: whole.w.label, origin, tag: L.tag_user, fields, notes, amount,
+      perLabel: whole.w.per_unit, typedLabel: `${L.typed.replace(/\s*\([^)]*\)\s*$/, "")} (${whole.w.per_unit.trim()})` }
     : { id: s.id, heading: s.heading, label: s.label, origin, tag: origin === "helper" ? L.tag_helper : L.tag_user, fields, notes,
       amount, ...(s.replaces_line ? { replacesLine: s.replaces_line } : {}) };
   const calc = shareSum(s, parts, vavs, L, whole ? { w: whole.w, prefillLine } : undefined);

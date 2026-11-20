@@ -102,6 +102,27 @@ describe("v80: the full-rate DDC panel block (owner 01:15 / 01:22) -- panel 1 + 
   });
 });
 
+describe("K2b (the cert's finding): a full-rate block says PER UNIT where a share says per box", () => {
+  const s = calc80({ items: [BOX] }, ed({ op: "add", share: "bacnet" }, { op: "set", share: "bacnet", field: "vavs", value: "80" },
+    { op: "add", share: "ddc_whole" }, { op: "set", share: "ddc_whole", field: "vavs", value: "80" }, { op: "add", share: "bacnet_whole" }));
+  it("the full-rate DDC and BACnet blocks: ' per unit' on the figure line, 'Or type the amount (per unit)'", () => {
+    for (const id of ["ddc_whole", "bacnet_whole"]) {
+      expect(blockOf(s, id).perLabel, id).toBe(" per unit");
+      expect(blockOf(s, id).typedLabel, id).toBe("Or type the amount (per unit)");
+      expect(`${blockOf(s, id).perLabel}${blockOf(s, id).typedLabel}`, id).not.toMatch(/per box/);
+    }
+  });
+  it("the fixed panel shows no 'VAVs per panel' box; its count stays (1)", () => {
+    expect(blockOf(s, "ddc_whole").fields.map((x) => x.id)).not.toContain("panels_per");
+    expect(f(s, "ddc_whole", "panels_count").value).toBe("1");
+  });
+  it("NEGATIVE: a SHARE block keeps the labels' per box (no own label)", () => {
+    expect(blockOf(s, "bacnet").perLabel).toBeUndefined();
+    expect(blockOf(s, "bacnet").typedLabel).toBeUndefined();
+    expect(blockOf(s, "bacnet").fields.map((x) => x.id)).toContain("controllers_per");
+  });
+});
+
 describe("v80: the BoQ-row pre-fill (owner 01:31 / 01:36) -- the sheet's VAVs / the row's quantity, rounded up; per unit", () => {
   // a separate controller / panel row of the sheet, taken as VAV-filed (reachable on a real row only once VAV-2b2 routes such rows)
   // the row's own model item removed by the user (an empty list), so the full-rate block alone prices it
@@ -213,6 +234,33 @@ describe("v80: the Derivation tab -- the new lines with their own reasons, cover
     expect(l1.reason).toBe(KEYS80.vav.derivation_reasons_new[0].why);
     const l2 = r.lines.find((x) => /^A full-rate block prices the item per unit/.test(x.title))!;
     expect(l2.reason).toBe(KEYS80.vav.derivation_reasons_new[1].why);
+  });
+  // VAV-2b1 K2b (the cert's C1 finding, ANSWER 49): the three generated sentences now say what the screen does, asserted against the live lists
+  it("K2b line 'kinds offered' of the sensor section = exactly what 'Add sensor' offers (no withdrawn Differential Pressure Switch)", () => {
+    const r = derivationCoverage(vav80(), itemsV79(), sections);
+    const l = r.lines.find((x) => /^The sensor section is priced by/.test(x.title))!;
+    const offered = sensorsAdd(calc80({ items: [] }));
+    expect(offered).toEqual(["CO2 Sensor", "Duct Static Pressure Sensor"]);
+    expect(String(l.detail)).toContain(`the kinds offered: ${offered.join(", ")}`);
+    expect(String(l.detail)).not.toContain("Differential Pressure Switch");
+  });
+  it("K2b the block line names the add buttons in the screen's order (= the Calculator's buttons)", () => {
+    const r = derivationCoverage(vav80(), itemsV79(), sections);
+    const l = r.lines.find((x) => /^Each shared item is its own block/.test(x.title))!;
+    const shares = (vav80() as unknown as { list_spec: { pricing: { sheet_shares: { shares: Array<{ id: string; label: string }> } } } }).list_spec.pricing.sheet_shares.shares;
+    const shown = calc80({ items: [] }).itemList!.shares!.adds.map((a) => `'${shares.find((x) => x.id === a.id)!.label}'`);   // the buttons' shares, in the buttons' order
+    const at = shown.map((b) => String(l.detail).indexOf(b));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+  it("K2b the withdrawn line: the families no list offers, and the one the user may still add by hand (user_addable)", () => {
+    const r = derivationCoverage(vav80(), itemsV79(), sections);
+    const l = r.lines.find((x) => /no longer added to each box/.test(x.title))!;
+    expect(String(l.detail)).toContain("no add list offers the BACnet over IP controller, Differential Pressure Switch");
+    expect(String(l.detail)).toContain("the Duct Static Pressure Sensor can still be added by hand at full rate");
+    // VACUITY: without user_addable it is the v79 sentence again
+    const off = derivationCoverage(vav80(OFF), itemsV79(), sections).lines.find((x) => /no longer added to each box/.test(x.title))!;
+    expect(String(off.detail)).toContain("no add list offers them per box");
   });
   it("VACUITY: without user_addable the first line is gone", () => {
     expect(derivationCoverage(vav80(OFF), itemsV79(), sections).lines.some((x) => /can be added by hand/.test(x.title))).toBe(false);

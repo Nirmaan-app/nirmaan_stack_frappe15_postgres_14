@@ -1245,6 +1245,13 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const ownSec = sections.find((sec) => !sec.category_id);
   const ownWord = String(ownSec?.label ?? "item").toLowerCase();
   const delegated = sections.filter((sec) => sec.category_id);
+  // VAV-2b1 K2b (the cert's C1 finding): a withdrawn family no list offers (withdrawn_families less user_addable) is not "offered"
+  const hiddenFams = (() => {
+    const wd = Array.isArray(pr?.withdrawn_families) ? (pr.withdrawn_families as unknown[]).map(String) : [];
+    const ua = new Set((Array.isArray(pr?.user_addable) ? (pr.user_addable as Array<{ family?: unknown }>) : []).map((u) => String(u.family ?? "")));
+    return new Set(wd.filter((f) => !ua.has(f)));
+  })();
+  const offeredOf = (fams: unknown): string[] => (Array.isArray(fams) ? fams.map(String).filter((f) => !hiddenFams.has(f)) : []);
   for (const sec of delegated) {
     const label = String(sec.label ?? sec.id);
     const low = label.toLowerCase();
@@ -1261,7 +1268,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     add(`The ${low} section is priced by ${label}'s rules`,
         [`its own catalogue, pricing inputs, defaults, ladders and refusals -- no rule of it is copied here`,
-         Array.isArray(sec.families) && sec.families.length ? `the kinds offered: ${list(sec.families.map(famWord), 6)}` : ""].filter(Boolean).join("; "));
+         offeredOf(sec.families).length ? `the kinds offered: ${list(offeredOf(sec.families).map(famWord), 6)}` : ""].filter(Boolean).join("; "));
     // DU-1 FIX-4 (VP-DRV R37; owner 13:34 "the derivation tab is part of rat emaster screen. it needs to be buiult there only"): a
     // borrowed category with no Rate Master page of its own (Misc is fetch_only) has its rules said HERE, generated from its own
     // live config -- never a copy -- nested under this line. One level only.
@@ -2760,12 +2767,19 @@ function sheetSharesLines(pr: Record<string, unknown>, items: ReadonlyArray<Rule
     out.push({ key: "sheet_shares", title: "Each shared item is its own block the user can add, remove and edit", detail: [
       "the number of VAVs (pre-filled from the sheet on a BoQ row; empty in the calculator, where the block prices nothing until it is typed), the VAVs per item and each count, every box with its revert",
       "a count changed by hand is kept and marked 'changed by you'; 'Or type the amount' replaces the sum with 'Amount typed by you'",
-      `the add buttons: ${list(ss.shares.map((sh) => `'${String(sh.label ?? "")}'`))}; the calculator and the BoQ row price a share through the same sums`].join("; ") });
+      `the add buttons: ${list([...ss.shares].sort((a, b) => Number(Array.isArray(a.replaces) && a.replaces.length > 0) - Number(Array.isArray(b.replaces) && b.replaces.length > 0))
+        .map((sh) => `'${String(sh.label ?? "")}'`))}; the calculator and the BoQ row price a share through the same sums`].join("; ") });
   }
   const wd = Array.isArray(pr.withdrawn_families) ? (pr.withdrawn_families as unknown[]).map(String) : [];
   if (wd.length) {
+    // VAV-2b1 K2b (the cert's C1 finding): a withdrawn family the user may still add (user_addable) is named as such, not as "offered by no list"
+    const uaSet = new Set((Array.isArray(pr.user_addable) ? (pr.user_addable as Array<{ family?: unknown }>) : []).map((u) => String(u.family ?? "")));
+    const none = wd.filter((f) => !uaSet.has(f)), byHand = wd.filter((f) => uaSet.has(f));
     out.push({ key: "withdrawn_families", title: `The ${list(wd)} ${wd.length > 1 ? "are" : "is"} no longer added to each box`,
-      detail: "no add list offers them per box and a model item of them is dropped with a line; their SKUs stay in the Rate Master as the shared items' rates" });
+      detail: [byHand.length
+        ? `a model item of them is dropped with a line; ${none.length ? `no add list offers the ${list(none)}; ` : ""}the ${list(byHand)} can still be added by hand at full rate`
+        : "no add list offers them per box and a model item of them is dropped with a line",
+        "their SKUs stay in the Rate Master as the shared items' rates"].join("; ") });
   }
   // VAV-2b1 v80 (owner 01:15 / 01:21 / 01:31 / 01:32 "A"): the full-rate, per-unit blocks
   const wh = ss && Array.isArray((ss as { whole?: unknown }).whole) ? ((ss as { whole: Array<{ label?: unknown }> }).whole) : [];

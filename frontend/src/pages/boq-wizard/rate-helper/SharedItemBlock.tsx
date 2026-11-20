@@ -61,7 +61,7 @@ function ShareBlock({ b, labels, onShares }: { b: SharedItemView; labels: Shares
         {b.sumLines.map((l, i) => <div key={i}>{l}</div>)}
         {b.figures ? (
           <div className="font-medium text-foreground" data-testid="share-figures">
-            Supply {fig(b.figures.supply_rate)} &middot; Install {fig(b.figures.install_rate)}{labels.per_box}
+            Supply {fig(b.figures.supply_rate)} &middot; Install {fig(b.figures.install_rate)}{b.perLabel ?? labels.per_box}
           </div>
         ) : (
           <div className="text-red-700 dark:text-red-400" data-testid="share-reason">{b.reason}</div>
@@ -69,7 +69,7 @@ function ShareBlock({ b, labels, onShares }: { b: SharedItemView; labels: Shares
       </div>
       <div className="flex flex-wrap items-center gap-2" data-testid="share-amount">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          {labels.typed}
+          {b.typedLabel ?? labels.typed}
           {b.amountTyped && <Revert onClick={() => onShares({ op: "revert_amount", share: b.id })} label="Undo the amount I typed" testId="share-amount-revert" />}
         </span>
         <Input className="h-7 w-24 text-xs" inputMode="decimal" placeholder={labels.typed_supply} aria-label={labels.typed_supply}
