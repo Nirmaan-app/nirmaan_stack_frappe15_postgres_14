@@ -28,6 +28,7 @@ VI = "Vendor Invoices"
 PP = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
+PTD = "Payment TDS Deduction"
 
 #: The window every fixture sits in; edges and the days just outside it are for the bound tests.
 FROM, TO = "2031-01-10", "2031-01-20"
@@ -115,11 +116,18 @@ class AuditViewFixture(FrappeTestCase):
         return invoice_no
 
     @classmethod
-    def _payment(cls, order, amount, tds, status="Paid", doctype=PO, date=IN, is_gst_payment=0):
+    def _payment(cls, order, amount, status="Paid", doctype=PO, date=IN, is_gst_payment=0, box=None,
+                 deduction=None, borne_by="Vendor"):
+        """A payment; `deduction` plants its Payment TDS Deduction (`borne_by` Vendor / Company), `box` fills
+        the legacy `Project Payments.tds` box, which the report must never read."""
         utr = f"{PREFIX}-UTR-{frappe.generate_hash(length=8)}"
-        cls._insert(PP, status=status, document_type=doctype, document_name=order, project=cls.project,
-                    vendor=cls.vendor, payment_date=date, utr=utr, amount=amount, tds=tds,
-                    is_gst_payment=is_gst_payment)
+        name = cls._insert(PP, status=status, document_type=doctype, document_name=order, project=cls.project,
+                           vendor=cls.vendor, payment_date=date, utr=utr, amount=amount, tds=box,
+                           is_gst_payment=is_gst_payment)
+        if deduction is not None:
+            cls._insert(PTD, project_payment=name, document_type=doctype, document_name=order,
+                        vendor=cls.vendor, project=cls.project, gross_amount=flt(amount) + flt(deduction),
+                        tds_percentage=2, tds_amount=deduction, borne_by=borne_by, status="Pending")
         return utr
 
     @classmethod
@@ -162,12 +170,15 @@ class AuditViewFixture(FrappeTestCase):
         c.vi_edges = {k: c._invoice(c.po_live, 10, date=d)
                       for k, d in (("from", FROM), ("to", TO), ("before", BEFORE), ("after", AFTER))}
         # Payments
-        c.pp_tds = c._payment(c.po_live, 9500, "500")
-        c.pp_tds_float = c._payment(c.po_live, 1000, "250.50")
-        c.pp_empty_tds = c._payment(c.wo_items, 1000, "", doctype=WO, is_gst_payment=1)
-        c.pp_null_tds = c._payment(c.po_live, 400, None)
-        c.pp_not_paid = c._payment(c.po_live, 777, "0", status="Approved")
-        c.pp_edges = {k: c._payment(c.po_live, 10, "0", date=d)
+        # Payments. TDS is the Payment TDS Deduction, Vendor- and Company-borne: 500 + 250.50 + 16 = 766.50.
+        c.pp_tds = c._payment(c.po_live, 9500, deduction=500)
+        c.pp_tds_float = c._payment(c.po_live, 1000, deduction=250.50)
+        c.pp_company = c._payment(c.wo_items, 800, doctype=WO, deduction=16, borne_by="Company")
+        c.pp_gross_po = c._payment(c.po_live, 1000, box="20", deduction=20)  # PO still stored at the full bill
+        c.pp_box_only = c._payment(c.po_live, 400, box="99")  # legacy box, no deduction record
+        c.pp_empty_tds = c._payment(c.wo_items, 1000, doctype=WO, is_gst_payment=1)
+        c.pp_not_paid = c._payment(c.po_live, 777, status="Approved", deduction=15)
+        c.pp_edges = {k: c._payment(c.po_live, 10, date=d)
                       for k, d in (("from", FROM), ("to", TO), ("before", BEFORE), ("after", AFTER))}
         # Expenses
         c.pe_ok = c._expense(PE, 750, invoice_ref="  PE-INV-1  ")
@@ -329,7 +340,7 @@ class Invoices(AuditViewFixture):
 
 
 class Payments(AuditViewFixture):
-    def test_tds_typed_as_text_is_parsed_and_added_to_net_paid(self):
+    def test_tds_is_the_vendor_borne_deduction_added_to_net_paid(self):
         rows = self._by("utr", "project", "payments")
         self.assertEqual(rows[self.pp_tds], {
             "against": "PO", "id": self.po_live, "project": self.project, "project_name": self.project_name,
@@ -339,11 +350,21 @@ class Payments(AuditViewFixture):
         })
         self.assertEqual((rows[self.pp_tds_float]["tds"], rows[self.pp_tds_float]["net_paid"]), (250.5, 1250.5))
 
-    def test_blank_or_missing_tds_reads_zero(self):
+    def test_no_deduction_reads_zero_and_the_legacy_tds_box_is_never_read(self):
         rows = self._by("utr", "project", "payments")
-        for utr, amount in ((self.pp_empty_tds, 1000.0), (self.pp_null_tds, 400.0)):
+        for utr, amount in ((self.pp_empty_tds, 1000.0), (self.pp_box_only, 400.0)):
             with self.subTest(utr):
                 self.assertEqual((rows[utr]["tds"], rows[utr]["net_paid"]), (0.0, amount))
+
+    def test_company_borne_tds_is_counted_too(self):
+        # Paid on top by the company (the vendor got the full 800): its tax still counts in TDS and Net Paid.
+        row = self._by("utr", "project", "payments")[self.pp_company]
+        self.assertEqual((row["amount_paid"], row["tds"], row["net_paid"]), (800.0, 16.0, 816.0))
+
+    def test_a_po_payment_still_stored_gross_counts_no_tax_on_top(self):
+        # The shared source (`paid_borne_tds_sql`) skips it: its amount already holds the tax.
+        row = self._by("utr", "project", "payments")[self.pp_gross_po]
+        self.assertEqual((row["amount_paid"], row["tds"], row["net_paid"]), (1000.0, 0.0, 1000.0))
 
     def test_the_gst_payment_flag_is_carried(self):
         row = self._by("utr", "project", "payments")[self.pp_empty_tds]
@@ -432,7 +453,7 @@ class Summary(AuditViewFixture):
         summary = get_audit_view_summary("project", FROM, TO)
         mine = self._by("utr", "project", "payments")
         self.assertGreaterEqual(summary["payments"]["count"], len(mine))
-        self.assertGreaterEqual(summary["payments"]["tds"], 750.5)
+        self.assertGreaterEqual(summary["payments"]["tds"], 766.5)
 
 
 class Refusals(AuditViewFixture):

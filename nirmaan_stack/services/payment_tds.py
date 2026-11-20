@@ -445,7 +445,8 @@ def counted_deductions_sql() -> str:
 	judge (`borne_tds_by_order_sql`), the Vendor Ledger (`borne_tds_by_payment`), the Vendor report
 	(`services/vendor_paid`) and project outflow (`services/project_money`); whole by the payment
 	summary (`services/order_payments`), the request limits (`services/finance`) and the payments
-	pop-up (`order_deductions`). Read off each row's stored `borne_by` (#1451), never off the
+	pop-up (`order_deductions`); through `paid_borne_tds_sql` per payment by the Audit View report
+	(`api/reports/audit_view`, Vendor- and Company-borne both). Read off each row's stored `borne_by` (#1451), never off the
 	categories or the amounts: a part settlement cuts a kept-whole payment below its gross, an amount
 	edit moves both figures, and a Work Order's categories can change after the fact.
 	"""

@@ -233,6 +233,8 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
     const s = summariseAuditPayments(rows as AuditPaymentRow[]);
     const value = (r: AuditTableRow) => (r as AuditPaymentRow).net_paid;
     const notes = [
+      // The server counts all recorded tax (Payment TDS Deduction), Vendor- and Company-borne.
+      project && "TDS = all recorded TDS: vendor-borne (withheld from the vendor) and company-borne (paid on top).",
       s.gstPayments > 0 && `Includes ${s.gstPayments} separate WO GST payment${s.gstPayments > 1 ? "s" : ""} (no TDS).`,
       s.rowsWithoutTds > 0 &&
         (project ? "Expenses have no TDS field (shown as —), so for them Net paid = Amount paid." : "Non-project expenses have no TDS field, so TDS shows — and Net paid = Amount paid."),
@@ -251,7 +253,7 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
             <EqTerm label={<StripLabel>TDS</StripLabel>} value={s.noTds ? "—" : rupees(s.tds)} className={cn(s.noTds && "font-semibold text-muted-foreground/70")} />
             <EqOp label="equals">=</EqOp>
             <EqTerm
-              label={<StripLabel note={notes || "Net paid = Amount paid + TDS."}>Net paid</StripLabel>}
+              label={<StripLabel note={`Net paid = Amount paid + TDS. ${notes}`.trim()}>Net paid</StripLabel>}
               value={rupees(s.netPaid)}
               className="text-green-700 dark:text-green-400"
             />

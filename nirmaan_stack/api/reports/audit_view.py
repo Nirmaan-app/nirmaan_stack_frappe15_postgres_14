@@ -32,7 +32,10 @@ What each tab reads (owner-confirmed):
   notes are stored negative and kept so), and Paid expenses with an invoice date and a non-blank
   invoice ref (Project Expenses in the project view, Non Project Expenses in the non-project view).
 * Payments, dated by payment date: Paid Project Payments on a PO / WO, and Paid expenses. Net Paid is
-  Amount Paid + TDS (owner's formula); an expense has no TDS.
+  Amount Paid + TDS (owner's formula). TDS is ALL the tax of the payment's Payment TDS Deduction, Vendor-
+  borne (withheld) and Company-borne (paid on top) alike (owner 2026-11-20), read through the one source of
+  recorded tax, `payment_tds.paid_borne_tds_sql`; never the legacy `Project Payments.tds` box. An expense
+  has no TDS.
 
 For Admin and Accountants only (`services/role_profiles.AUDIT_VIEW_PROFILES`), checked here: this is the
 enforcement boundary, as the reads below skip user permissions.
@@ -42,6 +45,7 @@ import frappe
 from frappe import _
 from frappe.utils import create_batch, flt, getdate
 
+from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.role_profiles import assert_audit_view_access
 from nirmaan_stack.services.work_order_gst import GST_RATE, gst_is_on, items_value
 
@@ -200,13 +204,14 @@ def _order_payments(start, end):
         "Project Payments",
         filters=[["status", "=", "Paid"], ["document_type", "in", (PO, WO)],
                  *_date_between("payment_date", start, end)],
-        fields=["document_type", "document_name", "project", "vendor", "payment_date", "utr", "amount",
-                "tds", "is_gst_payment"],
+        fields=["name", "document_type", "document_name", "project", "vendor", "payment_date", "utr", "amount",
+                "is_gst_payment"],
     )
     order_dates = _order_dates(payments)
+    recorded = _recorded_tds({p.name for p in payments})
     rows = []
     for p in payments:
-        amount, tds = flt(p.amount), flt(p.tds)  # `tds` is a Data field: parse here, never cast in SQL
+        amount, tds = flt(p.amount), recorded.get(p.name, 0.0)
         rows.append({
             "against": AGAINST[p.document_type], "id": p.document_name, "project": p.project,
             "vendor": p.vendor, "date": _day(p.payment_date), "utr": p.utr, "amount_paid": amount,
@@ -214,6 +219,25 @@ def _order_payments(start, end):
             "order_date": order_dates.get((p.document_type, p.document_name)),
         })
     return rows
+
+
+def _recorded_tds(names: set) -> dict:
+    """`{payment: its recorded tax}` for the given Paid payments: Vendor-borne + Company-borne, from their Payment
+    TDS Deduction through `payment_tds.paid_borne_tds_sql` (the shared source: a PO payment still stored gross
+    counts no tax on top). A payment with no deduction is absent. Batched like `_names`."""
+    found = {}
+    for batch in create_batch(sorted(n for n in names if n), CHILD_BATCH):
+        rows = frappe.db.sql(
+            f"""
+            SELECT t.project_payment, t.vendor_borne_tds, t.company_borne_tds
+            FROM ({payment_tds.paid_borne_tds_sql()}) t
+            WHERE t.project_payment IN %(names)s
+            """,
+            {"names": tuple(batch)},
+            as_dict=True,
+        )
+        found.update({r.project_payment: flt(flt(r.vendor_borne_tds) + flt(r.company_borne_tds), 2) for r in rows})
+    return found
 
 
 def _project_expense_payments(start, end):
