@@ -187,11 +187,13 @@ describe(".githooks/checks.sh", () => {
     return { run };
   }
 
+  // A commit that stages only files oxlint's ignorePatterns skip (components/ui/) leaves oxlint no file to lint;
+  // without the flag it exits 1 ("No files found to lint") and the hook refused the commit.
   it("lints the staged copy with the local oxlint where its native binary runs", () => {
     const { run } = stagedRepo({ nativeRuns: true });
     const pass = run();
     expect(pass.status, pass.stderr).toBe(0);
-    expect(pass.logged).toMatch(/args: --type-aware src\/a\.ts/);
+    expect(pass.logged).toMatch(/args: --type-aware --no-error-on-unmatched-pattern src\/a\.ts/);
     expect(pass.logged).toMatch(/staged: export const staged = 1;/);
     expect(pass.logged).not.toMatch(/docker/);
     const fail = run({ FAKE_RC: "1" });
@@ -204,7 +206,7 @@ describe(".githooks/checks.sh", () => {
     const pass = run({ NIRMAAN_LINT_CONTAINER: "test-container" });
     expect(pass.status, pass.stderr).toBe(0);
     expect(pass.logged).toMatch(/docker exec/);
-    expect(pass.logged).toMatch(/args: --type-aware src\/a\.ts/);
+    expect(pass.logged).toMatch(/args: --type-aware --no-error-on-unmatched-pattern src\/a\.ts/);
     expect(pass.logged).toMatch(/staged: export const staged = 1;/);
     const fail = run({ NIRMAAN_LINT_CONTAINER: "test-container", FAKE_RC: "1" });
     expect(fail.status).toBe(1);

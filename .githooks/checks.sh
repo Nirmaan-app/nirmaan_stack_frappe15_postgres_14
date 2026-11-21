@@ -112,7 +112,7 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         lint_ok=1
         if [ "$runner" = here ]; then
             ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
-            staged | (cd "$index_copy/frontend" && xargs -0 node_modules/.bin/oxlint --type-aware) || lint_ok=0
+            staged | (cd "$index_copy/frontend" && xargs -0 node_modules/.bin/oxlint --type-aware --no-error-on-unmatched-pattern) || lint_ok=0
         elif ! container_copy=$(docker exec "$container" mktemp -d /tmp/nirmaan-staged-lint.XXXXXX) \
             || [ -z "$container_copy" ]; then
             container_copy=""
@@ -131,7 +131,7 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
             echo "✘ $hook rejected: the staged files could not be copied into container $container, so oxlint did not run." >&2
             exit 1
         else
-            staged | docker exec -i -w "$container_copy/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware \
+            staged | docker exec -i -w "$container_copy/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware --no-error-on-unmatched-pattern \
                 || lint_ok=0
         fi
         if [ $lint_ok -eq 0 ]; then
