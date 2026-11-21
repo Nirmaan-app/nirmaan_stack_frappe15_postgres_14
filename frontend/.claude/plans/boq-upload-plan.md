@@ -52267,3 +52267,33 @@ longer counted).
 (C1 with three wording lines, fixed in K2b and re-shot); owner cases S1 - S17 in `screenshots\owner_cases\` (five BoQ-row-only cases as notes);
 dev_isolate --verify PASS last. **Owed to VAV-2b2:** the model's three reading attributes; the row panel; removing calculator_only; routing
 the separate controller / DDC / DP rows to the VAV helper; the paid run; the 50% warning share; the misspelt-existing blind spot. **Not pushed.**
+
+## Slice VAV-2b2 (desktop) - VAV rows live on BoQs: the model's reading, rows filed Misc / Sensors, the 21 Nov screen items + HVAC v81 - 2026-11-21
+
+SPLIT at M1 by the owner (13:40 "all 7 option a", QR-S (a)): this slice = B1 - B11 + tests + PF1 - PF3 + the cert, on a DECLARED stub run of
+whole sheets (owner 14:55 / 14:57; the 11-sheet list 15:28 "1a") plus the Calculator; NO model call of any kind. MOVED to the next slice: the
+paid run (B12), its pack (B13), PF4, AC0 on real answers, AC11, AC12, R19 - R21.
+
+As built (commits, figures and counts: the report `BoQ main lane\VAV-2b2\<date>_VAV-2b2_Report.md`):
+- K1 95f592c0c - the reading questions (controller_mention / controller_by_others / dp_sensor_mention); rows filed Misc / Sensors claimed on
+  the server (vav_claims.py, parity-pinned to the client's own-row tests on 815 real rows) and priced on the panel (vavClaims.ts); the
+  adaptor rule; the named warning; the double-counting block; "Add other item" + "Thermostat with CO2 sensor" + "per VAV" + "Other item"
+  headings; "cost" / "Number of VAVs" / "for N panels"; Derivation lines with reasons; PIN 1 (the pricing-key allowlist).
+- K1b ac9e2abcb - "A": touch screen / master controller rows priced as a DDC panel and counted as the sheet's controller + DDC row; "2a": a
+  DDC panel row with a quantity, whatever it is filed under, counts as the controller's row; the "not added" sentence per test
+  (not_added_by, owner 15:56 "1a 2a 3b"); vavNotAdded.ts (an S1 split of vavSheetShares.ts); the TEMPORARY amber test-run line
+  (stubRunMark.ts: a run whose run_id starts "STUB-VAV-2b2-" shows "These answers were written by hand for a test, not read by the model."
+  on VAV rows) - VAV-3 removes it, with a test.
+- K2 e99b9e2cd - HVAC v81 (the warning share 0.25 + the hvac_vav_box keys; calculator_only removed in code and data; 35 version pins and the
+  PIN-file moves as accepted; the served-prices snapshot parityMaster.json refreshed).
+- K3 - docs (this entry; boq-rate-master.md "VAV Box (HVAC v81)").
+- The stub run: 11 sheets, the product's own worker with two parts replaced (the model client, the capture writer); 11 new active runs
+  BRSR-26-02714 .. 02724 (run_id STUB-VAV-2b2-<boq>-01 .. 11), 210 rows (185 box + 25 claimed); 1,344 carried rows byte-equal; the 10 old
+  active runs now inactive (listed in the report's CLOSE-OUT); BOQ-26-00098's first run.
+- PF1 at C18: 33,346 stored rows unchanged on both harnesses; the 210 new rows = exactly the declared stub rows. Capture log unchanged.
+- The cert C1 - C18 PASS with named gaps (no stub row with a CO2 sensor; no BACnet controller row with qty above 1; no DP share added on a
+  box row; the "not priced by this helper" DDC sentence - BOQ-26-00442 is not a stub sheet). Findings for VAV-3 / the owner: Derivation
+  line 44 names two items twice; the warning input's Unit says "(0.5 = 50%)"; line 35 "no VAVs typed: one controller" against the empty
+  full-rate block that withholds its price ("price this share"); the added cabling item's "none found" line beside a sheet note naming a
+  0 m row; a supply-duct static pressure row for the AHU / VFD claimed as the VAVs' DP sensor row (a QUESTION); an item's own supply shown
+  under "Installation only" (display only - the row's supply is 0).

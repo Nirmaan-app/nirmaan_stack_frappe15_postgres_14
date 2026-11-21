@@ -5897,3 +5897,68 @@ number). Keys in ONE file `__fixtures__/vav2b1KeysV80.json` (`withV80Keys` / `wi
   lines of the sensor item; no screen to change it was found (searched: the Rate Master category list, the Calculator).
 - Blind spots for VAV-2b2 / VAV-3: a non-box row whose words are misspelt ("exixting") and whose unit is a VAV unit could still be read as a
   new box (r153 is caught by its Lot unit only); a per-box controller / DP switch state built in code still prices (no screen makes it).
+
+## VAV Box (HVAC v81) - VAV-2b2 (2026-11-21) - VAV rows live on BoQs, the model's reading, rows filed Misc / Sensors, the 21 Nov screen items
+
+v81 = v80 + ONLY: the Pricing Input "VAV - combination warning share" 0.5 -> 0.25 (owner 2026-11-21 10:25 "2 lower it to 25%") and the
+hvac_vav_box keys below; `calculator_only` gone (owner 2026-11-19 02:55 "optiom a": "removed in VAV-2b"). No item added or deleted.
+Keys file: frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2b2Keys.json (mint_hvac_v81_vav2b2.py and vav2b2Keys.harness.ts).
+
+### Load-bearing rules (each with the owner's words)
+- THE MODEL READS, per VAV box row (list_spec.attribute_definitions): `controller_mention` (ddc_inclusive / ddc / bacnet / controller /
+  none), `controller_by_others`, `dp_sensor_mention` - the reading `sheet_shares.reading` names. Only a controller FOR CONTROLLING THE
+  VAVs counts (2026-11-20 15:36 "bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the
+  VAVs"); "DDC panel and controllor are interchaebale" (14:48); another equipment's DDC / BACnet and a makes line do not count (15:05
+  "1 yes"); "by the BMS vendor / by others" adds nothing (15:19 "2 ok"); "i meant payload for any VAV mentions Bacnet" (14:25); "thi sis
+  true for all Dp sensor mention in VAV" (14:37). "Suitable for duct connections" is not a duct connection (2026-11-19 19:06 "9a").
+  The user-only items stay out of the request (c2). Every other category's request is byte-identical v80 -> v81 (the mint's stub proof).
+- ROWS FILED MISC / SENSORS (`list_spec.pricing.claims_filed`, VAV Box ONLY by the validator; an EXCEPTION to "the user's category
+  decides", block 83): owner 12:33 "for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also.
+  any other category if we need we will build as exceptions."; 12:34 "agree on all 3" - only on a sheet with VAV rows, only a row
+  naming a VAV item, the row stays filed and carries the note (12:36 "a"): "This row is filed under Misc. It is priced here because it
+  matches a VAV item (BACnet controller). The classification may be wrong." No toggle. Recognised ON THE SERVER
+  (services/boq_rate_master/vav_claims.py, the Python twin of the client's own-row tests - pinned by vav2b2ClaimsParity.test.ts and
+  test_vav2b2_keys on 815 real rows); the run's result row carries `claimed_from` / `claimed_item` / `claimed_kind` and the panel
+  (vavClaims.ts) prices it by the VAV config. Kinds: DDC panel row / BACnet controller row (the full-rate block the helper adds, per
+  unit; VAVs pre-filled = the sheet's VAVs / the row's quantity, 0 / blank = the sheet's - 13:40 QR-K1 "a"), DP sensor row (the Duct
+  Static Pressure Sensor, a plain item - 01:21 "2 yes"), integrator row (the "VAV Integrator" line; also a row whose description names
+  a VAV integrator / router - 13:40 B1 "a"), existing-box row (installation 2,400 x factor), installation of VAV units (2,400 per unit
+  + "Check if additional cost needs to be added for control cabling." - 13:40 B2 "a"), conical / transformation piece. Untouched (13:40
+  B3 "a"): LAN-connectivity rows. Touch-screen and master controller rows ARE claimed (K1b "A", owner 13:59 "A :price touch
+  screen controlor or master controlor as DDC panel. give appropriate notes"; 14:46): the full-rate DDC block, the note "Priced as a DDC
+  panel. The BoQ calls this a <touch screen controller / master controller>. Check before using.", and the row counts as the sheet's
+  controller AND DDC panel row. Measured on the 84 sheets before "A": 99 rows claimed (Misc 14 BACnet + 1 DDC + 21 integrator + 8
+  integrator by name + 10 existing + 5 installation; Sensors 39 DP + 1 installation). A claimed row still counts for the sheet as the item's own row (unchanged code path).
+- AN ADAPTOR IS NOT A CONTROLLER (13:40 "4 a"): a row naming an adaptor / adapter is not the BACnet controller's own row unless its own
+  words say it controls the VAVs (BOQ-26-00020 r194; 0 figures and 0 notes move - measured).
+- THE WARNING (R8 / R9): 25%; the "Review before using" block names each extra with its amount, then "Extras total Rs X of Rs Y.
+  Review each item before using." (10:52 "the warning should name the xtras included for more clarity insteda of just giving the
+  count"; 10:54 "a").
+- POSSIBLE DOUBLE COUNTING (R10, 10:44 / 10:45 "1 yes 2 ok"; 13:59 "B: option B"): an amber block above the row total when a BACnet /
+  DP block (share, full rate or the plain item) sits beside a DDC block, and when a DDC share sits beside a full-rate DDC panel; it
+  replaces the small lines of the blocks it names. Widened at 14:46 ("go with your recommendations for all cases"): a BACnet share +
+  a full-rate BACnet block, and a DP share + a Duct Static Pressure Sensor, show the same block.
+- THE ADD LISTS (R11 - R14): ONE "Add other item" on VAV screens holding the Misc and Sensors entries (10:40 "can we combine addmisc
+  and add sensor into one group...the user does not need to know where it is coming from."; 10:41 "1a 2a"); "Thermostat with CO2
+  sensor" adds both items in one click, each removable (10:40 "2 a"); their items are headed "Other item" (the word is the session's;
+  10:50 "2 ok"); "Integrator cabling" listed "per VAV" (10:38 / 10:40 "1 ok"). Ducting and Valve Package keep "Add misc item".
+- WORDINGS (R7 / R15): "cost" for "BCS" in the DDC share lines, "Number of VAVs" in the Calculator (on a BoQ row it stays "on the
+  sheet"), "for N panels" when the panels count is not 1 (10:25 "1b").
+- The DP sensor's rate is the Sensors item "Duct Static Pressure Sensor" on the Rate Master (Sensors & Controls tab); VAV reads it live.
+- THE CONTROLLER'S OWN ROW ("2a", owner 15:28 / ANSWER 13): a DDC panel row with a quantity above 0, whatever it is filed under, counts as
+  the sheet's controller row (quantity 0 / blank does not); the touch-screen / master controller rows count the same way ("A").
+- THE "NOT ADDED" SENTENCE PER TEST (`sheet_shares.not_added_by`, owner 15:56 "1a 2a 3b" as ANSWER 16; 15:31 "notes should be explnatory
+  ... so that user canunderstand why vabcnet is not being added"): a BACnet controller row -> "<share> not added: row <n> prices the BACnet
+  controller for this sheet's VAVs. Add it here only if that row does not cover these boxes."; a DDC panel / touch / master row priced by
+  this helper -> "... row <n> is priced as a DDC panel, and that price already includes the BACnet controllers for this sheet's VAVs. Add the
+  share only if the controllers are not part of that panel."; a DDC panel row this helper does not price -> "... row <n> is a DDC panel row,
+  and a DDC panel includes the BACnet controllers ... This helper does not price that row. ..."; every other row the general sentence with
+  its count words ("row <n> prices it" / "rows <a>, <b> price it ... those rows do not"). Code: vavNotAdded.ts.
+- THE TEMPORARY TEST-RUN LINE (UI CHANGE CONTROL item 13, owner 15:56 "3b"): stubRunMark.ts - a Suggestion Run whose run_id starts
+  "STUB-VAV-2b2-" shows, on hvac_vav_box rows only, the amber line "These answers were written by hand for a test, not read by the model."
+  The run id rides in RateHelperRowContext.runId (SheetPricingPage suggestRun.runId). VAV-3 REMOVES it, with a test.
+- Open for VAV-3 / the owner (the VAV-2b2 report, "Cert findings"): line 44's list names two items twice; the warning input's Unit text
+  "(0.5 = 50%)"; line 35's "no VAVs typed: one controller" vs the empty full-rate block withholding its price; the added cabling item's
+  "none found" line vs the sheet note naming a 0 m row; a duct static pressure row for the AHU / VFD counts as the VAVs' DP sensor row
+  (QUESTION: as built it switches the DP share off, e.g. BOQ-26-00355 r41); an item's own supply shown under "Installation only" (display
+  only).
