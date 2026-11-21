@@ -13,15 +13,22 @@ describe("doctorArgv", () => {
     expect(PRIVACY_FLAGS).toEqual(["--no-telemetry", "--no-score", "--no-supply-chain"]);
     expect(doctorArgv([])).toEqual(PRIVACY_FLAGS);
     expect(doctorArgv(["--scope", "changed", "--base", "main"])).toEqual([...PRIVACY_FLAGS, "--scope", "changed", "--base", "main"]);
-    expect(doctorArgv(["why", "src/App.tsx:12"])).toEqual([...PRIVACY_FLAGS, "why", "src/App.tsx:12"]);
     expect(doctorArgv(["src/a.tsx", "src/b.tsx"])).toEqual([...PRIVACY_FLAGS, "src/a.tsx", "src/b.tsx"]);
   });
 
-  it("refuses every subcommand but a scan, why and version", () => {
-    for (const sub of ["install", "setup", "ci", "scan", "design", "rules", "help"]) {
+  it("refuses every subcommand but a scan and version", () => {
+    // `why` checks every dependency with Socket.dev even with --no-supply-chain (74 calls on an empty cache, measured).
+    for (const sub of ["install", "setup", "ci", "scan", "design", "rules", "help", "why"]) {
       expect(() => doctorArgv([sub]), sub).toThrow(/refuses/);
       expect(() => doctorArgv(["--verbose", sub, "--dry-run"]), sub).toThrow(/refuses/);
     }
+  });
+
+  it("refuses a flag that turns a privacy flag back off (the last one given wins) or forces a Sentry trace", () => {
+    for (const flag of ["--supply-chain", "--score", "--telemetry", "--debug", "--supply-chain=true"]) {
+      expect(() => doctorArgv(["--verbose", flag]), flag).toThrow(/refuses/);
+    }
+    expect(doctorArgv(["--no-supply-chain", "--verbose"])).toEqual([...PRIVACY_FLAGS, "--no-supply-chain", "--verbose"]);
   });
 });
 

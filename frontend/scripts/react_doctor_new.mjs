@@ -96,8 +96,8 @@ function main() {
   }
   for (const line of lines) console.log(line);
   if (lines.length) {
-    console.error(`✘ ${lines.length} new error-level React Doctor finding(s) against ${values.base}. Fix each; \`yarn doctor why`);
-    console.error("  <file>:<line>` explains one (through `yarn doctor`, so it keeps the privacy flags).");
+    console.error(`✘ ${lines.length} new error-level React Doctor finding(s) against ${values.base}. Fix each;`);
+    console.error("  `yarn doctor --verbose <file>` lists one file's findings with their rules.");
     process.exit(1);
   }
   console.log(`✓ no new error-level React Doctor finding against ${values.base}`);

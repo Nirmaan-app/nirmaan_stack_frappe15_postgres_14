@@ -219,15 +219,15 @@ It adds to ADR-0049's checks; it checks no types.
   your branch adds. The script carries `--no-telemetry --no-score --no-supply-chain`: without them it sends rule
   names, counts and file names to Sentry and Axiom, asks its own API for a score, and checks dependencies with
   Socket.dev. Never run it without the three flags, locally or in CI (owner, #1698); `doctor.config.jsonc` cannot
-  turn the telemetry off. `yarn doctor` (`scripts/react_doctor.mjs`) puts the three flags first and refuses the
-  `install`, `setup`, `ci`, `scan`, `design` and `rules` subcommands: `install` and `ci install` write a skill, git hook or
-  workflow that runs `react-doctor@latest` without the flags, asking nothing where no terminal is attached. Never
-  run `react-doctor` or `npx react-doctor` directly, and never install its GitHub App.
+  turn the telemetry off. `yarn doctor` (`scripts/react_doctor.mjs`) puts the three flags first and refuses every
+  subcommand but a scan and `version` (`install` and `ci install` write a skill, git hook or workflow that runs
+  `react-doctor@latest` without the flags; `why` checks every dependency with Socket.dev whatever the flags say),
+  and refuses `--supply-chain`, `--score`, `--telemetry` and `--debug`. Never run `react-doctor` or
+  `npx react-doctor` directly, and never install its GitHub App.
 - **What fails a PR** (CI step "React Doctor", `node scripts/react_doctor_new.mjs --base <PR base sha>`): an
   error-level finding the PR brings, counted per file and rule against the PR's base commit. A count may fall, never
   rise; a new file or rule is new; an old finding in a file the PR touches passes. Warnings never fail. CI names the
-  file, line and rule; `yarn doctor why <file>:<line>` explains one (its subcommands send telemetry too
-  unless the flags come first, as `yarn doctor` puts them).
+  file, line and rule; `yarn doctor --verbose <file>` lists one file's findings with their rules.
 - CI also scans the tree twice and fails when the two scans differ (`node scripts/react_doctor_new.mjs --twice`),
   since the comparison counts findings.
 - **Fix a finding at its cause:** a list item's key comes from the data (an id or name unique in that list), not

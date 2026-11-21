@@ -89,7 +89,7 @@ jobs:
       # React Doctor (#1698) checks React problems the type checks cannot see; it adds to ADR-0049's checks. It fails on
       # an error-level finding the PR brings, per file and rule against the PR's base commit (a count may fall, never
       # rise; an old finding in a touched file passes; warnings never fail), naming file, line and rule. `yarn doctor`'s
-      # three flags (in package.json) keep it from sending anything out: no telemetry, score API or Socket.dev check.
+      # three flags (scripts/react_doctor.mjs) keep it from sending anything out: no telemetry, score API or Socket.dev.
       - name: React Doctor (new error-level findings against the PR's base commit)
         if: github.event_name == 'pull_request'
         env:
