@@ -188,7 +188,8 @@ describe("v80: the HELPER never adds a full-rate item by itself (a model-read on
     expect(s.itemList!.sections?.independent ?? []).toEqual([]);
     expect(s.itemList!.shares!.blocks.filter((b) => /_whole$/.test(b.id))).toEqual([]);
     const text = JSON.stringify(s.itemList);
-    for (const x of ["BACnet over IP controller", "Duct Static Pressure Sensor"]) expect(text, x).toContain(`${x}: no longer added to each box`);
+    // VAV-2b2 #133 (ANSWER 17 3a, 2026-11-21): the line's wording only (BEFORE "<family>: no longer added to each box")
+    for (const x of ["BACnet over IP controller", "Duct Static Pressure Sensor"]) expect(text, x).toContain(`${x} is not added to each box. It is shared across the sheet's VAV boxes: use the share button to add it.`);
   });
   it("the sheet rules and the shares are untouched: the same sheet's BACnet share on v80 = on v79 (1,733 + 120 at 80 VAVs)", () => {
     const s = sheet80({ 10: box(80, { controller: "bacnet" }) })(10);

@@ -100,7 +100,7 @@ class TestV81Keys(unittest.TestCase):
         other["list_spec"]["pricing"]["claims_filed"] = copy.deepcopy(c["list_spec"]["pricing"]["claims_filed"])
         _refused(self, other, "claims_filed is allowed on VAV Box only")
         bad = copy.deepcopy(c)
-        bad["list_spec"]["pricing"]["claims_filed"]["kinds"][0]["share"] = "nope"
+        next(k for k in bad["list_spec"]["pricing"]["claims_filed"]["kinds"] if "share" in k)["share"] = "nope"   # "A" put two words kinds first
         _refused(self, bad, "kinds share must name a share")
         bad = copy.deepcopy(c)
         bad["list_spec"]["pricing"]["claims_filed"]["note"] = "no placeholders"
@@ -123,6 +123,27 @@ class TestV81Keys(unittest.TestCase):
                 node = node[p]
             node[path[-1]] = val
             _refused(self, bad, needle)
+
+    def test_06_not_added_by_validated_and_the_2a_test_present(self):
+        """ANSWER 16 (owner 2026-11-21 15:56 "1a 2a 3b"): the BACnet share has the DDC panel row's test; not_added_by's shape is checked."""
+        c = _configs()[VAV]
+        ss = c["list_spec"]["pricing"]["sheet_shares"]
+        self.assertIn(("bacnet", "DDC panel row"), {(e["share"], e["label"]) for e in ss["separate"]["extras"]})
+        self.assertEqual([(e["share"], e["label"]) for e in ss["not_added_by"]],
+                         [("bacnet", "BACnet controller row"), ("bacnet", "DDC panel row"), ("bacnet", "Touch screen or master controller row"),
+                          ("ddc", "DDC panel row"), ("ddc", "Touch screen or master controller row"), ("dp", "Duct static pressure sensor row")])   # + ANSWER 18 3b
+        config_validation._validate_config(c)
+        for i, patch, needle in (
+                (0, {"label": "Nope row"}, "must name a separate-row test of that share"),
+                (1, {"line": "{share} {rows}"}, "either line or priced"),
+                (1, {"priced": "no placeholders"}, "must name {share}"),
+                (2, {"called": [{"words": "(", "name": "x"}]}, "called[0].words")):
+            bad = copy.deepcopy(c)
+            bad["list_spec"]["pricing"]["sheet_shares"]["not_added_by"][i].update(patch)
+            _refused(self, bad, needle)
+        other = copy.deepcopy(c)
+        other["list_spec"]["pricing"]["sheet_shares"]["not_added_by"] = []
+        _refused(self, other, "not_added_by must be a non-empty list")
 
 
 class TestClaimsRecognition(unittest.TestCase):
@@ -153,13 +174,13 @@ class TestClaimsRecognition(unittest.TestCase):
             if k != r["ts_kind"]:
                 diffs.append((r["ref"], k, r["ts_kind"]))
         self.assertEqual(diffs, [])
-        self.assertEqual(sum(1 for r in self.rows if r["ts_kind"]), 84)
+        self.assertEqual(sum(1 for r in self.rows if r["ts_kind"]), 87)   # 84 + the three touch screen / master controller rows ("A", 15:02)
 
     def test_11_the_claims_on_every_Misc_Sensors_row_of_the_84_sheets(self):
         got = {r["ref"]: (vav_claims.claim_of(self.pr, self._line(r)) or {}).get("kind") for r in self.rows if r["category"] in ("hvac_misc", "hvac_sensors")}
         want = {r["ref"]: r["claim"] for r in self.rows if r["category"] in ("hvac_misc", "hvac_sensors")}
         self.assertEqual(got, want)
-        self.assertEqual(sum(1 for v in got.values() if v), 99)
+        self.assertEqual(sum(1 for v in got.values() if v), 102)   # 99 + "A" (00012 r258, 00093 r200 / r199); 00098 r70 bacnet -> master_controller
 
     def test_12_the_owner_ruled_rows(self):
         by = {r["ref"]: r for r in self.rows}
@@ -169,7 +190,10 @@ class TestClaimsRecognition(unittest.TestCase):
         self.assertIsNone(kind("BOQ-26-00020|HVAC_-19TH FLOOR|194"))           # the adaptor (13:40 "4 a")
         self.assertEqual(kind("BOQ-26-00436|HVAC|256"), "integrator_named")    # B1 (13:40)
         self.assertEqual(kind("BOQ-26-00425|OFFICE AIR DISTRIBUTION|139"), "installation")   # B2 (13:40)
-        self.assertIsNone(kind("BOQ-26-00012|HVAC - Low side|258"))            # B3 (13:40 "7 a") - the touch-screen row, untouched
+        # "A" (owner 14:46 / ANSWER 7 A-1, A-2) replaces B3's "untouched" for the touch screen row: priced as a DDC panel
+        self.assertEqual(kind("BOQ-26-00012|HVAC - Low side|258"), "touch_screen_controller")
+        self.assertEqual(kind("BOQ-26-00093|4. HVAC - Option 1 (Terrace)|200"), "master_controller")
+        self.assertEqual(kind("BOQ-26-00098|VAV|70"), "master_controller")      # A-2: priced as a DDC panel, stays the controller's own row
         self.assertIsNone(kind("BOQ-26-00149|HVAC-BOQ|492"))                   # B3 LAN connectivity
 
     def test_13_claims_for_sheet_needs_a_VAV_row_and_a_named_category(self):

@@ -45,7 +45,7 @@ export function calc81(state: CalcState, shares: SharesEditState = {}, cfg: Rate
 export type Row81 = SheetRow & { claim?: RowClaim };
 
 /** a BoQ sheet priced on v81 (the vav2a.harness `vavSheet` shape, plus claimed rows) */
-export function sheet81(rows: Record<number, Row81>, opts: { cfg?: RateCategoryConfig; items?: RateMasterItem[] } = {}) {
+export function sheet81(rows: Record<number, Row81>, opts: { cfg?: RateCategoryConfig; items?: RateMasterItem[]; runId?: string } = {}) {
   const cfg = opts.cfg ?? vav81();
   const bf = bandFromOf(cfg);
   const asRead = (it: Json): Json => {
@@ -71,7 +71,8 @@ export function sheet81(rows: Record<number, Row81>, opts: { cfg?: RateCategoryC
     const me = priced.find((p) => p.source_row_number === er)!;
     return helper.compute({ excelRow: er, description: r.text ?? "", nodeType: r.node ?? "Line Item", category: r.category ?? VAV, discipline: "HVAC",
       rateKinds: ["supply_rate", "install_rate", "combined_rate"], unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities, sheetLines, sheetCategories,
-      headings: r.headings ?? rowHeadings(me as never, priced as never), ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [] } as never, ov) as unknown as ItemListSuggestion;
+      headings: r.headings ?? rowHeadings(me as never, priced as never), ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [],
+      ...(opts.runId ? { runId: opts.runId } : {}) } as never, ov) as unknown as ItemListSuggestion;
   };
 }
 

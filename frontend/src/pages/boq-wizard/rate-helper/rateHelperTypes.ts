@@ -602,6 +602,8 @@ export type HelperResult = Suggestion | NoSuggestion;
 export interface RateHelperRowContext {
   /** Durable Excel row number (source_row_number) -- the identity, never a window index. */
   excelRow: number;
+  /** VAV-2b2 QR-MARK (b), TEMPORARY: the sheet's active Suggest run id (the test-run line keys on it); absent in the Calculator */
+  runId?: string;
   description: string;
   nodeType: string;
   /** Resolved effective category id for the row (from categoriesByExcelRow), or null. */

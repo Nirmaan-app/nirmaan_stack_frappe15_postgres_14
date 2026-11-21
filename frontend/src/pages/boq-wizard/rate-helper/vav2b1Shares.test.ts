@@ -222,8 +222,9 @@ describe("B4 THE PER-BOX CONTROLLER AND THE DP SWITCH LEAVE VAV (R2, R8)", () =>
     const v79 = sheet79(rows)(10).itemList!;
     expect(v79.items.map((b) => b.family)).toEqual(["VAV box"]);
     expect(v79.sections?.independent ?? []).toEqual([]);
-    expect(notes(sheet79(rows)(10))).toEqual(expect.arrayContaining([expect.stringMatching(/^BACnet over IP controller: no longer added to each box/),
-      expect.stringMatching(/^Differential Pressure Switch: no longer added to each box/)]));
+    // VAV-2b2 #133 (ANSWER 17 3a, 2026-11-21): the line's wording only (BEFORE "<family>: no longer added to each box - it is a shared item ...")
+    expect(notes(sheet79(rows)(10))).toEqual(expect.arrayContaining([expect.stringMatching(/^BACnet over IP controller is not added to each box\. It is shared across the sheet's VAV boxes/),
+      expect.stringMatching(/^Differential Pressure Switch is not added to each box\. It is shared across the sheet's VAV boxes/)]));
     const v78 = vavSheet(rows, { cfg: vav79({ drop: ["withdrawn_families", "sheet_shares"] }), items: itemsV79() })(10).itemList!;
     expect(v78.items.map((b) => b.family)).toEqual(["VAV box", "BACnet over IP controller"]);
   });

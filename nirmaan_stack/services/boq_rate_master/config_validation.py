@@ -1188,12 +1188,14 @@ def _validate_sheet_shares(ss, spec):
     SKU an item is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.sheet_shares"
     # VAV-2b1 v80 (owner 01:15 - 01:36): the optional `whole` list (the full-rate, per-unit mode of a share)
-    if not isinstance(ss, dict) or set(ss) - {"whole", "double_count"} != _SHEET_SHARES_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))} (and optionally whole, double_count).")
+    if not isinstance(ss, dict) or set(ss) - {"whole", "double_count", "not_added_by"} != _SHEET_SHARES_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))} (and optionally whole, double_count, not_added_by).")
     if "whole" in ss:
         _validate_sheet_shares_whole(ss["whole"], ss, f"{loc}.whole")
     if "double_count" in ss:
         _validate_double_count(ss["double_count"], ss, spec, f"{loc}.double_count")
+    if "not_added_by" in ss:
+        _validate_not_added_by(ss["not_added_by"], ss, f"{loc}.not_added_by")
     pr = spec.get("pricing") or {}
     rd = ss["reading"]
     if not isinstance(rd, dict) or set(rd) != _SHEET_SHARES_READING:
@@ -1340,6 +1342,35 @@ def _validate_sheet_shares_whole(wl, ss, loc):
             _vthrow(f"{loc}.for_count must name {{n}}, on an entry with a fixed part.")
 
 
+def _validate_not_added_by(nab, ss, loc):
+    """VAV-2b2 (ANSWER 16, owner 2026-11-21 15:56 \"2a\") -- `sheet_shares.not_added_by`: the 'not added' sentence by the separate-row
+    test that caught the row. Each entry names a share and one of its separate-row tests (by label) once, and either `line` or
+    `priced` (+ optional `not_priced`), each naming {share} and {rows}; `called` = [{words (a pattern), name}]."""
+    if not isinstance(nab, list) or not nab:
+        _vthrow(f"{loc} must be a non-empty list.")
+    labels = {(e.get("share"), e.get("label")) for e in ss["separate"].get("extras") or [] if isinstance(e, dict)}
+    seen = set()
+    for i, e in enumerate(nab):
+        w = f"{loc}[{i}]"
+        if not isinstance(e, dict) or set(e) - {"share", "label", "line", "priced", "not_priced", "called"} or ("line" in e) == ("priced" in e) \
+                or ("not_priced" in e and "priced" not in e):
+            _vthrow(f"{w} needs share, label and either line or priced (+ optional not_priced, called).")
+        key = (e.get("share"), e.get("label"))
+        if key not in labels or key in seen:
+            _vthrow(f"{w} must name a separate-row test of that share (sheet_shares.separate.extras), once.")
+        seen.add(key)
+        for k in ("line", "priced", "not_priced"):
+            if k in e:
+                _sentence(e, k, w, ("{share}", "{rows}"))
+        if "called" in e:
+            if not isinstance(e["called"], list) or not e["called"]:
+                _vthrow(f"{w}.called must be a non-empty list of {{words, name}}.")
+            for j, c in enumerate(e["called"]):
+                if not isinstance(c, dict) or set(c) != {"words", "name"} or not _nonempty_str(c["name"]):
+                    _vthrow(f"{w}.called entries need exactly words, name.")
+                _pattern(c["words"], f"{w}.called[{j}].words")
+
+
 def _validate_double_count(dc, ss, spec, loc):
     """VAV-2b2 (R10, owner 2026-11-21 10:44 / 10:45 "1 yes 2 ok") -- `sheet_shares.double_count`: the amber block shown when a BACnet / DP
     block (share or full rate, or the plain item) sits beside a DDC block (share or full rate): {heading, ddc: [share / whole keys], with:
@@ -1360,10 +1391,16 @@ def _validate_double_count(dc, ss, spec, loc):
         _vthrow(f"{loc}.ddc must list share / full-rate keys.")
     if not isinstance(dc["with"], list) or not dc["with"]:
         _vthrow(f"{loc}.with must be a non-empty list.")
+    shares_by = {sh.get("id"): sh for sh in ss.get("shares") or [] if isinstance(sh, dict)}
     for w in dc["with"]:
-        if (not isinstance(w, dict) or set(w) != {"blocks", "families", "part", "line"} or not isinstance(w["blocks"], list)
+        # VAV-2b2 (A-4, owner 14:46): an optional `anchor` (share ids) in place of `ddc`; `part` is then a part of that share
+        anchor = w.get("anchor") if isinstance(w, dict) else None
+        if anchor is not None and (not isinstance(anchor, list) or not anchor or not all(a in shares_by for a in anchor)):
+            _vthrow(f"{loc}.with anchor must list share ids.")
+        parts = ({p.get("id") for a in anchor for p in shares_by[a].get("parts") or [] if isinstance(p, dict)} if anchor is not None else ddc_parts)
+        if (not isinstance(w, dict) or set(w) - {"anchor"} != {"blocks", "families", "part", "line"} or not isinstance(w["blocks"], list)
                 or not all(k in ids for k in w["blocks"]) or not isinstance(w["families"], list) or not all(f in known for f in w["families"])
-                or w["part"] not in ddc_parts or not _nonempty_str(w["line"])):
+                or w["part"] not in parts or not _nonempty_str(w["line"])):
             _vthrow(f"{loc}.with entries need blocks (share / full-rate keys), families, part (a DDC part) and a line ({{n}} = that part's count).")
 
 

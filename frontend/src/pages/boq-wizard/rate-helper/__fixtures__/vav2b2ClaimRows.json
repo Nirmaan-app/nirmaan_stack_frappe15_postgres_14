@@ -666,8 +666,8 @@
 "unit": "Set",
 "text": "Supply, Installation, testing & Commissioning of the VAV Touch Screen Controller is a microprocessor-based device designed for precise control of Variable Air Volume (VAV) terminal units in HVAC systems. It supports integration with Building Management Systems (BMS) and can operate independently. The controller features a capacitive touch screen interface with a minimum 7-inch color LCD display. Its intuitive graphical interface allows users to view and adjust parameters such as temperature setpoint, actual temperature, maximum and minimum CFM, actual CFM, VAV diameter, and damper position. Advanced settings are protected by password access. Price shall be included the software as per requirement Communication protocols include native support for BACnet MS/TP and BACnet IP, facilitating seamless integration with various BMS platforms. The controller also offers auto-device discovery and addressing, simplifying network configuration.Maximum 65 nos VAV for single controller",
 "headings": [],
-"ts_kind": null,
-"claim": null
+"ts_kind": "ddc",
+"claim": "touch_screen_controller"
 },
 {
 "ref": "BOQ-26-00012|HVAC - Low side|256",
@@ -1768,8 +1768,8 @@
 "VARIABLE AIR VOLUME UNITS",
 "Oval VAV's"
 ],
-"ts_kind": null,
-"claim": null
+"ts_kind": "ddc",
+"claim": "master_controller"
 },
 {
 "ref": "BOQ-26-00093|4. HVAC - Option 1 (Terrace)|199",
@@ -1907,8 +1907,8 @@
 "VARIABLE AIR VOLUME UNITS",
 "Oval VAV's"
 ],
-"ts_kind": null,
-"claim": null
+"ts_kind": "ddc",
+"claim": "master_controller"
 },
 {
 "ref": "BOQ-26-00093|5. HVAC - Option 2 (Same Floor)|198",
@@ -2009,7 +2009,7 @@
 "VAV Master Controller."
 ],
 "ts_kind": "bacnet",
-"claim": "bacnet"
+"claim": "master_controller"
 },
 {
 "ref": "BOQ-26-00098|VAV|67",

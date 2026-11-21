@@ -23,6 +23,8 @@
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseJson } from "@/lib/parseJson";
 import type { RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
+import { countWords, fill, notAddedLines, rowsNamed, type NotAddedBy, type SeparateRowBy } from "./vavNotAdded";
+export { countWords, notAddedLines, type NotAddedBy, type SeparateRowBy };
 
 /** A SKU a share reads live: the catalogue item of `kind` whose attribute `attr` is `value`. */
 export interface ShareSku { kind: string; attr: string; value: string }
@@ -112,7 +114,10 @@ export interface SheetSharesSpec {
     /** VAV-2b2 (R15): the VAVs box's label IN THE CALCULATOR ("Number of VAVs"; on a BoQ row it IS the sheet's count). ABSENT => `vavs` */
     vavs_calculator?: string };
   /** VAV-2b2 (R10): the "Possible double counting" block. ABSENT => none (the small lines stay as they are) */
-  double_count?: { heading: string; ddc: string[]; with: Array<{ blocks: string[]; families: string[]; part: string; line: string }> };
+  /** VAV-2b2 (owner 2026-11-21 15:56 "2a"): the 'not added' sentence by the separate-row test that caught the row (else lines.not_added) */
+  not_added_by?: NotAddedBy[];
+  double_count?: { heading: string; ddc: string[]; with: Array<{ blocks: string[]; families: string[]; part: string; line: string;
+    /** VAV-2b2 (A-4): the share this entry checks against, in place of `ddc` (a BACnet / DP share and its own full-rate item) */ anchor?: string[] }> };
   /** VAV-2b1 v80 (owner 2026-11-21 01:07 / 01:21 / 01:31 / 01:32 "A"): the FULL-RATE, per-unit mode of a share -- the same parts and sums, NOT
    *  divided over the boxes; added by the USER from the item list (never by the helper). ABSENT => no full-rate entries. */
   whole?: ShareWholeDef[];
@@ -188,14 +193,9 @@ export interface SheetShareDecision {
   rowNotes: string[];
 }
 
-const fill = (t: string, o: Record<string, string | number>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(String(v)), t);
-const rowsNamed = (rows: readonly number[]) => {
-  const rs = [...new Set(rows)].sort((a, b) => a - b);
-  return `${rs.length > 1 ? "rows" : "row"} ${rs.slice(0, 10).join(", ")}${rs.length > 10 ? ` and ${rs.length - 10} more` : ""}`;
-};
 
 /** A share's separate rows on the sheet: those with a quantity above 0 (charged separately) and those with quantity 0 / blank. */
-export type SeparateRows = Readonly<Record<string, { charged: readonly number[]; zero: readonly number[] } | readonly number[]>>;
+export type SeparateRows = Readonly<Record<string, { charged: readonly number[]; zero: readonly number[]; by?: Readonly<Record<number, SeparateRowBy>> } | readonly number[]>>;
 
 /** VAV-2b1 v80. PURE. The sheet's VAVs as the decision counts them (counted rows' quantities; null = none counted, or every counted row
  *  blank / 0, or "sheet_off" with a blank one) -- also the full-rate blocks' pre-fill on a row that is not itself a counted box. */
@@ -229,8 +229,8 @@ export function decideSheetShares(spec: SheetSharesSpec, rows: readonly SheetVav
   const offer = (id: string, notes: string[]) => {
     const raw = separate[id];
     const sep = Array.isArray(raw) ? { charged: raw as readonly number[], zero: [] as readonly number[] }
-      : (raw as { charged: readonly number[]; zero: readonly number[] } | undefined) ?? { charged: [], zero: [] };
-    if (sep.charged.length) { out.rowNotes.push(fill(spec.lines.not_added, { share: label(id), rows: rowsNamed(sep.charged) })); return; }
+      : (raw as { charged: readonly number[]; zero: readonly number[]; by?: Readonly<Record<number, SeparateRowBy>> } | undefined) ?? { charged: [], zero: [] };
+    if (sep.charged.length) { out.rowNotes.push(...notAddedLines(spec.not_added_by, spec.lines.not_added, id, label(id), sep)); return; }
     if (vavs === null) { out.rowNotes.push(fill(spec.lines.rate_only, { share: label(id) })); return; }
     out.add.push(id);
     const item = spec.shares.find((s) => s.id === id)?.item ?? id;

@@ -64,10 +64,10 @@ describe("R10: the 'Possible double counting' block", () => {
   it("NEGATIVE: a full-rate DDC panel alone (no share, no BACnet / DP) -> no block", () => {
     expect(calc81({ items: [BOX] }, ed({ op: "add", share: "ddc_whole" }, V80S("ddc_whole"))).itemList!.doubleCounting).toBeUndefined();
   });
-  it("UNCHANGED (not widened, ANSWER 4): a BACnet share + a full-rate BACnet block keeps its small line, no block", () => {
+  it("A-4 (owner 14:46 'go with your recommendations'; BEFORE this case said 'keeps its small line, no block' - ANSWER 4, not widened then): a BACnet share + a full-rate BACnet block -> the block; the small line goes", () => {
     const s = calc81({ items: [BOX] }, ed({ op: "add", share: "bacnet" }, V80S("bacnet"), { op: "add", share: "bacnet_whole" }, V80S("bacnet_whole")));
-    expect(s.itemList!.doubleCounting).toBeUndefined();
-    expect(blockOf(s, "bacnet_whole").notes).toContain("A BACnet controller share is also on this row. Check that the controller is not counted twice.");
+    expect(s.itemList!.doubleCounting?.heading).toBe("Possible double counting");
+    expect(blockOf(s, "bacnet_whole").notes).not.toContain("A BACnet controller share is also on this row. Check that the controller is not counted twice.");
   });
   it("KEY ABSENT: sheet_shares.double_count taken out -> no block", () => {
     const s = calc81({ items: [BOX] }, ed({ op: "add", share: "ddc" }, V80S("ddc"), { op: "add", share: "bacnet_whole" }, V80S("bacnet_whole")),

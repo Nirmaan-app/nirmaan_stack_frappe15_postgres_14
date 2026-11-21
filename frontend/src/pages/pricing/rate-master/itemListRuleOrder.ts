@@ -2742,12 +2742,22 @@ function vav2b2Lines(pr: Record<string, unknown>, defs?: unknown): Array<{ title
       detail: [`it reads '${String(nm.intro ?? "").replace("{n}", "<n>")}', then one line per extra ('${String(nm.extra ?? "").replace("{label}", "<extra>").replace("{x}", "<its amount>")}')`,
         `then '${String(nm.total ?? "").replace("{x}", "<extras>").replace("{y}", "<row rate>")}'; a shared item and a full-rate block are extras too`].join("; ") });
   }
-  const ss = pr.sheet_shares as { double_count?: { heading?: unknown; with?: Array<{ blocks?: unknown; families?: unknown; line?: unknown }> } } | undefined;
+  const ss = pr.sheet_shares as { double_count?: { heading?: unknown; with?: Array<{ blocks?: unknown; families?: unknown; line?: unknown; anchor?: unknown }> } } | undefined;
   const dc = ss?.double_count;
   if (dc && Array.isArray(dc.with)) {
     out.push({ key: "sheet_shares", title: `A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel on a row shows a '${String(dc.heading ?? "")}' block`,
-      detail: [...dc.with.map((w) => `${list([...(Array.isArray(w.blocks) ? (w.blocks as unknown[]).map(String) : []), ...(Array.isArray(w.families) ? (w.families as unknown[]).map(String) : [])])} with a DDC panel (share or full rate): '${String(w.line ?? "").replace("{n}", "<the count inside the panel>").replace("{s}", "s")}'`),
+      detail: [...dc.with.map((w) => `${list([...(Array.isArray(w.blocks) ? (w.blocks as unknown[]).map(String) : []), ...(Array.isArray(w.families) ? (w.families as unknown[]).map(String) : [])])} with ${Array.isArray(w.anchor) ? `its own share (${list((w.anchor as unknown[]).map(String))})` : "a DDC panel (share or full rate)"}: '${String(w.line ?? "").replace("{n}", "<the count inside the panel>").replace("{s}", "s")}'`),
         "an amber block above the row total, in the 'Review before using' style; it replaces the small double-count lines of the blocks it names"].join("; ") });
+  }
+  // VAV-2b2 (ANSWER 16, owner 2026-11-21 15:56 "2a"): the 'not added' note says what the separate row is
+  const nab = (pr.sheet_shares as { not_added_by?: Array<{ share?: unknown; label?: unknown; line?: unknown; priced?: unknown; not_priced?: unknown }> } | undefined)?.not_added_by;
+  if (Array.isArray(nab) && nab.length) {
+    const ph = (t: unknown) => String(t ?? "").split("{share}").join("<share>").split("{rows}").join("row <n>").split("{called}").join("")
+      .split("{is}").join("is").split("{prices}").join("prices").split("{that_row}").join("that row").split("{does}").join("does");
+    out.push({ key: "sheet_shares", title: "When a share is not added because of a row of the sheet, the note says what that row is",
+      detail: [...nab.map((e) => `a ${String(e.label ?? "")} (the ${String(e.share ?? "")} share): ${e.line ? `'${ph(e.line)}'`
+        : `priced by this helper: '${ph(e.priced)}'${e.not_priced ? `; not priced by it: '${ph(e.not_priced)}'` : ""}`}`),
+        "a DDC panel row with a quantity counts as the controller's row whatever it is filed under; every other separate row keeps the general sentence"].join("; ") });
   }
   const cf = pr.claims_filed as { categories?: Record<string, unknown>; note?: unknown; kinds?: Array<{ item?: unknown; prices?: { whole?: unknown; family?: unknown } }> } | undefined;
   if (cf && typeof cf === "object" && Array.isArray(cf.kinds)) {

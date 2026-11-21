@@ -47,11 +47,11 @@ function kindOf(spec: Spec, r: FixRow): string | null {
 
 describe("VAV-2b2 R16 parity: the product's own-row tests on the 815 fixture rows = the server's recognition", () => {
   const spec = (vav81() as unknown as { list_spec: { pricing: Spec } }).list_spec.pricing;
-  it("every row's kind equals the fixture's (84 hits; count asserted)", () => {
+  it("every row's kind equals the fixture's (87 hits = 84 + the three touch screen / master controller rows of \"A\"; count asserted)", () => {
     const diffs = ROWS.map((r) => [r.ref, kindOf(spec, r), r.ts_kind]).filter(([, a, b]) => a !== b);
     expect(diffs).toEqual([]);
     expect(ROWS.length).toBe(815);
-    expect(ROWS.filter((r) => r.ts_kind).length).toBe(84);
+    expect(ROWS.filter((r) => r.ts_kind).length).toBe(87);
   });
   it("VACUITY: without the adaptor not-words (QR-K2) one more row hits -- BOQ-26-00020 r194", () => {
     const off = structuredClone(spec);

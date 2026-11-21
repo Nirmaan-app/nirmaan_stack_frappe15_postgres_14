@@ -55,6 +55,9 @@ def vav_config(prev, K):
         for p in parts[:-1]:
             node = node[p]
         node[parts[-1]] = copy.deepcopy(val)
+    for e in k.get("separate_extras_add") or []:
+        if not any(x.get("label") == e["label"] and x.get("share") == e["share"] for x in pr["sheet_shares"]["separate"]["extras"]):
+            pr["sheet_shares"]["separate"]["extras"].append(copy.deepcopy(e))
     for label, words in (k.get("separate_not_words_add") or {}).items():
         e = [x for x in pr["sheet_shares"]["separate"]["extras"] if x["label"] == label]
         assert len(e) == 1, label

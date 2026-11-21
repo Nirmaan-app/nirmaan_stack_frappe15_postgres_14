@@ -154,7 +154,8 @@ import type {
   WorkingsAttribute,
   WorkingsGroup,
 } from "./rateHelperTypes";
-import { SHARES_OVERRIDE_KEY, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
+import { SHARES_OVERRIDE_KEY, countWords, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SeparateRowBy, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
+import { stubRunLineOf } from "./stubRunMark";
 import { claimNotesOf, claimedConfigOf, claimedItemsOf, type RowClaim } from "./vavClaims";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
@@ -1675,7 +1676,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         : out0a;
       // DU-3 (Case 5): a row whose OWN words name a double-skin duct is not on our sheet -- the whole row unpriced, with the line
       const refusal = rowCtx.noRow !== true ? rowRefusalOf(listSpec, rowCtx) : null;
-      const out = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
+      const outR = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
+      // VAV-2b2 QR-MARK (b), owner 2026-11-21 15:56 "3b" -- TEMPORARY (the next slice removes it): a hand-written test run says so
+      const stubLine = stubRunLineOf(rowCtx.runId, category.category_id);
+      const vR = (outR as ItemListSuggestion).itemList;
+      const out = stubLine && vR ? { ...outR, itemList: { ...vR, testRunLine: stubLine } } as ItemListSuggestion : outR;
       if (!paint) return out;
       const v = (out as ItemListSuggestion).itemList;
       return v ? { ...out, itemList: { ...v, sheetHeadingNotes: [...(v.sheetHeadingNotes ?? []), plainPricerText(paint.line, items)] } } as ItemListSuggestion : out;
@@ -2903,6 +2908,8 @@ export interface ItemListView {
   scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /** VP-1 (N5): the sheet-heading lines (`withSheetHeadingNotes`), drawn by the panel as an amber box after the items. */
   sheetHeadingNotes?: string[];
+  /** VAV-2b2 QR-MARK (b) -- TEMPORARY: the amber line on a VAV row of a hand-written test run (run id STUB-VAV-2b2-...) */
+  testRunLine?: string;
   /** VAV-2a (B9): the combination-row warning (`combinationWarningOf`), drawn by the panel (and so the calculator) as an amber box after
    *  the items. Present ONLY on a priced row of a config declaring `combination_warning` whose extras pass the share. */
   combinationWarning?: string;
@@ -7697,13 +7704,15 @@ export function groupedAdds(spec: ItemListPricingSpec, adds: Array<{ id: string;
 export function doubleCountingOf(ss: NonNullable<ItemListPricingSpec["sheet_shares"]>, blocks: ItemBlockView[], sectionViews: readonly SectionBlockView[],
   shareBlocks: SharesView["blocks"]): { heading: string; lines: string[] } | undefined {
   const dc = ss.double_count;
-  const ddc = dc ? shareBlocks.find((b) => dc.ddc.includes(b.id)) : undefined;
-  if (!dc || !ddc) return undefined;
+  if (!dc) return undefined;
   const items = [...blocks, ...sectionViews.flatMap((sv) => sv.view.items ?? [])];
   const wholeLines = new Set((ss.whole ?? []).map((w) => w.line).filter((l): l is string => !!l));
   const lines: string[] = [];
   for (const w of dc.with) {
-    // (never the DDC block itself: a full-rate DDC panel is "the other block" only beside a DDC share -- QR-C1 (b), 13:59)
+    // VAV-2b2 (A-4, owner 14:46): an entry may name its own anchor (a BACnet / DP share) in place of the DDC block
+    const ddc = shareBlocks.find((b) => (w.anchor ?? dc.ddc).includes(b.id));
+    if (!ddc) continue;
+    // (never the anchor block itself: a full-rate DDC panel is "the other block" only beside a DDC share -- QR-C1 (b), 13:59)
     const bs = shareBlocks.filter((b) => w.blocks.includes(b.id) && b !== ddc);
     const its = items.filter((b) => b.family !== null && w.families.includes(b.family));
     if (!bs.length && !its.length) continue;
@@ -8212,7 +8221,8 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
           && (!extractionByRow.has(l.row) || runItems(l.row).some((it) => !isSec(it) && famOf(it) === ic.box_family))).map((l) => l.row)])];
         const boxes = sumQ(boxRows);
         const share = scopeUpliftOf(items, ic.length_input);
-        const base = { rows: vavRowsNamed(cab) };
+        // VAV-2b2 (ANSWER 18): the count words for the reworded lines ("row 300 prices it" / "rows 300, 301 price it")
+        const base = { rows: vavRowsNamed(cab), ...countWords(cab) };
         if (metres && boxes && perBox !== null && share !== null && metres + 1e-9 < share * perBox * boxes) {
           lines.push(fillAll(ic.lines.low_length, { ...base, metres: String(metres), need: String(Math.round(perBox * boxes * 100) / 100),
             per_box: String(perBox), boxes: String(boxes), pct: String(Math.round(share * 100)) }));
@@ -8266,7 +8276,7 @@ export function withdrawnItemsOf(spec: ItemListPricingSpec, ext: ExtractionRowWi
   };
   const gone = ext.items.filter((it) => w.includes(famOf(it)));
   if (!gone.length) return null;
-  const lines = [...new Set(gone.map(famOf))].map((f) => `${f}: no longer added to each box - it is a shared item of the sheet (owner 2026-11-20).`);
+  const lines = [...new Set(gone.map(famOf))].map((f) => `${f} is not added to each box. It is shared across the sheet's VAV boxes: use the share button to add it.`);
   return { ext: { ...ext, items: ext.items.filter((it) => !gone.includes(it)) }, lines };
 }
 
@@ -8317,7 +8327,9 @@ export function vavSheetOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
   if (!me.counted || isLotUnit(spec, ctx.unit)) return { decision: null, sheetVavs };
   const rows = vavRows.some((r) => r.row === ctx.excelRow) ? vavRows : [...vavRows, me];
   const oc = spec.own_row_check;
-  const separate: Record<string, { charged: number[]; zero: number[] }> = {};
+  const separate: Record<string, { charged: number[]; zero: number[]; by: Record<number, SeparateRowBy> }> = {};
+  // VAV-2b2 (ANSWER 16): a row this helper prices (filed under a claims_filed category) is named as priced in the 'not added' sentence
+  const claimCats = new Set(Object.keys(spec.claims_filed?.categories ?? {}));
   if (oc) {
     const others = onSheet.filter((l) => l.row !== ctx.excelRow && (!l.preamble || String(l.unit ?? "").trim() !== ""));
     for (const s of sh.shares) {
@@ -8326,6 +8338,7 @@ export function vavSheetOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       const oc2 = { ...oc, artefact_words: sh.separate.artefact_words?.[s.id] ?? oc.artefact_words,
         serves: { item_first: true, extras: exs.filter((e) => e.item_first).map((e) => e.label) } };
       const hit = new Set<number>();
+      const by: Record<number, SeparateRowBy> = {};
       for (const e of exs) {
         const ex = { label: e.label, target: { family: s.id }, words: e.words, needs_vav: e.needs_vav, not_words: e.not_words,
           near_words: e.near_words, near_chars: e.near_chars, not_near_words: e.not_near_words, not_near_chars: e.not_near_chars };
@@ -8336,10 +8349,14 @@ export function vavSheetOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
         let ctl: RegExp | null = null;
         try { ctl = e.controls_vav_words ? new RegExp(e.controls_vav_words, "i") : null; } catch { ctl = null; }
         const integratorOnly = (l: VavSheetLine) => !!integ && vavSeparateRow(ocI, integ, l) && !(ctl && ctl.test((l.text ?? "").split(" | ")[0]));
-        for (const l of others) if (vavSeparateRow(oc2, ex, l) && !integratorOnly(l)) hit.add(l.row);
+        for (const l of others) {
+          if (!vavSeparateRow(oc2, ex, l) || integratorOnly(l)) continue;
+          hit.add(l.row);
+          by[l.row] ??= { label: e.label, priced: claimCats.has(catOf(l.row) ?? ""), text: l.text ?? "" };
+        }
       }
       // owner 2026-11-20 21:05 "a, yes": a separate row with quantity 0 / blank does not count as charged separately
-      separate[s.id] = { charged: [...hit].filter((r) => (qtyOf(r) ?? 0) > 0), zero: [...hit].filter((r) => !((qtyOf(r) ?? 0) > 0)) };
+      separate[s.id] = { charged: [...hit].filter((r) => (qtyOf(r) ?? 0) > 0), zero: [...hit].filter((r) => !((qtyOf(r) ?? 0) > 0)), by };
     }
   }
   return { decision: decideSheetShares(sh, rows, separate), sheetVavs };

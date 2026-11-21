@@ -22,6 +22,7 @@ export type Keys81 = {
     pricing_merge?: Record<string, unknown>;
     whole_set?: Record<string, Record<string, unknown>>;
     separate_not_words_add?: Record<string, string>;
+    separate_extras_add?: Json[];
     derivation_reasons_replace?: Array<Reason & { from: string }>;
     derivation_reasons_new?: Reason[];
   };
@@ -57,6 +58,10 @@ export function withV81Keys(cfg: RateCategoryConfig, over: V81Over = {}): RateCa
     let node = pr as Json;
     for (const part of parts.slice(0, -1)) node = node[part] as Json;
     node[parts[parts.length - 1]] = structuredClone(val);
+  }
+  if (!(over.dropPricing ?? []).includes("separate_extras_add")) {
+    const exs = (((pr.sheet_shares as Json | undefined)?.separate as Json | undefined)?.extras as Json[] | undefined) ?? [];
+    for (const e of k.separate_extras_add ?? []) if (!exs.some((x) => x.label === e.label && x.share === e.share)) exs.push(structuredClone(e));
   }
   for (const [label, words] of Object.entries(k.separate_not_words_add ?? {})) {
     if ((over.dropPricing ?? []).includes("separate_not_words_add")) continue;
