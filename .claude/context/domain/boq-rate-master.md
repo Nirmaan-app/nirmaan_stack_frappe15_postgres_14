@@ -5794,24 +5794,48 @@ set unchanged):
   sensor" 30, "... per DDC panel" 200 (15:23 "yes"). The Differential Pressure Switch stays an item.
 - `list_spec.pricing.sheet_shares` (R1 / R3 / R5 - R8 / R10): per SHEET -
   - the VAVs = the quantities of its VAV-filed box rows (box family "VAV box": VAV and CAV boxes for new supply incl. a "scope not
-    clear" row; NOT installation-only, existing-box work or other items - N1 - N3); a blank / 0 row counts 0 and the share's note says
-    how many; every box row blank / 0 -> nothing added + the rate-only note (QR-N (b), owner 19:46);
+    clear" row; NOT installation-only, existing-box work or other items - N1 - N3, owner 19:48 "agre on N1.N2 and N3"); a blank / 0
+    row counts 0 and the share's note says how many; every box row blank / 0 -> nothing added + the rate-only note (QR-N (b), owner
+    19:46);
+  - the trigger is the SHEET, not the row: a mention in the payload of ANY VAV row of the sheet (its row text, headings and notes)
+    fires the share for the whole sheet, on every box (14:23 "5. allbxes getshare also"; 14:25 "i meant payload for any VAV mentions
+    Bacnet... generally there will no  be rows which have bacvknet and rows which do not have Bacnet");
+  - no minimum number of VAVs (15:02 "option a"): a sheet with one box (BOQ-26-00087 r18) carries the whole panel on that box; the
+    combination warning flags it;
   - the first match (R7, 15:20): a DDC controller / panel part of the box or its controller (`ddc_inclusive`, or `ddc` = without
     "inclusive" -> its note, 14:42 / 14:45) -> the DDC panel share; else BACnet -> the BACnet controller share; else a plain
     controller for the VAVs -> the BACnet share + the "check" note (15:16 / 15:19); else a controller by others -> nothing, noted;
     the DP sensor share for any DP mention unless DDC (R8, 14:35 - 14:39). The reading is three attributes on the row's box item
-    (`controller_mention`, `controller_by_others`, `dp_sensor_mention`), answered by the model from VAV-2b2;
+    (`controller_mention`, `controller_by_others`, `dp_sensor_mention`), answered by the model from VAV-2b2. The DDC rule (14:30): "if
+    a VAV payload mentions price is inclusive of DDC controllor/Panel and there is nor seprate row for the DDCpanel in the sheet then
+    we nee dto include the price of the DDC controolor in the row";
+  - what does NOT count as a mention (the owner's markings of 14:56 on 12 rows, one per sheet; 15:05 "option c / 1 yes 2 yes"):
+    "DDC panel and controllor are interchaebale" (14:48); a DDC counts when the text makes it part of the VAV box or its controller -
+    "Included" on wording 1 "Independent DDC VAV Controller ..." (BOQ-26-00047 r4, 00117 r315, 00149 r462, 00164 r26) and wording 3
+    "consisting of / complete with ... DDC controller" (00020 r438, 00087 r18, 00245 r145, 00285 r21, 00394 r38); NOT a line about
+    makes - wording 2 "All VAV controllers, DDC controllers ... shall be of single OEM" (00188 r5, 00393 r6): "It has Bacnet
+    controllors included.but not DDC" (the BACnet share instead); NOT another equipment's DDC - the AHU's (00049 r158): "No t
+    included". 15:05 "2 yes": the same test for BACnet - 00049's only BACnet mention is the AHU's, so no BACnet share there;
+  - only a controller FOR THE VAVs (15:36 "bacnet controolors hosuld be added only whenthe reference of the controllor is for
+    controlling the VAVs"; 15:40 "yes" to the three worked rows): BOQ-26-00148 r160 ("required controllers for controlling all the
+    VAVs ... main controller") and 00169 r351 ("shall communicate through a network controller to a PC/Laptop") GET the share;
+    00125 r202 ("Centralised Controller for VFD operation & BMS connectivity") does NOT - the controller is the VFD's - with a note;
   - the sums (14:18 / 14:31 / 14:39 / 15:23): count = VAVs / the Pricing Input, rounded up; BACnet / DP = count x the SKU's quoted
     supply and install (ROUNDUP(BCS x (1 + markup))); DDC panel = (panels x 25,000 + controllers x 33,000 + sensors x 7,650) BCS
     x (1 + the panel's supply markup), install panels x 5,000 x (1 + 0.6); per box = total / VAVs, supply and install each rounded to
-    the rupee (P1 f; e.g. 80 VAVs BACnet 1,733 + 120; DP 402 + 34; DDC 2,572 + 100); DDC replaces the BACnet and DP shares;
+    the rupee (P1 f; e.g. 80 VAVs BACnet 1,733 + 120; DP 402 + 34; DDC 2,572 + 100); DDC replaces the BACnet and DP shares
+    (14:30 "if we are including th eprice of DDC, thenwe dont add bacnet or DP sensor price seprately also. else it will bedouble
+    counting"; 14:39 "we dont count it twice");
   - separate rows (`separate.extras`, the product's `vavSeparateRow` on own_row_check's word tables, item named first): the BACnet
     controller row; a "controller for the VAVs" row (own words say it controls the VAVs - 20:54 "option a", BOQ-26-00098 r70); an
-    integrator / router row is NOT the controller's row (19:46) unless its own words say it controls the VAVs (20:20 "option b",
+    integrator / router row is NOT the controller's row (19:46 "integrator row does not count for controller it counts only for
+    integrator"; 19:50 "a": a row that is both by its own words - "Network controller or Router", BOQ-26-00033 r90 / 00440 r92 - is
+    an integrator / router row only, the BACnet share still added) unless its own words say it controls the VAVs (20:20 "option b",
     BOQ-26-00188 r20 / 00393 r21); the DDC panel row; the DP / duct static pressure sensor row whatever it serves (QR-D3 (a); not an
     air-flow monitoring station or a gauge). A separate row WITH a quantity -> nothing added, the note names it (presence decides, no
     quantity test); a separate row with quantity 0 / blank on a sheet with VAV quantities -> NOT charged separately, the share is
-    added with the quantity-0 note (21:05 "a, yes").
+    added with the quantity-0 note (20:56 "butthe quantity fo rthe master controller is zero, then we should price it with the Vav
+    rows"; 21:05 "a, yes").
 - `list_spec.pricing.withdrawn_families` (R2 / R8): "BACnet over IP controller", "Differential Pressure Switch" - no list offers them
   per box; a model item of either is dropped with a line. A hand-entered one would still price (no screen offers it: a blind spot).
 - `own_row_check.serves.also` ["VAV integrator"] (R13): the item-first test for the integrator too - catches exactly the six
