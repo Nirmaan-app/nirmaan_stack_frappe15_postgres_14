@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { changedFiles } from "./react_doctor_new.mjs";
+import { changedFiles, newErrors } from "./react_doctor_new.mjs";
 
 const FRONTEND = join(import.meta.dirname, "..");
 const SCRIPT = join(FRONTEND, "scripts", "react_doctor_new.mjs");
@@ -86,6 +86,13 @@ describe("react_doctor_new.mjs --base", () => {
 
 /** One React Doctor JSON diagnostic, as much of it as the comparison reads. */
 const finding = (filePath, rule, line, severity = "error") => ({ filePath, plugin: "react-doctor", rule, line, column: 3, severity });
+
+describe("newErrors", () => {
+  it("names React Doctor's own error when it did not compare with the base", () => {
+    const report = { ok: false, mode: "full", error: { message: "cache locked", name: "Busy" }, diagnostics: [] };
+    expect(() => newErrors(report)).toThrow(/cache locked/);
+  });
+});
 
 describe("changedFiles (--twice)", () => {
   it("names nothing when two scans report the same findings in another order", () => {

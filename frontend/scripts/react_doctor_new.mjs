@@ -46,7 +46,8 @@ function scan(extra) {
 /** The error-level findings of a `--scope changed` report, one line each: `file:line plugin/rule  title`. */
 export function newErrors(report) {
   if (!report.ok || report.mode !== "baseline") {
-    throw new Error(`React Doctor did not compare with the base (mode "${report.mode}", ok ${report.ok}): ${report.error ?? "no merge base?"}`);
+    const why = report.error == null ? "no merge base?" : typeof report.error === "string" ? report.error : JSON.stringify(report.error);
+    throw new Error(`React Doctor did not compare with the base (mode "${report.mode}", ok ${report.ok}): ${why}`);
   }
   return report.diagnostics
     .filter((d) => d.severity === "error")
