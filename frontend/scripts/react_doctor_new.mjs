@@ -3,7 +3,7 @@
 //   node scripts/react_doctor_new.mjs --base <ref>   exit 1 on an error-level finding new against <ref>
 //   node scripts/react_doctor_new.mjs --twice        exit 1 when two full scans of this tree differ
 //
-// From frontend/. Both run `yarn doctor`'s command from package.json, so the privacy flags are the same everywhere.
+// From frontend/. Both build React Doctor's argv with `yarn doctor`'s doctorArgv, so the privacy flags are the same everywhere.
 // `--base` uses React Doctor's own `--scope changed`: per file and rule, a count may fall but not rise, and a new file
 // or rule is new, so an old finding in a touched file passes. Warnings never fail. React Doctor needs the merge base
 // of <ref> and HEAD in the clone; without one it would quietly report every finding in the changed files instead,
@@ -13,22 +13,18 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { doctorArgv } from "./react_doctor.mjs";
 
 const FRONTEND = join(import.meta.dirname, "..");
 const BIN = join(FRONTEND, "node_modules", "react-doctor", "bin", "react-doctor.js");
 
-/** The arguments of `yarn doctor` after the command name. */
-function doctorArgs() {
-  const [, ...args] = JSON.parse(readFileSync(join(FRONTEND, "package.json"), "utf8")).scripts.doctor.split(" ");
-  return args;
-}
 
 /** One scan's JSON report; exits 2 when React Doctor wrote none. */
 function scan(extra) {
   const dir = mkdtempSync(join(tmpdir(), "react-doctor-"));
   const out = join(dir, "report.json");
   try {
-    const run = spawnSync(process.execPath, [BIN, ...doctorArgs(), "--no-color", ...extra, "--json", "--json-out", out, "."], {
+    const run = spawnSync(process.execPath, [BIN, ...doctorArgv(["--no-color", ...extra, "--json", "--json-out", out, "."])], {
       encoding: "utf8",
       maxBuffer: 1 << 30,
     });

@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "typecheck": "node scripts/typecheck.mjs",
     "lint": "oxlint --type-aware src",
-    "doctor": "react-doctor --no-telemetry --no-score --no-supply-chain",
+    "doctor": "node scripts/react_doctor.mjs",
     "type-coverage": "node --max-old-space-size=4096 node_modules/type-coverage/bin/type-coverage --strict --at-least 97.48",
     "test-local": "cypress open --e2e --browser chrome",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
