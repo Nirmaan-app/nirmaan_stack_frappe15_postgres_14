@@ -1457,6 +1457,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           "combination_warning");
     }
   }
+  // VAV-2b2 (2026-11-21): the slice's rules -- each its own line, AFTER every earlier line, so no line moves
+  for (const l of vav2b2Lines(pr, ls?.attribute_definitions)) add(l.title, l.detail, l.key);
   // ── 11. ADP-3a (owner 2026-10-20): the refusals that name what to change -- ADDED as their own group, LAST, so no
   //        earlier line moves (every line above keeps its number) ──
   // ADP-3a (owner 2026-10-20 13:35, U5): ADDED -- a row in a unit its kind is not stocked in (or a unit the catalogue
@@ -2712,6 +2714,64 @@ function sheetSharesFirstMatchLine(pr: Record<string, unknown>): { title: string
       "a mention that belongs to other equipment (an AHU's DDC, a controller for VFD operation) or only names makes ('single OEM') does not count",
       "the per-box controller is no longer added"].join("; "),
   };
+}
+
+/** VAV-2b2 (R9 / R10 / R11 - R14 / R16, owner 2026-11-21 10:38 - 12:36). PURE. The slice's lines, each with the key it states; a key
+ *  absent -> its line absent (the coverage check's structural vacuity). */
+function vav2b2Lines(pr: Record<string, unknown>, defs?: unknown): Array<{ title: string; detail: string; key: string }> {
+  const out: Array<{ title: string; detail: string; key: string }> = [];
+  // B1 (R6, owner 2026-11-20 14:25 / 14:37 / 14:48 / 15:19 / 15:36): the reading the sheet's shares rest on, now asked of the model
+  const rd = (pr.sheet_shares as { reading?: { controller_attr?: unknown; by_others_attr?: unknown; dp_attr?: unknown } } | undefined)?.reading;
+  const asked = Array.isArray(defs) ? new Set((defs as Array<{ id?: unknown }>).map((d) => String(d.id ?? ""))) : new Set<string>();
+  if (rd && [rd.controller_attr, rd.by_others_attr, rd.dp_attr].every((a) => asked.has(String(a ?? "")))) {
+    out.push({ key: "sheet_shares", title: "The model reads, on each VAV box row, the controller for the VAVs, 'by others' and a DP sensor mention",
+      detail: ["from the row's whole payload (its description, its notes and the headings' notes): a DDC controller or panel (the two are the same) made part of the box or its controller (included, or not said to be), BACnet in any form for the VAVs, a plain controller for the VAVs, or none",
+        "only a controller FOR CONTROLLING THE VAVs counts: another equipment's DDC / BACnet (an AHU, a VFD) and a line about makes ('single OEM') do not",
+        "a controller 'by the BMS vendor / by others' is read as such (nothing added); every DP sensor mention for the VAVs counts (a 'DP signal' alone, a gauge or an air-flow station does not)"].join("; ") });
+  }
+  // QR-K2 (owner 2026-11-21 13:40 "4 a"): an adaptor / adapter row is not the BACnet controller's own row
+  const sepEx = ((pr.sheet_shares as { separate?: { extras?: Array<{ share?: unknown; not_words?: unknown }> } } | undefined)?.separate?.extras) ?? [];
+  if (sepEx.some((e) => e.share === "bacnet" && /adaptor/i.test(String(e.not_words ?? "")))) {
+    out.push({ key: "sheet_shares", title: "A row naming an adaptor or adapter is not a BACnet controller's own row",
+      detail: "unless its own words say it controls the VAVs (then it is the controller's row by those words); it stays with its own category, untouched, and switches no share off" });
+  }
+  const cw = pr.combination_warning as { heading?: unknown; names?: { intro?: unknown; extra?: unknown; total?: unknown } } | undefined;
+  if (cw?.names && typeof cw.names === "object") {
+    const nm = cw.names;
+    out.push({ key: "combination_warning", title: `The '${String(cw.heading ?? "warning")}' block names each extra with its amount`,
+      detail: [`it reads '${String(nm.intro ?? "").replace("{n}", "<n>")}', then one line per extra ('${String(nm.extra ?? "").replace("{label}", "<extra>").replace("{x}", "<its amount>")}')`,
+        `then '${String(nm.total ?? "").replace("{x}", "<extras>").replace("{y}", "<row rate>")}'; a shared item and a full-rate block are extras too`].join("; ") });
+  }
+  const ss = pr.sheet_shares as { double_count?: { heading?: unknown; with?: Array<{ blocks?: unknown; families?: unknown; line?: unknown }> } } | undefined;
+  const dc = ss?.double_count;
+  if (dc && Array.isArray(dc.with)) {
+    out.push({ key: "sheet_shares", title: `A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel on a row shows a '${String(dc.heading ?? "")}' block`,
+      detail: [...dc.with.map((w) => `${list([...(Array.isArray(w.blocks) ? (w.blocks as unknown[]).map(String) : []), ...(Array.isArray(w.families) ? (w.families as unknown[]).map(String) : [])])} with a DDC panel (share or full rate): '${String(w.line ?? "").replace("{n}", "<the count inside the panel>").replace("{s}", "s")}'`),
+        "an amber block above the row total, in the 'Review before using' style; it replaces the small double-count lines of the blocks it names"].join("; ") });
+  }
+  const cf = pr.claims_filed as { categories?: Record<string, unknown>; note?: unknown; kinds?: Array<{ item?: unknown; prices?: { whole?: unknown; family?: unknown } }> } | undefined;
+  if (cf && typeof cf === "object" && Array.isArray(cf.kinds)) {
+    const cats = Object.values(cf.categories ?? {}).map(String);
+    const kinds = cf.kinds.map((k) => `${String(k.item ?? "")} -> ${k.prices?.whole ? `its full-rate block, per unit (the VAVs pre-filled = the sheet's VAVs / the row's quantity)` : `'${String(k.prices?.family ?? "")}'`}`);
+    out.push({ key: "claims_filed", title: `A row filed under ${list(cats)} that names a VAV item is priced here and stays filed where it is`,
+      detail: [`only on a sheet with VAV rows, only a row whose own words name one of: ${kinds.join("; ")}`,
+        "every other row of those categories is untouched; the row is read with the VAV rows (the VAV questions) and still counts for the sheet as the item's own row",
+        `it carries the note '${String(cf.note ?? "").replace("{category}", "<category>").replace("{item}", "<item>")}'; no toggle; never in the calculator`].join("; ") });
+  }
+  const ag = pr.add_group as { label?: unknown; heading?: unknown; sections?: unknown; combos?: Array<{ label?: unknown; adds?: Array<{ family?: unknown }> }> } | undefined;
+  if (ag && typeof ag === "object" && Array.isArray(ag.sections)) {
+    out.push({ key: "add_group", title: `Items borrowed from other sheets are added from one button, '${String(ag.label ?? "")}'`,
+      detail: [`it holds what the ${list((ag.sections as unknown[]).map(String))} lists held; the user need not know which sheet an item comes from`,
+        ...(Array.isArray(ag.combos) ? ag.combos.map((c) => `'${String(c.label ?? "")}' adds ${list((c.adds ?? []).map((a) => String(a.family ?? "")))} in one click, each its own line the user can remove`) : []),
+        `their items are headed '${String(ag.heading ?? "")}' (the working lines still say whose rules price them)`].join("; ") });
+  }
+  const fl = pr.family_units_label as Record<string, unknown> | undefined;
+  if (fl && typeof fl === "object") {
+    for (const [f, u] of Object.entries(fl)) {
+      out.push({ key: "family_units_label", title: `The add list shows '${f}' ${String(u)}`, detail: "a label only; the rate and how it is worked out are unchanged" });
+    }
+  }
+  return out;
 }
 
 /** VAV-2b1 (R1 - R10). PURE. The shared-item lines and the withdrawn-families line, in order, each with the key it states. */

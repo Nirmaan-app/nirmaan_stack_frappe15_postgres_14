@@ -155,6 +155,7 @@ import type {
   WorkingsGroup,
 } from "./rateHelperTypes";
 import { SHARES_OVERRIDE_KEY, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
+import { claimNotesOf, claimedConfigOf, claimedItemsOf, type RowClaim } from "./vavClaims";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
 const WIRING_CATEGORY_ID = "wiring_cabling";
@@ -191,6 +192,8 @@ export function buildExtractionByRow(
     items?: ExtractedListItem[];
     /** VRF-4 (q2): the row's category, carried onto an item-list row only (a refnet counts the sheet's VRF units) */
     category_id?: string;
+    /** VAV-2b2 (R16): a claimed row's filed category, the VAV item it names and its kind (absent on every other row) */
+    claimed_from?: string; claimed_item?: string; claimed_kind?: string;
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
@@ -203,6 +206,7 @@ export function buildExtractionByRow(
       row.items = r.items;
       if (typeof r.category_id === "string" && r.category_id) row.category = r.category_id;
     }
+    if (r.claimed_from && r.claimed_item && r.claimed_kind) row.claim = { from: r.claimed_from, item: r.claimed_item, kind: r.claimed_kind };
     m.set(r.excel_row, row);
   }
   ROW_CATEGORIES.set(m, cats);
@@ -211,7 +215,9 @@ export function buildExtractionByRow(
 
 /** SLICE 6: an extraction row that may carry the run's ITEMS (an item-list category). The base type lives
  * outside this slice's scope, so the items ride as an optional extension read through this alias. */
-export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string };
+export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string;
+  /** VAV-2b2 (R16): the run's claim on a row filed under Misc / Sensors (absent on every other row) */
+  claim?: RowClaim };
 
 /** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
  * so the unit is a pick held in the panel's session state instead). */
@@ -242,7 +248,7 @@ export type RowContextWithUnit = RateHelperRowContext & {
    *  here carries `sheet_shares.lines.not_box_row` */
   sheetSharesNotBox?: true;
   /** VAV-2b1 v80: on a BoQ row of a `sheet_shares` config, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
-  sheetWholeRow?: { sheetVavs: number | null; qty: number | null };
+  sheetWholeRow?: { sheetVavs: number | null; qty: number | null; helperWhole?: string };
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -1518,7 +1524,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // category has no ELIGIBLE config (unknown category, or a DATA-ONLY empty-pipelines config such
     // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
     // always resolves to its own eligible category by construction.
-    const cfg = resolveConfig(ctx.category);
+    // VAV-2b2 (R16): a row filed under Misc / Sensors that the run says the VAV helper claimed is priced by THAT config (it stays filed)
+    const claimRow = (ext as ExtractionRowWithItems | undefined)?.claim;
+    const claimCfg = claimedConfigOf(claimRow, ROW_CATEGORIES.get(extractionByRow)?.get(ctx.excelRow), ctx.category, configsByCategory);
+    const cfg = claimCfg ?? resolveConfig(ctx.category);
     // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
     // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
     // VRF-4 (Q1 A): VRF-2a's calculator-surface admission is removed -- the same predicate on every surface.
@@ -1640,22 +1649,27 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const two = !paint && listSpec.two_insulations && rowCtx.noRow !== true && !partialInsulationOf(listSpec, rowCtx)
         ? twoInsulationsOf(listSpec, ext as ExtractionRowWithItems | undefined) : null;
       // VAV-2b1 (R2 / R8): a withdrawn family is never priced per box -- dropped from the model's items before anything reads them
-      const wd = withdrawnItemsOf(listSpec, ext as ExtractionRowWithItems | undefined, configOf);
-      const extW = wd ? wd.ext : ext;
+      // VAV-2b2 (R16): a claimed row's items are its kind's ONE item (or none: the helper adds the full-rate block) -- nothing withdrawn
+      const claimed = claimCfg && claimRow ? claimedItemsOf(listSpec, claimRow, (ext as ExtractionRowWithItems | undefined)?.items,
+        (sec) => { const ds = sec ? itemListPricingSpec(configOf(delegatedSections(listSpec).find((x) => x.id === sec)?.category_id ?? "")) : listSpec; return ds ? familyAttr(ds) : "item"; }) : null;
+      const wd = claimed ? null : withdrawnItemsOf(listSpec, ext as ExtractionRowWithItems | undefined, configOf);
+      const extW = claimed ? { ...(ext as ExtractionRowWithItems), items: claimed.items } : wd ? wd.ext : ext;
       // VAV-2a (B3-B6): the VAV sheet rules settle the model's items first -- only a config declaring their keys, only on a BoQ row
       const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
       // VAV-2b1 (B1 / B2): the sheet's shared items -- only a config declaring `sheet_shares`, only on a BoQ box row
       const sheetOf = !paint && !two ? vavSheetOf(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, category.category_id) : null;
       const shareDec = !vavSheet?.existing ? sheetOf?.decision ?? null : null;
       const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
-      const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null } } : {};
+      const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null,
+        ...(claimed?.helperWhole ? { helperWhole: claimed.helperWhole } : {}) } } : {};
       const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}) };
       const out1v = computeItemList(category, listSpec, items, withShares, (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
       const out1 = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
       const v1 = (out1 as ItemListSuggestion).itemList;
       const out0a = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
       const v0a = (out0a as ItemListSuggestion).itemList;
-      const sheetLinesV = [...(wd?.lines ?? []), ...(vavSheet?.lines ?? []), ...(shareDec?.rowNotes ?? [])];
+      const claimNotes = claimed && claimRow ? claimNotesOf(listSpec, claimRow) : [];
+      const sheetLinesV = [...claimNotes, ...(wd?.lines ?? []), ...(vavSheet?.lines ?? []), ...(shareDec?.rowNotes ?? [])];
       const out0 = sheetLinesV.length && v0a
         ? { ...out0a, itemList: { ...v0a, sheetHeadingNotes: [...(v0a.sheetHeadingNotes ?? []), ...sheetLinesV.map((l) => plainPricerText(l, items))] } } as ItemListSuggestion
         : out0a;
@@ -2892,6 +2906,9 @@ export interface ItemListView {
   /** VAV-2a (B9): the combination-row warning (`combinationWarningOf`), drawn by the panel (and so the calculator) as an amber box after
    *  the items. Present ONLY on a priced row of a config declaring `combination_warning` whose extras pass the share. */
   combinationWarning?: string;
+  /** VAV-2b2 (R10, owner 2026-11-21 10:44 / 10:45 "1 yes 2 ok"): the "Possible double counting" block (a BACnet / DP block beside a DDC
+   *  block), shown above the row total in the "Review before using" style. Present only on a config declaring `sheet_shares.double_count`. */
+  doubleCounting?: { heading: string; lines: string[] };
   /** VAV-2b1 (R11, screen 7): the combination warning's block heading ("Review before using") -- the panel then draws the warning as the
    *  bordered amber block directly above the row total. Present only with `combinationWarning` on a config whose warning declares it. */
   reviewHeading?: string;
@@ -2906,7 +2923,8 @@ export interface ItemListView {
    */
   sections?: {
     addLabel: string;
-    adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string }> }>;
+    adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string; /** VAV-2b2 (R13): the section a grouped entry adds to */ section?: string }>;
+      /** VAV-2b2 (R12): one-click entries adding several items */ combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> }>;
     independent: SectionBlockView[];
     lines: number;
     bad: number;
@@ -7257,7 +7275,9 @@ function computeItemList(
     /** DU-1 (DR5): the numbers the item above this section read (its diameter / sides), for the section's `area_basis` */
     ownerReads?: Record<string, string | number>,
   ): SectionBlockView => {
-    const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
+    // VAV-2b2 (R14, owner 2026-11-21 10:50 "2 ok"): an item of a grouped section is headed without the sheet it is priced from
+    const heading = spec.add_group?.sections.includes(r.s.id) ? spec.add_group.heading
+      : `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
       // the delegated category is not in this helper's config map: never price it with any other rules
       const reason = `${r.s.label} cannot be priced here - its rules are not loaded; price it by hand`;
@@ -7579,8 +7599,19 @@ function computeItemList(
     blocks.forEach(mark);
     for (const sv of sectionViews) (sv.view.items ?? []).forEach(mark);
   }
+  // VAV-2b2 (R10): a BACnet / DP block (share, full rate or the plain item) beside a DDC block (share or full rate) -> the amber
+  // "Possible double counting" block naming the count inside the panel; it REPLACES the small double-count lines of the blocks it names
+  const doubleCounting = spec.sheet_shares?.double_count && shares ? doubleCountingOf(spec.sheet_shares, blocks, sectionViews, shares.blocks) : undefined;
+  // VAV-2b2 (R9): each extra on the row with its amount, for a warning that names them (`combination_warning.names`)
+  const both = (f: Partial<Record<RateKind, number>> | undefined) => (f?.supply_rate ?? 0) + (f?.install_rate ?? 0);
+  const boxFams = new Set(spec.combination_warning?.box_families ?? []);
+  const named = spec.combination_warning?.names ? [
+    ...blocks.filter((b) => b.state === "priced" && b.family !== null && !boxFams.has(b.family)).map((b) => ({ label: b.familyLabel ?? b.family ?? "", amount: both(b.figures) })),
+    ...sectionViews.flatMap((sv) => (sv.view.items ?? []).filter((b) => b.state === "priced").map((b) => ({ label: b.familyLabel ?? b.family ?? sv.heading, amount: both(b.figures) }))),
+    ...(shares?.blocks ?? []).filter((b) => b.figures).map((b) => ({ label: b.label, amount: both(b.figures ?? undefined) })),
+  ] : undefined;
   // VAV-2a (B9): the combination-row warning, on the row's catalogue lines (before any scope pick) -- only a config declaring it
-  const combo = rowPriced && spec.combination_warning ? combinationWarningOf(spec.combination_warning, blocks, sectionViews, values, items, shares?.priced ?? 0) : undefined;
+  const combo = rowPriced && spec.combination_warning ? combinationWarningOf(spec.combination_warning, blocks, sectionViews, values, items, shares?.priced ?? 0, named) : undefined;
   const reason = rowPriced ? undefined
     : (ownCount > 0 && !ownView.rowPriced ? ownView.reason : undefined) ?? sectionViews.find((sv) => !sv.view.rowPriced)?.view.reason ?? ownView.reason;
   const shown = lines || wholeBlocks.length;
@@ -7601,12 +7632,12 @@ function computeItemList(
     ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
     sections: {
       addLabel: ownSection?.add_label ?? "Add item",
-      adds: resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
+      adds: groupedAdds(spec, resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
         id: r.s.id,
         addLabel: r.s.add_label,
         families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family) && !hiddenFamilies(spec).includes(f.family)
           && items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
-      })),
+      }))),
       independent,
       lines,
       bad,
@@ -7614,6 +7645,7 @@ function computeItemList(
     ...(sheetInsulationLines.size ? { sheetHeadingNotes: [...sheetInsulationLines].map((l) => plainPricerText(l, items)) } : {}),
     ...(combo ? { combinationWarning: plainPricerText(combo, items) } : {}),
     ...(combo && spec.combination_warning?.heading ? { reviewHeading: spec.combination_warning.heading } : {}),
+    ...(doubleCounting ? { doubleCounting } : {}),
     ...(shares ? { shares } : {}),
   };
   const done: ItemListSuggestion = {
@@ -7641,8 +7673,51 @@ function computeItemList(
  * priced items of `box_families`; the other lines = the row's other own items and every section line. No box (or a box rate of 0) ->
  * nothing to compare, no warning. The share input not set -> `input_missing` whenever the row combines the box with anything.
  */
+/** VAV-2b2 (R13 / R12, owner 2026-11-21 10:40 "the user does not need to know where it is coming from"; 10:41 "1a 2a"). PURE. The grouped
+ *  sections' add buttons become ONE (`add_group.label`) holding their entries -- each knows its section -- then the one-click combos whose
+ *  every item is offered; the other buttons as they were. No `add_group` => the list unchanged. */
+export function groupedAdds(spec: ItemListPricingSpec, adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string }> }>):
+  Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string; section?: string }>; combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> }> {
+  const g = spec.add_group;
+  if (!g) return adds;
+  const inG = adds.filter((a) => g.sections.includes(a.id));
+  if (!inG.length) return adds;
+  const families = inG.flatMap((a) => a.families.map((f) => ({ ...f, section: a.id })));
+  const offered = (x: { section: string; family: string }) => families.some((f) => f.section === x.section && f.family === x.family);
+  const combos = (g.combos ?? []).filter((c) => c.adds.length && c.adds.every(offered));
+  const at = adds.findIndex((a) => g.sections.includes(a.id));
+  const rest = adds.filter((a) => !g.sections.includes(a.id));
+  return [...rest.slice(0, at), { id: g.sections[0], addLabel: g.label, families, ...(combos.length ? { combos } : {}) }, ...rest.slice(at)];
+}
+
+/** VAV-2b2 (R10, owner 2026-11-21 10:44 "when both bacnet and ddc blocks are on a row...a more prominent warning for possible double
+ *  counting of Bacnets should be given"; 10:45 "1 yes 2 ok" -- the same for a DP sensor, share or plain item, beside a DDC block). PURE.
+ *  Any DDC block (share or full rate) on the row with any listed block or item -> one line each, naming the count inside the DDC block
+ *  (its `<part>_count` box); the small double-count lines on the blocks and items it names are taken off (the block replaces them). */
+export function doubleCountingOf(ss: NonNullable<ItemListPricingSpec["sheet_shares"]>, blocks: ItemBlockView[], sectionViews: readonly SectionBlockView[],
+  shareBlocks: SharesView["blocks"]): { heading: string; lines: string[] } | undefined {
+  const dc = ss.double_count;
+  const ddc = dc ? shareBlocks.find((b) => dc.ddc.includes(b.id)) : undefined;
+  if (!dc || !ddc) return undefined;
+  const items = [...blocks, ...sectionViews.flatMap((sv) => sv.view.items ?? [])];
+  const wholeLines = new Set((ss.whole ?? []).map((w) => w.line).filter((l): l is string => !!l));
+  const lines: string[] = [];
+  for (const w of dc.with) {
+    // (never the DDC block itself: a full-rate DDC panel is "the other block" only beside a DDC share -- QR-C1 (b), 13:59)
+    const bs = shareBlocks.filter((b) => w.blocks.includes(b.id) && b !== ddc);
+    const its = items.filter((b) => b.family !== null && w.families.includes(b.family));
+    if (!bs.length && !its.length) continue;
+    const n = Number(ddc.fields.find((f) => f.id === `${w.part}_count`)?.value ?? 0) || 0;
+    lines.push(w.line.split("{n}").join(String(n)).split("{s}").join(n === 1 ? "" : "s"));
+    for (const b of [...bs, ddc]) b.notes = b.notes.filter((l) => !wholeLines.has(l));
+    for (const b of its) delete b.doubleCountLine;
+  }
+  return lines.length ? { heading: dc.heading, lines } : undefined;
+}
+
 export function combinationWarningOf(cw: NonNullable<ItemListPricingSpec["combination_warning"]>, blocks: readonly ItemBlockView[],
-  sectionViews: readonly SectionBlockView[], values: Readonly<Record<string, number>>, items: readonly RateMasterItem[], shareLines = 0): string | undefined {
+  sectionViews: readonly SectionBlockView[], values: Readonly<Record<string, number>>, items: readonly RateMasterItem[], shareLines = 0,
+  /** VAV-2b2 (R9): each extra with its amount, for a warning declaring `names` */ named?: ReadonlyArray<{ label: string; amount: number }>): string | undefined {
   const boxes = new Set(cw.box_families);
   const both = (f: Partial<Record<RateKind, number>> | undefined) => (f?.supply_rate ?? 0) + (f?.install_rate ?? 0);
   const boxBlocks = blocks.filter((b) => b.state === "priced" && b.family !== null && boxes.has(b.family));
@@ -7655,6 +7730,13 @@ export function combinationWarningOf(cw: NonNullable<ItemListPricingSpec["combin
   if (share === null) return cw.input_missing;
   if (!(x > share * box + 1e-9)) return undefined;
   const fig = (v: number) => formatToRoundedIndianRupee(v).replace(/^₹/, "");
+  // VAV-2b2 (R9, owner 2026-11-21 10:52 / 10:54 "a"): the block names each extra with its amount, then the extras total (one line each)
+  if (cw.names && named) {
+    const k = named.length;
+    return [k === 1 ? cw.names.intro_one : cw.names.intro.split("{n}").join(String(k)),
+      ...named.map((e) => cw.names!.extra.split("{label}").join(e.label).split("{x}").join(fig(e.amount))),
+      cw.names.total.split("{x}").join(fig(x)).split("{y}").join(fig(y))].join("\n");
+  }
   const t = n === 1 && cw.line_one ? cw.line_one : cw.line;
   return t.split("{n}").join(String(n)).split("{x}").join(fig(x)).split("{y}").join(fig(y));
 }
@@ -8401,6 +8483,8 @@ export type ItemEditOp =
   | { op: "section"; section: string; pipe: number | null; index: number; inner: ItemEditOp }
   /** SLICE 12e-3a (owner 13:42): "+ Add insulation" -- an INDEPENDENT section of this family, blank (S1). */
   | { op: "add_section"; section: string; family: string }
+  /** VAV-2b2 (R12): one click adds several section items (each its own removable line) */
+  | { op: "add_sections"; adds: Array<{ section: string; family: string }> }
   /** SLICE 12e-3a: the x of an independent section. An attached one has none: its item's toggle removes it. */
   | { op: "remove_section"; section: string; index: number }
   /** VRF-3b (U1 / U3): the pricer's value in one field of one extra line of unit `index` */
@@ -8532,6 +8616,11 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
     }
     case "add_section":
       return done(items, { ...state.sections, [op.section]: [...(state.sections?.[op.section] ?? []), { base: null, family: op.family, attrs: {} }] });
+    case "add_sections": {
+      const secs = { ...state.sections };
+      for (const a of op.adds) secs[a.section] = [...(secs[a.section] ?? []), { base: null, family: a.family, attrs: {} }];
+      return done(items, secs);
+    }
     case "remove_section": {
       const list = [...(state.sections?.[op.section] ?? [])];
       if (op.index < 0 || op.index >= list.length) return state;

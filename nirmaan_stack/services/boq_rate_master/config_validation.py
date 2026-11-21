@@ -1023,6 +1023,15 @@ def _validate_combination_warning(cw, pr):
     if "heading" in cw and not _nonempty_str(cw["heading"]):
         _vthrow(f"{loc}.heading must be a non-empty string.")
     _sentence(cw, "input_missing", loc)
+    # VAV-2b2 (R9, owner 2026-11-21 10:52 / 10:54 "a"): the block names each extra with its amount
+    if "names" in cw:
+        nm = cw["names"]
+        if not isinstance(nm, dict) or set(nm) != {"intro", "intro_one", "extra", "total"}:
+            _vthrow(f"{loc}.names needs exactly intro, intro_one, extra, total.")
+        _sentence(nm, "intro", f"{loc}.names", ("{n}",))
+        _sentence(nm, "intro_one", f"{loc}.names")
+        _sentence(nm, "extra", f"{loc}.names", ("{label}", "{x}"))
+        _sentence(nm, "total", f"{loc}.names", ("{x}", "{y}"))
 
 
 def _word_list(v, where):
@@ -1179,10 +1188,12 @@ def _validate_sheet_shares(ss, spec):
     SKU an item is the cross-item check (`scope_problems`)."""
     loc = "list_spec.pricing.sheet_shares"
     # VAV-2b1 v80 (owner 01:15 - 01:36): the optional `whole` list (the full-rate, per-unit mode of a share)
-    if not isinstance(ss, dict) or set(ss) - {"whole"} != _SHEET_SHARES_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))} (and optionally whole).")
+    if not isinstance(ss, dict) or set(ss) - {"whole", "double_count"} != _SHEET_SHARES_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_SHARES_KEYS))} (and optionally whole, double_count).")
     if "whole" in ss:
         _validate_sheet_shares_whole(ss["whole"], ss, f"{loc}.whole")
+    if "double_count" in ss:
+        _validate_double_count(ss["double_count"], ss, spec, f"{loc}.double_count")
     pr = spec.get("pricing") or {}
     rd = ss["reading"]
     if not isinstance(rd, dict) or set(rd) != _SHEET_SHARES_READING:
@@ -1260,7 +1271,12 @@ def _validate_sheet_shares(ss, spec):
         if k not in ids:
             _vthrow(f"{loc}.separate.artefact_words keys must be share ids.")
         _pattern(v, f"{loc}.separate.artefact_words.{k}")
-    _lines_exactly(ss["labels"], _SHEET_SHARES_LABELS, f"{loc}.labels")
+    # VAV-2b2 (R15): two optional labels ("cost" for "BCS"; "Number of VAVs" in the Calculator)
+    _lines_exactly({k: v for k, v in ss["labels"].items() if k not in _SHEET_SHARES_LABELS_OPTIONAL} if isinstance(ss["labels"], dict) else ss["labels"],
+                   _SHEET_SHARES_LABELS, f"{loc}.labels")
+    for k in _SHEET_SHARES_LABELS_OPTIONAL:
+        if k in ss["labels"] and not _nonempty_str(ss["labels"][k]):
+            _vthrow(f"{loc}.labels.{k} must be a non-empty string.")
     # VAV-2b1 v80 (owner 01:16 / "b" 01:21): the optional not_box_row line (under a share the user adds on a row that is not a VAV box row)
     _lines_exactly({k: v for k, v in ss["lines"].items() if k not in _SHEET_SHARES_LINES_OPTIONAL} if isinstance(ss["lines"], dict) else ss["lines"],
                    _SHEET_SHARES_LINES, f"{loc}.lines")
@@ -1299,7 +1315,8 @@ def _validate_sheet_shares_whole(wl, ss, loc):
     keys = set()
     for w in wl:
         if not isinstance(w, dict) or not {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit"} <= set(w) \
-                or not set(w) <= {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit", "fixed", "count_without_vavs", "line"}:
+                or not set(w) <= {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit", "fixed", "count_without_vavs", "line",
+                                  "for_count"}:
             _vthrow(f"{loc} entries need key / share / label / heading / unit_word / prefill_line / per_unit (fixed / count_without_vavs / line optional).")
         if w["share"] not in shares or not _nonempty_str(w["key"]) or w["key"] in shares or w["key"] in keys:
             _vthrow(f"{loc}.share must name a share and key must be a new, unique edit key.")
@@ -1318,6 +1335,36 @@ def _validate_sheet_shares_whole(wl, ss, loc):
             _vthrow(f"{loc}.count_without_vavs must be a positive whole number.")
         if "line" in w and not _nonempty_str(w["line"]):
             _vthrow(f"{loc}.line must be a non-empty sentence.")
+        # VAV-2b2 (R7, owner 2026-11-21 10:25 "1b"): the last working line when the fixed part's count is not 1 ("for {n} {unit}s")
+        if "for_count" in w and (not _nonempty_str(w["for_count"]) or "{n}" not in w["for_count"] or not w.get("fixed")):
+            _vthrow(f"{loc}.for_count must name {{n}}, on an entry with a fixed part.")
+
+
+def _validate_double_count(dc, ss, spec, loc):
+    """VAV-2b2 (R10, owner 2026-11-21 10:44 / 10:45 "1 yes 2 ok") -- `sheet_shares.double_count`: the amber block shown when a BACnet / DP
+    block (share or full rate, or the plain item) sits beside a DDC block (share or full rate): {heading, ddc: [share / whole keys], with:
+    [{blocks: [share / whole keys], families: [families of this config or its sections], part: a part id of the DDC share, line: naming
+    {n} (and optionally {s})}]}."""
+    ids = {sh.get("id") for sh in ss.get("shares") or [] if isinstance(sh, dict)} | {w.get("key") for w in ss.get("whole") or [] if isinstance(w, dict)}
+    known = set(((spec.get("pricing") or {}).get("families") or {}).keys())
+    for sec in spec.get("sections") or []:
+        if isinstance(sec, dict):
+            known |= set(sec.get("families") or [])
+    ddc_parts = set()
+    for sh in ss.get("shares") or []:
+        if isinstance(sh, dict) and sh.get("bcs_of"):
+            ddc_parts |= {p.get("id") for p in sh.get("parts") or [] if isinstance(p, dict)}
+    if not isinstance(dc, dict) or set(dc) != {"heading", "ddc", "with"} or not _nonempty_str(dc["heading"]):
+        _vthrow(f"{loc} needs exactly heading, ddc, with.")
+    if not isinstance(dc["ddc"], list) or not dc["ddc"] or not all(k in ids for k in dc["ddc"]):
+        _vthrow(f"{loc}.ddc must list share / full-rate keys.")
+    if not isinstance(dc["with"], list) or not dc["with"]:
+        _vthrow(f"{loc}.with must be a non-empty list.")
+    for w in dc["with"]:
+        if (not isinstance(w, dict) or set(w) != {"blocks", "families", "part", "line"} or not isinstance(w["blocks"], list)
+                or not all(k in ids for k in w["blocks"]) or not isinstance(w["families"], list) or not all(f in known for f in w["families"])
+                or w["part"] not in ddc_parts or not _nonempty_str(w["line"])):
+            _vthrow(f"{loc}.with entries need blocks (share / full-rate keys), families, part (a DDC part) and a line ({{n}} = that part's count).")
 
 
 def _validate_user_addable(ua, spec):
@@ -1836,7 +1883,7 @@ _PRICING_KEYS = _PRICING_KEYS | {"two_insulations"}
 # the box come to more than a Pricing Input share of the box's own rate. Display only. ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"combination_warning"}
 _COMBINATION_WARNING_KEYS = {"box_families", "share_input", "line", "input_missing"}
-_COMBINATION_WARNING_OPTIONAL = {"line_one", "heading"}
+_COMBINATION_WARNING_OPTIONAL = {"line_one", "heading", "names"}
 # VAV-2a (B3 / B4 / QR-C1, owner 2026-11-18 23:32; QR-3a / QR-4 (a) 2026-11-19 00:57; 01:23 rate-only; QR-C1 (a) 13:31): `own_row_check`;
 # (B5, owner 23:14 / 23:18; 01:29 / 01:34 / 01:39; 12:37-12:55): `integrator_cabling`; (B6, owner 23:49; mockup screen 4): `existing_boxes`.
 # Each arrives WITH its shape check below and runs only on a BoQ row. ABSENT => as before.
@@ -1868,6 +1915,99 @@ _PRICING_KEYS = _PRICING_KEYS | {"family_alias_needs", "no_sku_refuse_default"}
 _PRICING_KEYS = _PRICING_KEYS | {"sheet_shares", "withdrawn_families"}
 # VAV-2b1 (owner 2026-11-21 01:07 / 01:09): `user_addable` -- withdrawn families a list still offers, added by the user at full rate.
 _PRICING_KEYS = _PRICING_KEYS | {"user_addable"}
+# VAV-2b2 (R16, owner 2026-11-21 12:33 / 12:34 "agree on all 3" / 12:36 "a"): `claims_filed` -- the rows filed under Misc / Sensors the VAV
+# helper claims (services/boq_rate_master/vav_claims.py). VAV Box ONLY: refused on any other category.
+_PRICING_KEYS = _PRICING_KEYS | {"claims_filed", "add_group", "family_units_label"}
+
+
+def _validate_add_group(ag, spec):
+    """VAV-2b2 (R13 / R12 / R14, owner 2026-11-21 10:40 / 10:41 "1a 2a" / 10:50) -- `list_spec.pricing.add_group`: ONE add button
+    (`label`) for the delegated sections it names (two or more, each a section of this config with a category), the heading their items
+    carry, and optional one-click `combos` (a label and two or more {section, family} of those sections, each family offered there)."""
+    loc = "list_spec.pricing.add_group"
+    secs = {s.get("id"): s for s in spec.get("sections") or [] if isinstance(s, dict) and s.get("category_id")}
+    if not isinstance(ag, dict) or not {"label", "heading", "sections"} <= set(ag) <= {"label", "heading", "sections", "combos"}:
+        _vthrow(f"{loc} needs label, heading, sections (combos optional).")
+    if not _nonempty_str(ag["label"]) or not _nonempty_str(ag["heading"]):
+        _vthrow(f"{loc}.label and .heading must be non-empty strings.")
+    if not isinstance(ag["sections"], list) or len(ag["sections"]) < 2 or len(set(ag["sections"])) != len(ag["sections"]) \
+            or not all(x in secs for x in ag["sections"]):
+        _vthrow(f"{loc}.sections must name two or more delegated sections of this config, each once.")
+    for c in ag.get("combos") or []:
+        if not isinstance(c, dict) or set(c) != {"label", "adds"} or not _nonempty_str(c["label"]) or not isinstance(c["adds"], list) \
+                or len(c["adds"]) < 2:
+            _vthrow(f"{loc}.combos entries need a label and two or more adds.")
+        for a in c["adds"]:
+            if not isinstance(a, dict) or set(a) != {"section", "family"} or a["section"] not in ag["sections"] \
+                    or a["family"] not in (secs[a["section"]].get("families") or []):
+                _vthrow(f"{loc}.combos adds must be a family offered by one of the grouped sections.")
+
+
+def _validate_family_units_label(fl, spec):
+    """VAV-2b2 (R11) -- `list_spec.pricing.family_units_label`: an own family -> the unit words its add-list entry shows ("per VAV")."""
+    fams = set(((spec.get("pricing") or {}).get("families") or {}).keys())
+    if not isinstance(fl, dict) or not fl or not all(k in fams and _nonempty_str(v) for k, v in fl.items()):
+        _vthrow("list_spec.pricing.family_units_label must map families of this config to non-empty unit words.")
+_CLAIMS_CATEGORIES = {"hvac_vav_box"}
+_CLAIM_KIND_KEYS = {"id", "item", "share", "own_row_extra", "existing_boxes", "words", "not_words", "prices", "line"}
+
+
+def _validate_claims_filed(cf, spec, category_id):
+    """VAV-2b2 (R16) -- `list_spec.pricing.claims_filed`: {categories: {category_id: its label}, note: the sentence with {category} and
+    {item}, kinds: [{id, item} + exactly one test: share (an id of sheet_shares.shares) / own_row_extra ("integrator" or an own_row_check
+    extra's label) / existing_boxes (true; needs existing_boxes) / words (a pattern, optional not_words)]}. Only on hvac_vav_box."""
+    loc = "list_spec.pricing.claims_filed"
+    if category_id not in _CLAIMS_CATEGORIES:
+        _vthrow(f"{loc} is allowed on VAV Box only (owner 2026-11-21 12:33: other categories only as exceptions).")
+    pr = spec.get("pricing") or {}
+    if not isinstance(cf, dict) or set(cf) != {"categories", "note", "kinds"}:
+        _vthrow(f"{loc} needs exactly categories, note, kinds.")
+    cats = cf["categories"]
+    if not isinstance(cats, dict) or not cats or any(not _nonempty_str(k) or not _nonempty_str(v) for k, v in cats.items()):
+        _vthrow(f"{loc}.categories must map category ids to non-empty labels.")
+    if category_id in cats:
+        _vthrow(f"{loc}.categories must not name the claiming category itself.")
+    if not _nonempty_str(cf["note"]) or "{category}" not in cf["note"] or "{item}" not in cf["note"]:
+        _vthrow(f"{loc}.note must be a sentence carrying {{category}} and {{item}}.")
+    shares = {x.get("id") for x in ((pr.get("sheet_shares") or {}).get("shares") or []) if isinstance(x, dict)}
+    extras = {x.get("label") for x in ((pr.get("own_row_check") or {}).get("extras") or []) if isinstance(x, dict)}
+    kinds = cf["kinds"]
+    if not isinstance(kinds, list) or not kinds:
+        _vthrow(f"{loc}.kinds must be a non-empty list.")
+    seen = set()
+    for k in kinds:
+        tests = [t for t in ("share", "own_row_extra", "existing_boxes", "words") if isinstance(k, dict) and t in k]
+        if (not isinstance(k, dict) or not set(k) <= _CLAIM_KIND_KEYS or not _nonempty_str(k.get("id")) or not _nonempty_str(k.get("item"))
+                or k["id"] in seen or len(tests) != 1):
+            _vthrow(f"{loc}.kinds entries need a unique id, an item and exactly one test.")
+        seen.add(k["id"])
+        t = tests[0]
+        if t == "share" and k["share"] not in shares:
+            _vthrow(f"{loc}.kinds share must name a share of sheet_shares.")
+        if t == "own_row_extra" and k["own_row_extra"] != "integrator" and k["own_row_extra"] not in extras:
+            _vthrow(f"{loc}.kinds own_row_extra must be 'integrator' or an own_row_check extra's label.")
+        if t == "existing_boxes" and (k["existing_boxes"] is not True or not pr.get("existing_boxes")):
+            _vthrow(f"{loc}.kinds existing_boxes must be true, with existing_boxes declared.")
+        pz = k.get("prices")
+        wholes = {w.get("key") for w in ((pr.get("sheet_shares") or {}).get("whole") or []) if isinstance(w, dict)}
+        secs = {x.get("id") for x in (spec.get("sections") or []) if isinstance(x, dict)}
+        if not isinstance(pz, dict) or not pz or not set(pz) <= {"whole", "family", "section"} or (("whole" in pz) == ("family" in pz)):
+            _vthrow(f"{loc}.kinds prices must name a full-rate block (whole) or one item (family, optional section).")
+        if "whole" in pz and (pz["whole"] not in wholes or "section" in pz):
+            _vthrow(f"{loc}.kinds prices.whole must be a key of sheet_shares.whole.")
+        if "family" in pz and "section" not in pz and pz["family"] not in (pr.get("families") or {}):
+            _vthrow(f"{loc}.kinds prices.family must be a family of this config (or of its section).")
+        if "section" in pz and pz["section"] not in secs:
+            _vthrow(f"{loc}.kinds prices.section must be a section of this config.")
+        if "line" in k and not _nonempty_str(k["line"]):
+            _vthrow(f"{loc}.kinds line must be a non-empty sentence.")
+        if t == "words":
+            for w in ("words", "not_words"):
+                if w in k:
+                    try:
+                        re.compile(k[w])
+                    except (re.error, TypeError):
+                        _vthrow(f"{loc}.kinds {w} must be a valid pattern.")
 _SHEET_SHARES_KEYS = {"reading", "count", "shares", "separate", "labels", "lines"}
 _SHEET_SHARES_READING = {"controller_attr", "by_others_attr", "dp_attr", "values", "yes"}
 _SHEET_SHARES_VALUES = {"ddc_inclusive", "ddc", "bacnet", "controller"}
@@ -1875,6 +2015,7 @@ _SHEET_SHARES_LABELS = {"vavs", "count_suffix", "typed", "typed_supply", "typed_
                         "typed_by_you", "changed_by_you", "from_input", "worked_out", "need_vavs", "no_sku", "per_box"}
 _SHEET_SHARES_LINES = {"not_added", "check", "ddc_not_inclusive", "by_others", "rate_only", "blank_rows", "zero_row"}
 _SHEET_SHARES_LINES_OPTIONAL = {"not_box_row"}
+_SHEET_SHARES_LABELS_OPTIONAL = {"cost_word", "vavs_calculator"}
 _SHARE_KEYS = {"id", "label", "heading", "add_label", "parts", "item"}
 _SHARE_OPTIONAL = {"bcs_of", "replaces", "replaces_line"}
 _SHARE_PART_KEYS = {"id", "label", "per_label", "per_input", "sku"}
@@ -4330,6 +4471,12 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_withdrawn_families(pr["withdrawn_families"], spec)
     if "user_addable" in pr:
         _validate_user_addable(pr["user_addable"], spec)
+    if "claims_filed" in pr:
+        _validate_claims_filed(pr["claims_filed"], spec, cfg.get("category_id"))
+    if "add_group" in pr:
+        _validate_add_group(pr["add_group"], spec)
+    if "family_units_label" in pr:
+        _validate_family_units_label(pr["family_units_label"], spec)
     if "source_tags" in pr:
         _validate_source_tags(pr["source_tags"], spec)
     if "two_insulations" in pr:

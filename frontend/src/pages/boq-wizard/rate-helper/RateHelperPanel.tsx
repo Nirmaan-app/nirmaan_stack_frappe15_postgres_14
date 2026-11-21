@@ -35,7 +35,7 @@ import {
   type ShownAttribute,
 } from "./pricingSheetHelper";
 import { moneyValue } from "./attributeWorkingLines";
-import { ReviewBlock, SharedItems } from "./SharedItemBlock";
+import { DoubleCountBlock, ReviewBlock, SharedItems } from "./SharedItemBlock";
 import { SHARES_OVERRIDE_KEY, applyShareEdit, type ShareEditOp } from "./vavSheetShares";
 import { floorBoxValue, isFloorRaised } from "./conductorFloor";
 import {
@@ -1468,10 +1468,10 @@ function ItemListBlocks({
   // VRF-3b (U4): on a row with extras every unit and every extra is a line
   const n = view.sections ? view.sections.lines : view.lineCount ? view.lineCount.lines : view.items.length;
   const bad = view.sections ? view.sections.bad : view.lineCount ? view.lineCount.bad : view.items.filter((b) => b.state !== "priced").length;
-  const pick = (family: string) => {
+  const pick = (family: string, section?: string) => {
     if (!picker) return;
     onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family }
-      : picker.mode === "add_section" ? { op: "add_section", section: picker.section, family }
+      : picker.mode === "add_section" ? { op: "add_section", section: section ?? picker.section, family }
       : { op: "add", family });
     setPicker(null);
   };
@@ -1489,17 +1489,30 @@ function ItemListBlocks({
     </div>
   );
   // VAV-2b1 v80 (owner 01:07 "using that" / 01:32): the full-rate entries sit in the item list and insert their whole block
-  const familyPicker = (title: string, families: ItemListView["families"] = view.families, wholes: Array<{ id: string; label: string }> = []) => (
+  const familyPicker = (title: string, families: Array<{ family: string; units: string; section?: string }> = view.families, wholes: Array<{ id: string; label: string }> = [],
+    combos: Array<{ label: string; adds: Array<{ section: string; family: string }> }> = []) => (
     <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="item-family-picker">
       <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{title}</div>
       {families.map((f) => (
         <button
-          key={f.family}
+          key={`${f.section ?? ""}:${f.family}`}
           type="button"
-          onClick={() => pick(f.family)}
+          onClick={() => pick(f.family, f.section)}
           className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
         >
           {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+        </button>
+      ))}
+      {/* VAV-2b2 (R12, owner 2026-11-21 10:40 "2 a"): one click adds every item of the entry, each its own removable line */}
+      {combos.map((c) => (
+        <button
+          key={c.label}
+          type="button"
+          onClick={() => { onEdit({ op: "add_sections", adds: c.adds }); setPicker(null); }}
+          className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+          data-testid="item-combo-add"
+        >
+          {c.label}
         </button>
       ))}
       {onShares && wholes.map((w) => (
@@ -2205,6 +2218,8 @@ function ItemListBlocks({
         familyPicker(
           view.sections?.adds.find((a) => a.id === picker.section)?.addLabel ?? "",
           view.sections?.adds.find((a) => a.id === picker.section)?.families ?? [],
+          [],
+          view.sections?.adds.find((a) => a.id === picker.section)?.combos ?? [],
         )
       ) : view.sections ? (
         // SLICE 12e-3a (owner D5a / 13:42): a config declaring sections names its own items on the button
@@ -2238,6 +2253,8 @@ function ItemListBlocks({
           <Plus className="h-3 w-3" /> Add item
         </button>
       ))}
+      {/* VAV-2b2 (R10): the "Possible double counting" block, above the row total */}
+      {!section && view.doubleCounting && <DoubleCountBlock heading={view.doubleCounting.heading} lines={view.doubleCounting.lines} />}
       {!section && view.combinationWarning && view.reviewHeading && <ReviewBlock heading={view.reviewHeading} note={view.combinationWarning} />}
       {!section && <div
         className={cn(

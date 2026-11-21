@@ -1,0 +1,269 @@
+{
+  "_about": "VAV-2b2: HVAC v81 = v80 + ONLY these (prompt B10). Read by scripts/_instruments/mint_hvac_v81_vav2b2.py and by vav2b2Keys.harness.ts (withV81Keys / withV81Inputs) - the SAME file, pinned equal by the vav2b2 MINT PARITY test. No item added, deleted or changed. Every rule cites the owner's words (VAV_Rulings_Capture_2026-11-18.md).",
+  "pricing_inputs": {
+    "vav_combination_warning_share": {
+      "from": 0.5,
+      "to": 0.25,
+      "why": "owner 2026-11-21 10:25 \"2 lower it to 25%\"",
+      "remarks_append": " Lowered to 0.25 (owner 2026-11-21 10:25 \"2 lower it to 25%\", after the VAV-2b1 preview)."
+    }
+  },
+  "vav": {
+    "drop_top_keys": [
+      "calculator_only"
+    ],
+    "list_defs_add": [
+      {
+        "id": "controller_mention",
+        "label": "Controller for the VAVs",
+        "type": "choice",
+        "values": [
+          "ddc_inclusive",
+          "ddc",
+          "bacnet",
+          "controller",
+          "none"
+        ],
+        "allow_none": true,
+        "note": "VAV boxes only. Read THIS row's whole payload (its description, its own notes and the notes of the headings above it): is a controller FOR CONTROLLING THE VAVs mentioned? Only a controller that is for controlling the VAVs counts. 'ddc_inclusive' = a DDC controller or DDC panel (the two are the same thing) is part of the VAV box or its controller and the text makes it part of the price (e.g. 'Independent DDC VAV Controller with inbuilt pressure sensor', a box 'consisting of' / 'complete with' ... a DDC controller, 'inclusive of DDC controller'). 'ddc' = a DDC controller or DDC panel is part of the VAV box or its controller but the text does not say it is included. 'bacnet' = BACnet in any form (BACnet over IP, BACnet MS/TP, BACnet alone) for the VAV box, its controller or the VAV network. 'controller' = a controller for the VAVs with neither a DDC nor a BACnet word (e.g. 'controller for receiving Temp. & DP Signal', 'required controllers for controlling all the VAVs', the VAVs 'shall communicate through a network controller'). 'none' = no controller for the VAVs. NOT counted (answer as if those words were absent): a DDC or BACnet controller of OTHER equipment (an AHU's 'BACNET/IP DDC', a 'centralised controller for VFD operation'); a line about makes ('All VAV controllers, DDC controllers ... shall be of single OEM' names no DDC for the VAVs - its BACnet controllers still count as 'bacnet' when BACnet is named for the VAVs). When more than one applies, answer the first of: ddc_inclusive, ddc, bacnet, controller."
+      },
+      {
+        "id": "controller_by_others",
+        "label": "Controller by others",
+        "type": "choice",
+        "values": [
+          "Yes",
+          "No"
+        ],
+        "allow_none": true,
+        "note": "VAV boxes only: 'Yes' when the text says the VAV controller is supplied or installed by the BMS vendor or by others (e.g. '(VAV controllers and thermostats will be installed by the BMS vendor at site)'); otherwise 'No'."
+      },
+      {
+        "id": "dp_sensor_mention",
+        "label": "DP sensor mentioned",
+        "type": "choice",
+        "values": [
+          "Yes",
+          "No"
+        ],
+        "allow_none": true,
+        "note": "VAV boxes only: 'Yes' when THIS row's payload mentions a DP sensor for the VAVs in any form - a differential pressure sensor, switch or transmitter, a 'DP sensor' / 'DPS', a duct static pressure sensor; every DP sensor mention counts. 'No' otherwise. A 'DP signal' alone, a pressure gauge, an air-flow monitoring station or the box's own velocity sensor is not a DP sensor."
+      }
+    ],
+    "list_def_notes_append": {
+      "vav_item": " A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item.",
+      "airflow_cfm": " A lower limit only ('Above 3200 CFM', '3700 CFM above'): copy it with its word, e.g. 'Above 3200 CFM'.",
+      "qty_per_box": " Two of an item when the row asks for two ('two thermostats'; a piece 'on either side' = 2)."
+    },
+    "section_family_notes": {
+      "misc": "Which Misc item goes with THIS VAV box: Digital Thermostat (a thermostat for the box; a thermostat with a CO2 sensor or a CO2 display is TWO items - this Digital Thermostat and a CO2 Sensor under Sensor); Temperature Gauge / Thermometer = Room temperature sensor - priced at Misc's Temperature Gauge / Thermometer (a room temperature sensor with no thermostat); Transformation Pieces (a transition / transformation piece between the box and the duct). Answer 'none of these' for anything else and copy its words into 'Item as written'.",
+      "sensors": "Which sensor goes with THIS VAV box: CO2 Sensor (a CO2 sensor, also one that comes with a thermostat - a thermostat with a CO2 sensor or a CO2 display is TWO items: the Digital Thermostat under Misc item and this CO2 Sensor). A DP / differential pressure / duct static pressure sensor is NOT an item here: answer it in 'DP sensor mentioned' on the VAV box. Answer 'none of these' for anything else and copy its words into 'Sensor as written'."
+    },
+    "pricing_set": {
+      "claims_filed": {
+        "categories": {
+          "hvac_misc": "Misc",
+          "hvac_sensors": "Sensors & Controls"
+        },
+        "note": "This row is filed under {category}. It is priced here because it matches a VAV item ({item}). The classification may be wrong.",
+        "kinds": [
+          {
+            "id": "ddc",
+            "share": "ddc",
+            "item": "DDC panel",
+            "prices": {
+              "whole": "ddc_whole"
+            }
+          },
+          {
+            "id": "bacnet",
+            "share": "bacnet",
+            "item": "BACnet controller",
+            "prices": {
+              "whole": "bacnet_whole"
+            }
+          },
+          {
+            "id": "dp",
+            "share": "dp",
+            "item": "DP sensor",
+            "prices": {
+              "section": "sensors",
+              "family": "Duct Static Pressure Sensor"
+            }
+          },
+          {
+            "id": "integrator",
+            "own_row_extra": "integrator",
+            "item": "VAV integrator",
+            "prices": {
+              "family": "VAV Integrator"
+            }
+          },
+          {
+            "id": "existing",
+            "existing_boxes": true,
+            "item": "VAV installation",
+            "prices": {
+              "family": "VAV installation - any size"
+            }
+          },
+          {
+            "id": "conical",
+            "own_row_extra": "Conical piece",
+            "item": "conical piece",
+            "prices": {
+              "family": "Conical piece"
+            }
+          },
+          {
+            "id": "transformation",
+            "own_row_extra": "Transformation piece",
+            "item": "transformation piece",
+            "prices": {
+              "section": "misc",
+              "family": "Transformation Pieces"
+            }
+          },
+          {
+            "id": "integrator_named",
+            "item": "VAV integrator",
+            "words": "^(?!\\s*\\()(?=[\\s\\S]*\\b(integrators?|routers?|gateways?)\\b)(?=[\\s\\S]*((?<![a-z0-9])(vav|v\\.a\\.v)s?(?![a-z0-9])|variable\\s+air\\s+volume))",
+            "not_words": "\\b(vrf|vrv)\\b|\\b(lan\\s+connectivity|master\\s+controller|touch\\s*screen\\s+controller)\\b",
+            "prices": {
+              "family": "VAV Integrator"
+            }
+          },
+          {
+            "id": "installation",
+            "item": "VAV installation",
+            "words": "^\\W*(installation|install)\\b[^|]{0,60}\\b(vav|v\\.a\\.v)s?\\b[^|]{0,20}\\b(units?|box(es)?)\\b",
+            "line": "Check if additional cost needs to be added for control cabling.",
+            "prices": {
+              "family": "VAV installation - any size"
+            }
+          }
+        ]
+      },
+      "add_group": {
+        "label": "Add other item",
+        "heading": "Other item",
+        "sections": [
+          "misc",
+          "sensors"
+        ],
+        "combos": [
+          {
+            "label": "Thermostat with CO2 sensor",
+            "adds": [
+              {
+                "section": "misc",
+                "family": "Digital Thermostat"
+              },
+              {
+                "section": "sensors",
+                "family": "CO2 Sensor"
+              }
+            ]
+          }
+        ]
+      },
+      "family_units_label": {
+        "Integrator cabling": "per VAV"
+      }
+    },
+    "pricing_merge": {
+      "combination_warning.names": {
+        "intro": "This rate combines the box with {n} extras:",
+        "intro_one": "This rate combines the box with 1 extra:",
+        "extra": "{label}: Rs {x}",
+        "total": "Extras total Rs {x} of Rs {y}. Review each item before using."
+      },
+      "sheet_shares.double_count": {
+        "heading": "Possible double counting",
+        "ddc": [
+          "ddc",
+          "ddc_whole"
+        ],
+        "with": [
+          {
+            "blocks": [
+              "bacnet",
+              "bacnet_whole"
+            ],
+            "families": [
+              "BACnet over IP controller"
+            ],
+            "part": "controllers",
+            "line": "The DDC panel on this row already includes {n} BACnet controller{s}. A BACnet controller is also on this row. Remove one of them unless both are needed."
+          },
+          {
+            "blocks": [
+              "dp"
+            ],
+            "families": [
+              "Duct Static Pressure Sensor"
+            ],
+            "part": "sensors",
+            "line": "The DDC panel on this row already includes {n} DP sensor{s}. A DP sensor is also on this row. Remove one of them unless both are needed."
+          },
+          {
+            "blocks": [
+              "ddc_whole"
+            ],
+            "families": [],
+            "part": "panels",
+            "line": "The DDC panel share on this row already covers the DDC panel. A full-rate DDC panel is also on this row. Remove one of them unless both are needed."
+          }
+        ]
+      },
+      "sheet_shares.labels.cost_word": "cost",
+      "sheet_shares.labels.vavs_calculator": "Number of VAVs"
+    },
+    "whole_set": {
+      "ddc_whole": {
+        "for_count": "for {n} {unit}s"
+      }
+    },
+    "derivation_reasons_replace": [
+      {
+        "from": "^A row whose extras come to more than a set share",
+        "title": "^A row whose extras come to more than a set share",
+        "why": "\"all combination rows should have a warning that the user should review it more carefully\" (owner 2026-11-19 12:49); \"option b is ok\" (12:55): warn above a set share of the box rate; \"ok proceed with 50%\" (12:59), a Pricing Input the user can change; the share lowered to 25% after the VAV-2b1 preview (owner 2026-11-21 10:25 \"2 lower it to 25%\")"
+      }
+    ],
+    "derivation_reasons_new": [
+      {
+        "title": "^The model reads, on each VAV box row, the controller",
+        "why": "owner 2026-11-20 14:25 \"i meant payload for any VAV mentions Bacnet\"; 14:37 \"thi sis true for all Dp sensor mention in VAV\"; 14:48 \"DDC panel and controllor are interchaebale\"; 15:05 \"1 yes\" (a line about makes or another equipment's DDC does not count); 15:19 \"2 ok\" (by the BMS vendor / by others: nothing added); 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+      },
+      {
+        "title": "^The '[^']*' block names each extra with its amount",
+        "why": "owner 2026-11-21 10:52 \"the warning should name the xtras included for more clarity insteda of just giving the count\"; 10:54 \"a\" (name and amount)"
+      },
+      {
+        "title": "^A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel",
+        "why": "owner 2026-11-21 10:44 \"when both bacnet  and ddc blocks are on a row...a more prominent warning for possible double counting of Bacnets should be given\"; 10:45 \"1 yes 2 ok\" (the same for a DP sensor; the amber block above the row total); 13:59 \"B: option B\" (the same block for a DDC panel share with a full-rate DDC panel; its small line goes)"
+      },
+      {
+        "title": "^A row filed under .* that names a VAV item",
+        "why": "owner 2026-11-21 12:33 \"for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also. any other category if we need we will build as exceptions.\"; 12:34 \"agree on all 3\" (only sheets with VAV rows; only rows naming a VAV item; the row stays filed, with a note); 12:36 \"a\" (the note); 13:40 \"all 7 option a\" (the integrator / installation rows; quantity 0 pre-fills the sheet's VAVs)"
+      },
+      {
+        "title": "^Items borrowed from other sheets are added from one button",
+        "why": "owner 2026-11-21 10:40 \"can we combine addmisc  and add sensor into one group...the user does not  need to know where it is coming from.\"; 10:41 \"1a 2a\" (\"Add other item\", VAV Box only); 10:40 \"2 a\" (one entry adding the thermostat and the CO2 sensor); 10:50 \"ok for wrning and techincal working lines 2 ok\" (headings without the source sheet)"
+      },
+      {
+        "title": "^The add list shows '[^']*' per",
+        "why": "owner 2026-11-21 10:38 \"intergrator cablong  change to per VAV\"; 10:40 \"1 ok\" (a label; the rate stays per metre)"
+      },
+      {
+        "title": "^A row naming an adaptor or adapter is not a BACnet controller's own row",
+        "why": "owner 2026-11-21 13:40 \"all 7 option a\" (QR-K2 (a): BOQ-26-00020 r194 \"Unification adaptor ... on BACnet protocol\" is not a VAV item); 2026-11-20 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+      }
+    ],
+    "separate_not_words_add": {
+      "BACnet controller row": "\\b(adaptors?|adapters?)\\b"
+    }
+  }
+}

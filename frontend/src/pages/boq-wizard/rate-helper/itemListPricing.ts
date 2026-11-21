@@ -782,6 +782,15 @@ export interface ItemListPricingSpec {
    *  rate (the helper never adds them; a model-read one is still dropped). `share` = the sheet share of the same item: when both are on
    *  one entry, `line` shows under the full-rate item. ABSENT => a withdrawn family is offered nowhere (v79). */
   user_addable?: Array<{ family: string; share?: string; line?: string }>;
+  /** VAV-2b2 (R13 / R12 / R14, owner 2026-11-21 10:40 / 10:41 "1a 2a" / 10:50): the delegated sections whose add buttons become ONE button
+   *  (`label`, "Add other item") holding what their lists held, the one-click entries that add several items (`combos`, "Thermostat with CO2
+   *  sensor"), and the heading their items carry in place of "<label> - priced by <category>'s rules". ABSENT => the buttons as before */
+  add_group?: { label: string; heading: string; sections: string[]; combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> };
+  /** VAV-2b2 (R11, owner 2026-11-21 10:38 / 10:40 "1 ok"): an own family's unit words in the add list ("Integrator cabling" -> "per VAV"). A
+   *  label only; the rate is unchanged. ABSENT => the unit words as before */
+  family_units_label?: Record<string, string>;
+  /** VAV-2b2 (R16): the rows filed under Misc / Sensors this helper prices (vavClaims.ts). ABSENT => none */
+  claims_filed?: import("./vavClaims").ClaimsFiledSpec;
   /** VAV-2a2 (B4, the approved mockup): a field's source tag when the BoQ stated it ("from BoQ"), by attribute. ABSENT => no tag. */
   source_tags?: Record<string, string>;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
@@ -1721,6 +1730,9 @@ export interface CombinationWarning {
   line: string;
   line_one?: string;
   input_missing: string;
+  /** VAV-2b2 (R9, owner 2026-11-21 10:52 / 10:54 "a"): the warning names each extra with its amount -- intro ({n}), intro_one, one
+   *  `extra` line each ({label}, {x}), then `total` ({x} of {y}). ABSENT => the one-line count as before */
+  names?: { intro: string; intro_one: string; extra: string; total: string };
 }
 
 /**
@@ -6975,7 +6987,7 @@ export function familyChoices(spec: ItemListPricingSpec): Array<{ family: string
     [...new Set([...Object.keys(f.units), ...Object.keys(f.convert ?? {})])].map((cls) => `per ${unitWord(spec, cls)}`).join(" / ");
   const own = Object.entries(spec.families).map(([family, f]) => ({
     family,
-    units: Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
+    units: spec.family_units_label?.[family] ?? Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
   }));
   // DU-1: an offered alias is listed with its target's units (its conversions included -- "Round (GI) - per metre" is per metre)
   const offered = (spec.family_alias_offered ?? []).filter((a) => spec.family_alias?.[a] && spec.families[spec.family_alias[a]])

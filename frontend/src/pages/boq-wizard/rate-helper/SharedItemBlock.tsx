@@ -110,6 +110,19 @@ export function SharedItems({ shares, onShares }: { shares: SharesView; onShares
   );
 }
 
+/** VAV-2b2 (R10, owner 2026-11-21 10:45 "2 ok"): the "Possible double counting" block, in the "Review before using" style. */
+export function DoubleCountBlock({ heading, lines }: { heading: string; lines: readonly string[] }) {
+  return (
+    <div className="flex gap-2 rounded-md border-2 border-amber-500 bg-amber-50 px-2 py-1.5 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" role="alert" data-testid="item-double-count-block">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+      <div className="text-xs">
+        <div className="font-bold">{heading}</div>
+        {lines.map((l) => <div key={l}>{l}</div>)}
+      </div>
+    </div>
+  );
+}
+
 /** VAV-2b1 (B6; owner 18:06 "more prominent", screen 7): the combination warning as a bordered amber block with an icon and its heading. */
 export function ReviewBlock({ heading, note }: { heading: string; note: string }) {
   return (
@@ -117,7 +130,7 @@ export function ReviewBlock({ heading, note }: { heading: string; note: string }
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
       <div className="text-xs">
         <div className="font-bold">{heading}</div>
-        <div data-testid="item-combination-warning">{note}</div>
+        <div className="whitespace-pre-line" data-testid="item-combination-warning">{note}</div>
       </div>
     </div>
   );

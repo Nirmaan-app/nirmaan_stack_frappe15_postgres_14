@@ -13481,7 +13481,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at VAV-2b1 K1 (owner 2026-11-20 14:18 - 18:44; PIN 4 accepted 20:53) by mechanical authority: BEFORE
                             # the set ended at "source_tags". Both keys are read only by VAV Box; v7 predates them, ADP declares none
                             "sheet_shares", "withdrawn_families",
-                            "user_addable"})   # VAV-2b1 K2 (HVAC v80; PIN 23, ANSWER 44): the full-rate add's key. BEFORE the set ended at "withdrawn_families"
+                            "user_addable",   # VAV-2b1 K2 (HVAC v80; PIN 23, ANSWER 44): the full-rate add's key. BEFORE the set ended at "withdrawn_families"
+                            # INVERTED at VAV-2b2 K1 (owner 2026-11-21 12:34 / 10:41 / 10:40 - R16 / R13 / R11; PIN 1 accepted 15:12) by
+                            # mechanical authority: BEFORE the set ended at "user_addable". The three keys are read only by VAV Box (v81);
+                            # v7 predates them, ADP declares none
+                            "claims_filed", "add_group", "family_units_label"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)
