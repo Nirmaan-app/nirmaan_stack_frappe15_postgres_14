@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { FileCheck2, FileWarning, Wallet } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
@@ -152,8 +152,11 @@ export default function WOPaymentVoucherReport() {
         additionalFilters: tableFilters,
         aggregatesConfig: WO_PAYMENT_VOUCHER_AGGREGATES,
     });
-    refetchRef.current = refetch;
-    tableRef.current = table;
+    // Read only by the voucher handlers above, never during render.
+    useLayoutEffect(() => {
+        refetchRef.current = refetch;
+        tableRef.current = table;
+    });
 
     const summary = useMemo(
         () => summariseVoucherAggregates(aggregates, totalCount),

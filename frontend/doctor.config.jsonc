@@ -1,0 +1,15 @@
+// React Doctor's settings (#1698). `yarn doctor` and CI's scripts/react_doctor_new.mjs read this file.
+{
+  // No privacy settings here: "noScore" in this file stops the score API but not the telemetry to Sentry and Axiom
+  // (measured 2026-11-20, 0.9.23). Only the three flags in `yarn doctor` stop all three; never run it without them.
+  "ignore": {
+    "overrides": [
+      {
+        // CARD_PASSWORD_NEEDED and CARD_WRONG_PASSWORD are the upload's two refusal messages, word for word as
+        // card_pdf.py raises them. They name a password; they are error-message text, not a secret.
+        "files": ["src/pages/outflow-import/creditCardImport.ts"],
+        "rules": ["react-doctor/no-secrets-in-client-code"]
+      }
+    ]
+  }
+}

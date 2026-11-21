@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Check, MessageSquare, X } from "lucide-react";
@@ -225,7 +225,10 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 		getRowId: (row) => row.name,
 	});
 
-	refetchRef.current = refetch;
+	// Read only by the Delete button's onDeleted handler, never during render.
+	useLayoutEffect(() => {
+		refetchRef.current = refetch;
+	});
 
 	// The names are read for the rows on screen only: the columns need them, and the rows come from the columns' table.
 	const dataKey = data.map((r) => r.name).join(",");

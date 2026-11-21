@@ -102,7 +102,7 @@ export default function EditItems({data}) {
                                     <SelectContent>
                                         {category_options?.map((item) => {
                                             return (
-                                                <SelectItem value={item.value}>{item.label}</SelectItem>
+                                                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
                                             )
                                         })}
                                     </SelectContent>

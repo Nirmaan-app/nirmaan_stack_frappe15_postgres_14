@@ -19,7 +19,7 @@
  * on `?tab=` and every existing invoice-reconciliation link keeps working. It never
  * writes `?report=` -- only `ReportsContainer` owns that param.
  */
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
@@ -53,13 +53,13 @@ export const PendingInvoiceUploads: React.FC = () => {
      * Pinned DURING the first render, not in an effect. An effect runs after the children
      * have already rendered once, so the first paint would show whichever report the
      * Reports page last selected -- on the WO side that is the 2B Reconcile screen, which
-     * is a different table entirely.
+     * is a different table entirely. A lazy `useState` initializer runs once per mount,
+     * during that first render.
      */
-    const pinned = useRef(false);
-    if (!pinned.current) {
-        pinned.current = true;
+    useState(() => {
         useReportStore.getState().setSelectedReportType(REPORT_TYPE);
-    }
+        return true;
+    });
 
     const initialTab = useMemo<PendingUploadTab>(() => {
         const fromUrl = getUrlStringParam(URL_PARAM, "po");

@@ -26,7 +26,7 @@ import {
   type ColumnFilterOption,
 } from "./GridColumnFilter";
 import { CLS_LABELS } from "./reviewRender";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
@@ -1061,13 +1061,15 @@ const SheetPricingPage = () => {
     typeof window !== "undefined" &&
     window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
-  lockCtxRef.current = {
-    boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
-  };
+  useLayoutEffect(() => {
+    lockCtxRef.current = {
+      boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
+    };
+  });
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -1106,16 +1108,22 @@ const SheetPricingPage = () => {
   // HV-10: a ref mirror of classifySummary so the stable per-discipline status callback can read
   // "is a terminal summary showing?" without re-registering the pollers.
   const classifySummaryRef = useRef<ClassifySummary | null>(null);
-  classifySummaryRef.current = classifySummary;
+  useLayoutEffect(() => {
+    classifySummaryRef.current = classifySummary;
+  }, [classifySummary]);
   // HV-10: the disciplines with a run IN FLIGHT this session (set on onStarted, each removed when
   // its own done arrives). One status poller is rendered per running discipline; the modal
   // completes when the set empties. Single-engine sheets (all sheets today) keep length <= 1, so
   // this degenerates to the pre-HV-10 single poll. A ref mirrors it for the stable callbacks.
   const [runningDisciplines, setRunningDisciplines] = useState<string[]>([]);
   const runningDisciplinesRef = useRef<string[]>([]);
-  runningDisciplinesRef.current = runningDisciplines;
   const ranDisciplinesRef = useRef<string[]>([]);
-  ranDisciplinesRef.current = ranDisciplines;
+  // No deps: re-synced on every commit, as the render-time assignment did (the handlers also
+  // write runningDisciplinesRef ahead of their setRunningDisciplines).
+  useLayoutEffect(() => {
+    runningDisciplinesRef.current = runningDisciplines;
+    ranDisciplinesRef.current = ranDisciplines;
+  });
   // HV-10b: the row-range union of the CURRENT run set (owner condition 1). Set fresh on each
   // onStarted -- a new run set REPLACES it, so it never carries across run sets (the reset
   // semantics); a whole-sheet or unknown-scope run collapses it to {mode:"sheet"}. The COMBINED
@@ -1132,9 +1140,11 @@ const SheetPricingPage = () => {
   >({});
   // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
   // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
-  // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
+  // is unavailable. Synced after each commit by a layout effect (cheap; the value is already memo-stable per fetch).
   const catDataRef = useRef<{ message: GetSheetCategoriesResolvedResponse } | undefined>(undefined);
-  catDataRef.current = catData;
+  useLayoutEffect(() => {
+    catDataRef.current = catData;
+  }, [catData]);
 
   // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
   // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
@@ -1150,7 +1160,7 @@ const SheetPricingPage = () => {
     null,
   );
   // Mirrors classification_frozen so the STABLE onCategoryClick can short-circuit while frozen
-  // without becoming a new callback (which would defeat the grid's row memo). Set during render.
+  // without becoming a new callback (which would defeat the grid's row memo). Synced after each commit (layout effect).
   const classificationFrozenRef = useRef(false);
   const onCategoryClick = useCallback(
     (excelRow: number, cellEl: HTMLElement) => {
@@ -1341,8 +1351,6 @@ const SheetPricingPage = () => {
   // the ticks it depends on.
   const [showOnlyTicked, setShowOnlyTicked] = useState(false);
   const onToggleTicked = useCallback(() => setShowOnlyTicked((v) => !v), []);
-  const suggestRunningRef = useRef(false);
-  suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
   // Idempotent run-adoption: the last adopted run key (run_id::cv, or null). Guards the persistence
   // effect from re-creating a NEW suggestRun object on every SWR reference churn (which loops).
@@ -1423,10 +1431,10 @@ const SheetPricingPage = () => {
   // change, so the grid memo holds and only the edited row re-renders after the inline mutate()
   // refetch. sourceSigRef guards against merging across DIFFERENT data sources (current <-> a viewed
   // version): on a source switch the committed base can differ, so prev is reset (no cross-source
-  // reuse). Refs (not state) -- read/written in render, like collapsedRef below; no extra render.
+  // reuse). Refs (not state) -- read in render, written in a layout effect after commit; no extra render.
   const prevRowsRef = useRef<PricedRow[]>([]);
   const rowsSourceSigRef = useRef<string>("");
-  // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
+  // Refs synced after each commit (layout effect below) so the toggle + reveal callbacks stay reference-stable
   // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
   const collapsedRef = useRef(collapsed);
   const byRowIndexRef = useRef<Map<number, CollapseRow>>(new Map());
@@ -1974,8 +1982,10 @@ const SheetPricingPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawRows, rowsSourceSig],
   );
-  prevRowsRef.current = rows;
-  rowsSourceSigRef.current = rowsSourceSig;
+  useLayoutEffect(() => {
+    prevRowsRef.current = rows;
+    rowsSourceSigRef.current = rowsSourceSig;
+  }, [rows, rowsSourceSig]);
   const columnDescriptors = activeMessage?.column_descriptors ?? [];
   const columnFormulas = activeMessage?.column_formulas ?? []; // F3: per-column amount formulas
   const dismissals = activeMessage?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
@@ -2001,7 +2011,9 @@ const SheetPricingPage = () => {
   const categoryGateOverride = activeMessage?.category_gate_override ?? false;
   const categoryOverrideBy = activeMessage?.category_override_by ?? null;
   const categoryOverrideAt = activeMessage?.category_override_at ?? null;
-  classificationFrozenRef.current = classificationFrozen;
+  useLayoutEffect(() => {
+    classificationFrozenRef.current = classificationFrozen;
+  }, [classificationFrozen]);
   // ── PE-SPIN-1: what this page may honestly claim about its own data ──────────────────────────
   // Tracks the ACTIVE source (the history fetch while in history mode), as before -- but from
   // SWR's REAL signals (`data` + `error`) rather than from the payload alone. The retired rule was
@@ -3532,9 +3544,11 @@ const SheetPricingPage = () => {
   );
   const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
   const childrenByParent = useMemo(() => buildChildrenByParent(rows), [rows]);
-  collapsedRef.current = collapsed;
-  byRowIndexRef.current = byRowIndex;
-  byExcelRowRef.current = byExcelRow;
+  useLayoutEffect(() => {
+    collapsedRef.current = collapsed;
+    byRowIndexRef.current = byRowIndex;
+    byExcelRowRef.current = byExcelRow;
+  });
   // BCS-S14: collapse is SUSPENDED while a margin SORT is on, and that suspension is the view's
   // own, inherited for the same reason -- once rows are re-ordered, a collapsed parent hides
   // rows from scattered places on screen, and nothing in a sorted list gives any clue that a
@@ -3697,7 +3711,9 @@ const SheetPricingPage = () => {
   );
 
   const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
 
   /**
    * BCS-S13 -- APPLY the % Margin range: take a fresh reading of every row's margin and freeze
@@ -3762,7 +3778,9 @@ const SheetPricingPage = () => {
    * It reads everything current through refs.
    */
   const marginSortDirRef = useRef(marginSortDir);
-  marginSortDirRef.current = marginSortDir;
+  useLayoutEffect(() => {
+    marginSortDirRef.current = marginSortDir;
+  }, [marginSortDir]);
   const cycleMarginSort = useCallback(() => {
     const next = nextMarginSort(marginSortDirRef.current);
     setMarginSortDir(next);

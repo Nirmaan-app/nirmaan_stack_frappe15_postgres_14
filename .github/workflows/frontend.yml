@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Clone
         uses: actions/checkout@v4
+        with:
+          # The merge commit and its parents, the PR's base commit among them: React Doctor's --scope changed needs
+          # the merge base of that base commit and HEAD (#1698).
+          fetch-depth: 2
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -81,6 +85,20 @@ jobs:
       # did, where a call's inferred type depended on the checker's order (ADR-0049, #1699). About 4 s here.
       - name: Lint gives one result (the type-aware lint twice on the same tree; names the files that differ)
         run: node scripts/lint_same_twice.mjs
+
+      # React Doctor (#1698) checks React problems the type checks cannot see; it adds to ADR-0049's checks. It fails on
+      # an error-level finding the PR brings, per file and rule against the PR's base commit (a count may fall, never
+      # rise; an old finding in a touched file passes; warnings never fail), naming file, line and rule. `yarn doctor`'s
+      # three flags (scripts/react_doctor.mjs) keep it from sending anything out: no telemetry, score API or Socket.dev.
+      - name: React Doctor (new error-level findings against the PR's base commit)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/react_doctor_new.mjs --base "$BASE_SHA"
+
+      # The comparison above counts findings per file and rule, so two scans of one tree must agree.
+      - name: React Doctor gives one result (two full scans of the same tree; names the files that differ)
+        run: node scripts/react_doctor_new.mjs --twice
 
       # Upward only: raise --at-least in package.json in the same PR whenever this percentage rises.
       - name: Type coverage (type-coverage --strict; fails below the threshold in package.json)

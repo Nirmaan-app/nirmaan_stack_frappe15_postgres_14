@@ -22,6 +22,18 @@ describe("yarn type-coverage", () => {
   });
 });
 
+describe("yarn doctor", () => {
+  // The owner's privacy rule (#1698): no telemetry, no score API, no Socket.dev dependency check, local and in CI.
+  // Nothing a shell must expand, so it runs the same from cmd.exe.
+  it("runs React Doctor through scripts/react_doctor.mjs (the privacy flags, no install) and nothing a shell must expand", () => {
+    expect(pkg.scripts.doctor).toBe("node scripts/react_doctor.mjs");
+  });
+
+  it("pins react-doctor to an exact version", () => {
+    expect(pkg.devDependencies["react-doctor"]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
 describe("yarn lint", () => {
   const lint = pkg.scripts.lint;
 
