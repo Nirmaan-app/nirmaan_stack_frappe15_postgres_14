@@ -29,7 +29,11 @@ describe("VAV-2a B9 - the combination warning (calculator = the panel's own comp
   it("NEGATIVE D2: 34,720 + 2,900 -- extras 8,060 are 27% of the box's 29,560 -> no warning, the figures unchanged", () => {
     const v = calcWith(vavWith(CW), D2).itemList!;
     expect(tot(v)).toEqual([34720, 2900]);
-    expect(v.combinationWarning).toBeUndefined();
+    // VAV-2b2 K2 (R8, owner 2026-11-21 10:25 "1b": the default share 0.5 -> 0.25 in v81, which this harness reads; PIN F6, ANSWER 28 term 6):
+    // the figures do not move by one rupee; 27% is now over the share, so the warning SHOWS. BEFORE: `toBeUndefined()`. The negative half
+    // kept at the old share:
+    expect(v.combinationWarning).toBeDefined();
+    expect(calcWith(vavWith(CW), D2, withInputs(undefined, { vav_combination_warning_share: 0.5 })).itemList!.combinationWarning).toBeUndefined();
   });
   it("EDGE: exactly the share is not MORE than it -> no warning; one rupee above -> the warning (one-extra wording)", () => {
     // box 24,800 + one BACnet line 49,400: share = 49,400 / 24,800 exactly -> not more
@@ -67,7 +71,11 @@ describe("VAV-2a B9 - the combination warning (calculator = the panel's own comp
     const items = withInputs();
     expect(combinationWarningOf(COMBINATION_WARNING, [b("VAV box", 100, 0), b("Conical piece", 40, 0)], [sv(20, 0)], { supply_rate: 160, install_rate: 0 }, items))
       .toBe("This rate combines the box with 2 extras (Rs 60 of Rs 160). Review each item before using.");
-    expect(combinationWarningOf(COMBINATION_WARNING, [b("VAV box", 100, 0), b("Conical piece", 40, 0)], [], { supply_rate: 140, install_rate: 0 }, items)).toBeUndefined();
+    // VAV-2b2 K2 (R8; PIN F6): 40 of the box's 100 is over the v81 default 0.25 -> the warning shows; under the old 0.5 it does not (the
+    // negative half kept). BEFORE: `toBeUndefined()` on the default
+    expect(combinationWarningOf(COMBINATION_WARNING, [b("VAV box", 100, 0), b("Conical piece", 40, 0)], [], { supply_rate: 140, install_rate: 0 }, items)).toBeDefined();
+    expect(combinationWarningOf(COMBINATION_WARNING, [b("VAV box", 100, 0), b("Conical piece", 40, 0)], [], { supply_rate: 140, install_rate: 0 },
+      withInputs(undefined, { vav_combination_warning_share: 0.5 }))).toBeUndefined();
     expect(combinationWarningOf(COMBINATION_WARNING, [b("VAV box", 100, 0), b("Conical piece", 60, 0)], [], { supply_rate: 160, install_rate: 0 },
       withInputs(undefined, { vav_combination_warning_share: null }))).toBe(COMBINATION_WARNING.input_missing);
   });

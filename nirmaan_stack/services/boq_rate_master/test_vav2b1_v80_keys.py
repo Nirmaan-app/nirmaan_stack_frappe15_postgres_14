@@ -43,13 +43,15 @@ def _mint():
     return mod
 
 
-def _configs(v80=True):
+def _configs(v80=True, as_minted=False):
     a = _v79()
     out = {c["category_id"]: dict(copy.deepcopy(c), discipline="HVAC") for c in a["category_configs"]}
     if v80:
         m, k = _mint(), _keys()
         out[VAV] = dict(m.vav_config(out[VAV], k), discipline="HVAC")
         out[SENS] = dict(m.sensors_config(out[SENS], k), discipline="HVAC")
+    if not as_minted:   # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the key out ON THE COPY (the frozen v79 / v80 VAV configs carry it and are refused by name)
+        out[VAV].pop("calculator_only", None)
     return out
 
 
@@ -71,7 +73,9 @@ class TestVav2b1V80Keys(unittest.TestCase):
         self.assertEqual(pr["sheet_shares"]["whole"][1]["fixed"], {"panels": 1})
         self.assertIn(DSP, pr["withdrawn_families"])
         self.assertIn(DSP, c[SENS]["list_spec"]["pricing"]["families"])
-        self.assertTrue(c[VAV]["calculator_only"])
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): BEFORE `assertTrue(c[VAV]["calculator_only"])` -- the v80 config AS MINTED carries it and is refused by name
+        self.assertTrue(_configs(as_minted=True)[VAV]["calculator_only"])
+        _refused(self, _configs(as_minted=True)[VAV], "Unknown top-level config key(s): calculator_only")
 
     def test_02_NEGATIVE_user_addable_shape_refused_by_name(self):
         for bad, needle in (([], "non-empty list"), ([{"family": "VAV box"}], "a withdrawn family"),
@@ -145,8 +149,10 @@ class TestVav2b1V80Keys(unittest.TestCase):
     def test_06_eligible_set_unchanged_and_VAV_SENS_out(self):
         b, n = _configs(False), _configs(True)
         el = lambda cs: sorted(k for k, c in cs.items() if extraction.config_is_eligible(c, {("HVAC", x): y for x, y in cs.items()}))
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28) (P77): BEFORE `assertNotIn(VAV, el(n))` -- with the switch gone VAV is eligible in both; the set is otherwise unchanged and
+        # Sensors (borrow-only, no pricing block of its own) stays out
         self.assertEqual(el(b), el(n))
-        self.assertNotIn(VAV, el(n))
+        self.assertIn(VAV, el(n))
         self.assertNotIn(SENS, el(n))
 
 

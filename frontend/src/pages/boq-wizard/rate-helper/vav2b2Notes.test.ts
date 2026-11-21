@@ -74,7 +74,9 @@ describe("2a: the other two sentences", () => {
   it("VACUITY: without not_added_by the VAV-2b1 sentence comes back", () => {
     const s = sheet81({ 1: box81(45, { controller: "bacnet" }), 50: { text: "BACnet controller for the VAV boxes", qty: 2, unit: "Nos", category: "hvac_misc" } },
       { cfg: vav81({ dropPricing: ["sheet_shares.not_added_by"] }) })(1);
-    expect(notes(s)).toContain("BACnet controller share not added: the sheet prices it on its own row (row 50). Add it here if the boxes should also carry it.");
+    // K2 (ANSWER 21 point 3; PIN F10): without not_added_by the GENERAL sentence comes back, now in the owner's 15:59 pattern. BEFORE: 'BACnet
+    // controller share not added: the sheet prices it on its own row (row 50). Add it here if the boxes should also carry it.'
+    expect(notes(s)).toContain("BACnet controller share not added: row 50 prices it for this sheet's VAVs. Add it here only if that row does not cover these boxes.");
   });
 });
 

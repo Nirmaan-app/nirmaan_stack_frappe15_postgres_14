@@ -57,8 +57,8 @@ export function typedBand(state: CalcState, bf: BandFromCfg | undefined): CalcSt
 
 /** the calculator's own construction (PricingCalculator.tsx) on a config map, VAV Box picked, the row unit Nos */
 export function calc(state: CalcState, map: Map<string, RateCategoryConfig> = surfaceMap(), items: RateMasterItem[] = ITEMS, unit = "Nos", scope?: string): ItemListSuggestion {
-  // VAV-1 (QR-A (a)): `calculatorSurface: true` is the calculator's one difference from the BoQ page's construction
-  const h = makePricingSheetHelper({ configsByCategory: map, items, extractionByRow: new Map(), calculatorSurface: true });
+  // VAV-2b2 (R1): the calculator and the BoQ page build the helper the same way (VAV-1's calculatorSurface flag removed with calculator_only)
+  const h = makePricingSheetHelper({ configsByCategory: map, items, extractionByRow: new Map() });
   const st = typedBand(state, bandFromOf(map.get(VAV)));
   return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(st), [ROW_UNIT_OVERRIDE_KEY]: unit, ...(scope ? { [SCOPE_OVERRIDE_KEY]: scope } : {}) }) as unknown as ItemListSuggestion;
 }

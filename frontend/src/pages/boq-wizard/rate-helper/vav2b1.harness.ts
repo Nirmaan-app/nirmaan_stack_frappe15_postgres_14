@@ -35,7 +35,7 @@ export function itemsV79(items: readonly RateMasterItem[] = withInputs(), over: 
 export function calc79(state: CalcState, shares: SharesEditState = {}, cfg: RateCategoryConfig = vav79(), items: RateMasterItem[] = itemsV79()): ItemListSuggestion {
   const m = surfaceMap();
   m.set(VAV, cfg);
-  const h = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map(), calculatorSurface: true });
+  const h = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map() });
   return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "Nos",
     ...(Object.keys(shares).length ? { [SHARES_OVERRIDE_KEY]: JSON.stringify(shares) } : {}) }) as unknown as ItemListSuggestion;
 }
@@ -74,7 +74,7 @@ export function calc80(state: CalcState, shares: SharesEditState = {}, cfg: Rate
   const m = surfaceMap();
   m.set(VAV, cfg);
   m.set("hvac_sensors", sens80());
-  const h = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map(), calculatorSurface: true });
+  const h = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map() });
   return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "Nos",
     ...(Object.keys(shares).length ? { [SHARES_OVERRIDE_KEY]: JSON.stringify(shares) } : {}) }) as unknown as ItemListSuggestion;
 }

@@ -10,11 +10,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { derivationCoverage } from "../../pricing/rate-master/derivationCoverage";
-import { BY_ID, ITEMS, LATEST, VAV, blk, tot } from "./vav1Vav.harness";
+import { BY_ID, VAV, blk, tot } from "./vav1Vav.harness";
 import { boxItem } from "./vav2a.harness";
 import { KEYS80, box, calc80, itemsV79, other, real, sens80, sheet80, vav80 } from "./vav2b1.harness";
 import { applyShareEdit, type SharesEditState } from "./vavSheetShares";
 import type { ItemListSuggestion } from "./pricingSheetHelper";
+import { assetByName } from "./v78ByName.harness";
 
 const BOX = blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "No", airflow_cfm: "650" });
 const ed = (...ops: Parameters<typeof applyShareEdit>[1][]) => ops.reduce<SharesEditState>((a, op) => applyShareEdit(a, op), {});
@@ -267,10 +268,12 @@ describe("v80: the Derivation tab -- the new lines with their own reasons, cover
     expect(derivationCoverage(vav80(OFF), itemsV79(), sections).lines.some((x) => /can be added by hand/.test(x.title))).toBe(false);
   });
   it("MINT PARITY (once v80 is the newest file): its VAV config IS v79's + the v80 keys, its Sensors config IS v79's + the family", () => {
-    if (Number(LATEST.match(/v(\d+)/)![1]) < 80) return;
-    expect(BY_ID.get(VAV)).toEqual(vav80());
-    expect(BY_ID.get("hvac_sensors")).toEqual(sens80());
-    expect(ITEMS.length).toBe(853);
+    // VAV-2b2 K2 (HVAC v81 minted + loaded; PIN F9, ANSWER 28): read v80 BY NAME (sha-checked), no longer "the newest file" - v81 is newer
+    // and has its own mint parity (vav2b2). BEFORE: compared BY_ID / ITEMS of the newest file, guarded by `version >= 80`
+    const v80 = assetByName("rate_master_hvac_all_v80.json", "76f0a942");
+    expect(v80.byId.get(VAV)).toEqual(vav80());
+    expect(v80.byId.get("hvac_sensors")).toEqual(sens80());
+    expect(v80.items.length).toBe(853);
   });
 });
 

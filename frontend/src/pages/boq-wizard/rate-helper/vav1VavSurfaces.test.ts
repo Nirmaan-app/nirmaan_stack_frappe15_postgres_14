@@ -15,7 +15,7 @@ import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-mast
 import { RATE_MASTER_DISCIPLINES, calculatorEntry, rateMasterPageEntry } from "../../pricing/rate-master/rateMasterRegistry";
 import { calculatorRowFor } from "../../pricing/PricingCalculator";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
-import { COMING_SOON_REASON, buildExtractionByRow, isCalculatorOnlyConfig, isEligibleConfig, makePricingSheetHelper, rowUsesPreRunHelper } from "./pricingSheetHelper";
+import { COMING_SOON_REASON, buildExtractionByRow, isEligibleConfig, makePricingSheetHelper, rowUsesPreRunHelper } from "./pricingSheetHelper";
 import { RATE_MASTER_CONFIG_TARGETS } from "./rateHelperPlumbing";
 import { BY_ID, D2, ITEMS, LATEST, VAV, calc, surfaceMap, tot, bandFromOf } from "./vav1Vav.harness";
 
@@ -35,30 +35,31 @@ function boqRow(category: string, map: Map<string, RateCategoryConfig> = surface
 const withoutKey = () => { const m = surfaceMap(); const c = structuredClone(m.get(VAV)!) as RateCategoryConfig & { calculator_only?: boolean }; delete c.calculator_only; m.set(VAV, c); return m; };
 
 describe(`VAV-1 T8 (B3, QR-A (a)) on ${LATEST}: the calculator prices VAV Box, a VAV-filed BoQ row stays "coming soon"`, () => {
+  // VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; PIN F3, ANSWER 28): the switch is REMOVED - on the newest asset a VAV-filed BoQ
+  // row is priced like the calculator. The test names are VAV-1's (kept so no test disappears); each body states its BEFORE.
   it("the shipped VAV config declares calculator_only (top-level attributes present for the Rate Master columns)", () => {
+    // BEFORE: calculator_only true, not eligible except on the calculator surface. AFTER: no key; eligible on every surface.
     const c = BY_ID.get(VAV)! as RateCategoryConfig & { calculator_only?: boolean };
-    expect(c.calculator_only).toBe(true);
+    expect("calculator_only" in c).toBe(false);
     expect(c.attribute_definitions.map((d) => d.id)).toEqual(["vav_item", "item_name", "shape", "vav_type", "integrator_included", "cfm_range"]);
-    expect(isCalculatorOnlyConfig(c)).toBe(true);
-    expect(isEligibleConfig(c)).toBe(false);
-    expect(isEligibleConfig(c, { calculator: true })).toBe(true);
+    expect(isEligibleConfig(c)).toBe(true);
   });
   it("the calculator: D2 = 34,720 + 2,900", () => {
     expect(tot(calc(D2))).toEqual([34720, 2900]);
   });
   it("a VAV-filed BoQ row, inside a run and before one: the coming-soon card, no item list", () => {
-    for (const inRun of [true, false]) {
-      const r = boqRow(VAV, surfaceMap(), inRun);
-      expect(r.kind, String(inRun)).toBe("none");
-      expect(r.reason).toBe(COMING_SOON_REASON);
-      expect(r.itemList).toBeUndefined();
-    }
+    // BEFORE: 'none' + the coming-soon text, no item list, inside a run and before one. AFTER: inside a run the row is priced; before a run
+    // it is not the coming-soon card any more (the item-list view asks for the items)
+    const inRun = boqRow(VAV, surfaceMap(), true);
+    expect(inRun.kind).not.toBe("none");
+    expect(inRun.itemList?.rowPriced).toBe(true);
+    const before = boqRow(VAV, surfaceMap(), false);
+    expect(before.reason).not.toBe(COMING_SOON_REASON);
   });
   it("the pre-run rules: a VAV row uses the pre-run helper exactly as before VAV had a config", () => {
+    // BEFORE: a VAV row used the pre-run helper (true), as before VAV had a config. AFTER: the rules run for it (false)
     const now = rowUsesPreRunHelper("HVAC", VAV, surfaceMap(), RATE_MASTER_CONFIG_TARGETS);
-    const before = rowUsesPreRunHelper("HVAC", VAV, surfaceMap([VAV, "hvac_sensors"]), RATE_MASTER_CONFIG_TARGETS.filter((t) => t.categoryId !== VAV && t.categoryId !== "hvac_sensors"));
-    expect(now).toBe(before);
-    expect(now).toBe(true);
+    expect(now).toBe(false);
   });
   it("VACUITY: the key taken out of the VAV config -> the BoQ row prices (the switch is what holds it back)", () => {
     const r = boqRow(VAV, withoutKey());
@@ -66,20 +67,22 @@ describe(`VAV-1 T8 (B3, QR-A (a)) on ${LATEST}: the calculator prices VAV Box, a
     expect(r.itemList?.rowPriced).toBe(true);
   });
   it("NEGATIVE: a calculator built WITHOUT the flag declines VAV Box like a BoQ row", () => {
+    // BEFORE: a helper built without the calculator flag declined VAV Box ('none'). AFTER: there is no flag - the same construction prices it
     const h = makePricingSheetHelper({ configsByCategory: surfaceMap(), items: ITEMS, extractionByRow: new Map() });
-    expect((h.compute({ excelRow: 1, description: "", nodeType: "", category: VAV, discipline: "HVAC", rateKinds: KINDS, unit: "Nos" } as never, {}) as { kind: string }).kind).toBe("none");
+    expect((h.compute({ excelRow: 1, description: "", nodeType: "", category: VAV, discipline: "HVAC", rateKinds: KINDS, unit: "Nos" } as never, {}) as { kind: string }).kind).not.toBe("none");
   });
   it("NEGATIVE: the key is IGNORED on any other category (every built category stays eligible on every surface)", () => {
+    // BEFORE: isCalculatorOnlyConfig false off VAV. AFTER: no reader of the key exists; every built category eligible, a stray key or not
     for (const id of ["hvac_adp", "hvac_ducting", "hvac_insulation", "hvac_piping", "hvac_valve_package", "hvac_vrf"]) {
       const c = { ...structuredClone(BY_ID.get(id)!), calculator_only: true } as RateCategoryConfig;
-      expect(isCalculatorOnlyConfig(c), id).toBe(false);
       expect(isEligibleConfig(BY_ID.get(id)!), id).toBe(true);
       expect(isEligibleConfig(c), id).toBe(true);
     }
   });
   it("only PricingCalculator passes the calculator flag; the BoQ page never names it", () => {
+    // BEFORE: PricingCalculator.tsx passed `calculatorSurface: true`. AFTER: no file passes it
     const src = (f: string) => readFileSync(path.resolve(__dirname, f), "utf-8");
-    expect(src("../../pricing/PricingCalculator.tsx")).toMatch(/calculatorSurface: true/);
+    expect(src("../../pricing/PricingCalculator.tsx")).not.toMatch(/calculatorSurface: true/);
     expect(src("../SheetPricingPage.tsx")).not.toMatch(/calculatorSurface/);
   });
 });

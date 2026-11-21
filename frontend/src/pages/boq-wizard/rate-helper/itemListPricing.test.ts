@@ -2225,14 +2225,8 @@ describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE
     const code = (src: string, re: RegExp) => src.split("\n").filter((l) => re.test(l)).filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
     for (const src of [HELPER_SRC, CALCULATOR_SRC]) {
       expect(code(src, /admitCalculatorOnly|isCalculatorPriceableConfig/)).toEqual([]);   // the negative half, kept
+      expect(code(src, /calculator_only|isCalculatorOnlyConfig|calculatorSurface/)).toEqual([]);
     }
-    // INVERTED by VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"; temporary, removed by VAV-2b) by mechanical authority. BEFORE (VRF-4):
-    // `code(src, /calculator_only|isCalculatorOnlyConfig|calculatorSurface/)` was [] in both files. AFTER: the VRF-2a shape again, for
-    // hvac_vav_box only -- the key read at ONE helper line (`isCalculatorOnlyConfig`), the gate's option, the dep, and the calculator's flag.
-    expect(code(HELPER_SRC, /calculator_only/)).toEqual([expect.stringContaining("?.calculator_only === true")]);
-    expect(code(HELPER_SRC, /calculatorSurface/).length).toBe(3);   // the dep's declaration, its destructuring, the gate
-    expect(code(CALCULATOR_SRC, /calculator_only|isCalculatorOnlyConfig/)).toEqual([]);
-    expect(code(CALCULATOR_SRC, /calculatorSurface/)).toEqual([expect.stringContaining("calculatorSurface: true,")]);
   });
 
   it("⚠️ NO DISCIPLINE AND NO CATEGORY IS NAMED IN THE PREDICATE'S CODE (the HV-10 rule)", () => {
@@ -2311,15 +2305,12 @@ describe("VRF-4 -- VRF-2a's `calculator_only` is gone: one predicate, the BoQ pa
 
   it("INVERTED (BEFORE: PricingCalculator.tsx set `calculatorSurface: true` and the helper read it at its gate): no surface flag anywhere; the calculator and the BoQ page build the helper identically", () => {
     const strip = (src: string) => src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+    expect(strip(CALCULATOR_SRC)).not.toContain("calculatorSurface");
     const boq = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf-8");
     expect(boq).toContain("makePricingSheetHelper");
-    expect(boq).not.toContain("calculatorSurface");                      // the negative half, kept: the BoQ page never names it
-    // INVERTED AGAIN by VAV-1 (owner QR-A (a), 2026-11-19; temporary, removed by VAV-2b) by mechanical authority. BEFORE (VRF-4):
-    // `strip(CALCULATOR_SRC)` and `strip(HELPER_SRC)` did not contain "calculatorSurface" and the gate read `if (!isEligibleConfig(cfg)) {`.
-    // AFTER: the calculator passes the flag and the gate reads it -- but the key is honoured on hvac_vav_box only, so for hvac_vrf (this
-    // block's CAT) the BoQ panel still prices exactly as the calculator does (the pins above, unchanged).
-    expect(strip(CALCULATOR_SRC)).toContain("calculatorSurface: true,");
-    expect(strip(HELPER_SRC)).toContain("if (!isEligibleConfig(cfg, { calculator: calculatorSurface === true })) {");
+    expect(boq).not.toContain("calculatorSurface");
+    expect(strip(HELPER_SRC)).not.toContain("calculatorSurface");
+    expect(strip(HELPER_SRC)).toContain("if (!isEligibleConfig(cfg)) {");
   });
 });
 

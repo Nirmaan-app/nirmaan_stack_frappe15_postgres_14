@@ -30,7 +30,10 @@ def _new(cid):
     """the v76 mint's own VAV Box / Sensors config (pure builders: no asset file read -- this commits before the asset)"""
     m = _mint()
     c = m.vav_config("calculator_only") if cid == "hvac_vav_box" else m.sensors_config(_cfg(75, "hvac_misc"))
-    return copy.deepcopy(dict(c, discipline="HVAC"))
+    c = copy.deepcopy(dict(c, discipline="HVAC"))
+    # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the switch is refused by name now -- the B6 checks read the v76 VAV config with the key taken out ON THE COPY
+    c.pop("calculator_only", None)
+    return c
 
 
 def _cfg(v, cid):
@@ -45,6 +48,10 @@ class TestEmptyNumbers(unittest.TestCase):
             self.assertEqual(c["list_spec"]["pricing"]["numbers"], {}, cid)
             self.assertEqual(c["list_spec"]["pricing"]["ladders"], [], cid)
             cv._validate_config(c)
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the v76 VAV config AS MINTED (with the key) is refused by name
+        with self.assertRaises(frappe.ValidationError) as e:
+            cv._validate_config(copy.deepcopy(dict(_mint().vav_config("calculator_only"), discipline="HVAC")))
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(e.exception))
 
     def test_02_missing_or_non_object_refused(self):
         for cid in ("hvac_vav_box", "hvac_sensors"):

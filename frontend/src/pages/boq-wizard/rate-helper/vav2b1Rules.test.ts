@@ -124,7 +124,10 @@ describe("T5 calculator_only HOLDS: a VAV-filed BoQ row is still 'coming soon' a
     const ext = buildExtractionByRow([{ excel_row: 10, description: "VAV box", category_id: VAV, attributes: {}, items: [] }] as never);
     const h = makePricingSheetHelper({ configsByCategory: m, items: itemsV79(ITEMS), extractionByRow: ext });
     const out = h.compute({ excelRow: 10, description: "VAV box", nodeType: "Line Item", category: VAV, discipline: "HVAC", rateKinds: ["supply_rate"] } as never, {}) as { kind?: string; reason?: string };
-    expect(out.kind).toBe("none");
-    expect(out.reason).toBe(COMING_SOON_REASON);
+    // VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; PIN F5, ANSWER 28): the switch is REMOVED - the client reads no
+    // calculator_only, so even the frozen v79 config (which still carries the key; the server refuses it by name) gives the row its item-list
+    // view. BEFORE: kind 'none' with the coming-soon reason
+    expect(out.kind).toBe("suggestion");
+    expect(out.reason).not.toBe(COMING_SOON_REASON);
   });
 });

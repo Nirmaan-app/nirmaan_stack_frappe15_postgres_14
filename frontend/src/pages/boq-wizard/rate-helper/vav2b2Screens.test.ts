@@ -86,7 +86,7 @@ describe("R11 - R14: the add lists on VAV screens", () => {
   });
   it("'Thermostat with CO2 sensor' adds BOTH items in one click, each its own line, headed 'Other item' (not '... priced by <sheet>'s rules')", () => {
     const st = applyItemEdit({ items: [{ base: null, family: "VAV box", attrs: BOX.attrs }] } as never, { op: "add_sections", adds: [{ section: "misc", family: "Digital Thermostat" }, { section: "sensors", family: "CO2 Sensor" }] });
-    const h = makePricingSheetHelper({ configsByCategory: map81(), items: items81(), extractionByRow: new Map(), calculatorSurface: true });
+    const h = makePricingSheetHelper({ configsByCategory: map81(), items: items81(), extractionByRow: new Map() });
     const s = h.compute(calculatorCtx("HVAC", "hvac_vav_box"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(st), [ROW_UNIT_OVERRIDE_KEY]: "Nos" }) as unknown as ItemListSuggestion;
     const secs = [...s.itemList!.items.flatMap((b) => b.sections ?? []), ...(s.itemList!.sections?.independent ?? [])];
     expect(secs.map((x) => [x.heading, x.view.items.map((b) => b.family)])).toEqual([["Other item", ["Digital Thermostat"]], ["Other item", ["CO2 Sensor"]]]);

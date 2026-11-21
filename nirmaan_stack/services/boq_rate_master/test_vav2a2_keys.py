@@ -41,6 +41,12 @@ def _mint():
 
 
 def _vav():
+    c = _vav_as_minted()
+    c.pop("calculator_only", None)   # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the key out ON THE COPY
+    return c
+
+
+def _vav_as_minted():
     prev = next(c for c in _v77()["category_configs"] if c["category_id"] == VAV)
     return dict(copy.deepcopy(_mint().vav_config(prev, _keys())), discipline="HVAC")
 
@@ -54,6 +60,7 @@ def _refused(test, cfg, needle):
 class TestVav2a2Keys(unittest.TestCase):
     def test_01_POSITIVE_the_v78_vav_config_validates_on_both_edge_rules(self):
         config_validation._validate_config(_vav())
+        _refused(self, _vav_as_minted(), "Unknown top-level config key(s): calculator_only")   # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the v78 config AS MINTED is refused by name
         self.assertEqual(_vav()["list_spec"]["pricing"]["band_from"]["edge"], "lower")   # QR-E (a), owner 2026-11-20 00:10
         cfg = _vav(); cfg["list_spec"]["pricing"]["band_from"]["edge"] = "upper"
         config_validation._validate_config(cfg)
@@ -106,12 +113,14 @@ class TestVav2a2Keys(unittest.TestCase):
         config_validation._validate_config(cfg)
 
     def test_06_the_mint_keeps_calculator_only_and_vav_out_of_the_model(self):
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28) (P61): BEFORE the mint kept calculator_only and VAV out of the model -- AS MINTED it still carries the key; with the
+        # switch gone the config (key out on the copy) is eligible
+        self.assertIs(_vav_as_minted().get("calculator_only"), True)
         cfg = _vav()
-        self.assertIs(cfg.get("calculator_only"), True)
         stored = [dict(c, discipline="HVAC") for c in _v77()["category_configs"]]
         stored = [cfg if c["category_id"] == VAV else c for c in stored]
         cfgs = {("HVAC", c["category_id"]): c for c in stored}
-        self.assertFalse(extraction.config_is_eligible(cfg, cfgs))
+        self.assertTrue(extraction.config_is_eligible(cfg, cfgs))   # P61 had no "other categories unchanged" half to keep
 
     def test_07_B5_the_quantity_reason_comes_first_and_the_broad_patterns_are_narrowed(self):
         rs = _vav()["list_spec"]["pricing"]["derivation_reasons"]

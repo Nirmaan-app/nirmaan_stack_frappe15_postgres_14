@@ -44,7 +44,7 @@ function mountCalculator(): HTMLElement {
   const m = new Map<string, RateCategoryConfig>(HVAC.category_configs.map((c) => [c.category_id, c]));
   m.set(VAV, withV79Keys(m.get(VAV)!));
   const items = withV79Items(HVAC.items.map((i) => ({ ...i, discipline: "HVAC" } as RateMasterItem)));
-  const helper = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map(), calculatorSurface: true });
+  const helper = makePricingSheetHelper({ configsByCategory: m, items, extractionByRow: new Map() });
   const ctx = calculatorCtx("HVAC", VAV);
   host = document.createElement("div");
   document.body.appendChild(host);

@@ -305,7 +305,8 @@
       "integrator_cabling.lines.priced_separately": "Integrator cabling not added: {rows} {prices} it for this sheet's VAVs. Add it here only if {that_row} {does} not cover these boxes.",
       "integrator_cabling.lines.low_length": "Integrator cabling not added: {rows} {prices} it for this sheet's VAVs. Its quantity looks low ({metres} m against {need} m = {per_box} m x {boxes} VAV boxes, below {pct}%): check the cabling quantity and add the cabling price to this row if required.",
       "existing_boxes.lines.with_row": "Dismantling is priced on {rows}, so refixing alone is priced at x {factor}.",
-      "existing_boxes.lines.priced": "{label}: installation {rate} x {factor} (Pricing Input '{input}') = {figure}, supply 0. No extras are added to work on an existing box."
+      "existing_boxes.lines.priced": "{label}: installation {rate} x {factor} (Pricing Input '{input}') = {figure}, supply 0. No extras are added to work on an existing box.",
+      "sheet_shares.lines.not_added": "{share} not added: {rows} {prices} it for this sheet's VAVs. Add it here only if {that_row} {does} not cover these boxes."
     },
     "whole_set": {
       "ddc_whole": {

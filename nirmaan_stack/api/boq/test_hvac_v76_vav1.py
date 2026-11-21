@@ -136,15 +136,23 @@ class TestHvacAssetV76(FrappeTestCase):
 
     def test_04_validates_and_b3(self):
         stored = list(_stored(self.cur).values())
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the frozen v76 VAV config carries calculator_only, now refused
+        # by name - every config is validated with the key taken out ON THE COPY, and the VAV config AS IS is refused. BEFORE: validated as is
         for c in stored:
-            config_validation._validate_config(c)
+            config_validation._validate_config({k: v for k, v in c.items() if k != "calculator_only"})
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(_stored(self.cur)[("HVAC", VAV)])
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
         self.assertEqual(config_validation.delegated_section_problems(stored, self.cur["items"]), [])
         self.assertEqual(config_validation.scope_problems(stored, self.cur["items"]), [])
         cfgs, cfgs_prev = _stored(self.cur), _stored(self.prev)
         eligible = sorted(k[1] for k, c in cfgs.items() if extraction.config_is_eligible(c, cfgs))
         # B3: VAV-filed rows stay out of Suggest until VAV-2 (QR-A); Sensors / Misc are borrow-only
-        self.assertEqual(eligible, sorted(k[1] for k, c in cfgs_prev.items() if extraction.config_is_eligible(c, cfgs_prev)))
-        for cid in (VAV, SENS, MISC):
+        # VAV-2b2 K2 (R1): the switch's code is gone - VAV is eligible; every OTHER category's eligibility is unchanged. BEFORE: eligible == v75's
+        # set and VAV not in it
+        self.assertEqual([e for e in eligible if e != VAV], sorted(k[1] for k, c in cfgs_prev.items() if extraction.config_is_eligible(c, cfgs_prev)))
+        self.assertIn(VAV, eligible)
+        for cid in (SENS, MISC):
             self.assertNotIn(cid, eligible)
         s = self.cfg[SENS]
         self.assertEqual((s["attribute_definitions"], s["pipelines"], s["list_spec"]["borrowers_ask_offered_only"], s["list_spec"]["family_attribute_id"]),
@@ -156,8 +164,8 @@ class TestHvacAssetV76(FrappeTestCase):
     def test_05_v76_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(CUR))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 80)  # VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE nums[-1] == 79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE nums[-1] == 78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
-        self.assertEqual(nums, list(range(1, 81)))  # VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE list(range(1, 80)); VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE list(range(1, 79)); VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
+        self.assertEqual(nums[-1], 81)  # VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE nums[-1] == 80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE nums[-1] == 79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE nums[-1] == 78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76
+        self.assertEqual(nums, list(range(1, 82)))  # VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE list(range(1, 81)); VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE list(range(1, 80)); VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE list(range(1, 79)); VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77))
 
     def test_06_live_catalogue_is_v76(self):
         # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): the live VAV config is v77's (v76 + the VAV-2a keys); Sensors and Misc are
@@ -169,7 +177,9 @@ class TestHvacAssetV76(FrappeTestCase):
         # VAV-2b1 K2 (HVAC v80 LOADED; PIN 26, the hvac_sensors identity line, ANSWER 46): the live VAV AND Sensors configs are the NEWEST file's
         # (v80 adds the Duct Static Pressure Sensor family to Sensors); Misc still v76's byte for byte. BEFORE: line opened v79's file, the
         # VAV config compared with it, Sensors and Misc with v76's; the negative half widened: v76's Sensors config != the compared file's
-        with open(_asset_path("rate_master_hvac_all_v80.json"), "r", encoding="utf-8") as fh:
+        # VAV-2b2 K2 (HVAC v81 LOADED; mechanical authority): the live VAV and Sensors configs are the NEWEST file's (v81); Misc still v76's byte
+        # for byte. BEFORE: the line opened v80's file
+        with open(_asset_path("rate_master_hvac_all_v81.json"), "r", encoding="utf-8") as fh:
             v77 = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
         for cid in (VAV, SENS, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))

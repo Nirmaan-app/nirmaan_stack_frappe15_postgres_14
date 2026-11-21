@@ -36,7 +36,7 @@ export function map81(cfg: RateCategoryConfig = vav81()): Map<string, RateCatego
 
 /** the calculator's own construction on v81 (or the given VAV config), with the shares' edits */
 export function calc81(state: CalcState, shares: SharesEditState = {}, cfg: RateCategoryConfig = vav81(), items: RateMasterItem[] = items81()): ItemListSuggestion {
-  const h = makePricingSheetHelper({ configsByCategory: map81(cfg), items, extractionByRow: new Map(), calculatorSurface: true });
+  const h = makePricingSheetHelper({ configsByCategory: map81(cfg), items, extractionByRow: new Map() });
   return h.compute(calculatorCtx("HVAC", VAV), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "Nos",
     ...(Object.keys(shares).length ? { [SHARES_OVERRIDE_KEY]: JSON.stringify(shares) } : {}) }) as unknown as ItemListSuggestion;
 }

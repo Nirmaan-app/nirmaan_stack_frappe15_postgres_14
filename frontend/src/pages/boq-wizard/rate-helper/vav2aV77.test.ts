@@ -13,6 +13,7 @@ import { BY_ID, ITEMS, LATEST, VAV, blk, calc, D2, tot } from "./vav1Vav.harness
 import { KEYS } from "./vav2a.harness";
 import { V78 } from "./v78ByName.harness";
 import { KEYS3 } from "./vav2b1Keys.harness";
+import { KEYS81 } from "./vav2b2Keys.harness";
 
 const C = BY_ID.get(VAV)! as unknown as { calculator_only?: boolean; list_spec: { pricing: Record<string, unknown>; sections: Array<Record<string, unknown>> } };
 const BOX = blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "No", cfm_range: "450-800" });
@@ -31,6 +32,26 @@ describe(`VAV-2a on ${LATEST}`, () => {
       if (version >= 79 && k === "own_row_check") delete got.zero_rows;
       if (version >= 79 && k === "integrator_cabling") delete got.zero_rows;
       if (version >= 79 && k === "combination_warning") delete got.heading;
+      // VAV-2b2 K2 (HVAC v81; PIN F4, ANSWER 28): v81 rewords the cabling's two 'priced on its own row' lines (owner 2026-11-21 15:59 "a") and
+      // names the warning's extras -- taken out here ONLY, each pinned to the VAV-2b2 keys file below. BEFORE: compared with the v79 take-outs only
+      if (version >= 81 && k === "integrator_cabling") {
+        const lines = got.lines as Record<string, string>;
+        for (const l of ["priced_separately", "low_length"]) { expect(lines[l], l).toBe(KEYS81.vav.pricing_merge?.[`integrator_cabling.lines.${l}`]); delete lines[l]; }
+        const want = structuredClone(v) as { lines: Record<string, string> };
+        for (const l of ["priced_separately", "low_length"]) delete want.lines[l];
+        expect(got, k).toEqual(want);
+        continue;
+      }
+      if (version >= 81 && k === "combination_warning") { expect(got.names).toEqual(KEYS81.vav.pricing_merge?.["combination_warning.names"]); delete got.names; }
+      // VAV-2b2 K2 (PIN F4b, ANSWER 30 point 1): v81 rewords the existing-box lines #17 / #18 (owner 2026-11-21 15:59 "a") -- ONLY those two
+      // taken out, each pinned to the VAV-2b2 keys file; the rest of existing_boxes byte for byte. BEFORE: compared as stored
+      if (version >= 81 && k === "existing_boxes") {
+        const lines = got.lines as Record<string, string>;
+        const want = structuredClone(v) as { lines: Record<string, string> };
+        for (const l of ["priced", "with_row"]) { expect(lines[l], l).toBe(KEYS81.vav.pricing_merge?.[`existing_boxes.lines.${l}`]); delete lines[l]; delete want.lines[l]; }
+        expect(got, k).toEqual(want);
+        continue;
+      }
       expect(got, k).toEqual(v);
     }
     if (version >= 79) {
@@ -53,14 +74,18 @@ describe(`VAV-2a on ${LATEST}`, () => {
       const s = C.list_spec.sections.find((x) => x.id === id)!;
       for (const [k, v] of Object.entries(ks)) expect(s[k], `${id}.${k}`).toEqual(v);
     }
-    expect(C.calculator_only).toBe(true);
+    // VAV-2b2 K2 (R1; PIN F4): the switch is removed with v81. BEFORE: `expect(C.calculator_only).toBe(true)`
+    expect(C.calculator_only).toBe(version >= 81 ? undefined : true);
   });
   it("B10: the 8 Pricing Inputs are loaded at the owner's defaults and each is READ by VAV Box (born connected: 'used by VAV Box')", () => {
     const reach = computePricingInputReach(Object.fromEntries(BY_ID), ITEMS);
     for (const [id, v] of Object.entries(KEYS.inputs)) {
       const it = ITEMS.find((i) => i.kind === "hvac_pricing_input" && i.attributes?.item === id);
       expect(it, id).toBeTruthy();
-      expect(Number((it!.rates as { factor?: unknown }).factor), id).toBe(v.factor);
+      // VAV-2b2 K2 (R8, owner 2026-11-21 10:25 "1b"; PIN F8): v81 changes ONE default, the warning share 0.5 -> 0.25. BEFORE: every factor = the
+      // VAV-2a keys file's
+      const changed = version >= 81 ? KEYS81.pricing_inputs[id] : undefined;
+      expect(Number((it!.rates as { factor?: unknown }).factor), id).toBe(changed ? changed.to : v.factor);
       expect(it!.attributes?.name, id).toBe(v.name);
       expect((reach[id] as unknown as { readByCategories?: string[] })?.readByCategories, id).toEqual([VAV]);
     }
@@ -68,7 +93,10 @@ describe(`VAV-2a on ${LATEST}`, () => {
   it("AC0 / C3: the calculator's D2 case still reads 34,720 + 2,900 with no warning", () => {
     const v = calc(D2).itemList!;
     expect(tot(calc(D2))).toEqual([34720, 2900]);
-    expect(v.combinationWarning).toBeUndefined();
+    // VAV-2b2 K2 (R8, owner 2026-11-21 10:25 "1b", the 25% default; PIN F7, ANSWER 28 term 6): the figures do not move by one rupee; from v81
+    // the warning SHOWS (extras 8,060 = 27% of the box's 29,560, over 25%). BEFORE: `toBeUndefined()` (the 0.5 default)
+    if (version >= 81) expect(v.combinationWarning).toBeDefined();
+    else expect(v.combinationWarning).toBeUndefined();
   });
   it("AC0 / C4: box + BACnet over IP + thermostat + CO2 (BOQ-26-00318 r173) = 83,930 + 7,000 with the combination warning and its figures", () => {
     const v = V78.calc(C4).itemList!;

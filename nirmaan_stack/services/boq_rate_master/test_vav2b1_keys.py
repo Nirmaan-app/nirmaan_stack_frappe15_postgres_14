@@ -42,6 +42,12 @@ def _mint():
 
 
 def _vav():
+    c = _vav_as_minted()
+    c.pop("calculator_only", None)   # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the key out ON THE COPY
+    return c
+
+
+def _vav_as_minted():
     prev = next(c for c in _v78()["category_configs"] if c["category_id"] == VAV)
     return dict(copy.deepcopy(_mint().vav_config(prev, _keys())), discipline="HVAC")
 
@@ -64,7 +70,9 @@ class TestVav2b1Keys(unittest.TestCase):
     def test_01_POSITIVE_the_next_vav_config_validates_and_keeps_calculator_only(self):
         cfg = _vav()
         config_validation._validate_config(cfg)
-        self.assertIs(cfg.get("calculator_only"), True)
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): BEFORE `assertIs(cfg.get("calculator_only"), True)` -- the v79 config AS MINTED carries the key and is refused by name
+        self.assertIs(_vav_as_minted().get("calculator_only"), True)
+        _refused(self, _vav_as_minted(), "Unknown top-level config key(s): calculator_only")
         self.assertEqual(_pr(cfg)["sheet_shares"]["count"]["blank"], "skip")   # QR-N (b), owner 2026-11-20 19:46
         self.assertEqual(_pr(cfg)["withdrawn_families"], ["BACnet over IP controller", "Differential Pressure Switch"])
         self.assertEqual(_pr(cfg)["own_row_check"]["serves"]["also"], ["VAV integrator"])
@@ -146,7 +154,8 @@ class TestVav2b1Keys(unittest.TestCase):
         stored79 = [_vav() if c["category_id"] == VAV else c for c in stored78]
         c78 = {("HVAC", c["category_id"]): c for c in stored78}
         c79 = {("HVAC", c["category_id"]): c for c in stored79}
-        self.assertFalse(extraction.config_is_eligible(c79[("HVAC", VAV)], c79))
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28) (P71): BEFORE assertFalse -- with the switch gone VAV is eligible; every other request unchanged (the loop below, kept)
+        self.assertTrue(extraction.config_is_eligible(c79[("HVAC", VAV)], c79))
         for c in stored78:
             if c.get("list_spec"):
                 a = json.dumps(extraction.build_items_spec(c78[("HVAC", c["category_id"])], c78, "HVAC"), sort_keys=True)

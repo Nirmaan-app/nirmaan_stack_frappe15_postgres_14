@@ -145,7 +145,9 @@ def build(out):
     eligible = sorted(c["category_id"] for c in stored if extraction.config_is_eligible(c, cfgs))
     eligible_base = sorted(c["category_id"] for c in stored_base if extraction.config_is_eligible(c, cfgs_base))
     print("eligible configs v80:", eligible_base, "| v81:", eligible)
-    assert eligible == sorted(eligible_base + [VAV]), (eligible, eligible_base)
+    # v81 = v80's eligible set + hvac_vav_box. Before K2 the v80 VAV config was held back by its calculator_only switch; with the
+    # switch's code removed (K2, R1) the v80 file's VAV config reads as eligible too -- the set v81 serves is the same either way.
+    assert eligible == sorted(set(eligible_base) | {VAV}), (eligible, eligible_base)
 
     # STUB PROOF (P1 b): every item-list category's model question byte-identical v80 vs v81 but hvac_vav_box's own
     r_base, r_new = requests(stored_base, cfgs_base, extraction), requests(stored, cfgs, extraction)

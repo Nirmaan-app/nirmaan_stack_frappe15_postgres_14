@@ -63,12 +63,15 @@ export function compareTab(tab: TabLine[]): Row[] {
 
 function compareBorrowed(): Row[] {
   const out: Row[] = [];
-  const adds = (view(calc({ items: [] })) as unknown as { sections?: { adds?: Array<{ id: string; families: Array<{ family: string }> }> } })?.sections?.adds ?? [];
+  const adds = (view(calc({ items: [] })) as unknown as { sections?: { adds?: Array<{ id: string; families: Array<{ family: string; section?: string }> }> } })?.sections?.adds ?? [];
   const sheets: Array<[string, string, Record<string, Record<string, number | string>>, string]> = [
     ["misc", "Misc", TAB.misc, "Digital Thermostat"], ["misc", "Misc", TAB.misc, "Temperature Gauge / Thermometer"], ["misc", "Misc", TAB.misc, "Transformation Pieces"],
     ["sensors", "Sensors", TAB.sensors, "CO2 Sensor"], ["sensors", "Sensors", TAB.sensors, "Differential Pressure Switch"]];
   for (const [sec, sheet, src, fam] of sheets) {
-    const button = adds.find((a) => a.id === sec);
+    // VAV-2b2 K2 (R13, owner 2026-11-21 10:41 "1a 2a": ONE "Add other item" on VAV screens; PIN F11, ANSWER 28): from v81 the misc and sensors
+    // families sit under ONE grouped button, each carrying its section -- the lookup reads that; the comparisons are unchanged. BEFORE: the
+    // button whose id is the section
+    const button = adds.find((a) => a.id === sec && !a.families.some((f) => f.section)) ?? adds.find((a) => a.families.some((f) => f.section === sec));
     // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): a family the config WITHDRAWS (the Differential Pressure Switch, owner
     // 2026-11-20 14:35 / 14:37, R8) is NOT offered under its add button -- asserted -- and is still priced from its own tab's item when entered
     // (the blind spot the report names). BEFORE: every one of the five had to be under its add button

@@ -34,5 +34,5 @@ export function notAddedLines(entries: readonly NotAddedBy[] | undefined, genera
   }
   return [...groups.values()].map(({ tmpl, called, rows: rs }) => tmpl
     ? fill(tmpl, { share: shareLabel, rows: rowsNamed(rs), called, ...countWords(rs) })
-    : fill(general, { share: shareLabel, rows: rowsNamed(rs) }));
+    : fill(general, { share: shareLabel, rows: rowsNamed(rs), ...countWords(rs) }));
 }

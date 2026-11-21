@@ -214,18 +214,10 @@ _KNOWN_CONFIG_KEYS = {
     # VRF-4 (owner Q1 A, 2026-11-03: "removed at VRF-4"; D-10 "VRF goes live on BoQ rows at VRF-4"): VRF-2a's temporary
     # re-admission for hvac_vrf is REMOVED with the key -- the allowlist entry, `_CALCULATOR_ONLY_CATEGORIES` and
     # `_validate_calculator_only` are gone, so the frozen v56..v59 hvac_vrf configs are refused by name as v18..v28 are.
-    #
-    # VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a"): `calculator_only` is RE-ADMITTED, TEMPORARILY, FOR hvac_vav_box ONLY --
-    # the VAV Box Rate Master tab and Calculator now, its BoQ rows and Suggest only when VAV-2b makes them live, which REMOVES the
-    # key (the VRF-2a pattern, 92834b7e5). `_validate_calculator_only` refuses it on any other category, by name, so the frozen
-    # v18..v28 Insulation and v56..v59 hvac_vrf configs stay refused exactly as before. Readers: `extraction.config_is_eligible`
-    # (false with it) and `pricingSheetHelper.isEligibleConfig` (false with it unless the helper is the calculator's).
-    "calculator_only",
+    # VAV-2b2 (R1, owner 2026-11-19 02:55 "optiom a": "removed in VAV-2b"): VAV-1's re-admission of `calculator_only` for
+    # hvac_vav_box is REMOVED with the key -- the VRF-4 state again: refused by name on every category, the frozen v76 - v80 files included.
 }
 
-# VAV-1 (owner QR-A (a), 2026-11-19 02:57): the ONE category the temporary `calculator_only` key may sit on -- removed with the key by
-# the VAV slice that makes VAV rows go live (VAV-2b).
-_CALCULATOR_ONLY_CATEGORIES = frozenset({"hvac_vav_box"})
 
 _LIST_MODE = "item_list"
 _LIST_DEF_TYPES = ("choice", "number", "text")
@@ -4866,31 +4858,6 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                         _vthrow(f"{where}: component_ref.ref '{rk}' reads '{rv}', which is not a SKU attribute.")
 
 
-def _validate_calculator_only(cfg):
-    """VAV-1 (owner QR-A (a), 2026-11-19 02:57; the VRF-2a shape) -- the TEMPORARY calculator-only switch, removed by VAV-2b. Absent =>
-    nothing to check (byte-identical to before for every config). Present, it must be:
-      - exactly `true` -- an explicit `false` is a key doing nothing;
-      - on the category the owner ruled it for (`_CALCULATOR_ONLY_CATEGORIES`: hvac_vav_box only) -- anywhere else it is refused WITH
-        THE REASON, so 12d-2's "never a second on/off switch" still holds for every other category, and the frozen v18..v28
-        Insulation / v56..v59 VRF files stay refused;
-      - beside an item-list pricing block (`list_spec.pricing.families`) -- without rules the calculator has nothing to price."""
-    if "calculator_only" not in cfg:
-        return
-    if cfg.get("calculator_only") is not True:
-        _vthrow("calculator_only must be true when present (an explicit false is a key doing nothing).")
-    cat = (cfg.get("category_id") or "").strip()
-    if cat not in _CALCULATOR_ONLY_CATEGORIES:
-        _vthrow(
-            f"calculator_only is not allowed on category '{cat}': it is a temporary switch for VAV Box only "
-            f"(owner QR-A (a) 2026-11-19, removed by VAV-2b); every other category has ONE on/off switch "
-            f"(SLICE 12d-2), its pricing rules."
-        )
-    fams = (((cfg.get("list_spec") or {}).get("pricing") or {}).get("families"))
-    if not isinstance(fams, dict) or not fams:
-        _vthrow("calculator_only needs an item-list pricing block (list_spec.pricing.families): without rules the "
-                "calculator has nothing to price.")
-
-
 def _validate_alias_of(cfg):
     """SLICE 3: the alias key's shape. Absent => nothing to check (byte-identical to before)."""
     if "alias_of" not in cfg:
@@ -5187,7 +5154,6 @@ def _validate_config(cfg):
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
     _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
     _validate_impact_examples(cfg)    # ELR-3a: the impact panel's worked examples; a no-op without the key
-    _validate_calculator_only(cfg)    # VAV-1 (QR-A (a)): the temporary switch, hvac_vav_box only; a no-op without the key
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

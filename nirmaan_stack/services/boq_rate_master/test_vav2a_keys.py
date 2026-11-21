@@ -44,6 +44,12 @@ def _mint():
 
 def _vav():
     """the VAV config the v77 mint builds (its pure `vav_config`) -- no asset file needed"""
+    c = _vav_as_minted()
+    c.pop("calculator_only", None)   # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): the key out ON THE COPY
+    return c
+
+
+def _vav_as_minted():
     prev = next(c for c in _v76()["category_configs"] if c["category_id"] == VAV)
     return dict(copy.deepcopy(_mint().vav_config(prev, _keys())), discipline="HVAC")
 
@@ -62,7 +68,9 @@ class TestVav2aKeys(unittest.TestCase):
         for k in ("own_row_check", "integrator_cabling", "existing_boxes", "combination_warning"):
             self.assertIn(k, pr)
         self.assertEqual([s.get("qty_attr") for s in cfg["list_spec"]["sections"] if s.get("category_id")], ["qty_per_box", "qty_per_box"])
-        self.assertIs(cfg.get("calculator_only"), True)                     # VAV rows stay "coming soon" (VAV-2b removes it)
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28): BEFORE `assertIs(cfg.get("calculator_only"), True)` -- the v77 config AS MINTED carries the key and is refused by name
+        self.assertIs(_vav_as_minted().get("calculator_only"), True)
+        _refused(self, _vav_as_minted(), "Unknown top-level config key(s): calculator_only")
         config_validation._validate_config(copy.deepcopy(cfg))
         for k in ("own_row_check", "integrator_cabling", "existing_boxes", "combination_warning"):
             c = copy.deepcopy(cfg)
@@ -137,7 +145,8 @@ class TestVav2aKeys(unittest.TestCase):
         v76 = _v76()
         base = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in v76["category_configs"]}
         new = dict(base); new[("HVAC", VAV)] = _vav()
-        self.assertFalse(extraction.config_is_eligible(new[("HVAC", VAV)], new))
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; ANSWER 28) (P67): BEFORE assertFalse -- with the switch gone VAV is eligible; every other category's request is unchanged (below)
+        self.assertTrue(extraction.config_is_eligible(new[("HVAC", VAV)], new))
         for cid in ("hvac_ducting", "hvac_valve_package", "hvac_vrf", "hvac_piping", "hvac_insulation", "hvac_adp", VAV):
             self.assertEqual(json.dumps(extraction.build_items_spec(base[("HVAC", cid)], base, "HVAC"), sort_keys=True),
                              json.dumps(extraction.build_items_spec(new[("HVAC", cid)], new, "HVAC"), sort_keys=True), cid)

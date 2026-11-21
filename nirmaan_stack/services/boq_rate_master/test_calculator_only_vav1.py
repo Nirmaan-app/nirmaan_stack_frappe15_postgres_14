@@ -1,4 +1,6 @@
-"""VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a") -- THE TEMPORARY CALCULATOR-ONLY SWITCH, revived for hvac_vav_box ONLY and removed
+"""VAV-2b2 K2 (R1, ANSWER 28): THE SWITCH IS REMOVED - this file now proves its removal (the text below is VAV-1's, kept for the record).
+
+VAV-1 (owner QR-A (a), 2026-11-19 02:57 "optiom a") -- THE TEMPORARY CALCULATOR-ONLY SWITCH, revived for hvac_vav_box ONLY and removed
 by the VAV slice that makes VAV rows go live (VAV-2b). The VRF-2a pattern (92834b7e5), re-pointed.
 
 The server's half: the validator allows `calculator_only: true` on hvac_vav_box ONLY (any other category is refused, naming the reason);
@@ -41,66 +43,76 @@ def _vav(key=True):
 
 
 class TestVav1CalculatorOnlySwitch(unittest.TestCase):
+    # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; PIN P47 - P53, ANSWER 28 term 4a): THE SWITCH IS REMOVED. This file was its
+    # proof; it is now the proof of its removal - the key refused by name on every category (hvac_vav_box included), VAV eligible, the
+    # Suggest population admits the VAV row. The method names are VAV-1's (kept so no test disappears); each body states its BEFORE.
+
     # ---- the validator ----------------------------------------------------------------------------------------
     def test_01_POSITIVE_the_shipped_vav_config_carries_the_key_and_validates(self):
+        # BEFORE: the v76 VAV config carried the key and validated; _CALCULATOR_ONLY_CATEGORIES == {hvac_vav_box}.
+        # AFTER: the v76 config AS MINTED (with the key) is refused by name; without it, it validates; the category set is gone.
         self.assertIs(_vav().get("calculator_only"), True)
-        config_validation._validate_config(_vav())
-        config_validation._validate_config(_vav(key=False))      # and the config without it
-        self.assertEqual(config_validation._CALCULATOR_ONLY_CATEGORIES, frozenset({VAV}))
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(_vav())
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+        config_validation._validate_config(_vav(key=False))
+        self.assertFalse(hasattr(config_validation, "_CALCULATOR_ONLY_CATEGORIES"))
 
     def test_02_NEGATIVE_refused_on_any_other_category_naming_the_reason(self):
+        # BEFORE: refused off VAV naming "a temporary switch for VAV Box only". AFTER: refused on EVERY category as an unknown key.
         for cat in ("hvac_ducting", "hvac_valve_package", "hvac_piping", "hvac_misc"):
             cfg = _cfg(75, cat)
             config_validation._validate_config(copy.deepcopy(cfg))          # valid as shipped
             cfg["calculator_only"] = True
             with self.assertRaises(Exception) as cm:
                 config_validation._validate_config(cfg)
-            msg = str(cm.exception)
-            self.assertIn("calculator_only is not allowed on category '%s'" % cat, msg)
-            self.assertIn("temporary switch for VAV Box only", msg)
-        # the Sensors config (borrow-only, also new in v76) may not carry it either
+            self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
         s = dict(_mint().sensors_config(_cfg(75, "hvac_misc")), discipline="HVAC")
         s["calculator_only"] = True
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception) as cm:
             config_validation._validate_config(s)
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
 
     def test_03_NEGATIVE_an_explicit_false_or_a_non_bool_is_a_key_doing_nothing(self):
-        for bad in (False, "true", 1, None):
+        # BEFORE: "calculator_only must be true when present". AFTER: any value of the key is refused as an unknown key.
+        for bad in (True, False, "true", 1, None):
             cfg = _vav()
             cfg["calculator_only"] = bad
             with self.assertRaises(Exception) as cm:
                 config_validation._validate_config(cfg)
-            self.assertIn("calculator_only must be true when present", str(cm.exception))
+            self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
 
     def test_04_NEGATIVE_refused_without_an_item_list_pricing_block(self):
+        # BEFORE: _validate_calculator_only refused the key without an item-list pricing block. AFTER: that check is gone with the switch -
+        # the key is refused by name whatever the config holds.
+        self.assertFalse(hasattr(config_validation, "_validate_calculator_only"))
         cfg = _vav()
-        del cfg["list_spec"]["pricing"]["families"]
-        with self.assertRaises(Exception):
-            config_validation._validate_calculator_only(cfg)
         cfg["list_spec"]["pricing"]["families"] = {}
         with self.assertRaises(Exception) as cm:
-            config_validation._validate_calculator_only(cfg)
-        self.assertIn("calculator_only needs an item-list pricing block", str(cm.exception))
+            config_validation._validate_config(cfg)
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
 
-    # ---- eligibility (B3: VAV-filed rows are not sent by Suggest) ---------------------------------------------------
+    # ---- eligibility (B3 lifted: VAV-filed rows go to Suggest) -----------------------------------------------------
     def test_05_NOT_eligible_WITH_the_key_eligible_WITHOUT_it_the_rules_still_run(self):
+        # BEFORE: not eligible WITH the key, eligible without it. AFTER: eligibility no longer reads the key - eligible either way (a config
+        # carrying it cannot be loaded: the validator refuses it, test_01).
         on, off = _vav(key=False), _vav(key=True)
         self.assertTrue(extraction.config_is_eligible(on))
-        self.assertFalse(extraction.config_is_eligible(off))
-        self.assertTrue(extraction.has_runnable_pricing_rules(off))       # only the switch holds it back
-        self.assertFalse(extraction.config_is_eligible(off, {("HVAC", VAV): off}))
+        self.assertTrue(extraction.config_is_eligible(off))
+        self.assertTrue(extraction.has_runnable_pricing_rules(off))
+        self.assertTrue(extraction.config_is_eligible(off, {("HVAC", VAV): off}))
 
     def test_06_an_ALIAS_onto_the_calculator_only_target_is_not_eligible_either(self):
+        # BEFORE: an alias onto the switched target was not eligible. AFTER: eligible, with or without the key on the target.
         alias = {"discipline": "HVAC", "category_id": "hvac_vav_alias", "attribute_definitions": [], "pipelines": {},
                  "alias_of": {"discipline": "HVAC", "category_id": VAV}}
         cfgs = {("HVAC", VAV): _vav(key=True), ("HVAC", "hvac_vav_alias"): alias}
-        self.assertFalse(extraction.config_is_eligible(alias, cfgs))
+        self.assertTrue(extraction.config_is_eligible(alias, cfgs))
         cfgs[("HVAC", VAV)] = _vav(key=False)
         self.assertTrue(extraction.config_is_eligible(alias, cfgs))
 
     def test_07_assemble_population_admits_NO_VAV_row(self):
-        """The Suggest population on a fixture sheet: a VAV Box row and a Ducting row. With the key only the Ducting row is admitted;
-        without it (VACUITY: the switch taken out), both are."""
+        """BEFORE: with the key only the Ducting row was admitted. AFTER: the VAV row is admitted beside it, with or without the key."""
         duct = _cfg(75, "hvac_ducting")
         ctx = {"committed_version": 3, "rows": [{"excel_row": 10, "description": "VAV box 750 CFM"}, {"excel_row": 11, "description": "GI duct 24G"}]}
         resolved = {10: (VAV, "HVAC"), 11: ("hvac_ducting", "HVAC")}
@@ -115,7 +127,7 @@ class TestVav1CalculatorOnlySwitch(unittest.TestCase):
             self.assertEqual(cv, 3)
             return [(r["excel_row"], r["category_id"]) for r in rows]
 
-        self.assertEqual(run(_vav(key=True)), [(11, "hvac_ducting")])
+        self.assertEqual(run(_vav(key=True)), [(10, VAV), (11, "hvac_ducting")])
         self.assertEqual(run(_vav(key=False)), [(10, VAV), (11, "hvac_ducting")])
 
     def test_08_NEGATIVE_the_key_is_IGNORED_off_VAV_every_built_category_unchanged(self):

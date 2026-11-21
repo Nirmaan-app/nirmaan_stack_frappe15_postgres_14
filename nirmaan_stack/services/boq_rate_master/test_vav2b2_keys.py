@@ -89,7 +89,12 @@ class TestV81Keys(unittest.TestCase):
         self.assertNotIn("Duct Static Pressure Sensor", sens["values"])   # c2 (user-only) unchanged
 
     def test_03_eligibility_v81_vav_joins_suggest_v80_not(self):
-        for v81, want in ((False, False), (True, True)):
+        # K2 (R1, PIN P81, ANSWER 28): with the switch's code gone the v80 VAV config reads eligible too (a frozen file carrying the key cannot
+        # be loaded: the validator refuses it by name). BEFORE: (False, False) for v80
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(_configs(False)[VAV])
+        self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+        for v81, want in ((False, True), (True, True)):
             cfgs = _configs(v81)
             m = {("HVAC", c["category_id"]): c for c in cfgs.values()}
             self.assertEqual(extraction.config_is_eligible(m[("HVAC", VAV)], m), want)
@@ -239,7 +244,10 @@ class TestPopulationHook(unittest.TestCase):
 
     def test_21_v80_no_claiming_config_no_VAV_row_either(self):
         cv, rows = self._run(False)
-        self.assertEqual(rows, [])   # v80: VAV not eligible (calculator_only) and nothing claims
+        # K2 (R1, PIN P80, ANSWER 28): the switch's code gone - v80's VAV row is in the population (no claim keys); nothing claims the Misc
+        # rows (v80 has no claims_filed). BEFORE: `rows == []` (VAV not eligible)
+        self.assertEqual([r["excel_row"] for r in rows], [1])
+        self.assertNotIn("claimed_from", rows[0])
 
 
 if __name__ == "__main__":
