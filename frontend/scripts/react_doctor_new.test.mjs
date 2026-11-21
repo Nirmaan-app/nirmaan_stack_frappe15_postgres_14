@@ -114,14 +114,14 @@ describe("doctor.config.jsonc", () => {
   it("drops the no-secrets-in-client-code findings in creditCardImport.ts, and only there", () => {
     const file = "src/pages/outflow-import/creditCardImport.ts";
     const run = spawnSync(process.execPath, [join(FRONTEND, "node_modules", "react-doctor", "bin", "react-doctor.js"),
-      "--no-telemetry", "--no-score", "--no-supply-chain", "--yes", "--no-color", "--verbose", file], { cwd: FRONTEND, encoding: "utf8" });
+      "--no-telemetry", "--no-score", "--no-supply-chain", "--no-color", "--verbose", file], { cwd: FRONTEND, encoding: "utf8" });
     expect(run.stdout + run.stderr).not.toMatch(/no-secrets-in-client-code/);
     // A made-up key in the shape the rule knows, put together here so no key-shaped text sits in this repo.
     const madeUpKey = ["sk", "live", "51HxTrAbCdEfGhIjKlMnOpQrStUvWxYz0123456789"].join("_");
     const { fe } = sampleRepo({ "keys.ts": `export const apiKey = "${madeUpKey}";\n` }, {});
     copyFileSync(join(FRONTEND, "doctor.config.jsonc"), join(fe, "doctor.config.jsonc"));
     const sample = spawnSync(process.execPath, [join(FRONTEND, "node_modules", "react-doctor", "bin", "react-doctor.js"),
-      "--no-telemetry", "--no-score", "--no-supply-chain", "--yes", "--no-color", "--verbose", "."], { cwd: fe, encoding: "utf8" });
+      "--no-telemetry", "--no-score", "--no-supply-chain", "--no-color", "--verbose", "."], { cwd: fe, encoding: "utf8" });
     expect(sample.stdout + sample.stderr).toMatch(/no-secrets-in-client-code/);
   }, 60_000);
 });

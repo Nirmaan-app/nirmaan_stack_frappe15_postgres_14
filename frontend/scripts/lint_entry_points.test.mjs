@@ -26,7 +26,7 @@ describe("yarn doctor", () => {
   // The owner's privacy rule (#1698): no telemetry, no score API, no Socket.dev dependency check, local and in CI.
   // Nothing a shell must expand, so it runs the same from cmd.exe.
   it("runs React Doctor with its three privacy flags and nothing a shell must expand", () => {
-    expect(pkg.scripts.doctor).toBe("react-doctor --no-telemetry --no-score --no-supply-chain --yes");
+    expect(pkg.scripts.doctor).toBe("react-doctor --no-telemetry --no-score --no-supply-chain");
   });
 
   it("pins react-doctor to an exact version", () => {

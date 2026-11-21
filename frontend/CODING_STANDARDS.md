@@ -219,7 +219,8 @@ It adds to ADR-0049's checks; it checks no types.
   your branch adds. The script carries `--no-telemetry --no-score --no-supply-chain`: without them it sends rule
   names, counts and file names to Sentry and Axiom, asks its own API for a score, and checks dependencies with
   Socket.dev. Never run it without the three flags, locally or in CI (owner, #1698); `doctor.config.jsonc` cannot
-  turn the telemetry off. Never install its GitHub App or its `ci install` workflow.
+  turn the telemetry off. Never install its GitHub App or its `ci install` workflow, and never run `yarn doctor install`:
+  it writes a workflow and a git hook that run `react-doctor@latest` without the three flags.
 - **What fails a PR** (CI step "React Doctor", `node scripts/react_doctor_new.mjs --base <PR base sha>`): an
   error-level finding the PR brings, counted per file and rule against the PR's base commit. A count may fall, never
   rise; a new file or rule is new; an old finding in a file the PR touches passes. Warnings never fail. CI names the
