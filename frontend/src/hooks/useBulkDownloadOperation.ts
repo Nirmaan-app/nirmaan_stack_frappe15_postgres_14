@@ -7,10 +7,11 @@
  * A download outlives a dropped socket and a reload of the tab: the shared hook picks it up again from the tab's
  * sessionStorage under `storageKey`.
  */
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 
 import { useToast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { isRecord, parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { type BulkRunContext, type DownloadRun, followRun, isWorking, parseRunContext } from "@/utils/bulkDownload/bulkDownloadRun";
@@ -41,8 +42,7 @@ export interface BulkDownloadOperationOptions {
 export function useBulkDownloadOperation({ storageKey, onSaved }: BulkDownloadOperationOptions) {
     const { toast } = useToast();
     const { call } = useContext(FrappeContext) as FrappeConfig;
-    const onSavedRef = useRef(onSaved);
-    onSavedRef.current = onSaved;
+    const onSavedRef = useLatestRef(onSaved);
 
     const op = useBackgroundOperation({
         storageKey,

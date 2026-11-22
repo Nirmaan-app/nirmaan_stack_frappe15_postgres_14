@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 import { collectResultFile, useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { parseResultFile } from "@/utils/backgroundOps/operationFollower";
 import { saveBlobAs } from "@/utils/saveUrlAs";
 
@@ -52,8 +53,7 @@ interface SnagPdfFlow {
 function useSnagPdfOperation(storageKey: string, flow: SnagPdfFlow) {
   const pendingRef = useRef<((saved: boolean) => void) | null>(null);
   const toastRef = useRef<ReturnType<typeof toast> | null>(null);
-  const flowRef = useRef(flow);
-  flowRef.current = flow;
+  const flowRef = useLatestRef(flow);
 
   const settle = (saved: boolean) => {
     toastRef.current = null;

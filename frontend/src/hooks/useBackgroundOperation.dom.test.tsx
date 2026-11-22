@@ -8,6 +8,7 @@
 // (it is user-targeted) and must not end the other.
 //
 // jsdom has one sessionStorage, so the two tabs use two storage keys here; in a browser each tab has its own.
+import { useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,7 +71,8 @@ function Tab({ storageKey, expose, onFinished }: {
   expose: (op: BackgroundOperation) => void;
   onFinished: (result: unknown) => void;
 }) {
-  expose(useBackgroundOperation({ storageKey, onFinished }));
+  const op = useBackgroundOperation({ storageKey, onFinished });
+  useLayoutEffect(() => expose(op));
   return null;
 }
 

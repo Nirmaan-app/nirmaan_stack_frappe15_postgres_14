@@ -20,6 +20,7 @@
  */
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { parseJson } from "@/lib/parseJson";
 import { isRecord, OperationFollower, type OpView } from "@/utils/backgroundOps/operationFollower";
@@ -134,19 +135,15 @@ export interface BackgroundOperationOptions {
 /** Follow one background operation at a time on this screen. */
 export function useBackgroundOperation({ storageKey, onFinished, onFailed }: BackgroundOperationOptions): BackgroundOperation {
   const { socket, call } = useContext(FrappeContext) as FrappeConfig;
-  const callRef = useRef(call);
-  callRef.current = call;
+  const callRef = useLatestRef(call);
   const [{ view, context }, setFollowed] = useState<{ view: OpView; context: unknown }>({
     view: { phase: "idle" },
     context: undefined,
   });
   const followerRef = useRef<OperationFollower | null>(null);
-  const socketRef = useRef(socket);
-  socketRef.current = socket;
-  const onFinishedRef = useRef(onFinished);
-  onFinishedRef.current = onFinished;
-  const onFailedRef = useRef(onFailed);
-  onFailedRef.current = onFailed;
+  const socketRef = useLatestRef(socket);
+  const onFinishedRef = useLatestRef(onFinished);
+  const onFailedRef = useLatestRef(onFailed);
 
   useEffect(() => {
     // A new slot (the pricing page switching sheets keeps this hook mounted) shows only what that slot holds: idle
