@@ -46,22 +46,17 @@ If `create` or `migrate` fails because the template DB is stale, stop and tell t
 
 ## 3. One user per role
 
-The roles this app has, and a user for each that sees all the data the walk needs: `DEVENV serve <env>` lists them.
-Per role profile it prints the enabled login with the fewest user permissions, and that count. Every user
-permission in this app limits a user to one project, so 0 means no project limit and n means the user sees n
-projects only. Walk each role as the login `serve` prints for it.
+The roles this app has, and a user for each that sees all the data the walk needs. `DEVENV serve <env>` prints,
+per role profile, the enabled login with the fewest user permissions and that count; in this app a user permission
+names one project the user may see. Start from that list, then check what it does not say:
 
-What that list does not say:
-
-| Role | What to know |
+| Role | What the list does not say |
 |---|---|
-| Procurement Executive | Every one is limited to the projects they are assigned. Pick the walk's data from those. |
-| Procurement Lead | Can be limited too: read its count before you assume it sees every project. |
-| Project Manager | Most are assigned to a few projects. When the printed login has a count, pick data from its projects. |
-| Any role | A role whose printed count is above 0 has no user that sees every project. |
+| Project Manager, Project Lead, Procurement Executive, Procurement Lead, Material Procurement Executive | These need a project. A login with none is locked on Dashboard by the app's access gate, and `serve` can print one with a count of 0. Take a user from the verify skill's `free_users.py` instead (it lists only users with a project), and pick the walk's data from that user's projects. None of them sees every project, Procurement Lead included. |
+| Any role | `serve`'s login may hold an asset with a declaration to sign, which also locks it. `free_users.py` lists users who are not locked. |
 
-Set one test password per user on both envs: `DEVENV run <env> set-password <email> <pw>`. `free_users.py` marks
-users holding an asset as locked; that flag does not stop a login.
+Set one test password per user on both envs: `DEVENV run <env> set-password <email> <pw>`. Run `free_users.py` as
+`DEVENV script <env> .claude/skills/verify/bin/free_users.py "<role profile>"`.
 
 Before walking, prove each user can see the records the walk uses: a `DEVENV script <env> <file.py>` that calls `frappe.set_user(<email>)` then `frappe.get_list(<doctype>, filters=...)` and prints the count. A user limited to part of
 the data gets empty lists, which look like a bug in the PR.

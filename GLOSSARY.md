@@ -738,27 +738,25 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 ## PR walks
 
-- **PR walk** — a run that drives every change a pull request claims on screen, as each role that uses it, once on
-  the PR's head (*after*) and once on its merge base (*before*), each on its own env and data, saving one screenshot
-  per step. A rerun is a new walk; an earlier walk is never overwritten. *Avoid*: demo, screen test, verify run (one
-  proof of one screen with the verify skill). (#1734, 2026-11-23.)
+- **PR walk** — a run through every change a pull request claims, on screen, as each role that uses it, once on the
+  PR's head (*after*) and once on its merge base (*before*). A rerun is a new walk. *Avoid*: demo, screen test, verify
+  run (one proof of one screen). (#1734, 2026-11-23.)
 
-- **Walk page** — the one self-contained page built from a PR walk for its reviewer: the verdict, the problem list,
-  and every step's screen with its click box and pins. It is built only from boxes that can be drawn. *Avoid*: report,
-  PR walk HTML. (#1734.)
+- **Walk page** — the one page a reviewer reads for a PR walk: its verdict, its problems, and every step's screen.
+  *Avoid*: report, PR walk HTML. (#1734, 2026-11-23.)
 
 - **Claimed change** — one thing a PR's description says it does, walked as a unit. It ends *seen*, *failed* or *not
-  walked* (with the reason, such as no Gemini key on an env). *Avoid*: feature, item.
-  (#1734.)
+  walked*, with the reason. *Avoid*: feature, item. (#1734, 2026-11-23.)
 
-- **Click box** — the box drawn on a step's screen around the control the walk clicks next. A step that clicked must
-  have one; a walk whose clicked step lost its box is refused. *Avoid*: highlight, target. (#1734.)
+- **Click box** — the box on a step's screen around the control the walk clicks next. *Avoid*: highlight, target.
+  (#1734, 2026-11-23.)
 
-- **Pin** — a numbered note placed on a step's screen where something wrong, odd or worth noting shows, ranked *must*,
-  *should*, *nit* or *info* and marked *seen* or *guess*. *Avoid*: comment, annotation, finding. (#1734.)
+- **Pin** — a numbered note placed on a step's screen where something wrong, odd or worth noting shows, ranked
+  *must*, *should*, *nit* or *info*, and marked *seen* or *guess*. *Avoid*: comment, annotation, finding.
+  (#1734, 2026-11-23.)
 
-- **Box sheet** — every screen of a walk tiled into one image with its click box and pins drawn, so a person can check
-  by eye that each box sits on the control its step names. *Avoid*: contact sheet, thumbnail grid. (#1734.)
+- **Box sheet** — every screen of a walk in one image with its click box and pins drawn, to check by eye that each
+  box sits on the control its step names. *Avoid*: contact sheet, thumbnail grid. (#1734, 2026-11-23.)
 
-- **Least limited login** — for one role profile, the enabled login with the fewest project limits: the user a walk
-  uses for that role, printed per profile by the dev env's `serve`. *Avoid*: admin user, test user. (#1734.)
+- **Least limited login** — for one role profile, the enabled login limited to the fewest projects. It may still be
+  locked out of the app. *Avoid*: best user, test user. (#1734, 2026-11-23.)

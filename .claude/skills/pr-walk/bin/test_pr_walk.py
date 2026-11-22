@@ -30,9 +30,13 @@ except ImportError:
     NO_PILLOW = "sheet.py needs Pillow, which this Python lacks"
 
 
-def run(script: str, *args: str | Path) -> subprocess.CompletedProcess:
+def run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess:
+    """Run a pr-walk script as its users do, with python3 -I, and capture its output."""
     return subprocess.run([sys.executable, "-I", str(BIN / script), *map(str, args)],
                           capture_output=True, text=True, timeout=300)
+
+
+PIN = {"box": {"x": 40, "y": 60, "w": 200, "h": 24}, "text": "Made-up note", "kind": "nit", "evidence": "seen"}
 
 
 def made_up_walk(folder: Path, **step_fields) -> Path:
@@ -42,8 +46,7 @@ def made_up_walk(folder: Path, **step_fields) -> Path:
     step = {"id": "s01", "change": "c1", "side": "after", "role": "Accountant", "user": "test.user@example.com",
             "caption": "Open the made-up report", "shot": "shots/s01.jpg", "size": [1280, 800],
             "click": {"x": 10, "y": 20, "w": 120, "h": 32}, "clicked": True,
-            "pins": [{"box": {"x": 40, "y": 60, "w": 200, "h": 24}, "text": "Made-up note", "kind": "nit",
-                      "evidence": "seen"}],
+            "pins": [PIN],
             "url": "http://made-up.localhost/report"}
     step.update(step_fields)
     walk = {"pr": {"number": 9999, "title": "Made-up PR", "url": "https://example.com/pr/9999", "author": "tester",
@@ -63,18 +66,19 @@ class BuildPageRebuildsSavedWalks(unittest.TestCase):
             for pr, walk in WALKS.items():
                 with self.subTest(pr=pr):
                     out = Path(tmp) / f"pr-{pr}-walk.html"
-                    r = run("build_page.py", walk, out, "--terms", BIN / f"terms_pr_{pr}.json")
+                    r = run_script("build_page.py", walk, out, "--terms", BIN / f"terms_pr_{pr}.json")
                     self.assertEqual(r.returncode, 0, r.stderr)
                     self.assertEqual(out.read_bytes(), (INPUTS / f"pages/pr-{pr}-walk.html").read_bytes())
 
 
 class BuildPageRefusesBadBoxes(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)]))
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
 
     def build(self, **step_fields) -> subprocess.CompletedProcess:
-        return run("build_page.py", made_up_walk(self.tmp / "walk", **step_fields), self.tmp / "out.html")
+        return run_script("build_page.py", made_up_walk(self.tmp / "walk", **step_fields), self.tmp / "out.html")
 
     def assert_refused(self, r: subprocess.CompletedProcess, why: str) -> None:
         self.assertNotEqual(r.returncode, 0)
@@ -93,7 +97,7 @@ class BuildPageRefusesBadBoxes(unittest.TestCase):
                             "click box needs numeric x, y, w, h")
 
     def test_a_pin_box_with_no_height_is_refused(self):
-        pin = {"box": {"x": 40, "y": 60, "w": 200, "h": 0}, "text": "Made-up note", "kind": "nit", "evidence": "seen"}
+        pin = {**PIN, "box": {**PIN["box"], "h": 0}}
         self.assert_refused(self.build(pins=[pin]), "pin 1 box w=200 h=0")
 
     def test_a_step_that_clicked_with_no_click_box_is_refused(self):
@@ -109,7 +113,7 @@ class SheetTilesSavedWalks(unittest.TestCase):
             for pr, walk in WALKS.items():
                 with self.subTest(pr=pr):
                     out = Path(tmp) / f"pr-{pr}-sheet.jpg"
-                    r = run("sheet.py", walk, out)
+                    r = run_script("sheet.py", walk, out)
                     self.assertEqual(r.returncode, 0, r.stderr)
                     self.assertIn(f"{screens[pr]} screens", r.stdout)
                     self.assertEqual(out.read_bytes()[:3], b"\xff\xd8\xff")
