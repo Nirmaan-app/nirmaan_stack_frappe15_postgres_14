@@ -18,7 +18,7 @@ import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE.parents[1] / "verify" / "bin"))
 sys.path.insert(0, str(HERE))
 from drive import session, sidebar  # noqa: E402
 from record import Walk, pin  # noqa: E402
@@ -41,7 +41,6 @@ MTC_PROJECT_PO = "PO/125/00187/26-27"
 MTC_NEW_CANDIDATES = ["PO/191/00187/26-27", "PO/178/00187/26-27", "PO/171/00187/26-27", "PO/166/00187/26-27"]
 MTC_NONBILLABLE_PO = "PO/013/00187/26-27"
 REV_PO = "PO/010/00286/26-27"
-MSME_VENDORS = ["VEN-Material-0296", "VEN-Material-0295", "VEN-Material-0294", "VEN-Material-0293"]
 
 out = Path(sys.argv[1])
 w = Walk(out, pr={"number": 1731, "title": "Feat/vendor wo",
@@ -112,9 +111,13 @@ def db_json(task: str, name: str, code: str, *args: str) -> dict:
 FACTS_SQL = r'''
 a = json.loads(sys.argv[1])
 P, ITEM_ID, ITM_P, REV_PO = a["project"], a["item_id"], a["itm"], a["rev_po"]
-VEN = next(v for v in a["vendors"] if not frappe.db.get_value("Vendors", v, "msme_id"))
+VEN = frappe.get_all("Vendors", filters={"vendor_type": "Material", "msme_id": ["is", "not set"]},
+                     order_by="creation desc", pluck="name", limit=1)[0]
 PLAIN_PO = next(po for po in a["pos"] if not frappe.db.count("PO Revisions", {"revised_po": po, "status": "Approved"}))
-MTC_PO = next((po for po in a["pos"] if not frappe.db.count("Material Test Certificate", {"procurement_order": po})), None)
+MTC_PO = next((po for po in frappe.get_all("Procurement Orders", filters={
+    "project": frappe.db.get_value("Procurement Orders", a["pos"][0], "project"), "status": "Delivered",
+    "billing_status": "Billable"},
+    order_by="creation desc", pluck="name") if po not in a["skip"] and not frappe.db.count("Material Test Certificate", {"procurement_order": po})), None)
 ok = ("Approved", "Dispatched", "Partially Delivered", "Delivered")
 itm_item = frappe.db.sql("""SELECT itm.name, itm.status, i.transfer_quantity q FROM "tabInternal Transfer Memo Item" i
     JOIN "tabInternal Transfer Memo" itm ON itm.name = i.parent
@@ -138,7 +141,7 @@ print("JSON " + json.dumps({
 
 facts = db_json(AFTER, "facts", FACTS_SQL, json.dumps({"project": PROJECT, "item_id": ITEM_ID, "itm": ITM_PROJECT,
                                                        "rev_po": REV_PO, "pos": MTC_NEW_CANDIDATES,
-                                                       "vendors": MSME_VENDORS}))
+                                                       "skip": [MTC_PROJECT_PO, MTC_NONBILLABLE_PO]}))
 MSME_VENDOR = facts["msme_vendor"]["name"]
 MSME_ID = f"UDYAM-KR-03-{int(MSME_VENDOR.rsplit('-', 1)[-1]):07d}"
 

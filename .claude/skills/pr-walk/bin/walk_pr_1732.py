@@ -12,7 +12,7 @@ import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE.parents[1] / "verify" / "bin"))
 sys.path.insert(0, str(HERE))
 from drive import session  # noqa: E402
 from record import Walk, inr, pin  # noqa: E402

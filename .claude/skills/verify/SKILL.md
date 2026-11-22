@@ -94,25 +94,8 @@ local disk.
 
 ## PR walk page
 
-A review page for one PR: every change it makes, screen by screen, for each role, before and after, with the
-clicked control boxed and problems pinned on the spot. The tools are in `BIN/prwalk/`:
-
-- `record.py` turns a Playwright walk into `walk.json` plus one screenshot per step. Its docstring holds the shape.
-  `w.step(page, …, click=<locator>, pins=[pin(<locator>, text, kind)])` shoots the screen with the control it
-  clicks next, then clicks it. `w.check(change, role, expect, seen, ok, kind)` records a role or number check.
-- `build_page.py <walk dir> <out.html> [--terms terms.json]` builds one self-contained page from that folder.
-- `walk_pr_1732.py` is the worked example. Copy it for the next PR.
-
-Steps:
-1. Fetch the PR (`git fetch upstream pull/<n>/head`) and make two envs: `DEVENV create pr-<n> <head>` and
-   `DEVENV create pr-<n>-base <merge base>`. Serve both and set one password per role user.
-2. Pick each role's user by what it can see. A user with `User Permission` rows sees only those projects, so a list
-   can come back empty: check with `frappe.get_list` as that user in `DEVENV script` first.
-3. Write the walk from the PR description: one `change` per claim, the claim's numbers as checks.
-4. Run it into `~/claude-artifacts/verify/pr-<n>/walk/`, build the page into `~/claude-artifacts/pr-<n>-walk.html`,
-   then look at the screens that carry a pin before handing it over.
-
-A failed role check of kind `must` marks its change failed. A number off by rounding is a `nit`, not a failure.
+A review page for one PR, built from walks driven with this skill's `drive.py`: see the `pr-walk` skill
+(`.claude/skills/pr-walk/SKILL.md`).
 
 ## Cleanup
 
