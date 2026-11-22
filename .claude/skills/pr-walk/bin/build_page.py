@@ -22,6 +22,26 @@ def load(walk_dir: Path) -> tuple[dict, dict]:
     return data, shots
 
 
+def bad_boxes(data: dict) -> list[str]:
+    """Every click or pin box the page would draw wrong. A box needs numeric x, y and w, h above 0 (a box once saved
+    as width/height drew as a dot and the page still built). A pin with box None is fine: the page says "spot not
+    found"."""
+    def wrong(b: dict) -> str:
+        if not isinstance(b, dict):
+            return f"not a box: {b!r}"
+        if any(not isinstance(b.get(k), (int, float)) for k in ("x", "y", "w", "h")):
+            return f"needs numeric x, y, w, h, got keys {sorted(b)}"
+        return "" if b["w"] > 0 and b["h"] > 0 else f"w={b['w']} h={b['h']}, both must be above 0"
+    out = []
+    for st in data["steps"]:
+        if st.get("click") is not None and (why := wrong(st["click"])):
+            out.append(f"step {st['id']} ({st['caption']!r}): click box {why}")
+        for k, p in enumerate(st["pins"], 1):
+            if p.get("box") is not None and (why := wrong(p["box"])):
+                out.append(f"step {st['id']} ({st['caption']!r}): pin {k} box {why}")
+    return out
+
+
 def summary(data: dict) -> dict:
     pins = [p for s in data["steps"] for p in s["pins"]]
     by_kind = {k: sum(1 for p in pins if p["kind"] == k) for k in KIND_LABEL}
@@ -320,6 +340,8 @@ def main() -> None:
     ap.add_argument("--terms", type=Path)
     a = ap.parse_args()
     data, shots = load(a.walk_dir)
+    if bad := bad_boxes(data):
+        raise SystemExit("refused: these boxes would draw wrong, fix the walk and record again\n  " + "\n  ".join(bad))
     terms = json.loads(a.terms.read_text()) if a.terms else []
     a.out.write_text(page(data, shots, terms))
     print(a.out, f"{a.out.stat().st_size / 1e6:.1f} MB")

@@ -14,7 +14,9 @@ that opens on a phone, with the evidence behind it in `~/claude-artifacts/verify
   data shape. `w.step(page, change, side, role, user, caption, click=<locator>, pins=[pin(<locator>, text, kind)])`
   shoots the screen with the control it clicks next boxed, then clicks it. `w.check(change, role, expect, seen, ok,
   kind)` records a role or number check. `w.status(change, "not_walked", reason)` marks a claim it could not drive.
-- `BIN/build_page.py <walk dir> <out.html> [--terms terms.json]` builds the page.
+- `BIN/build_page.py <walk dir> <out.html> [--terms terms.json]` builds the page. It refuses a click or pin box
+  without `w` and `h` above 0 and names the step.
+- `BIN/sheet.py <walk dir> <out.jpg>` tiles every screenshot with its boxes drawn, to check each box by eye.
 - `BIN/walk_pr_1732.py` and `BIN/walk_pr_1731.py` are worked examples (1731 reads its numbers from the DB and handles uploads and PDFs). Copy the closest one for a new PR.
 
 ## 1. Read the PR
@@ -106,8 +108,9 @@ python3 -I BIN/build_page.py ~/claude-artifacts/verify/pr-<n>/walk <out> --terms
 Out is `~/claude-artifacts/pr-<n>-walk.html`. Before handing it over:
 
 - `node ~/evals/page-check/pagelint.mjs <page>` must print PASS.
-- Load it at 390 px and 1280 px wide: no console errors, no sideways scroll, and the first screen's click box has a
-  real width and height (measure `.box` with `getBoundingClientRect`).
+- Load it at 390 px and 1280 px wide: no console errors, no sideways scroll.
+- Run `BIN/sheet.py` on the walk and look at the sheet: every blue click box and numbered pin sits on the
+  control its caption names, and no red X (a box with no size) shows.
 - Look at every screenshot that carries a pin, and at least one per change.
 
 ## 8. Clean up
