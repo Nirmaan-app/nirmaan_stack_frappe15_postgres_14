@@ -187,6 +187,8 @@ ENV_SYNC_SITE=dev2.localhost
 ENV_SYNC_VITE_PORT=8180
 ENV_SYNC_START_BENCH=/workspace/dev2_scripts/start_bench.sh
 ENV_SYNC_START_VITE=/workspace/dev2_scripts/start_vite.sh
+# the LAPTOP's dev2 checkout only: the containers a command may start there (no default: without it the command refuses)
+ENV_SYNC_LAPTOP_CONTAINERS="frappe_dev2-postgresql-1 frappe_dev2-redis-cache-1 frappe_dev2-redis-queue-1 frappe_dev2-frappe-1"
 ```
 
 | Setting | Main's default | What it changes |
@@ -196,11 +198,12 @@ ENV_SYNC_START_VITE=/workspace/dev2_scripts/start_vite.sh
 | `ENV_SYNC_START_VITE` | none | a separate vite start script, run once :8000 is open |
 | `ENV_SYNC_VITE_PORT` | `8080` | the port probe, the start wait and the stop check |
 | `ENV_SYNC_STOP_PATTERN` | `remote/stop_bench.sh`'s pattern | the processes `stop_bench.sh` kills; dev2's processes already match the default |
+| `ENV_SYNC_LAPTOP_CONTAINERS` | main's four | the laptop containers a command may start. dev2 has **no** default: a dev2 command that needs them refuses and names this setting; main's are never started for it |
 
 A setting reaches a container (`docker exec -e`) only when it differs from main's default, so main's commands are
 exactly what they were. Run `env_sync.sh print` in the dev2 checkout before its first sync: it must name
-`dev2.localhost`, 8180, the dev2 start scripts, the `frappe_dev2-*` containers and the launcher task
-`envsync-claude-launch-frappe_docker_dev2`. The dev2 start scripts live outside the repo, in the docker folder's
+`dev2.localhost`, 8180, the dev2 start scripts, the `frappe_dev2-*` containers, the launcher task
+`envsync-claude-launch-frappe_docker_dev2`, `environment dev2` and, on the laptop, dev2's own `laptop containers`. The dev2 start scripts live outside the repo, in the docker folder's
 `dev2_scripts\` (bound at `/workspace/dev2_scripts` in dev2's container).
 
 **Isolation.** dev2's data is a copy of main's (R-DEV2R0 (5)), so the in-database guards travel with it (email accounts
@@ -239,9 +242,11 @@ the procedure DEV2-2 ran by hand on 2026-10-29. env_sync's `restore_db.sh` and `
 are: the first keeps the old database as `<db>_envsync_prev` and drops an older one, and the second extracts the tar's
 `./localhost/` paths unrenamed and migrates at once, before the guards.
 
-1. **Back up main** at a quiet point (no test, build, load, backup or migrate in main's container):
-   `bench --site localhost backup --with-files` (main's `envsync/backup.sh`), then `gzip -t` the dump. This backup is
-   the only thing done to main.
+1. **Back up main** at a quiet point (no test, build, load, backup or migrate in main's container): main's
+   `envsync/backup_local.sh <folders to keep>` in main's container. It takes main's backup lock, so it cannot run beside
+   a "leaving" or away backup of main (a second caller waits up to 5 minutes, then fails), and it keeps the database
+   password off the command line. It removes backup folders older than the number to keep: read what it would remove
+   first. Then `gzip -t` the dump. This backup is the only thing done to main.
 2. **Database** (dev2's bench stopped; only dev2's postgres needs to run): rename dev2's database to `<db>_dev2_prev`,
    refusing if that name exists; create a fresh `<db>` owned by the site's database role (as main's is); load the dump
    through `gunzip | psql` with the `\restrict` line stripped (pg_dump 17 writes it and psql refuses it). dev2's
@@ -264,8 +269,10 @@ dev2's old data stays as `<db>_dev2_prev` and the `*.dev2_prev` folders until so
 
 ### The dev2 sync between the machines
 
-Run `env_sync.sh` on the laptop from the **dev2 checkout**. Each machine's dev2 checkout holds the same seven-line
-`.claude/state/env.local` (above): the laptop's is what the commands read, and the desktop's lets `print` resolve there.
+Run `env_sync.sh` on the laptop from the **dev2 checkout**. Each machine's dev2 checkout holds the same
+`.claude/state/env.local` (above; the container list on the laptop only): the laptop's is what the commands read, and the
+desktop's lets `print` resolve there. The checkpoint copier covers dev2's **code** only, with no dev2 database copy
+(owner 2026-11-21); what it does for a dev2 unit is the dev2 row of `scripts/env_sync/README.md`.
 Run `print` first: it must name the dev2 values.
 
 | Command, from the dev2 checkout | Does |
@@ -283,9 +290,12 @@ so `db-push` in dev2 runs by owner ruling: R-DEV23 (2) (owner 2026-10-29 23:39) 
 ### The laptop's turn file
 
 The laptop holds one environment at a time (R-DEV2R0 (7)). `C:\Users\nites\envsync_laptop_turn.txt` on the laptop
-says which lane holds it: `dev2 <step> <time>` while dev2 holds the laptop, `free <time>` after. While it names dev2, a
-main sync that falls due waits, usually under 30 minutes (R-DEV23 (3): DEV2-3 takes the laptop between ELR-4b's
-commits). The laptop session keeps the file by hand; no script reads or writes it.
+says which lane holds it: `<environment> <step> <time>` while main or dev2 holds the laptop, `free <time>` after. While it
+names dev2, a main sync that falls due waits, usually under 30 minutes (R-DEV23 (3): DEV2-3 takes the laptop between
+ELR-4b's commits). `env_sync.sh` reads and writes it around any command that starts the laptop's containers: the tag is the
+environment the command was called for, it is freed after, and a command refuses (naming the holder) while the other
+lane's line is there - it never overwrites it. A takeover of main leaves `main <slice> MASTER`. A code-only resume of a
+dev2 unit does not touch it. By hand, the same words.
 
 ## Recovery
 

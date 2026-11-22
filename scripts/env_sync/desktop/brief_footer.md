@@ -38,7 +38,9 @@ for anyone; stop only through the status file.
      OneDrive (or any cloud drive) on this machine, and never write into a OneDrive folder.
    - After a paid run, a catalogue load or a migrate, write `DBCOPY-POINT <time> <step>` in the status file.
    - If your message file gets `=== CHECKPOINT ... ===`, stop at the next SAFE POINT (the README's list: never inside a
-     load, a paid run, a migrate, a database write, a cert or a running suite), rewrite the resume note, write
+     load, a paid run, a migrate, a database write, a cert or a running suite; never between a data refresh's database
+     load and `dev_isolate --verify` PASS, nor inside a backup of main or a refresh's file swap; after a refresh's prove
+     step and `--verify` PASS is safe), rewrite the resume note, write
      `CHECKPOINT SAFE <time> <step>` in the status file, then poll the message file every 60 seconds (in this turn) for
      `=== CHECKPOINT TAKEN ... carry on ===` or `=== CHECKPOINT FAILED ... carry on ===`, and carry on either way.
    - A checkpoint never stops the slice: wait at most 20 minutes. Past that, write
