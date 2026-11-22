@@ -52297,3 +52297,25 @@ As built (commits, figures and counts: the report `BoQ main lane\VAV-2b2\<date>_
   full-rate block that withholds its price ("price this share"); the added cabling item's "none found" line beside a sheet note naming a
   0 m row; a supply-duct static pressure row for the AHU / VFD claimed as the VAVs' DP sensor row (a QUESTION); an item's own supply shown
   under "Installation only" (display only - the row's supply is 0).
+
+## Slice VAV-2c1 (desktop) - the words a pricer reads, the Scope box with lines that follow it, internal labels off every HVAC screen, Pricing Input texts that follow the live value + HVAC v82 - 2026-11-22
+
+Wording and display only: no rate, rule, row price or model request moves; no model call. Rulings 2026-11-21 23:22 - 2026-11-22 20:13 (R1 - R14,
+QR-M / QR-SC / QR-V / QR-C / N1 - N3, all "a"; the capture file VAV_Rulings_Capture_2026-11-18.md).
+
+As built (figures and counts: the report `BoQ main lane\VAV-2c1\<date>_VAV-2c1_Report.md`):
+- K1 1241baa3f - scope working lines (scopeLines.ts, `scope.lines_follow`), ScopeBox.tsx, the live reading of Pricing Inputs (helperWording.ts), the
+  headings, the full-rate "item" wording and empty-count rule, 11 VRF / Valve / Ducting scope notes and the rules page without labels, the
+  validators (config_validation.py), the label / texts program, the no-key harness (scripts/_instruments/no_key.py), tests vav2c1*, PIN 1 - 6.
+- K2 6ebf1b5ea - HVAC v82 (435 config texts and keys + 66 Pricing Input texts of one edits file), the version pins, parityMaster.json, the guards
+  and the mint parity.
+- K3 - docs (this entry; boq-rate-master.md "HVAC v82").
+- v82 (sha256 3c9dc559) loaded on the desktop 2026-11-22 22:23 (batch rmbulk-45d6870461ac, verify 0 / 0 / 0) after a proved backup
+  (vav2c1_pre_v82_20261122_222054.dump). No model call; capture log unchanged; the 11 stub runs and the amber line as before.
+- PF1: the replay of 33,556 stored rows, both harnesses: 0 row totals, values, kinds or reasons move; text moves are label removals and the
+  declared sentences, plus the working lines of 19 scope rows; 16 LINE figures on 4 Supply-only Valve rows (BOQ-26-00231 / 00243 r73, r75)
+  became 0 (R5 b; owner 2026-11-23 00:00 "a"). The replay DOES run the scope step for Valve: the VAV-2c1 prompt said it could not.
+- The old tests that compared the live / newest catalogue with older files read v82's texts undone (undoVav2c1, vav2c1_undo_support.py):
+  pins K2-A, K2-B, K2-C (C1, C2), K2-E, K2-F, the served-prices fixture K2-D.
+- The cert C1 - C13 (panel and Calculator, three scopes, four categories) PASS; open findings for the owner: the "Installation only" note's
+  trailing colon when the uplift is 0%; a VRF note carrying "(owner 11:50 / 11:55)"; the rules page calling the box "the BoQ scope".

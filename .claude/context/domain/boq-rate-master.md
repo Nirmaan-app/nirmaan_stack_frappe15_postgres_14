@@ -5962,3 +5962,47 @@ Keys file: frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2b2Keys.jso
   "none found" line vs the sheet note naming a 0 m row; a duct static pressure row for the AHU / VFD counts as the VAVs' DP sensor row
   (QUESTION: as built it switches the DP share off, e.g. BOQ-26-00355 r41); an item's own supply shown under "Installation only" (display
   only).
+
+## HVAC v82 - VAV-2c1 (2026-11-22) - the words a pricer reads, the Scope box, the Pricing Input texts
+
+v82 = v81 + ONLY texts and display keys (no rate, markup, item or rule): the edits of ONE file,
+frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c1Edits.json (read by mint_hvac_v82_vav2c1.py and by vav2c1Edits.harness.ts).
+Every category's model request is byte-identical v81 -> v82 (test_vav2c1_keys test_03; the mint's own proof).
+
+### Load-bearing rules (each with the owner's words)
+- NO INTERNAL LABEL ON A PRICER'S SCREEN, EVERY HVAC CATEGORY (R3; owner 2026-11-22 10:49 "a and also check for similar instances across
+  other HVAC categories and remove if found"; how far, 13:03 "a"): no ANSWER / QR / Q number, "chat-Claude", slice name, ruling code or config
+  key in a rules-page line, a row note or message, or a working line. His own words and dates stay ("(owner DR8, 2026-11-13 21:03)" ->
+  "(owner, 2026-11-13 21:03)"). The label kinds are scripts/pricer_text_labels.json; scripts/pricer_texts.py (asset texts) and
+  frontend/src/pages/pricing/rate-master/pricerCodeTexts.harness.ts (screen code) walk every text with them, and BOTH GUARDS read what is drawn:
+  test_vav2c1_keys test_04 (v81 red, v82 green) and vav2c1CodeLabels.test.ts (code strings + every HVAC rules page as rendered). A NEW
+  pricer-facing text with a label fails them. The PURE pricer's stored sentences may keep a tag only where `plainPricerText`
+  (plainEnglish.ts) drops it when the sentence is drawn (12e-3b) - the guard proves the strip. AI reading guidance and texts on no screen
+  keep their labels (they are part of the model request). Electrical is its own slice (owner 13:05).
+- A PRICING INPUT'S TEXT FOLLOWS ITS LIVE VALUE, HVAC-WIDE (R6; owner 2026-11-21 23:22 "the users xan edit the 0.25 number in future from
+  the frontend or uploading new pricing input sheet. so the text should get automatically updated of the inlut changes. and this shoud be
+  for all pricing inlut sheets"): the stored unit / remarks say what the number is and what it does - no value, no date, no example figure
+  (test_08 reads all 78). The plain reading ("25%", "x 0.5 = half") is worked out on screen from the current value (`live_reading: true` on
+  the hvac_pricing_inputs config; helperWording.pricingInputReading; QR-V 20:13 "a"): the Ducting uplift and coverage-threshold lines too.
+  Electrical's inputs are unchanged (no key).
+- THE SCOPE BOX AND THE WORKING LINES (R5; owner 10:58 / 11:00 "option a" / 11:02 "yes for both"; mockup approved QR-M "a"; QR-SC all four
+  categories): `scope.lines_follow: {word}` under a category's scope block makes every item's lines follow the chosen scope - the side out
+  of scope reads 0 with the word ("not in scope") - and the lines still add up to the row total, which NEVER moves with the key (the key is
+  display only; T2 pins it over every priced kind: VAV Box 7, Ducting 4, Valve Package 13, VRF 18 x 3 scopes). Code: scopeLines.ts,
+  ScopeBox.tsx (first in the card; Calculator starts on Supply + installation). The default is always Supply + installation unless the
+  category's own rules say otherwise (the check of 20:08: VAV 183 / 2, Ducting 1,507 / 1, Valve Package 1,489 / 4, VRF 1,482 / 40).
+- THE COUNT WORDS (R2; owner 10:48 "optoin a and also fix the msg and note whihc call its a share"): a full-rate block is an "item", a
+  share block a "share"; a full-rate block with its count empty prices NOTHING (VAV and the BACnet full rate, QR-C "a"): `labels
+  .need_vavs_whole`; the rules page line reads "no VAVs typed: nothing is priced".
+- HEADINGS (R4; owner 10:51 "all a"): on a row claimed from Misc / Sensors the item reads "Item 1 - matched by the helper"; on a separate
+  controller / DDC row "VAVs served by one unit" (`labels.vavs_per_unit`).
+- THE SIX SENTENCES and the three wordings (R1 / R7): own_row_check.lines not_added / rate_only (+ rate_only_some, double_count_unread:
+  N1 - N3 "a") / attr_changed / double_count, lot_units.bar, scope.panel_pick.note; the cabling item line says what the note beside it says;
+  the Pricing Input "VAV - refixing when dismantling is priced separately" (renamed; same item, same value).
+- THE OLDER "LIVE / NEWEST == AN OLDER FILE" TESTS read v82's texts UNDONE: `undoVav2c1` (vav2c1Edits.harness.ts) and
+  `services/boq_rate_master/vav2c1_undo_support.py` (`as_v81` / `item_as_v81` / `asset_as_v81`), both driven by vav2c1Edits.json alone and
+  REFUSING any config that holds neither v81's nor v82's texts (planted-change proofs: vav2c1V82.test.ts, test_vav2c1_keys test_11 / 12). A
+  NEXT mint that changes one of these texts must update the edits file or drop the undo from the tests that read it. test_vav2c1_keys
+  test_13: no product module imports the undo support.
+- A test harness never holds an AI key (scripts/_instruments/no_key.py; R13): `no_key()` makes every copy of get_boq_ai_api_key raise.
+- Tests: vav2c1Scope / vav2c1Texts / vav2c1Derivation / vav2c1V82 / vav2c1CodeLabels / vav2c1ScopeBox.dom, test_vav2c1_keys.
