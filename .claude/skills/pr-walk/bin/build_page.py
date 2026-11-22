@@ -285,9 +285,7 @@ function draw(flashPin) {{
   const st = list[S.i];
   const shot = $("shot");
   shot.querySelectorAll(".box").forEach(b => b.remove());
-  const ch = W.checks.filter(k => k.change === c.id);
-  $("checks").innerHTML = ch.length ? `<table><thead><tr><th>Role</th><th>Should</th><th>Saw</th><th>Result</th></tr></thead><tbody>${{ch.map(k => `<tr><td>${{esc(k.role)}}</td><td>${{esc(k.expect)}}</td><td>${{esc(k.seen)}}</td><td class="${{k.ok ? "ok" : "bad"}}">${{k.ok ? "Pass" : "Fail" + (k.kind && k.kind !== "must" ? " (" + KIND[k.kind].toLowerCase() + ")" : "")}}</td></tr>`).join("")}}</tbody></table>` : "<p class='meta'>No role checks for this change.</p>";
-  if (!st) {{ $("img").removeAttribute("src"); $("img").alt = ""; $("who").textContent = ""; $("pos").textContent = `${{S.side === "before" ? "Before" : "After"}} · no screens`; $("caption").textContent = "No screens for this choice."; $("pins").innerHTML = ""; $("dots").innerHTML = ""; $("prev").disabled = true; $("next").disabled = true; return; }}
+  if (!st) {{ $("img").removeAttribute("src"); $("caption").textContent = "No screens for this choice."; $("pins").innerHTML = ""; $("dots").innerHTML = ""; return; }}
   $("img").src = SHOTS[st.id];
   $("img").alt = st.caption;
   const [w, h] = st.size;
@@ -307,6 +305,8 @@ function draw(flashPin) {{
   $("dots").innerHTML = list.map((s, k) => `<button aria-label="Screen ${{k + 1}}" aria-current="${{k === S.i}}" data-k="${{k}}"></button>`).join("");
   $("dots").querySelectorAll("button").forEach(b => b.onclick = () => {{ S.i = +b.dataset.k; draw(); }});
   $("prev").disabled = S.i === 0; $("next").disabled = S.i === list.length - 1;
+  const ch = W.checks.filter(k => k.change === c.id);
+  $("checks").innerHTML = ch.length ? `<table><thead><tr><th>Role</th><th>Should</th><th>Saw</th><th>Result</th></tr></thead><tbody>${{ch.map(k => `<tr><td>${{esc(k.role)}}</td><td>${{esc(k.expect)}}</td><td>${{esc(k.seen)}}</td><td class="${{k.ok ? "ok" : "bad"}}">${{k.ok ? "Pass" : "Fail" + (k.kind && k.kind !== "must" ? " (" + KIND[k.kind].toLowerCase() + ")" : "")}}</td></tr>`).join("")}}</tbody></table>` : "<p class='meta'>No role checks for this change.</p>";
 }}
 function step(d) {{ const n = stepsOf(S.change, S.side, S.role).length; S.i = Math.max(0, Math.min(n - 1, S.i + d)); draw(); }}
 $("shot").onclick = () => {{
