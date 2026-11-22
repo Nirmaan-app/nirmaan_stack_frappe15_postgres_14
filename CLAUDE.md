@@ -67,8 +67,8 @@ narratives) goes in the commit message and in no doc. Where BoQ work stands now 
 Touch a `CLAUDE.md` only when a stable convention or an owner-locked invariant changes. A domain rule goes in that
 domain doc's Load-bearing invariants section, with at most a pointer row in Domain docs; a coding rule goes in
 `CODING_STANDARDS.md` (frontend: `frontend/CODING_STANDARDS.md`). The `.claude/hooks/guard_claude_md.py`
-PreToolUse hook refuses changelog-style text in a `CLAUDE.md` and any edit to the closed record (patterns:
-`.claude/hooks/README.md`).
+PreToolUse hook refuses changelog-style text in a `CLAUDE.md`, and an Edit or Write tool call on the closed
+record; it does not see a shell write (patterns: `.claude/hooks/README.md`).
 
 ## Commands
 

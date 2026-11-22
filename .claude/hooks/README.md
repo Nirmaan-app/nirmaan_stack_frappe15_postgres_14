@@ -14,7 +14,9 @@ the author to the right destination:
 - a rule a later change must not break → that domain doc's Load-bearing invariants section
 - where BoQ work stands now → `frontend/.claude/plans/boq-status.md`, rewritten in place
 
-The hook also denies every edit to `frontend/.claude/plans/boq-upload-plan.md`. That file is a
+The hook also denies every Edit, Write and MultiEdit tool call on
+`frontend/.claude/plans/boq-upload-plan.md`. It is not registered for Bash, so a shell write is
+not caught. That file is a
 closed record: the earlier version of this message sent every author there to append, and it
 passed 4 MB.
 

@@ -187,7 +187,7 @@ lives further down this file.
 
 ## BoQ Upload Wizard -- Frontend Conventions (Module 1b onward)
 
-**Docs discipline:** what a commit built goes in its commit message and in no doc. A lasting BoQ frontend rule goes in this file's Load-bearing invariants section. Where BoQ work stands now goes in `frontend/.claude/plans/boq-status.md`, rewritten in place. `frontend/.claude/plans/boq-upload-plan.md` is a closed record: `.claude/hooks/guard_claude_md.py` refuses every edit to it. The full rule is root `CLAUDE.md` § Session workflow (DOCS-UPDATE RULE). The earlier rule, "update all three docs on every commit", is retired.
+**Docs discipline:** what a commit built goes in its commit message and in no doc. A lasting BoQ frontend rule goes in this file's Load-bearing invariants section. Where BoQ work stands now goes in `frontend/.claude/plans/boq-status.md`, rewritten in place. `frontend/.claude/plans/boq-upload-plan.md` is a closed record: `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on it, and does not see a shell write. The full rule is root `CLAUDE.md` § Session workflow (DOCS-UPDATE RULE). The earlier rule, "update all three docs on every commit", is retired.
 
 All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
 wizard components into other page folders.

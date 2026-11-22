@@ -1,6 +1,6 @@
 # BoQ Upload & Management — Implementation Plan
 
-> **CLOSED RECORD.** This file takes no new text, and `.claude/hooks/guard_claude_md.py` refuses an edit to it.
+> **CLOSED RECORD.** This file takes no new text, and `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on it.
 > Where BoQ work stands now: `boq-status.md` beside this file. What a change built goes in its commit message.
 > The **Status** paragraph below is old; the last record here is slice DU-3.
 

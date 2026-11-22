@@ -8,7 +8,8 @@ stories) belongs in the commit message and in no doc, least of all the always-lo
 inspects edits to any project CLAUDE.md and DENIES the write when the *added* text carries
 changelog signatures, and tells the author where that text goes instead (DESTINATIONS below).
 
-It also DENIES every edit to the closed BoQ plan (FROZEN_PLAN below), so the record stops growing.
+It also DENIES every Edit / Write / MultiEdit call on the closed BoQ plan (FROZEN_PLAN below), so the
+record stops growing. It is not registered for Bash, so a shell write is not caught.
 
 Registered as a PreToolUse hook (matcher Edit|Write|MultiEdit) in:
   - .claude/settings.json            (when Claude Code is launched from the app root)

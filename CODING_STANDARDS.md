@@ -262,7 +262,9 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 
 - **Framework:** `frappe.tests.utils.FrappeTestCase` (Python unittest subclass) for a test that needs a site or
   the database. A pure module, one that imports no `frappe` when it loads, is tested with plain
-  `unittest.TestCase`, so `scripts/devenv/devenv.sh unit <module>` runs it with no site.
+  `unittest.TestCase`, so `scripts/devenv/devenv.sh unit <module>` runs it with no site. Some older tests that use
+  the database also subclass plain `unittest.TestCase` (for example `api/payments/test_payment_split.py`); they
+  stay as they are.
 - **Location:** beside the module it tests, in the same package: `api/<feature>/test_<x>.py`,
   `services/<area>/test_<x>.py`. A doctype folder's `test_<name>.py` holds tests of that doctype's controller only.
   A ticket runs the test modules of each changed package (root `CLAUDE.md` § Session workflow, "affected"), so a

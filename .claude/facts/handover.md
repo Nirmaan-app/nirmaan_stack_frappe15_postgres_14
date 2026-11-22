@@ -82,7 +82,7 @@ trunk-and-fragments plan tree are all GONE. Do not hunt for them.
 
 Both `_index.md` files are authoritative. **No new as-built record is written to any doc:** what a commit built goes in its
 commit message, a lasting rule in the domain doc's Load-bearing invariants section, and current BoQ status in
-`boq-status.md`. `.claude/hooks/guard_claude_md.py` refuses every edit to `boq-upload-plan.md`.
+`boq-status.md`. `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on `boq-upload-plan.md`; it does not see a shell write.
 
 ### Deferred register — ⚠️ **8 items against a ceiling of 5. It is OVER.**
 

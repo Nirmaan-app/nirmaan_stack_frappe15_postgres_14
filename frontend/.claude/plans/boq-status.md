@@ -20,5 +20,5 @@ and open a GitHub issue for each one that is still open.
 ## The closed record
 
 `boq-upload-plan.md` holds the design spec and every as-built record up to slice DU-3. It takes no new
-text, and `.claude/hooks/guard_claude_md.py` refuses an edit to it. List its headings with
+text, and `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on it. List its headings with
 `grep -n '^#' <file>`, then read one range.
