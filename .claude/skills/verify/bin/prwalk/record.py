@@ -40,7 +40,7 @@ def box_of(target: Locator | dict) -> dict | None:
         b = target.first.bounding_box()
     except Exception:
         return None
-    return {k: round(v) for k, v in b.items()} if b else None
+    return {"x": round(b["x"]), "y": round(b["y"]), "w": round(b["width"]), "h": round(b["height"])} if b else None
 
 
 def pin(target: Locator | dict, text: str, kind: str = "nit", evidence: str = "seen") -> dict:

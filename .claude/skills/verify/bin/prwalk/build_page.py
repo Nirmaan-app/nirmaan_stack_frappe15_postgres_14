@@ -215,11 +215,11 @@ footer{{margin-top:56px;border-top:1px solid var(--rule);padding-top:12px;font-s
   <h2>Words used on this page</h2>
   <dl class="terms">{terms_html}</dl>
   <details><summary>How this page was made</summary><div class="body">
-    <p>A walk script logged in as each role on two test copies of Stack: the PR's code and the code before it. At each screen it saved a picture, the box of the button it clicked next, and any note pinned to a spot. Role checks compare what each role should see with what it saw. A script then built this page from that data.</p>
+    <p>A walk script logged in as each role on two test copies of the app: the PR's code and the code before it. At each screen it saved a picture, the box of the button it clicked next, and any note pinned to a spot. Role checks compare what each role should see with what it saw. A script then built this page from that data.</p>
     <p>Numbers on the screens come from the env's data: {e(data.get('data_note') or 'not recorded')}.</p>
   </div></details>
 </section>
-<footer>Built from <code>walk.json</code>. Nothing here changes Stack.</footer>
+<footer>Built from <code>walk.json</code>. Nothing here changes the app.</footer>
 </div>
 <script>
 const W = {payload};
