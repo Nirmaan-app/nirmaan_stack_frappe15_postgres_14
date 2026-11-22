@@ -169,3 +169,4 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   Stop hook keeps it from finishing until `dod.py check` passes. See `docs/agents/definition-of-done.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).
+- **Big reviews (over 40 files):** run `/code-review` once per folder group, not once over the whole diff: `frontend/` and docs; `nirmaan_stack/api/`; the rest of `nirmaan_stack/`. Pass each run its group as `git diff <base>...HEAD -- <paths>` and say another review covers the rest. On spec #1711 with 8 defects hidden in its own commits, one Opus review over the whole branch reported 4; the three folder reviews together reported all 8, at about 2.5 times the cost ($7.24 against $2.95).

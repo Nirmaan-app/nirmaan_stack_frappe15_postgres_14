@@ -70,6 +70,21 @@ SKIP_KIND_BY_EXCLUSION_CATEGORY: dict[str, str] = {
     "credit_facility_auto_debit": SKIP_KIND_CARD_AUTO_DEBIT,
 }
 
+# ⚠️ RETIRED (#1628, owner 2026-11-19): since spec #1619 every line these kinds named is an Internal Transfer, so
+# nothing skips under them any more. They left the Skip Type list, the Skipped popup's filter and the Unskip warning.
+# The constants stay ONLY so the #1627 patch (`internal_transfers_from_old_skips`) and its back-fill can read the
+# old stored values. A line still holding one (none on production) cannot be unskipped: its kind is not in the list.
+RETIRED_SKIP_KINDS = (
+    SKIP_KIND_CASHFREE_TOP_UP,
+    SKIP_KIND_CASHBOOK_TOP_UP,
+    SKIP_KIND_PORTER_TOP_UP,
+    SKIP_KIND_WALLET_RETURNED,
+    SKIP_KIND_BANK_INTERNAL_TRANSFER,
+    SKIP_KIND_CARD_BILL,
+    SKIP_KIND_CARD_AUTO_DEBIT,
+    SKIP_KIND_CASHBOOK_INTERNAL,
+)
+
 SKIP_KINDS = (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_REPEATED_IN_FILE,
@@ -77,16 +92,8 @@ SKIP_KINDS = (
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
     SKIP_KIND_INFLOW_RECORDED,
-    SKIP_KIND_CASHFREE_TOP_UP,
-    SKIP_KIND_CASHBOOK_TOP_UP,
-    SKIP_KIND_PORTER_TOP_UP,
-    SKIP_KIND_WALLET_RETURNED,
-    SKIP_KIND_BANK_INTERNAL_TRANSFER,
     SKIP_KIND_FAILED_PAYMENT_RETURNED,
     SKIP_KIND_CARD_ROUNDING,
-    SKIP_KIND_CARD_BILL,
-    SKIP_KIND_CARD_AUTO_DEBIT,
-    SKIP_KIND_CASHBOOK_INTERNAL,
     SKIP_KIND_BY_HAND,
     SKIP_KIND_PORTER_CANCELLED,
     SKIP_KIND_CARD_PAYMENT,
@@ -98,7 +105,8 @@ SKIP_KINDS = (
 
 # The kinds a BANK-STATEMENT RULE decided (`bank_exclusions`): the line was read as money moving inside
 # the bank or between our own accounts. Unskipping one warns before it goes back to work (owner, B1).
-BANK_RULE_SKIP_KINDS = frozenset(SKIP_KIND_BY_EXCLUSION_CATEGORY.values())
+# #1628: the retired kinds are not among them.
+BANK_RULE_SKIP_KINDS = frozenset(SKIP_KIND_BY_EXCLUSION_CATEGORY.values()) - frozenset(RETIRED_SKIP_KINDS)
 
 # What each rule-decided kind means, in plain words -- the Skip Type hover's "why". One line each; the
 # rule id itself stays in the stored sentence for anyone auditing the rule.

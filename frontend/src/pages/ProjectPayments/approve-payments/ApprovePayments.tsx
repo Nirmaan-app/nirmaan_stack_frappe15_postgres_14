@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   FrappeConfig,
   FrappeContext,
@@ -445,11 +445,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const exportFileName = `${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`;
 
 
-  // Live selected-row count, read by `enableRowSelection` below at CLICK time. Declared
-  // ahead of the hook because the config closure captures it; see the cap block under
-  // the hook for what it is for.
-  const selectedRowCountRef = useRef(0);
-
   // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
   const {
     table,
@@ -481,16 +476,17 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // is correct across ledgers rather than within each one.
     defaultSort: TAB_DEFAULT_SORT[activeTab],
     // Two clauses, two different jobs. The CEO-Hold clause is the pre-existing one.
-    // The cap clause reads a REF (never state — a state read here would be a render
-    // ago, and this runs on click) so an unselected row's checkbox goes disabled once
-    // BULK_MAX_SELECTION are ticked; an already-ticked row stays selectable so it can
-    // always be UN-ticked. This clause alone does NOT cover "select all on this page" —
+    // The cap clause reads `selectedRowCount`, declared under the hook because it is
+    // counted from `table`. The closure runs only after that line: when the row
+    // checkboxes render and on click, never inside the hook. So an unselected row's
+    // checkbox goes disabled once BULK_MAX_SELECTION are ticked; an already-ticked row
+    // stays selectable so it can always be UN-ticked. This clause alone does NOT cover "select all on this page" —
     // TanStack evaluates it against one stale count for the whole loop — which is what
     // the effect below is for.
     enableRowSelection: !readOnly
       ? (row) =>
           !ceoHoldProjectIds.has(row.original.project) &&
-          (selectedRowCountRef.current < BULK_MAX_SELECTION || row.getIsSelected())
+          (selectedRowCount < BULK_MAX_SELECTION || row.getIsSelected())
       : false,
     // One cheque, one decision (#1481): ticking a payment on a Pending cheque ticks its siblings on the
     // page, and unticking one unticks them all. The bulk dialog lists any sibling off the page too.
@@ -525,8 +521,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   //
   // `getSelectedRowModel()` only ever holds rows from the current page's data, which is
   // exactly the set BulkActionBar submits — so this counts what would actually be sent.
-  const selectedRowCount = table.getSelectedRowModel().rows.length;
-  selectedRowCountRef.current = selectedRowCount;
+  const selectedRowCount: number = table.getSelectedRowModel().rows.length;
 
   useEffect(() => {
     if (selectedRowCount <= BULK_MAX_SELECTION) return;

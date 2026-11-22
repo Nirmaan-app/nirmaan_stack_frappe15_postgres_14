@@ -20,6 +20,7 @@ from residence_check import (  # noqa: E402
     CHECKS,
     CI_SUBSET,
     Check,
+    db_access_lines,
     locations_to_show,
     main,
     select_checks,
@@ -43,6 +44,8 @@ from residence_check import (  # noqa: E402
     socket_listener_drift,
     socket_listeners_found,
 )
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 class FrontendPaymentSums(unittest.TestCase):
@@ -159,6 +162,53 @@ class TheAnyCountIsTheLints(unittest.TestCase):
         self.assertEqual(sorted(baseline), sorted(c.id for c in CHECKS))
 
 
+class PureModules(unittest.TestCase):
+    """B1: a module listed in PURE_MODULES reads no database."""
+
+    def test_a_database_call_in_a_pure_module_is_counted(self):
+        src = (
+            "import frappe\n"
+            "def rule(name):\n"
+            "    row = frappe.db.get_value('Projects', name, 'status')\n"
+            "    rows = frappe.get_all('Projects')\n"
+            "    doc = frappe.get_doc('Projects', name)\n"
+            "    return frappe.db.sql('select 1')\n"
+        )
+        self.assertEqual(db_access_lines(src), [3, 4, 5, 6])
+
+    def test_a_docstring_or_comment_naming_the_database_is_not_counted(self):
+        src = '"""Pure: no frappe.db, no frappe.get_doc(...)."""\n# frappe.get_all would break B1\nx = "frappe.db"\n'
+        self.assertEqual(db_access_lines(src), [])
+
+    def test_frappe_throw_is_allowed(self):
+        self.assertEqual(db_access_lines("import frappe\nfrappe.throw('no')\n"), [])
+
+    def test_cached_reads_lists_and_the_query_builder_are_counted(self):
+        src = (
+            "import frappe\n"
+            "a = frappe.get_list('Projects')\n"
+            "b = frappe.get_cached_value('Projects', 'P', 'status')\n"
+            "c = frappe.get_cached_doc('Projects', 'P')\n"
+            "d = frappe.get_single('Settings')\n"
+            "e = frappe.qb.DocType('Projects')\n"
+        )
+        self.assertEqual(db_access_lines(src), [2, 3, 4, 5, 6])
+
+    def test_an_aliased_or_directly_imported_database_name_is_counted(self):
+        src = "import frappe as f\nfrom frappe import db, get_all\nx = f.db.get_value('A', 'b')\ny = get_all('A')\nz = db.sql('select 1')\n"
+        self.assertEqual(db_access_lines(src), [3, 4, 5])
+
+    def test_a_file_that_does_not_parse_is_read_line_by_line(self):
+        self.assertEqual(db_access_lines("def broken(:\n    frappe.db.get_value('A', 'b')\n"), [2])
+
+
+class RetiredCounters(unittest.TestCase):
+    """ADR-0010 amendment (2026-11-18): B2, F2 and F5 stay as review rules; the script no longer counts them."""
+
+    def test_no_check_counts_b2_f2_or_f5(self):
+        self.assertEqual({"B2", "F2", "F5"} & {c.rule for c in CHECKS}, set())
+
+
 class RupeeFormatters(unittest.TestCase):
     def test_a_python_rupee_function_is_a_formatter(self):
         src = "def format_rupee(val):\n    pass\ndef rupees(amount, *, paise=False):\n    pass\nlabel = rupees(1)\n"
@@ -262,13 +312,13 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_eleven_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_twelve_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
-            "j1_json_calls_unfrozen", "l1_raw_listener_hooks", "n1_counted_names_on_background_doctypes",
-            "q1_raw_enqueues_unfrozen", "l2_socket_listeners_unfrozen",
+            "j1_json_calls_unfrozen", "d1_disable_comments_unfrozen", "l1_raw_listener_hooks",
+            "n1_counted_names_on_background_doctypes", "q1_raw_enqueues_unfrozen", "l2_socket_listeners_unfrozen",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):

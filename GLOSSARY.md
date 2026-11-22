@@ -260,7 +260,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
   *Avoid*: wallet statement, Obopay report, cashbook upload.
 
-- **Line before 1 Apr 2026 (a Cashbook line)** — wallet spends are tracked only from 1 April 2026, so a Cashbook Statement line dated earlier is **left out**: it is not saved, becomes no record, and is not a skipped line. The import keeps only a count of them, shown as "N lines before 1 Apr 2026 left out" on the preview and in the import's history. A statement holding nothing else is refused, and nothing is created. A line whose date cannot be read is left out too, because nothing shows it is from 1 April 2026; the preview then says "or with no date". The date is fixed, not a setting, and applies to the Cashbook import only. (Owner, 2026-11-18, #1707.)
+- **Line before 1 Apr 2026 (a Cashbook line)** — wallet spends are tracked only from 1 April 2026, so a Cashbook Statement line dated earlier is **left out**: it is not saved, becomes no record, and is not a skipped line. The import keeps only a count of them, shown as "N lines before 1 Apr 2026 left out" on the preview and in the import's history. A statement holding nothing else is refused, and nothing is created. A line whose date cannot be read is left out too, because nothing shows it is from 1 April 2026; the preview then says "or with no date". Such a line counts toward nothing else either: the import's period runs from its first to its last kept line, and a left-out top-up gives no old Internal Transfer record its amount. The date is fixed, not a setting, and applies to the Cashbook import only. (Owner, 2026-11-18, #1707; period and records, 2026-11-19, #1715.)
   *Avoid*: pre-April skip, cutoff skip (nothing is skipped: the line is never kept).
 
 - **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet, a *Collect payment* included (since 2026-11-18). Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. No new wallet spend is dated earlier (see *Line before 1 Apr 2026*). (Owner, 2026-11-02; this financial year, 2026-11-07.)
@@ -275,14 +275,15 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   recorded for it, and it stays skipped, like every skip the Cashbook import makes, until the app learns that Type.
   A Cashbook move between the company's own balances that the wallet did not complete is not one of these: it is
   skipped as refused by the bank. (Owner, 2026-11-07.)
-  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, no longer given).
+  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, retired with seven others in 2026-11, #1628: their lines are Internal Transfers).
 
 - **Unpaired wallet refund** — a refund that is not a *Paired wallet refund*: it gives back only part of a spend, or a spend from an earlier statement or already recorded, or it names no spend. It is recorded as a *Wallet refund expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment D](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 
-- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it is a **Non-Project** Expense typed from the refund's own remark, else Petty Cash, and never on a project. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
+- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it goes where its own remark places it, as a *Wallet credit expense* does. It needs no bill, and it counts as no payment. (Owner, 2026-11-18; placed by its remark since #1720, before that always Non-Project.)
   *Avoid*: negative spend, reversal.
 
-- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, and a company top-up is never one (that is an Internal Transfer). It is recorded as a *Wallet credit expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment E](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
+- **Wallet credit expense** — the *Paid* Expense of minus a *Wallet credit*'s amount. It goes on a project when its remark names exactly one, typed from the remark; otherwise it is a Non-Project Expense typed from the remark, else Petty Cash. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
 
 ## Expense bills
 
@@ -399,7 +400,7 @@ Two separate holds sit on a Vendor. They share the word "hold" and nothing else 
 
 ## Module residence
 
-- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
+- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The residence rules (amended 2026-11-18) and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
 
 - **Deep module** — a module whose interface is much smaller than its implementation: it owns a concept behind a narrow seam, so callers depend on the seam, not the internals. A *shallow* module (interface nearly as large as its implementation) leaks its concept to every caller. The codebase spans both: BoQ / ITM / PO-Adjustments are deep; Service Requests / Procurement are shallow.
 

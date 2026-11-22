@@ -17,7 +17,6 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
-    ACTION_OPEN,
     ACTION_SKIP,
     SKIP_NOT_A_SPEND,
 )
@@ -80,13 +79,13 @@ class TestWronglySkippedLinesComeBack(unittest.TestCase):
         self.assertEqual((line.refunds, line.refund_of, line.ledger), (True, "OBO-GONE", "Non Project Expenses"))
         self.assertEqual(line.reopens.line, "ROW-2")
 
-    def test_a_wallet_credit_is_reopened_open(self):
+    def test_a_wallet_credit_is_reopened_to_be_created(self):
         rows = [_row(transfer_id="PTM-1", amount="0", credit="9000", kind=WALLET_CREDIT)]
         plan = _plan(rows, _old_sightings(("PTM-1", "0", "SUCCESS")), [_old("ROW-3", "PTM-1", "0")])
 
         [line] = plan.rows
-        self.assertEqual((line.action, line.amount), (ACTION_OPEN, Decimal("9000")))
-        self.assertTrue(line.reason.startswith("Wallet credit:"))
+        # #1720: created at minus its Credit, as a new Wallet Credit is.
+        self.assertEqual((line.action, line.amount, line.ledger), (ACTION_CREATE, Decimal("9000"), "Non Project Expenses"))
         self.assertEqual(line.reopens.line, "ROW-3")
 
     def test_a_collect_payment_and_its_full_refund_both_reopen_as_a_pair(self):

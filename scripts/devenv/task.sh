@@ -4,7 +4,9 @@
 #   task.sh start <name> [--box <box>] [--brief <file>] [--from <ref>] [--no-agent]
 #       branch box/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
 #       outside the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on
-#       -> start Claude in that env, visible in Orca. --no-agent stops before Claude.
+#       -> start Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first
+#       reply in its session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
+#       --no-agent stops before Claude.
 #       Write the brief from scripts/devenv/BRIEF_TEMPLATE.md, keeping the filled copy outside the repo.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report, kept at
@@ -14,25 +16,37 @@
 #                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh)
 #   task.sh prune [--yes]    each recorded task, one line: PRUNE when a laptop ref holds its box tip (landed.sh:
 #                            master, upstream/ or origin/ develop and main) and nothing holds it, else KEEP with the
-#                            holds: unreachable, working (its agent, as watch counts it), tracked-changes, untracked,
+#                            holds: unreachable, working or stalled (its agent, as watch counts it), tracked-changes, untracked,
 #                            status-failed (git status failed; these three in its env on the box), unfetched (the
 #                            laptop lacks the box tip: task.sh done first), off-branch (the env's HEAD is off
 #                            box/<name> and no laptop ref holds it).
 #                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task.
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
 #   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
-#   task.sh watch [--every <seconds>]
-#                            each recorded task's agent: working, finished (its report's Status is DONE or BLOCKED),
-#                            crashed (no agent in its env and no finished report) or unreachable (the box did not
-#                            answer). One SSH per box, read only. A change prints ALERT and raises a macOS notification;
+#   task.sh watch [--every <seconds> | --install | --uninstall]
+#                            each recorded task's agent: working, stalled (alive, not finished, and nothing written to
+#                            its session log for DEVBOX_STALL_SECONDS, 1200), finished (its report's Status is DONE or
+#                            BLOCKED), crashed (no agent in its env and no finished report) or unreachable (the box
+#                            did not answer). One SSH per box, read only. A change prints ALERT and raises a macOS
+#                            notification;
 #                            the last state per task is kept in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch/<name>.
-#                            --every repeats until Ctrl-C.
+#                            It also WARNs while a box checkout's core.hooksPath is not .githooks (its worktrees
+#                            would run another checkout's hooks), and alerts when that path changes; and WARNs while
+#                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
+#                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
+#                            when that changes. done prints the same WARN.
+#                            --every repeats until Ctrl-C. --install (macOS) runs a pass every 300 s as the launchd
+#                            user agent app.nirmaan.task-watch, from this task.sh (so from the checkout whose records
+#                            you want watched), its last pass in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch.log;
+#                            a chat then needs no watch loop of its own (one died with its chat on #1698). A rerun
+#                            replaces the job. --uninstall boots it out and keeps its plist as .off.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
 # <box>: a box in the registry (scripts/devenv/boxes.sh). Without --box, start picks one: with devbox.order in the
-# registry, the first box in that order whose working agents (as watch counts them) are fewer than its
+# registry, the first box in that order whose working or stalled agents (as watch counts them) are fewer than its
 # box.<name>.agents (1 when unset), passing over a box that does not answer; without devbox.order, devbox.default.
-# start records the box in the repo's git config (devbox-task.<name>.box), and every later command goes to that box.
+# start records the box in the repo's git config (devbox-task.<name>.box), with the ref and commit it cut the branch
+# from (.from, .base), and every later command goes to that box. clean removes the record.
 # Exit 3: the box did not answer; run the same command again once it is awake (watch reports it as a state instead).
 # The brief and the report live on the box in ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may
 # describe what must not be published).
@@ -49,22 +63,45 @@ cd "$(git -C "$SELF_DIR" rev-parse --show-toplevel)"
 . "$SELF_DIR/boxes.sh"
 . "$SELF_DIR/landed.sh"
 
-# The one rule for a task's state: task_state <alive> <report word> <dod>. alive: 1 or 0 for a claude process whose
-# folder is the task's env, - when the box did not answer. A finished Claude session stays alive waiting for input,
-# so alive alone never means working. dod: 1 or 0 for `dod.py check` in the env, - when the env has no dod.py. A
-# report says DONE before its last test run ends ("DONE (draft, ...)", #1611), so DONE counts only with the check.
+# The one rule for a task's state: task_state <alive> <report word> <dod> <idle>. alive: 1 or 0 for a claude process
+# whose folder is the task's env, - when the box did not answer. A finished Claude session stays alive waiting for
+# input, so alive alone never means working. dod: 1 or 0 for `dod.py check` in the env, - when the env has no dod.py.
+# A report says DONE before its last test run ends ("DONE (draft, ...)", #1611), so DONE counts only with the check.
+# idle: seconds since the agent last wrote to its session log, - when it has none. An alive, unfinished agent quiet
+# for DEVBOX_STALL_SECONDS (1200) is stalled: on #1698 one sat an hour at "Not logged in" while alive said working.
 task_state() {
-  case "$1:$2:$3" in
+  local stale=0
+  [ "${4:--}" = - ] || [ "$4" -lt "${DEVBOX_STALL_SECONDS:-1200}" ] || stale=1
+  case "$1:$2:$3:$stale" in
     -:*) echo unreachable ;;
-    ?:DONE:1|?:BLOCKED:1|?:DONE:-|?:BLOCKED:-) echo finished ;;
+    ?:DONE:1:*|?:BLOCKED:1:*|?:DONE:-:*|?:BLOCKED:-:*) echo finished ;;
+    1:*:1) echo stalled ;;
     1:*) echo working ;;
     *) echo crashed ;;
   esac
 }
 
-# Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<dod>\t<the
-# first paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd -P), as /proc
-# and lsof report them, and exactly: the macOS box also runs spare claude daemons in other folders.
+# base_check <name>: BASED=ok while the commit the task was cut from (devbox-task.<name>.base) is still in the ref it
+# was cut from (.from), rewound when it is not, - when the task has no base record (started before 2026-11-22) or the
+# ref is gone. Also sets T_FROM and T_BASE. Laptop git only. #1698 was cut from master at 032fab717; another chat
+# then reset master to fd2c67255, and the merge found out only by reflog.
+base_check() {
+  T_FROM="$(git config "devbox-task.$1.from" || true)"; T_BASE="$(git config "devbox-task.$1.base" || true)"; BASED=-
+  [ -n "$T_FROM" ] && [ -n "$T_BASE" ] && git rev-parse -q --verify "$T_FROM^{commit}" >/dev/null || return 0
+  git merge-base --is-ancestor "$T_BASE" "$T_FROM" && BASED=ok || BASED=rewound
+}
+
+# base_warn <name>: the WARN line for a rewound base; prints nothing otherwise.
+base_warn() {
+  base_check "$1"; [ "$BASED" = rewound ] || return 0
+  echo "WARN  $1: its base ${T_BASE:0:9} is no longer in $T_FROM (reset or rebased): rebase box/$1 onto $T_FROM before merging"
+}
+
+# Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<dod>\t<idle>
+# \t<the first paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd
+# -P), as /proc and lsof report them, and exactly: the macOS box also runs spare claude daemons in other folders.
+# idle: seconds since the newest file anywhere under the env's session logs, ~/.claude/projects/<the env worktree's
+# path with every non-alphanumeric character as ->/ (subagent logs sit in <session>/subagents/ below it), - with none.
 watch_probe() {
   cat <<'EOF'
 co="$1"; shift
@@ -73,14 +110,37 @@ case "$(uname)" in
   Linux) cwds="$(for p in $(pgrep '^claude'); do readlink "/proc/$p/cwd"; done 2>/dev/null)" ;;
   *) cwds="$(lsof -a -c claude -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" ;;
 esac
+idles="$(python3 - "$root" "$@" <<'PY'
+import os, re, sys, time
+root, now = sys.argv[1], time.time()
+for n in sys.argv[2:]:
+    wt = os.path.join(root, "benches", n, "apps", "nirmaan_stack")
+    d = os.path.join(os.path.expanduser("~/.claude/projects"), re.sub(r"[^A-Za-z0-9]", "-", wt))
+    newest = 0
+    for folder, dirs, files in os.walk(d):
+        for f in files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(folder, f)))
+            except OSError:
+                pass
+    print("%s\t%s" % (n, int(now - newest) if newest else "-"))
+PY
+)"
 for n in "$@"; do
   wt="$root/benches/$n/apps/nirmaan_stack"
   alive=0; printf '%s\n' "$cwds" | grep -qxF "$wt" && alive=1
   dod=-; [ ! -f "$wt/scripts/devenv/dod.py" ] || { dod=0; (cd "$wt" && python3 scripts/devenv/dod.py check) >/dev/null 2>&1 && dod=1; }
+  idle="$(printf '%s\n' "$idles" | awk -F'\t' -v n="$n" '$1 == n {print $2; exit}')"
   line="$(awk 'f && /^#/ {exit} f && NF {gsub(/\t/, " "); p = p (p == "" ? "" : " ") $0; next} f && p != "" {exit}
     /^## Status/ {f=1} END {print p}' ~/claude-artifacts/dod/box-"$n"/REPORT.md 2>/dev/null)"
-  printf '%s\t%s\t%s\t%s\n' "$n" "$alive" "$dod" "$line"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$alive" "$dod" "${idle:--}" "$line"
 done
+# One more row, "@hooks\t<core.hooksPath>", from the box checkout's shared git config. Anything but the relative
+# .githooks makes every worktree there run another checkout's hooks (on air an absolute dev/.githooks came back
+# after it was fixed, 2026-11-19, and the #1705 agent's commits skipped its own new check).
+if git -C ~/"$co" rev-parse --git-dir >/dev/null 2>&1; then
+  printf '@hooks\t%s\n' "$(git -C ~/"$co" config --get core.hooksPath || echo unset)"
+fi
 EOF
 }
 
@@ -110,10 +170,50 @@ except OSError:
 EOF
 }
 
+# Runs under python3 - <env worktree> <epoch seconds> on a box: the agent's first reply since that time, from the
+# session logs Claude Code keeps under ~/.claude/projects/<the worktree's real path, every non-alphanumeric character
+# as ->/*.jsonl. Prints real (an assistant entry from a model), "synthetic<tab><its text>" (an assistant entry whose
+# model is <synthetic>: an error Claude Code wrote itself, such as "Not logged in · Please run /login", after which
+# the prompt is dropped), or none. A real reply wins over a synthetic one.
+reply_probe() {
+  cat <<'EOF'
+import json, os, re, sys
+wt, since = sys.argv[1], int(sys.argv[2])
+d = os.path.join(os.path.expanduser("~/.claude/projects"), re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(wt)))
+try:
+    names = sorted(os.listdir(d))
+except OSError:
+    names = []
+verdict, text = "none", ""
+for name in names:
+    p = os.path.join(d, name)
+    if not name.endswith(".jsonl") or os.path.getmtime(p) < since:
+        continue
+    with open(p, errors="replace") as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") != "assistant":
+                continue
+            m = e.get("message") or {}
+            if m.get("model") != "<synthetic>":
+                verdict = "real"
+                break
+            if verdict == "none":
+                verdict = "synthetic"
+                text = " ".join(c.get("text", "") for c in m.get("content") or [] if isinstance(c, dict))
+    if verdict == "real":
+        break
+print(verdict + ("\t" + " ".join(text.split()) if verdict == "synthetic" else ""))
+EOF
+}
+
 WATCH_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch"
 
 watch_pass() {
-  local recs box names n out rc note row alive dod line word state detail old alerts="" f
+  local recs box names n out rc note row alive dod idle line word state detail old alerts="" f hooks
   mkdir -p "$WATCH_DIR"
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo; echo "== $(date '+%Y-%m-%d %H:%M:%S')  task watch"
@@ -129,23 +229,40 @@ watch_pass() {
     fi
     for n in $names; do
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
-      alive=- dod=- line=""
-      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod line <<<"$row"
+      alive=- dod=- idle=- line=""
+      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod idle line <<<"$row"
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
-      state="$(task_state "$alive" "$word" "$dod")"
+      state="$(task_state "$alive" "$word" "$dod" "$idle")"
       case "$state" in
         finished) detail="$(printf '%s\n' "$line" | sed 's/\([.!?]\)[[:space:]].*/\1/')" ;;
+        stalled) detail="quiet for $((idle / 60)) min" ;;
         unreachable) detail="${note:-no answer for this task}" ;;
         *) detail="" ;;
       esac
       printf '%-28s %-10s %-11s %s\n' "$n" "$box" "$state" "$detail"
       old="$(cat "$WATCH_DIR/$n" 2>/dev/null || echo unseen)"
       # A first sight alerts only when something is wrong; a working or finished task is just shown.
-      if [ "$old" != "$state" ] && { [ "$old" != unseen ] || [ "$state" = crashed ] || [ "$state" = unreachable ]; }; then
+      if [ "$old" != "$state" ] && { [ "$old" != unseen ] || [ "$state" = crashed ] || [ "$state" = unreachable ] || [ "$state" = stalled ]; }; then
         alerts="$alerts$n on $box: $old -> $state"$'\n'
       fi
       echo "$state" > "$WATCH_DIR/$n.new" && mv "$WATCH_DIR/$n.new" "$WATCH_DIR/$n"
+      base_warn "$n"
+      if [ "$BASED" != - ]; then
+        old="$(cat "$WATCH_DIR/.base-$n" 2>/dev/null || echo ok)"
+        [ "$old" = "$BASED" ] || case "$BASED" in
+          rewound) alerts="$alerts$n: base ${T_BASE:0:9} left $T_FROM"$'\n' ;;
+          *) alerts="$alerts$n: base ${T_BASE:0:9} is back in $T_FROM"$'\n' ;;
+        esac
+        echo "$BASED" > "$WATCH_DIR/.base-$n.new" && mv "$WATCH_DIR/.base-$n.new" "$WATCH_DIR/.base-$n"
+      fi
     done
+    hooks="$(printf '%s\n' "$out" | awk -F'\t' '$1 == "@hooks" {print $2; exit}')"
+    if [ -n "$hooks" ]; then
+      [ "$hooks" = .githooks ] || echo "WARN  $box: core.hooksPath is $hooks, not .githooks: its worktrees run those hooks, not their own"
+      old="$(cat "$WATCH_DIR/.hooks-$box" 2>/dev/null || echo .githooks)"
+      [ "$old" = "$hooks" ] || alerts="$alerts$box: core.hooksPath $old -> $hooks"$'\n'
+      echo "$hooks" > "$WATCH_DIR/.hooks-$box.new" && mv "$WATCH_DIR/.hooks-$box.new" "$WATCH_DIR/.hooks-$box"
+    fi
   done
   printf '%s' "$alerts" | while IFS= read -r a; do
     echo "ALERT $a"
@@ -157,13 +274,75 @@ watch_pass() {
     [ -e "$f" ] || continue
     n="${f##*/}"
     printf '%s\n' "$recs" | awk -v n="$n" '$1 == n {f=1} END {exit !f}' && continue
-    rm -f "$f"; echo "gone  $n: no task record, its watch state removed"
+    rm -f "$f" "$WATCH_DIR/.base-$n"; echo "gone  $n: no task record, its watch state removed"
   done
+}
+
+# The watch as a launchd user agent (macOS): a pass every 300 s, so no chat has to keep a loop alive. On #1698 the
+# chat's background `watch --every 300` died with the chat when the laptop ran low on memory, and no alert came.
+WATCH_LABEL="app.nirmaan.task-watch"
+WATCH_PLIST="$HOME/Library/LaunchAgents/$WATCH_LABEL.plist"
+WATCH_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch.log"
+
+watch_launchd_only() { [ "$(uname)" = Darwin ] || die "task.sh watch --install and --uninstall are macOS only (launchd). Elsewhere, run task.sh watch --every 300 under a service of your own."; }
+xml() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+
+# Written whole each time and bootstrapped after a bootout, so a rerun converges on the same job. The job's PATH is
+# fixed here: launchd gives it none of the shell's, and it needs ssh, git, python3 and orca.
+watch_install() {
+  local path orca_dir uid
+  watch_launchd_only
+  path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+  orca_dir="$(dirname "$(command -v orca || echo /nowhere/orca)")"
+  [ "$orca_dir" = /nowhere ] || case ":$path:" in *":$orca_dir:"*) ;; *) path="$orca_dir:$path" ;; esac
+  uid="$(id -u)"
+  mkdir -p "$(dirname "$WATCH_PLIST")" "$(dirname "$WATCH_LOG")"
+  {
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$WATCH_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>$(printf '"%s" watch > "%s" 2>&1' "$SELF_DIR/task.sh" "$WATCH_LOG" | xml)</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(printf '%s' "$path" | xml)</string>
+EOF
+    [ -z "${XDG_STATE_HOME:-}" ] || printf '    <key>XDG_STATE_HOME</key>\n    <string>%s</string>\n' "$(printf '%s' "$XDG_STATE_HOME" | xml)"
+    cat <<EOF
+  </dict>
+</dict>
+</plist>
+EOF
+  } > "$WATCH_PLIST.new"
+  mv "$WATCH_PLIST.new" "$WATCH_PLIST"
+  launchctl bootout "gui/$uid/$WATCH_LABEL" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$uid" "$WATCH_PLIST"
+  ok "installed $WATCH_PLIST: task.sh watch every 300 s, its last pass in $WATCH_LOG (launchctl print gui/$uid/$WATCH_LABEL shows the job)"
+}
+
+watch_uninstall() {
+  watch_launchd_only
+  launchctl bootout "gui/$(id -u)/$WATCH_LABEL" >/dev/null 2>&1 || true
+  if [ -f "$WATCH_PLIST" ]; then mv "$WATCH_PLIST" "$WATCH_PLIST.off"; ok "removed the job; its plist is kept at $WATCH_PLIST.off"
+  else echo "nothing installed at $WATCH_PLIST"; fi
 }
 
 # box_pick: set PICK and PICK_WHY for a start without --box (the rule is in the header, under <box>).
 box_pick() {
-  local order b names out rc busy cap alive dod line word
+  local order b names n out rc busy cap alive dod idle line word
   PICK="" PICK_WHY=""
   box_registry
   order="$(git config -f "$DEVBOX_REGISTRY" devbox.order || true)"
@@ -175,10 +354,11 @@ box_pick() {
     rc=0; out="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
     if [ "$rc" != 0 ]; then echo "  $b: did not answer over SSH (exit $rc)"; continue; fi
     busy=0
-    while IFS=$'\t' read -r _ alive dod line; do
+    while IFS=$'\t' read -r n alive dod idle line; do
+      case "$n" in @*) continue ;; esac
       [ -n "$alive" ] || continue
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
-      [ "$(task_state "$alive" "$word" "$dod")" != working ] || busy=$((busy + 1))
+      case "$(task_state "$alive" "$word" "$dod" "$idle")" in working|stalled) busy=$((busy + 1)) ;; esac
     done <<<"$out"
     cap="${BOX_AGENTS:-1}"
     echo "  $b: $busy of $cap agents working"
@@ -215,7 +395,8 @@ EOF
 # The holds of a box task, one check per name, each printing the hold when it applies to the task in the T_* globals.
 TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched off-branch"
 task_hold_unreachable() { [ -z "$T_NOTE" ] || echo unreachable; }
-task_hold_working() { [ "$T_STATE" != working ] || echo working; }
+# A stalled agent still occupies the box and its work, so it holds under its own name.
+task_hold_working() { case "$T_STATE" in working|stalled) echo "$T_STATE" ;; esac; }
 task_hold_tracked_changes() { [ "$T_TRACKED" = 0 ] || echo "tracked-changes:$T_TRACKED"; }
 task_hold_untracked() { [ "$T_UNTRACKED" = 0 ] || echo "untracked:$T_UNTRACKED"; }
 task_hold_status_failed() { [ "$T_STATUS_RC" = 0 ] || echo status-failed; }
@@ -231,7 +412,7 @@ task_hold_off_branch() {
 
 # prune_tasks <yes>: one row per recorded task (see the header). Exit 3 when a box did not answer.
 prune_tasks() {
-  local yes="$1" recs box names n out wout rc row alive dod line word h d where rows="" keep="" todo="" down=0 failed=0
+  local yes="$1" recs box names n out wout rc row alive dod idle line word h d where rows="" keep="" todo="" down=0 failed=0
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo "== $(date '+%Y-%m-%d %H:%M:%S')  task prune: box tasks whose box tip a laptop ref holds"
   [ -n "$recs" ] || echo "no task records (task.sh start makes them)"
@@ -247,13 +428,13 @@ prune_tasks() {
     fi
     [ -z "$T_NOTE" ] || echo "box $box: $T_NOTE"
     for n in $names; do
-      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- line=""
+      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- idle=- line=""
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
       [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED T_STATUS_RC T_HEAD <<<"$row"
       row="$(printf '%s\n' "$wout" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
-      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod line <<<"$row"
+      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod idle line <<<"$row"
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
-      T_STATE="$(task_state "$alive" "$word" "$dod")"
+      T_STATE="$(task_state "$alive" "$word" "$dod" "$idle")"
       d=""; for h in $TASK_HOLDS; do d="$d $(task_hold_${h//-/_})"; done; d="$(echo $d)"
       where=""
       if [ -z "$T_NOTE" ]; then
@@ -285,8 +466,9 @@ case "$CMD" in
     prune_tasks "$([ $# = 2 ] && echo 1 || echo 0)"
     exit ;;
   watch)
+    case "$#:${2:-}" in 2:--install) watch_install; exit 0 ;; 2:--uninstall) watch_uninstall; exit 0 ;; esac
     [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
-      || die "usage: task.sh watch [--every <seconds>]"
+      || die "usage: task.sh watch [--every <seconds> | --install | --uninstall]"
     while :; do watch_pass; [ $# = 3 ] || break; sleep "$3"; done
     exit 0 ;;
   pick)
@@ -303,7 +485,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,38p' "$0"; exit 1 ;;
+  *) sed -n '2,50p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -366,7 +548,11 @@ case "$CMD" in
 
     step "1. branch $BRANCH"
     if git rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null; then ok "$BRANCH exists (at $(git rev-parse --short "$BRANCH"))"
-    else git branch "$BRANCH" "$FROM"; ok "made $BRANCH from $FROM ($(git rev-parse --short "$FROM"))"; fi
+    else
+      git branch "$BRANCH" "$FROM"; ok "made $BRANCH from $FROM ($(git rev-parse --short "$FROM"))"
+      # watch and done compare them with the ref later: a reset of the ref under the task is found before the merge.
+      git config "devbox-task.$NAME.from" "$FROM"; git config "devbox-task.$NAME.base" "$(git rev-parse "$FROM^{commit}")"
+    fi
     git config "$RECORD" "$BOX_NAME"
     export BOX_STARTED=1
 
@@ -411,11 +597,27 @@ case "$CMD" in
     else ok "Claude plugins and pstack-models.md match the laptop's"; fi
     [ "$(names "$HERE_SETUP")" != "$(names "$BOX_SETUP")" ] || [ "$HERE_SETUP" = "$BOX_SETUP" ] \
       || echo "note  plugin versions differ (laptop -> box): $(join -j 2 <(printf '%s\n' "$HERE_SETUP" | awk '$1 == "plugin"' | sort -k2,2) <(printf '%s\n' "$BOX_SETUP" | awk '$1 == "plugin"' | sort -k2,2) | awk '$3 != $5 {printf "%s%s %s -> %s", s, $1, $3, $5; s = "; "}')"
+    SINCE="$(box_ssh 'date +%s')"
     agent_launch "$WT" "$(prompt)"
     n=0; until agent_alive "$WT"; do
       n=$((n + 1)); [ $n -gt 20 ] && die "no Claude terminal in '$NAME' after 60 s; open the env in Orca and run claude there"; sleep 3
     done
-    ok "Claude is working in '$NAME'. Watch it in Orca (box $BOX_NAME). Next: task.sh status $NAME"
+    # A terminal is not a working agent. On #1698 Claude's login had expired: it wrote "Not logged in" into its
+    # session log as a synthetic entry, dropped the prompt, and sat an hour while watch said working. The proof is
+    # its first real reply in that log.
+    WAIT="${DEVBOX_REPLY_WAIT:-180}"; n=0
+    RERUN="close that terminal and rerun task.sh start $NAME: it reuses the branch, record, brief and env, and only starts Claude again"
+    while :; do
+      REPLY="$(reply_probe | box_ssh "python3 - $WT $SINCE")"
+      case "$REPLY" in
+        real) break ;;
+        synthetic*) die "Claude in '$NAME' stopped before the task: ${REPLY#*$'\t'}. Fix it in Orca (box $BOX_NAME): open the env's terminal there and do what it says (/login for an expired login), then $RERUN" ;;
+      esac
+      n=$((n + 5))
+      [ "$n" -lt "$WAIT" ] || { agent_tail "$WT"; die "no reply from Claude in '$NAME' after $WAIT s (its terminal's last lines above). Look at it in Orca (box $BOX_NAME); if it is stuck, $RERUN"; }
+      sleep 5
+    done
+    ok "Claude is working in '$NAME' (its first reply is in). Watch it in Orca (box $BOX_NAME). Next: task.sh status $NAME"
     ;;
 
   status)
@@ -451,12 +653,15 @@ case "$CMD" in
       rsync -a --exclude '*.md' -e "ssh ${BOX_SSH_OPTS[*]}" "$BOX_SSH:$d/" "$HOME_COPY/$(basename "$d")/" \
         && ok "copied the box's ~/$d to $HOME_COPY/$(basename "$d")/"
     done
+    base_warn "$NAME"
     echo; echo "Review: git log --stat master..$BRANCH ; git diff master...$BRANCH"
     # The report's ## Review is the runner's step (docs/agents/definition-of-done.md): a fresh read against the task's
-    # own base, which the box knows (a branch cut --from another ref has a base master does not).
+    # own base, which the box knows (a branch cut --from another ref has a base master does not), else the laptop's
+    # record of it, else master (which a rewound master no longer shares with the branch).
     ROOT="$(box_root)"
     BASE="$(box_ssh "cd $ROOT/benches/$NAME/apps/nirmaan_stack 2>/dev/null && python3 scripts/devenv/dod.py base" 2>/dev/null || true)"
-    git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$(git merge-base master "$BRANCH")"
+    git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$T_BASE"
+    [ -n "$BASE" ] || BASE="$(git merge-base master "$BRANCH" || true)"
     echo "Separate review (fills the report's 'Separate review:' line): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
     echo "Then merge and push yourself. After the merge: task.sh prune (lists what can go; --yes cleans it)"
     ;;
@@ -487,8 +692,9 @@ case "$CMD" in
     [ "$RC" != 3 ] || exit 3
     [ "$RC" = 0 ] && grep -qE "^(Destroyed env|No env) $NAME[ .]" <<<"$OUT" \
       || die "the box did not destroy env $NAME (above). The record stays: fix it there, then run task.sh clean $NAME again."
-    # Last, so a clean that stopped on the box can be rerun and still finds its box.
-    git config --unset "$RECORD"
+    # Last, so a clean that stopped on the box can be rerun and still finds its box. The section holds the task's
+    # whole record (box, from, base).
+    git config --remove-section "devbox-task.$NAME"
     ok "cleaned $NAME on box $BOX_NAME. The report stays at $BOX_SSH:~/$DIR/ ; the laptop branch $BRANCH is yours to keep or delete."
     ;;
 esac

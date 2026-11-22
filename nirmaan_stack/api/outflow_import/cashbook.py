@@ -88,10 +88,15 @@ from nirmaan_stack.services.outflow_import.candidates import (
     prior_import_sightings,
 )
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
-from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, only_before_cutoff_message
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import (
+    before_cutoff_note,
+    kept_lines,
+    kept_period,
+    only_before_cutoff_message,
+)
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
-from nirmaan_stack.services.outflow_import.cashbook_refund_expense import refund_description
-from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_ROW_KINDS
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import money_in_description
+from nirmaan_stack.services.outflow_import.cashbook_refunds import CREDIT_ROW_KINDS
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -152,7 +157,7 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     return preview_payload(parsed, plan, filename, verdict, [_late_bill_preview(b) for b in late], len(fills))
 
@@ -176,7 +181,7 @@ def confirm_cashbook_import():
     # path): `store_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
@@ -221,7 +226,6 @@ def confirm_cashbook_import():
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
         # #1623: Cashbook's own moves, staged as Internal Transfer lines.
         "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,
@@ -525,10 +529,11 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     # out of the database after a real run. `expenses.create_expense` has always used this adapter;
     # this path simply did not, which is the whole of the defect.
     staged = StagedRow(doc)
-    # #1709: a *Wallet refund expense* -- minus the line's Credit, where its spend is booked. On a refund line the
-    # statement's From is the merchant paying back and To the wallet holder, so who spent it is the To.
-    refund = (doc.get("row_kind") or "").strip() in REFUND_ROW_KINDS
-    spent_by = doc.get("beneficiary_name") if refund else doc.get("added_by_raw")
+    # #1709, #1720: a *Wallet refund expense* or *Wallet credit expense* -- minus the line's Credit. On a money-in line
+    # the statement's From is whoever paid it in and To the wallet holder, so who spent it is the To.
+    kind = (doc.get("row_kind") or "").strip()
+    money_in = kind in CREDIT_ROW_KINDS
+    spent_by = doc.get("beneficiary_name") if money_in else doc.get("added_by_raw")
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
@@ -536,15 +541,17 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         actor=actor,
         project=doc.get("resolved_project"),
         # A spend's description is left to `settle._default_description`, which composes the payee with the
-        # remark; a refund's names its spend and the merchant (#1709).
-        description=refund_description(doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if refund else None,
+        # remark; a refund's names its spend and the merchant (#1709), a credit's who paid it in (#1720).
+        description=(
+            money_in_description(kind, doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if money_in else None
+        ),
         comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement (a spend's From, a refund's To) -- not the accountant importing it.
         payment_by=(spent_by or "").strip() or None,
         # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
         cashbook_batch=batch,
-        cashbook_refund=refund,
+        cashbook_money_in=money_in,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now
@@ -931,6 +938,13 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: 
     )
 
 
+def _zero_records_to_fill(parsed) -> tuple:
+    """The ₹0 Internal Transfer records this statement fills, read from its KEPT lines only (#1715, owner decision 2):
+    a line before 1 Apr 2026 or undated is left out like any other early line, so it fills nothing, and a file of
+    nothing else is refused by `_assess`."""
+    return internal_transfer_records.zero_records_to_fill(kept_lines(parsed.rows))
+
+
 def _statement_transfer_ids(parsed) -> list[str]:
     """The distinct, non-blank transfer ids in this statement -- the narrowing both lookups use.
 
@@ -955,6 +969,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
     # A line that re-opens an earlier one (#1596) is stored in that line's import, so its money is too.
     stored = [raw for raw, planned in zip(all_kept, plan.rows, strict=True) if not planned.reopens]
     gross, charges = stored_money(stored)
+    period_from, period_to = kept_period(parsed.rows)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -962,8 +977,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
             "source": SOURCE,
             "source_file": file_url,
             "original_filename": filename,
-            "period_from": parsed.period_from,
-            "period_to": parsed.period_to,
+            # #1715: the period of the kept lines; a line left out by date does not count toward it.
+            "period_from": period_from,
+            "period_to": period_to,
             "gross_amount": float(gross),
             "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).

@@ -122,6 +122,26 @@ describe("unskipWarning -- a bank-rule line warns before it goes back to work", 
         expect(unskipWarning({ skip_kind: "Card refund pair" })).toMatch(/brings back both lines/);
     });
 
+    it("★ the two bank-rule kinds still skipped warn (#1628)", () => {
+        expect([...BANK_RULE_SKIP_KINDS].sort()).toEqual(["Bank card rounding (₹2)", "Failed payment bounced back"]);
+        expect(unskipWarning({ skip_kind: "Failed payment bounced back" })).toContain("Failed payment bounced back");
+    });
+
+    it("★ a retired kind no longer warns (#1628: its lines are Internal Transfers)", () => {
+        for (const skip_kind of [
+            "Cashfree wallet top-up",
+            "Cashbook wallet top-up",
+            "Porter wallet top-up",
+            "Wallet money returned",
+            "Bank internal transfer",
+            "Credit card bill payment",
+            "Credit card auto-debit",
+            "Cashbook internal movement",
+        ]) {
+            expect(unskipWarning({ skip_kind })).toBeNull();
+        }
+    });
+
     it("no other kind warns", () => {
         for (const skip_kind of ["Skipped by hand", "Outflow Already Recorded", "Inflow Already Recorded", "", null]) {
             expect(unskipWarning({ skip_kind })).toBeNull();

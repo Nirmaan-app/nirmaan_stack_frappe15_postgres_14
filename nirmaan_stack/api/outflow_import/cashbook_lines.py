@@ -14,13 +14,12 @@ from collections.abc import Callable
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_INTERNAL, ACTION_OPEN
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_INTERNAL
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settlement_reference import resolve_settlement_reference
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 from nirmaan_stack.services.outflow_import.status import (
     ROW_INTERNAL_TRANSFER,
-    ROW_MISMATCHED,
     ROW_PENDING_MATCH,
     ROW_SKIPPED,
     SKIP_ORIGIN_SYSTEM,
@@ -69,14 +68,12 @@ def hand_create_marker(line, source: str | None) -> dict:
 def line_values(raw, planned) -> dict:
     """What a staged Cashbook line holds of the plan's decision, whichever batch it is in: `cashbook._stage` writes
     it on a new line, `cashbook_reopen.reopen_lines` on an earlier line it re-opens (#1596)."""
+    # The plan stages no open line since #1720: a refund (#1709), a wallet credit (#1720) and a Collect payment
+    # (#1708) create like a spend.
     creating = planned.action == ACTION_CREATE
-    # An open line (#1594: an unpaired wallet refund, a wallet credit) is staged at `Mismatched`, a status the job
-    # never takes, so it is a person's to decide on the main table from the start (spec #1585 "Phase 2 stages new
-    # open lines away from the job"). Its note says what it is. A Collect payment creates like a spend (#1708).
-    opening = planned.action == ACTION_OPEN
     # #1623: one of Cashbook's own moves -- an Internal Transfer line; its record is written by the stage.
     internal = planned.action == ACTION_INTERNAL
-    skipping = not creating and not opening and not internal
+    skipping = not creating and not internal
     placed = creating
     return {
         "source": CASHBOOK_SOURCE,
@@ -108,8 +105,6 @@ def line_values(raw, planned) -> dict:
         "row_status": (
             ROW_PENDING_MATCH
             if creating
-            else ROW_MISMATCHED
-            if opening
             else ROW_INTERNAL_TRANSFER
             if internal
             else ROW_SKIPPED
@@ -121,7 +116,7 @@ def line_values(raw, planned) -> dict:
         # #1602: a *Paired wallet refund* keeps the other line's Txn Id, so the Skipped list names it without
         # reading the sentence. Blank on every other line, and cleared on an earlier line a re-open makes open.
         "cashbook_refund_partner": (planned.partner or None) if skipping else None,
-        "outcome_note": planned.reason if opening or internal else None,
+        "outcome_note": planned.reason if internal else None,
         "suggested_doctype": planned.ledger if placed else None,
         "suggested_expense_type": planned.expense_type if placed else None,
         "resolved_project": (

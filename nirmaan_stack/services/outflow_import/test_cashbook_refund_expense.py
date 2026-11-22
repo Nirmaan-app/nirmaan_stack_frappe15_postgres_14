@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_OPEN, ACTION_SKIP, SKIP_ALREADY_BOOKED
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_SKIP, SKIP_ALREADY_BOOKED
 from nirmaan_stack.services.outflow_import.cashbook_refund_expense import (
     RefundPlacement,
     SpendExpense,
@@ -92,9 +92,9 @@ class TestAnUnpairedRefundBooksOnItsSpendsExpense(unittest.TestCase):
         self.assertEqual((refund.ledger, refund.expense_type, refund.reduces), (NON_PROJECT_LEDGER, "Travel Expenses", "9surl50t7h"))
 
     def test_a_refund_whose_spend_has_no_expense_is_a_non_project_expense_typed_from_its_remark(self):
-        refund = _line(_plan([_refund(remarks="Refund for business card printing Telus GIFT City")]), REFUND)
+        # A remark that names a project puts it on that project since #1720 (`test_cashbook_wallet_credit`).
+        refund = _line(_plan([_refund(remarks="Refund for business card printing")]), REFUND)
         self.assertEqual(refund.action, ACTION_CREATE)
-        # Never on a project, though its remark names one (owner decision 2).
         self.assertEqual((refund.ledger, refund.project, refund.expense_type), (NON_PROJECT_LEDGER, None, "Printing & Stationery"))
         self.assertEqual((refund.refund_of, refund.reduces, refund.spend_on_statement), (SPEND, "", False))
 
@@ -110,10 +110,6 @@ class TestWhatStaysAsItWas(unittest.TestCase):
         plan = _plan([spend, _refund()], {SPEND: SpendExpense(NON_PROJECT_LEDGER, "X", None, "", "Petty Cash")})
         for line in plan.rows:
             self.assertEqual((line.action, line.skip_kind), (ACTION_SKIP, SKIP_KIND_CASHBOOK_REFUND_PAIR))
-
-    def test_a_wallet_credit_stays_open(self):
-        credit = _row(transfer_id="PTM9", amount="0", credit="9000", kind="Wallet Credit")
-        self.assertEqual(_plan([credit]).rows[0].action, ACTION_OPEN)
 
     def test_a_refund_already_booked_as_its_negative_expense_is_skipped(self):
         booked = _sightings((REFUND, "-11248", date(2026, 6, 22), "Non Project Expenses NPE-9"))
@@ -155,7 +151,6 @@ class TestReviewListsRefundsApart(unittest.TestCase):
         self.assertEqual(payload["creating"], 2)
         # The headline's count is the spends only, as `total_value` sums them; the refund is under `refunds`.
         self.assertEqual((payload["spending"], payload["total_value"]), (1, 500.0))
-        self.assertEqual(payload["open_lines"], [])
 
 
 class TestThePlacementHasOneShape(unittest.TestCase):

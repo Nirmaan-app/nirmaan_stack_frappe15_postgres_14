@@ -311,6 +311,15 @@ line '^KEEP +box-task +tg .*landed:master +status-failed$' "a box env git status
 line '^KEEP +box-task +th .*landed:master +off-branch:[0-9a-f]{9}$' "a commit in the box env off its box branch holds"
 has "to prune: ta (task.sh prune --yes cleans them; laptop branches stay)" "the total names the tasks"
 same "$(rec ta)" contabo "listing cleans nothing"
+# te's agent quiet for 30 min (its session log under ~/.claude/projects/<env path, non-alphanumerics as ->/) is
+# stalled, as watch counts it, and still holds the task: its work is on the box.
+PE="$CH/.claude/projects/$(bwt te | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PE"; echo '{}' > "$PE/s1.jsonl"
+touch -t "$(date -v-30M '+%Y%m%d%H%M' 2>/dev/null || date -d '30 minutes ago' '+%Y%m%d%H%M')" "$PE/s1.jsonl"
+task prune
+line '^KEEP +box-task +te .*landed:master +stalled$' "a stalled agent holds"
+echo '{}' > "$PE/s1.jsonl"
+task prune
+line '^KEEP +box-task +te .*landed:master +working$' "an agent that wrote to its log again is working"
 
 task prune --yes
 rc_is 0 "task.sh prune --yes"

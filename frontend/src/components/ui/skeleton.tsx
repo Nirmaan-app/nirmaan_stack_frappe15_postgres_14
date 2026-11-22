@@ -730,8 +730,9 @@ export const NewPRSkeleton = () => {
       </div>
 
       <div className="flex gap-4">
-        {[...Array(5)].map((_) => (
-          <div className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
+        {[...Array(5)].map((_, i) => (
+          // A fixed list of 5 placeholders that never reorders, so the index is a stable key.
+          <div key={i} className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
             <Skeleton className="w-28 h-32" />
             <Skeleton className="w-28 h-4" />
           </div>

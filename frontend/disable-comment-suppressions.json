@@ -1,0 +1,27 @@
+{
+  "src/pages/Assets/components/DepartmentsList.tsx": {
+    "typescript/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/pages/Assets/hooks/useCategoryAssetCounts.ts": {
+    "typescript/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/pages/SnagList/import/UploadStep.tsx": {
+    "typescript/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/pages/boq-wizard/rate-helper/serverPricingStep.parity.test.ts": {
+    "typescript/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/pages/boq-wizard/rate-helper/vrf5Model.test.ts": {
+    "typescript/no-explicit-any": {
+      "count": 3
+    }
+  }
+}

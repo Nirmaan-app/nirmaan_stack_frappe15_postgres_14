@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Residence ratchet — enforce ADR-0010 module-residence rules by trend, not by fiat.
 
-ADR-0010 (docs/adr/0010-module-residence-rules.md) defines ten "residence" rules:
+ADR-0010 (docs/adr/0010-module-residence-rules.md) defines the "residence" rules:
 a concept (a business calculation, a JSON/child-table shape, a document's
 ``workflow_state``, a write path) must have ONE owning module and not scatter across
-call sites. The rules are prose; nothing enforces them, and the codebase carries
-measured drift (ad-hoc state writers, raw updateDoc call sites, inline JSON.parse).
+call sites.
+
+The 2026-11-18 amendment keeps two of its counters here (B1, B3); its other rules are review rules.
 
 A RATCHET fixes the drift in one direction. Each check counts the current violations
 of one rule and compares against a committed baseline in ``residence_baseline.json``.
@@ -20,8 +21,11 @@ Usage:
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
+    python3 scripts/residence_check.py --prune-disable-comments  # D1: lower the frozen disable-comment counts
 
-Stdlib only, plus node for J1 and L2 (frontend/scripts/json_calls.mjs and socket_listeners.mjs, with
+D1's code is in disable_comment_check.py; what J1, D1 and L2 share (TypeScript's parser run by node) in
+frozen_counts.py. Stdlib only, plus node for J1, D1 and L2 (frontend/scripts/json_calls.mjs, disable_comments.mjs
+and socket_listeners.mjs, with
 frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
@@ -29,15 +33,17 @@ from __future__ import annotations
 
 import argparse
 import ast
-import io
 import json
 import re
 import subprocess
 import sys
-import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NamedTuple
+
+import frozen_counts
+from disable_comment_check import DISABLE_SUPPRESSIONS, PRUNE_FLAG, disable_comments_unfrozen, prune_disable_comments
+from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
 
 # Repo root = the parent of this scripts/ directory (NOT the cwd).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -48,30 +54,8 @@ SKIP_DIRS = {"node_modules", "dist", "__pycache__", "public", ".git"}
 
 # --- Rule B1 -----------------------------------------------------------------
 # Modules DECLARED pure: no frappe.db / get_all / get_doc / sql. Extend this list
-# as more domain rules are extracted into pure modules (that is the whole point —
-# a shrinking violation surface as the good pattern spreads).
-# NOTE: services/finance.py is deliberately NOT here — it makes live frappe.get_all
-# calls; it is a mixed module, not a pure one, so it is out of scope for this check.
-#
-# ⚠️ THIS CHECK IS EFFECTIVELY INERT, AND ADDING A MODULE HERE BUYS ALMOST NOTHING TODAY.
-# ``strip_strings_and_comments`` (below) space-joins tokens, so ``frappe.db.get_value(...)``
-# reaches the regex as ``frappe . db . get_value ( )`` and the B1 pattern cannot match it.
-# This is NOT specific to ``frappe.db``: ALL FOUR alternatives — ``frappe.db``,
-# ``frappe.get_all(``, ``frappe.get_doc(``, ``frappe.sql(`` — are missed identically,
-# because every one of them spans a token boundary the joiner pads.
-#
-# The one case that DOES still match is an UNPARSEABLE file: the tokenize/IndentationError/
-# SyntaxError branch fails OPEN and returns the RAW source, which the pattern then matches
-# — including inside comments and docstrings, where a mere MENTION of ``frappe.db`` counts
-# as a violation. So the check is not uniformly blind; it is blind on every file that
-# parses, and over-eager on any that does not. Either way a green b1 count is NOT evidence
-# that a listed module was checked.
-#
-# The bug is repo-wide and belongs in its own slice (fixing it here would silently change
-# what a shared enforcement script reports for every module); it is recorded as debt at
-# slice BCS-S1b, and this note was corrected at BCS-S1c after the two claims above were
-# reproduced by execution. Registration below is correct-in-principle and starts covering
-# these modules the day the tokenizer is fixed.
+# as more domain rules are extracted into pure modules.
+# services/finance.py is deliberately NOT here: it makes live frappe.get_all calls.
 PURE_MODULES = [
     "nirmaan_stack/services/procurement_approval.py",
     # The two BCS column-confirmation rules (BCS-S1a relocation). Pure by contract: its
@@ -121,34 +105,36 @@ def count_lines(files: list[Path], pattern: re.Pattern) -> int:
     return total
 
 
-def count_files(files: list[Path], pattern: re.Pattern) -> int:
-    """Number of FILES that contain at least one pattern match."""
-    return sum(1 for p in files if pattern.search(read(p)))
+_DB_ACCESS = {"db", "qb", "sql", "get_all", "get_list", "get_doc", "get_cached_doc", "get_cached_value", "get_single"}
+_DB_ACCESS_TEXT = re.compile(r"frappe\.(db|qb|sql|get_all|get_list|get_doc|get_cached_doc|get_cached_value|get_single)\b")
 
 
-def strip_strings_and_comments(src: str) -> str:
-    """Return only the CODE tokens of a Python source — string literals and
-    comments removed. Lets a purity check ignore docstring mentions such as
-    ``no frappe.db`` while still catching a real ``frappe.db.get_value(...)`` call."""
-    kept = []
+def db_access_lines(src: str) -> list[int]:
+    """Lines of a Python source that reach the database through ``frappe`` (``frappe.db``, ``frappe.qb``,
+    ``frappe.get_all``, ``frappe.get_cached_value``, ...), under an alias or a ``from frappe import``.
+    Strings and comments never count."""
     try:
-        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
-            if tok.type in (tokenize.STRING, tokenize.COMMENT):
-                continue
-            kept.append(tok.string)
-    except (tokenize.TokenError, IndentationError, SyntaxError):
-        return src  # fail open: better to over-count than to hide a violation
-    return " ".join(kept)
+        tree = ast.parse(src)
+    except SyntaxError:
+        return [i + 1 for i, line in enumerate(src.splitlines()) if _DB_ACCESS_TEXT.search(line)]
+    frappe_names = {"frappe"}
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            frappe_names |= {a.asname for a in node.names if a.name == "frappe" and a.asname}
+        elif isinstance(node, ast.ImportFrom) and node.module == "frappe":
+            imported |= {a.asname or a.name for a in node.names if a.name in _DB_ACCESS}
+    return sorted({
+        node.lineno for node in ast.walk(tree)
+        if (isinstance(node, ast.Attribute) and node.attr in _DB_ACCESS
+            and isinstance(node.value, ast.Name) and node.value.id in frappe_names)
+        or (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in imported)
+    })
 
 
-def count_pure_module_impurity(pattern: re.Pattern) -> int:
-    """Total DB-access matches inside the declared PURE_MODULES (code only)."""
-    total = 0
-    for rel in PURE_MODULES:
-        p = REPO_ROOT / rel
-        if p.exists():
-            total += len(pattern.findall(strip_strings_and_comments(read(p))))
-    return total
+def pure_module_impurities() -> list[str]:
+    return [f"{rel}:{n}" for rel in PURE_MODULES if (REPO_ROOT / rel).exists()
+            for n in db_access_lines(read(REPO_ROOT / rel))]
 
 
 # --- Rule P1: adding up Project Payments to show a paid figure (ADR-0034) ------
@@ -467,38 +453,9 @@ JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui
 JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
 
 
-class TsParserError(RuntimeError):
-    """A TypeScript parser (J1's, L2's) could not run (no node, or no frontend/node_modules/typescript)."""
-
-
-# Set by --hook: in a commit hook J1 and L2 warn and pass when their parser cannot run (a worktree with no
-# frontend/node_modules, a box with no node); CI and every other run still fail.
-TS_PARSERS_MAY_SKIP = False
-
-
-def ts_parser_counts(parser: str, sources: dict[str, str]) -> dict[str, int]:
-    """What `parser` (a node script under frontend/scripts) counts in each TS/TSX source, keyed as given (a key ending
-    in .tsx is parsed as TSX).
-
-    Raises TsParserError when node or TypeScript is missing: a check never passes by not running.
-    """
-    try:
-        run = subprocess.run(["node", str(REPO_ROOT / parser)], input=json.dumps(sources),
-                             capture_output=True, text=True, encoding="utf-8")
-    except OSError as e:
-        raise TsParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
-    if run.returncode != 0:
-        raise TsParserError(f"{parser} failed (exit {run.returncode}; run 'yarn install' in "
-                            f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
-    try:
-        return json.loads(run.stdout)
-    except ValueError as e:
-        raise TsParserError(f"{parser} printed no counts: {run.stdout.strip()[:2000]}") from e
-
-
 def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
-    """The `.json()` calls in each TS/TSX source, keyed as given."""
-    return ts_parser_counts(JSON_CALL_PARSER, sources)
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX)."""
+    return run_ts_parser(JSON_CALL_PARSER, sources)
 
 
 def json_call_count(src: str) -> int:
@@ -506,45 +463,43 @@ def json_call_count(src: str) -> int:
     return json_call_counts({"source.ts": src})["source.ts"]
 
 
-def frozen_count_drift(found: dict[str, int], frozen: dict[str, dict], rule: str, *, what: str, new_hint: str,
-                       frozen_file: str, prefix: str = "", needs_reason: bool = False) -> list[str]:
-    """Each file whose count of ``what`` differs from its frozen count, one line each; empty when all hold.
-
-    ``frozen`` is in oxlint's suppressions shape ({path: {rule: {"count": n}}}), keyed like ``found``; ``prefix``
-    turns a key into a repo path. A lower count fails too, as a stale lint suppression does, so the file can only
-    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request). With ``needs_reason``,
-    each entry also says why it stays (`"reason"`).
-    """
-    entries = {path: rules[rule] for path, rules in frozen.items() if rule in rules}
-    out = []
-    for path in sorted(set(found) | set(entries)):
-        now, was = found.get(path, 0), entries.get(path, {}).get("count", 0)
-        if now > was:
-            out.append(f"{prefix}{path}: {now} {what}, {was} frozen ({new_hint})")
-        elif now < was:
-            out.append(f"{prefix}{path}: {now} {what}, {was} frozen (fewer: lower its count in {frozen_file})")
-        elif needs_reason and path in entries and not str(entries[path].get("reason", "")).strip():
-            out.append(f"{prefix}{path}: frozen with no reason (say in one line why it is not a background operation)")
-    return out
-
-
-def read_frozen(path: str) -> dict[str, dict]:
-    """A frozen-counts file (oxlint's suppressions shape) at a repo path; empty when there is none."""
-    p = REPO_ROOT / path
-    return json.loads(read(p)) if p.exists() else {}
-
-
 def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
-    """J1's drift: ``found`` and ``frozen`` keyed by paths relative to frontend/."""
-    return frozen_count_drift(found, frozen, JSON_CALL_RULE, what=".json() calls", new_hint="a new call: use parseJson",
-                              frozen_file=JSON_CALL_SUPPRESSIONS, prefix="frontend/")
+    """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
+
+    ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
+    ({path: {rule: {"count": n}}}), and only its JSON_CALL_RULE entries count. A lower count fails too
+    (frozen_counts.frozen_drift)."""
+    calls = {path: {JSON_CALL_RULE: {"count": n}} for path, n in found.items()}
+    allowed = {path: {JSON_CALL_RULE: rules[JSON_CALL_RULE]}
+               for path, rules in frozen.items() if JSON_CALL_RULE in rules}
+    over, under = frozen_drift(calls, allowed,
+                               lambda path, _, now, was: f"frontend/{path}: {now} .json() calls, {was} frozen")
+    return sorted([f"{line} (a new call: use parseJson)" for line in over]
+                  + [f"{line} (fewer: lower its count in {JSON_CALL_SUPPRESSIONS})" for line in under])
+
+
+def reasoned_drift(found: dict[str, int], frozen: dict[str, dict], rule: str, *, what: str, new_hint: str,
+                   frozen_file: str, prefix: str = "") -> list[str]:
+    """Q1's and L2's drift: each file whose count of ``what`` differs from its frozen count (frozen_counts.frozen_drift,
+    over and under), and each frozen entry with no one-line ``reason`` why it stays; empty when all hold.
+
+    ``frozen`` is in oxlint's suppressions shape and only its ``rule`` entries count; ``prefix`` turns a key of
+    ``found`` into a repo path."""
+    counts = {path: {rule: {"count": n}} for path, n in found.items()}
+    entries = {path: {rule: rules[rule]} for path, rules in frozen.items() if rule in rules}
+    over, under = frozen_drift(counts, entries, lambda path, _, now, was: f"{prefix}{path}: {now} {what}, {was} frozen")
+    no_reason = [f"{prefix}{path}: frozen with no reason (say in one line why it is not a background operation)"
+                 for path, rules in entries.items()
+                 if found.get(path, 0) == rules[rule].get("count", 0) and not str(rules[rule].get("reason", "")).strip()]
+    return sorted([f"{line} ({new_hint})" for line in over]
+                  + [f"{line} (fewer: lower its count in {frozen_file})" for line in under]
+                  + no_reason)
 
 
 def json_calls_unfrozen() -> list[str]:
     """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
 
-    When the parser cannot run, that is J1's one finding, so the check fails and says why.
-    """
+    When the parser cannot run, that is J1's one finding (frozen_counts.node_cannot_run)."""
     sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         rel = p.relative_to(REPO_ROOT).as_posix()
@@ -553,10 +508,7 @@ def json_calls_unfrozen() -> list[str]:
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
     except TsParserError as e:
-        if TS_PARSERS_MAY_SKIP:
-            print(f"⚠ J1 skipped: {e}. CI counts .json() calls on every pull request.")
-            return []
-        return [f"J1 could not count .json() calls: {e}"]
+        return node_cannot_run("J1", ".json() calls", e)
     return json_call_drift(found, read_frozen(JSON_CALL_SUPPRESSIONS))
 
 
@@ -606,7 +558,7 @@ SOCKET_LISTENER_PARSER = "frontend/scripts/socket_listeners.mjs"
 
 def socket_listener_counts(sources: dict[str, str]) -> dict[str, int]:
     """The raw socket listeners in each TS/TSX source, keyed as given."""
-    return ts_parser_counts(SOCKET_LISTENER_PARSER, sources)
+    return run_ts_parser(SOCKET_LISTENER_PARSER, sources)
 
 
 def socket_listener_count(src: str, path: str = "source.ts") -> int:
@@ -628,9 +580,9 @@ def socket_listeners_found() -> dict[str, int]:
 
 def socket_listener_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
     """L2's drift, keyed by paths relative to frontend/."""
-    return frozen_count_drift(found, frozen, SOCKET_LISTENER_RULE, what="socket listeners",
-                              new_hint="a new one: follow a background operation with useBackgroundOperation",
-                              frozen_file=SOCKET_LISTENER_SUPPRESSIONS, prefix="frontend/", needs_reason=True)
+    return reasoned_drift(found, frozen, SOCKET_LISTENER_RULE, what="socket listeners",
+                          new_hint="a new one: follow a background operation with useBackgroundOperation",
+                          frozen_file=SOCKET_LISTENER_SUPPRESSIONS, prefix="frontend/")
 
 
 def socket_listeners_unfrozen() -> list[str]:
@@ -639,10 +591,7 @@ def socket_listeners_unfrozen() -> list[str]:
     try:
         found = socket_listeners_found()
     except TsParserError as e:
-        if TS_PARSERS_MAY_SKIP:
-            print(f"⚠ L2 skipped: {e}. CI counts socket listeners on every pull request.")
-            return []
-        return [f"L2 could not count socket listeners: {e}"]
+        return node_cannot_run("L2", "socket listeners", e)
     return socket_listener_drift(found, read_frozen(SOCKET_LISTENER_SUPPRESSIONS))
 
 
@@ -797,9 +746,9 @@ def raw_enqueues_found() -> dict[str, int]:
 
 def raw_enqueue_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
     """Q1's drift, keyed by repo paths."""
-    return frozen_count_drift(found, frozen, RAW_ENQUEUE_RULE, what="raw enqueues",
-                              new_hint="a new one: start a background operation with services/background_ops.start",
-                              frozen_file=RAW_ENQUEUE_SUPPRESSIONS, needs_reason=True)
+    return reasoned_drift(found, frozen, RAW_ENQUEUE_RULE, what="raw enqueues",
+                          new_hint="a new one: start a background operation with services/background_ops.start",
+                          frozen_file=RAW_ENQUEUE_SUPPRESSIONS)
 
 
 def raw_enqueues_unfrozen() -> list[str]:
@@ -820,17 +769,6 @@ class Check:
     locate: Callable[[], list[str]] | None = None
     # Set: the count must be at most this, whatever the baseline file says (a PR edits that file too).
     pass_mark: int | None = None
-
-
-# b2: files containing the state literal, minus the predicate home and test files.
-_VENDOR_SELECTED = re.compile(r'"Vendor Selected"')
-
-def _measure_b2() -> int:
-    files = [
-        p for p in iter_files("nirmaan_stack", (".py",))
-        if p.name != "procurement_approval.py" and not p.name.startswith("test_")
-    ]
-    return count_files(files, _VENDOR_SELECTED)
 
 
 _GET_VALUE_ANY_ROW = re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}""")
@@ -875,43 +813,11 @@ CHECKS: list[Check] = [
     Check(
         id="b1_pure_module_purity",
         rule="B1",
-        description="frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
+        description="Database reads through frappe (db, qb, get_all, get_doc, get_cached_value, ...) inside declared PURE_MODULES (a pure module must have none).",
         route_hint="a PURE_MODULES entry reached into frappe.db — move the data access to a thin orchestrator "
                    "and keep the module pure, or remove it from PURE_MODULES (see ADR-0010 rule B1).",
-        measure=lambda: count_pure_module_impurity(re.compile(r"frappe\.(db\b|get_all\(|get_doc\(|sql\()")),
-    ),
-    Check(
-        id="b2_predicate_literal_scatter",
-        rule="B2",
-        description='Files hardcoding the "Vendor Selected" state literal instead of importing the shared predicate.',
-        route_hint="the awaiting-approval predicate lives in services/procurement_approval.py "
-                   "(AWAITING_APPROVAL_STATES / is_awaiting_approval) — import it, don't hardcode states.",
-        measure=_measure_b2,
-    ),
-    Check(
-        id="f5_raw_updatedoc_files",
-        rule="F5",
-        description="Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
-        route_hint="writes to shared docs should go through the write-safety seam (useEditingLock) — "
-                   "extend it, don't add a raw updateDoc call (ADR-0010 rule F5).",
-        # src/lib/frappe.ts re-exports the SDK hooks with typed defaults (ADR-0049): it names the hook and
-        # writes nothing, so it is not a write site.
-        measure=lambda: count_files(
-            [p for p in iter_files("frontend/src", (".ts", ".tsx"))
-             if p != REPO_ROOT / "frontend/src/lib/frappe.ts"],
-            re.compile(r"useFrappeUpdateDoc|updateDoc\("),
-        ),
-    ),
-    Check(
-        id="f2_inline_json_parse_pages",
-        rule="F2",
-        description="Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
-        route_hint="parse a backend JSON shape once, in a typed accessor (e.g. useITM()), not inline in a page "
-                   "(ADR-0010 rule F2).",
-        measure=lambda: count_lines(
-            iter_files("frontend/src/pages", (".ts", ".tsx")),
-            re.compile(r"JSON\.parse"),
-        ),
+        measure=lambda: len(pure_module_impurities()),
+        locate=pure_module_impurities,
     ),
     # Not an ADR-0010 residence rule: a test-data rule that rides this ratchet because it is the
     # repo's one counting check. `get_value(doctype, {})` returns the most recently MODIFIED row,
@@ -1052,6 +958,20 @@ CHECKS: list[Check] = [
         locate=raw_enqueues_unfrozen,
         pass_mark=0,
     ),
+    # ADR-0049's ratchet through a disable comment (#1705): oxlint honours `eslint-disable` and `oxlint-disable`
+    # comments, so one above a new `any` passed `yarn lint`. Frozen per file and rule in DISABLE_SUPPRESSIONS (the
+    # ratchet check guards it); pass mark 0, as J1's.
+    Check(
+        id="d1_disable_comments_unfrozen",
+        rule="D1",
+        description=f"Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no "
+                    f"rule) than frozen in {DISABLE_SUPPRESSIONS}.",
+        route_hint="a new comment: fix the violation instead of disabling the rule (ADR-0049); a comment removed: "
+                   f"lower its count with python3 scripts/residence_check.py {PRUNE_FLAG}",
+        measure=lambda: len(disable_comments_unfrozen()),
+        locate=disable_comments_unfrozen,
+        pass_mark=0,
+    ),
 ]
 
 
@@ -1134,9 +1054,9 @@ def do_init() -> int:
     return 0
 
 
-# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
-# (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "L1", "N1",
+# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's two
+# counters (B1, B3) run in the local hook only (ADR-0010 amendment, 2026-11-18).
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "D1", "L1", "N1",
              "Q1", "L2"]
 
 
@@ -1198,16 +1118,23 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
     parser.add_argument("--hook", action="store_true",
-                        help="Run from a commit hook: J1 and L2 warn and pass when node or TypeScript cannot run.")
+                        help="Run from a commit hook: J1, D1 and L2 warn and pass when node or TypeScript cannot run.")
+    parser.add_argument(PRUNE_FLAG, action="store_true", dest="prune_disables",
+                        help=f"Lower {DISABLE_SUPPRESSIONS} to today's counts after removing disable comments (D1).")
     args = parser.parse_args(argv)
-    global TS_PARSERS_MAY_SKIP
-    TS_PARSERS_MAY_SKIP = args.hook
+    frozen_counts.NODE_MAY_SKIP = args.hook
     if args.init and args.only:
         print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
               file=sys.stderr)
         return 2
     if args.init:
         return do_init()
+    if args.prune_disables:
+        if args.check or args.only or args.init:
+            print(f"{PRUNE_FLAG} runs alone: it rewrites {DISABLE_SUPPRESSIONS}, which --check promises not to do.",
+                  file=sys.stderr)
+            return 2
+        return prune_disable_comments()
     checks = CHECKS if checks is None else checks
     if args.only:
         try:

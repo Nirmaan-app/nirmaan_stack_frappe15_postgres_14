@@ -1,6 +1,6 @@
 // src/pages/outflow-import/useOutflowRows.ts
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
 import type {
@@ -299,9 +299,12 @@ export function useOutflowRows({
      * Held in a ref-stable callback because the table passes it straight into an effect dep.
      */
     const filtersRef = useRef(filters);
-    filtersRef.current = filters;
     const searchRef = useRef(debouncedSearch);
-    searchRef.current = debouncedSearch;
+    // Layout effect: the funnel's own (passive) effect calls `loadFacetValues` after this has run.
+    useLayoutEffect(() => {
+        filtersRef.current = filters;
+        searchRef.current = debouncedSearch;
+    });
 
     const loadFacetValues = useCallback(
         async (columnId: string): Promise<string[]> => {

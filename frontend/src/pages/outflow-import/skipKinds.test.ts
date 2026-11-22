@@ -35,12 +35,19 @@ describe("skipKinds -- mirrored from skip_kinds.py and skip_origin.py", () => {
         }
     });
 
-    it("the bank-rule kinds are exactly the values of SKIP_KIND_BY_EXCLUSION_CATEGORY", () => {
+    it("the bank-rule kinds are the values of SKIP_KIND_BY_EXCLUSION_CATEGORY less RETIRED_SKIP_KINDS (#1628)", () => {
         const block = skipKindsSource.slice(
             skipKindsSource.indexOf("SKIP_KIND_BY_EXCLUSION_CATEGORY: dict[str, str] = {"),
         );
         const body = block.slice(0, block.indexOf("}"));
-        const constants = new Set([...body.matchAll(/:\s*(SKIP_KIND_[A-Z_]+)/g)].map((m) => m[1]));
+        const retiredBlock = skipKindsSource.slice(skipKindsSource.indexOf("RETIRED_SKIP_KINDS = ("));
+        const retired = new Set(
+            [...retiredBlock.slice(0, retiredBlock.indexOf(")")).matchAll(/(SKIP_KIND_[A-Z_]+)/g)].map((m) => m[1]),
+        );
+        expect(retired.size).toBe(8);
+        const constants = new Set(
+            [...body.matchAll(/:\s*(SKIP_KIND_[A-Z_]+)/g)].map((m) => m[1]).filter((c) => !retired.has(c)),
+        );
         const labels = new Set(
             [...constants].map((constant) => {
                 const found = skipKindsSource.match(new RegExp(`^${constant} = "(.*)"$`, "m"));

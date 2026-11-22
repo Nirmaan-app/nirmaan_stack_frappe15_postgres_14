@@ -10,8 +10,10 @@ Owner decisions (2026-11-18):
   1. The refund names a spend (`REF-<Txn Id>`) that has an Expense: it goes on that Expense's doctype, project and
      expense type AS THE EXPENSE IS NOW, whatever the spend's date. "Has an Expense" is the only test. A spend on this
      same statement that the plan creates has one too: the refund goes where that spend is placed.
-  2. Otherwise (no Expense, or no `REF-` spend): a Non Project Expense, typed from the refund's own remark, else
-     Petty Cash. Never a project: a project whose spend was never booked would read too low.
+  2. Otherwise (no Expense, or no `REF-` spend): placed from the refund's own remark the way a spend is
+     (`cashbook_placement.placement`): on a project when the remark names exactly one, else a Non Project Expense,
+     typed from the remark, else Petty Cash. #1720 decision 3 (owner, 2026-11-18) changed this branch, which was
+     always Non-Project, so a refund and a Wallet Credit follow one rule.
 """
 
 from __future__ import annotations
@@ -19,11 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.cashbook_placement import pick_expense_type
-from nirmaan_stack.services.outflow_import.cashbook_refunds import refunded_spend_id
-from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.cashbook_placement import placement
+from nirmaan_stack.services.outflow_import.cashbook_refunds import WALLET_CREDIT_ROW_KIND, refunded_spend_id
+from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 
-__all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description"]
+__all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description", "money_in_description"]
 
 
 @dataclass(frozen=True)
@@ -59,9 +61,14 @@ def refund_placement(
     booked: SpendExpense | None,
     planned_spend: Mapping | None,
     expense_rules: Mapping[str, Sequence[tuple[str, str]]],
+    index: ProjectIndex | None = None,
 ) -> RefundPlacement:
     """Where an unpaired refund's Expense goes. `booked`: its spend's existing Expense, if any; `planned_spend`: the
-    placement this plan gives its spend when the spend is created from this statement."""
+    placement this plan gives its spend when the spend is created from this statement; else its own remark is placed
+    against `index` and `expense_rules`.
+
+    ⚠️ `index=None` PLACES ON NO PROJECT: the #1709 patch `v3_0.create_open_cashbook_refund_expenses` calls without one
+    and, being append-only, keeps the Non-Project rule it was written with. The plan always passes the Won projects."""
     refund_of = refunded_spend_id(transfer_id)
     if booked is not None:
         return RefundPlacement(
@@ -85,13 +92,8 @@ def refund_placement(
             reduces="",
             spend_on_statement=True,
         )
-    expense_type, keyword = pick_expense_type(remarks, expense_rules.get("Non Project", ()))
     return RefundPlacement(
-        ledger=NON_PROJECT_EXPENSE_DOCTYPE,
-        project=None,
-        project_name="",
-        expense_type=expense_type,
-        matched_keyword=keyword,
+        **placement(remarks, index or build_project_index(()), expense_rules),
         refund_of=refund_of,
         reduces="",
         spend_on_statement=False,
@@ -104,3 +106,11 @@ def refund_description(transfer_id: str, payee: str) -> str:
     return " ".join(
         part for part in ("Wallet refund", f"of {spend}" if spend else "", f"from {payee}" if payee else "") if part
     )
+
+
+def money_in_description(row_kind: str, transfer_id: str, payee: str) -> str:
+    """The description of a line booked at minus its Credit: a refund's (`refund_description`), or a Wallet Credit's
+    (#1720) "Wallet credit from <who paid it in>", the payer left out when the line has none."""
+    if row_kind == WALLET_CREDIT_ROW_KIND:
+        return f"Wallet credit from {payee}" if payee else "Wallet credit"
+    return refund_description(transfer_id, payee)

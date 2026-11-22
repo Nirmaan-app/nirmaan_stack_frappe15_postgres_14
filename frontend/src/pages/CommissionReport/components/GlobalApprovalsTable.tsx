@@ -2,7 +2,7 @@
 // Same DataTable UX as the Task Wise tab, filtered to "Pending Approval" + "Submitted",
 // with Approve / Reject + the report actions per row. Reuses get_task_wise_list.
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     ColumnDef,
@@ -285,7 +285,10 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh, 
     });
     const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
-    refetchRef.current = serverDataTable.refetch;
+    // Read only by the approve/reject handlers (via `refresh`), never during render.
+    useLayoutEffect(() => {
+        refetchRef.current = serverDataTable.refetch;
+    });
 
     const table = useReactTable({
         data: serverDataTable.data || [],

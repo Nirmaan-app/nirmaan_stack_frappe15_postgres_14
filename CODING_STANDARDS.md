@@ -97,11 +97,12 @@ above (folder vs owner):
 - **Calculations/decisions the business names** (Benchmark, Loss %, awaiting-approval) → a **pure module** in `services/` (no `frappe.db`, no request ctx) — B1.
 - **A JSON / child-table shape** → **one accessor** that parses + types + keys it — B2.
 - **`workflow_state` / status** → **one deriver** `f(items, descendants)`, never written ad-hoc across endpoints — B3.
-- **Whitelisted endpoints** → **thin orchestrators** (lock → load → call → persist → commit → publish); an endpoint must not reach into a controller validator — B4.
+- **Whitelisted endpoints** hold **no business rule**: they load, call the rule, save and publish. A review rule, with no counter — B4.
 - **A count/aggregate over many rows** → **the database** (`GROUP BY` / `EXISTS`), never a `get_doc`/row-loop in Python.
 
 First worked proof: the `sidebar_counts` aggregate rewrite + the shared `services/procurement_approval.py`
-predicate home. Frontend rules F1–F5 (stated in `frontend/CODING_STANDARDS.md`) and the deferred backlog live in ADR-0010.
+predicate home. Frontend rules F1–F5 are stated in `frontend/CODING_STANDARDS.md`. Only B1 and B3 are counted by
+`scripts/residence_check.py`; the other rules are review rules (ADR-0010 amendment, 2026-11-18).
 
 Before creating a helper for an existing domain concept, consult the domain doc's **`## Residence — concept → owner`**
 manifest (e.g. `.claude/context/domain/procurement.md`, `boq-backend.md`); an unassigned owner means ask the owner rather than
@@ -410,6 +411,7 @@ isolated to the minimum field diff and recorded here.
 - `Service Requests.gst_invoiced` (read-only Currency, ADR-0030): a derived cache — SUM(`invoice_gst_amount`) over Approved invoices, recomputed from source in `_item_billing_sync.recompute_document_amount_invoiced` beside `amount_invoiced`, with `invoice_gst_amount` a watched field of the Vendor Invoices doc event.
 - `Outflow Import Batch.repeats_not_saved` (read-only Int, ADR-0031): the count of exact repeats an upload left out — written ONCE at staging and never recomputed, because the rows it counts were never saved (the one other writer is the one-time patch `v3_0.delete_stored_exact_repeats`, which ADDS the count of the stored repeats it deletes).
 - `Outflow Import Batch.lines_before_cutoff` (read-only Int, #1707, spec #1711): how many lines of a Cashbook statement are dated before 1 Apr 2026 (`services/outflow_import/cashbook_cutoff`) and were left out, not saved. Added through a DocType save in developer mode. Written ONCE, at confirm, by its one writer `api/outflow_import/cashbook.py` (`_stage`, from `CashbookPlan.before_cutoff`), and never recomputed, because the rows it counts do not exist; blank (0) on every other batch. Read only by the import history (`api/outflow_import/review.py`, which turns it into `before_cutoff_note`).
+- #1628 (owner, 2026-11-19) removed 8 options from `Outflow Import Row.skip_kind` (options only, no column): the kinds in `skip_kinds.RETIRED_SKIP_KINDS`, whose lines are Internal Transfers since spec #1619. Saved through a DocType save in developer mode on the task env, and committed as the one `options` line, because that save also reformatted unrelated keys. Stored values are untouched; production holds none of the 8.
 - `Project Snag.attachment` (Attach) + `location` (Small Text): the snag's ONE photo and where it was taken (owner 2026-10-08) — Completed needs the photo, ruled in `services/snag_photo.photo_rule_violation` and enforced by the `before_save` controller (a bulk Completed skips a snag without one); `location` holds the DPR `CameraCapture` string and is cleared with the photo.
 - `Vendor Refunds.status` (a required Select: Reconciliation Pending / Received / Cancelled, #1398, ADR-0032): its options are pinned to `services/vendor_refunds.REFUND_STATUSES` by test; no JSON default, so a creator that sets nothing gets Frappe's first option, Reconciliation Pending, which lowers no paid amount. Rows from before it were set Received by the patch `v3_0.set_vendor_refunds_received`.
 - `PO Adjustment Items.vendor_refund` (a read-only Link to Vendor Refunds, #1399, ADR-0032): the Received refund a `Vendor Refund` ledger entry stands for; written only by the refund sync step `api/po_adjustments/refund_links.sync_po_refund_links`, which recomputes those entries from source, and such an entry creates no Project Payment and no payment term.
@@ -485,12 +487,13 @@ breaks it); its name is how a refusal is recognised (`services/outflow_import/im
 `.githooks/pre-commit` and `.githooks/pre-merge-commit` (a merge skips pre-commit) run `.githooks/checks.sh`;
 `yarn install` in `frontend/` switches them on (`core.hooksPath`). It runs `python3 scripts/residence_check.py`
 (from the app root), which ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on
-increase; auto-tighten on decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1) and rupee
+increase; auto-tighten on decrease). Besides ADR-0010's B1 and B3 it counts files over 500 lines (S1) and rupee
 formatters outside their two homes (R1), so a review need not hunt for those by hand, the frontend's `.json()`
-calls against their frozen counts (J1), and the raw job enqueues (Q1) and raw socket listeners (L2) that are not
-background operations against theirs ([Writing backend Python](#writing-backend-python)). It then runs type-aware oxlint on the staged `.ts`/`.tsx` files under
+calls (J1) and lint disable comments for an ADR-0049 rule (D1) against their frozen counts, and the raw job
+enqueues (Q1) and raw socket listeners (L2) that are not background operations against theirs
+([Writing backend Python](#writing-backend-python)). It then runs type-aware oxlint on the staged `.ts`/`.tsx` files under
 `frontend/src` (here, or inside the dev container where oxlint's native binary does not load): `any` in frontend
-code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's five rules:
+code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's B1 and B3:
 `residence_check.py --check --only ci` (`CI_SUBSET`), which never rewrites the baseline, `yarn lint`,
 `scripts/lint_same_twice.mjs` (the type-aware lint twice: one result), and `yarn type-coverage`. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).

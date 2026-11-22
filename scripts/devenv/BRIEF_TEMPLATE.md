@@ -8,6 +8,25 @@ each section marked "omit when". Each rule in "Rules" was broken once by a box a
 `gh issue view <<FILL: N>> --json title,body,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
 <<FILL: its parent spec, and where the owner's decisions behind it are written (the ticket, a comment, a date).>>
 
+## Blocker
+Blocker: <<FILL: yes or no. Yes when the task builds a check that refuses something: a lint ratchet, a CI gate, a
+privacy wrapper, a hook.>>
+<!-- omit the rest of this section when Blocker: no. dod.py check reads the line above: a DONE report for a brief that
+says yes needs a finished bypass hunt. -->
+1. Design the rule as an allowed list: name what is known to be safe, and the rule refuses everything else. In #1702,
+   #1705 and #1698 the briefs listed the bad cases, the builder refused exactly those, and each laptop review found
+   one more hole, over three rounds each. What held was an allowed list: a per-key table, "refuse any new symlink", a
+   wrapper that permits only a scan.
+2. After your own code-review, run the bypass hunt. Start a fresh subagent with the Agent tool, one that wrote none of
+   the code, and give it only the check's goal and the diff (`git diff $(python3 scripts/devenv/dod.py base)`). Ask
+   it to get past the check by any route it can find, and to show each bypass as the command it ran and that
+   command's output.
+3. Run each bypass it reports yourself; one counts once you have seen it get past. Fix each real one by tightening
+   what the allowed list permits, so its whole family is refused, with a test you saw red first. Commit, then start a
+   new fresh hunter on the new diff. The hunt is finished when a pass finds nothing.
+4. Write the result on the report's `Bypass hunt:` line: `finished, ` then each pass and what it found.
+   `dod.py check` refuses a DONE report whose line does not start so.
+
 ## Where
 - Your branch is `box/<<FILL: name>>`, cut from `<<FILL: ref>>` at `<<FILL: short sha>>`. Commit only on this branch.
   Never switch branches.

@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/DecisionDialog.tsx
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import {
@@ -573,7 +573,9 @@ export const DecisionDialog = ({
     // #1269: which row + record is on screen NOW, read after the recorded-money check comes back, and
     // whether a check is already out. Refs, so reading them never re-renders the dialog.
     const currentPickRef = useRef("");
-    currentPickRef.current = `${row?.name}|${picked?.name}`;
+    useLayoutEffect(() => {
+        currentPickRef.current = `${row?.name}|${picked?.name}`;
+    });
     const checkingPartialRef = useRef(false);
 
     const handleConfirmClick = useCallback(async () => {

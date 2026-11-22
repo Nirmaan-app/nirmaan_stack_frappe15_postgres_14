@@ -7,8 +7,6 @@
 // placement FINDABLE in about ten seconds. Every ordering decision below serves that and nothing
 // else -- see `sortGroups`.
 
-
-
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
 
@@ -58,14 +56,18 @@ export interface CashbookInternalTransferLine {
     reason: string;
 }
 
-/** #1709: an unpaired wallet refund, created at minus its Credit where its spend is booked (`cashbookRefunds.ts`). */
-export interface CashbookRefundLine extends CashbookSkippedRow {
-    refund_of: string;
-    reduces: string;
-    spend_on_statement: boolean;
+/** #1709, #1720: a line created at minus its Credit, with where it goes: a refund or a Wallet Credit. */
+export interface CashbookMoneyInLine extends CashbookSkippedRow {
     ledger: string;
     project_name: string;
     expense_type: string;
+}
+
+/** #1709: an unpaired wallet refund, with the spend it reduces (`cashbookRefunds.ts`). */
+export interface CashbookRefundLine extends CashbookMoneyInLine {
+    refund_of: string;
+    reduces: string;
+    spend_on_statement: boolean;
 }
 
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
@@ -82,7 +84,7 @@ export interface CashbookPreviewResult {
     period_to: string | null;
     total_rows: number;
     creating: number;
-    /** #1709 code review: the spends among `creating` (the wallet refunds left out), the count `total_value` sums. */
+    /** #1709 code review: the spends among `creating` (wallet refunds and credits left out), the count `total_value` sums. */
     spending: number;
     skipping: number;
     total_value: number;
@@ -110,11 +112,10 @@ export interface CashbookPreviewResult {
     records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
-    /** #1594: the lines that stay open on the main table (wallet credits; an unpaired refund since #1709 is below). */
-    open_lines?: CashbookSkippedRow[];
-    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked. */
+    /** #1709: the unpaired wallet refunds, booked at minus their Credit where their spends are booked, else where their remarks say. */
     refunds?: CashbookRefundLine[];
-    opening?: number;
+    /** #1720: the Wallet Credits, booked at minus their Credit where their remarks place them. */
+    credits?: CashbookMoneyInLine[];
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];
     /** #1596: lines an earlier import skipped as own balances that this statement re-opens in place. */
@@ -134,7 +135,7 @@ export interface CashbookPreviewResult {
  */
 export interface CashbookReopenedLine extends CashbookSkippedRow {
     earlier_batch: string;
-    becomes: "created" | "open" | "paired";
+    becomes: "created" | "paired";
 }
 
 /** #1593: a repeat line bringing a bill for an existing Expense that still waits for one. */
@@ -435,18 +436,6 @@ export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined)
 };
 
 /**
- * The heading over the lines that stay open (#1594), or null when there are none. They are decided on the
- * main table, with the choices a card credit has.
- */
-export const openLinesHeading = (lines: readonly CashbookSkippedRow[] | undefined): string | null => {
-    const n = lines?.length ?? 0;
-    if (n === 0) return null;
-    return n === 1
-        ? "1 line will stay open for someone to decide on the transactions screen"
-        : `${formatCount(n)} lines will stay open for someone to decide on the transactions screen`;
-};
-
-/**
  * The heading over the existing Expenses that get a late bill (#1593), or null when there are none. The line
  * itself is an exact repeat and is not saved again; only its bills go on.
  */
@@ -484,10 +473,9 @@ export const reopenedHeading = (lines: readonly CashbookReopenedLine[] | undefin
         : `${formatCount(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
 };
 
-/** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · stays open". */
+/** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · its expense is created". */
 const REOPENED_BECOMES: Record<CashbookReopenedLine["becomes"], string> = {
     created: "its expense is created",
-    open: "stays open",
     paired: "paired wallet refund",
 };
 

@@ -16,9 +16,7 @@ from decimal import Decimal
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     ACTION_INTERNAL,
-    ACTION_OPEN,
     ACTION_SKIP,
-    OPEN_WALLET_CREDIT,
     SKIP_PAIRED_REFUND,
 )
 from nirmaan_stack.services.outflow_import.cashbook_cutoff import CASHBOOK_FROM_DATE, before_cutoff_note
@@ -102,7 +100,7 @@ class TestLinesFromTheCutoffAreDecidedAsBefore(unittest.TestCase):
         self.assertEqual(by_id["REF-OBO-SPEND"].reason, SKIP_PAIRED_REFUND.format(partner="OBO-SPEND"))
         self.assertEqual(by_id["OBO-SPEND"].partner, "REF-OBO-SPEND")
         self.assertEqual(by_id["OBO-COLLECT"].action, ACTION_CREATE)
-        self.assertEqual((by_id["PTM-9"].action, by_id["PTM-9"].reason), (ACTION_OPEN, OPEN_WALLET_CREDIT))
+        self.assertEqual(by_id["PTM-9"].action, ACTION_CREATE)  # #1720
         self.assertEqual(by_id["OBO-TOPUP"].action, ACTION_INTERNAL)
         self.assertEqual(plan.before_cutoff, 1)
         self.assertEqual(plan.total_value, Decimal("80"))

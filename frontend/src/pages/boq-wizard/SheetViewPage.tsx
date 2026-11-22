@@ -25,7 +25,7 @@
  * guarantee above, which is the ONLY thing keeping this page off the lock.
  */
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
@@ -437,11 +437,13 @@ export const SheetViewPage = () => {
     [rows],
   );
   const collapsedRef = useRef(collapsed);
-  collapsedRef.current = collapsed;
   const byRowIndexRef = useRef(byRowIndex);
-  byRowIndexRef.current = byRowIndex;
   const byExcelRowRef = useRef(byExcelRow);
-  byExcelRowRef.current = byExcelRow;
+  useLayoutEffect(() => {
+    collapsedRef.current = collapsed;
+    byRowIndexRef.current = byRowIndex;
+    byExcelRowRef.current = byExcelRow;
+  }, [collapsed, byRowIndex, byExcelRow]);
   const revealRow = useCallback((excelRow: number): boolean => {
     const row = byExcelRowRef.current.get(excelRow);
     if (!row) return false;

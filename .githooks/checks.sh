@@ -3,7 +3,9 @@
 # gate as a commit:
 #
 #   1. the residence ratchet (scripts/residence_check.py, about 5 s): file size, rupee formatters, payment sums,
-#      test-data rules, ADR-0010 residence -- every check, tightening the baseline when a count falls;
+#      test-data rules, `.json()` calls, lint disable comments, ADR-0010 residence -- every check, tightening the
+#      baseline when a count falls. J1 and D1 are frozen per file instead: a file under its frozen count fails until
+#      the frozen file is lowered in the same change (D1: residence_check.py --prune-disable-comments);
 #   2. type-aware oxlint (frontend/.oxlintrc.json) on the staged .ts/.tsx files under frontend/src, against
 #      frontend/oxlint-suppressions.json, so a new `any` is refused here instead of in CI.
 #
@@ -36,7 +38,8 @@ if [ -f scripts/residence_check.py ]; then
         printf '%s\n' "$out" | grep -v '^✓' >&2
         failed=1
     else
-        # A check that could not run here (J1 with no node) says so and passes; CI runs it on every pull request.
+        # A check that could not run here (J1 or D1 with no node) says so and passes; CI runs it on every pull
+        # request. (A J1 or D1 count that fell is not here: it failed above, naming how to lower its frozen count.)
         printf '%s\n' "$out" | grep '^⚠' | sed "s/^⚠ /⚠ $hook: /" >&2
     fi
     if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q '^Tightened baseline'; then
@@ -109,7 +112,7 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         lint_ok=1
         if [ "$runner" = here ]; then
             ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
-            staged | (cd "$index_copy/frontend" && xargs -0 node_modules/.bin/oxlint --type-aware) || lint_ok=0
+            staged | (cd "$index_copy/frontend" && xargs -0 node_modules/.bin/oxlint --type-aware --no-error-on-unmatched-pattern) || lint_ok=0
         elif ! container_copy=$(docker exec "$container" mktemp -d /tmp/nirmaan-staged-lint.XXXXXX) \
             || [ -z "$container_copy" ]; then
             container_copy=""
@@ -128,7 +131,7 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
             echo "✘ $hook rejected: the staged files could not be copied into container $container, so oxlint did not run." >&2
             exit 1
         else
-            staged | docker exec -i -w "$container_copy/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware \
+            staged | docker exec -i -w "$container_copy/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware --no-error-on-unmatched-pattern \
                 || lint_ok=0
         fi
         if [ $lint_ok -eq 0 ]; then

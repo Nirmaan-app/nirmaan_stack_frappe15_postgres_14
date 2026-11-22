@@ -14,7 +14,7 @@
  * useParams is the verbatim original string -- passed to the endpoint as-is
  * (the backend does VERBATIM sheet_name matching with no trim).
  */
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   FrappeConfig,
@@ -107,11 +107,13 @@ const SheetSpokePage = () => {
     typeof window !== "undefined" &&
     window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (the A2 ref-for-changing-values pattern). Updated each render.
+  // WITHOUT recreating them (the A2 ref-for-changing-values pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });
-  lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
+  useLayoutEffect(() => {
+    lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
+  });
 
   // Derived values -- computed BEFORE guards so the effects below can reference `draft`.
   // Uses optional chaining since boq may be undefined during the initial loading phase.

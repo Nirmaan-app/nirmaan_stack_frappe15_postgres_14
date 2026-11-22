@@ -2,10 +2,12 @@
 
 The ratchet is counts and a number a PR can only tighten:
   - frontend/oxlint-suppressions.json: the old oxlint violations, per file and rule, and
-    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1), and the raw RQ job
-    enqueues and socket listeners that are not background operations (residence checks Q1 and L2:
-    scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json). A count may fall or an entry
-    go; a count that rises, or a file or rule that appears, is a loosening (`oxlint --suppress-all` does both).
+    frontend/json-call-suppressions.json: the old `.json()` calls per file (residence check J1),
+    frontend/disable-comment-suppressions.json: the old disable comments for ADR-0049's rules per file and rule
+    (residence check D1, #1705), and the raw RQ job enqueues and socket listeners that are not background operations
+    (residence checks Q1 and L2: scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json).
+    A count may fall or an entry go; a count that rises, or a file or rule that appears, is a loosening
+    (`oxlint --suppress-all` does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
   - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json,
     compared by oxlint_settings_check.py (no wider ignorePatterns, no rule removed or turned down to "warn" or "off",
@@ -42,11 +44,14 @@ from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # 
 from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
 from residence_check import RAW_ENQUEUE_SUPPRESSIONS as RAW_ENQUEUES  # noqa: E402  (check Q1's file)
 from residence_check import SOCKET_LISTENER_SUPPRESSIONS as SOCKET_LISTENERS  # noqa: E402  (check L2's file)
+from disable_comment_check import DISABLE_SUPPRESSIONS as DISABLES  # noqa: E402  (check D1's file)
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
 PACKAGE = "frontend/package.json"
 RESIDENCE = "scripts/residence_baseline.json"
+# The suppressions files an ESLint base holds counts for (D1's came after the switch to oxlint).
+FROM_ESLINT = (OXLINT, JSON_CALLS)
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -170,6 +175,11 @@ def tree_loosenings(root):
             problems.append(f"{path}: oxlint skips the files it names; use ignorePatterns in {CONFIG}")
     problems += [f"{path}: a .gitignore hides it from oxlint" for path in
                  git_files("--cached", "--ignored", "--exclude-standard", "--", "frontend/src")]
+    # oxlint follows a link and lints what it points at, honouring its disable comments; the checks that list files
+    # with git (D1, J1) see the link as one entry and read nothing behind it.
+    problems += [f"{path}: a symlink under frontend/src; oxlint lints what it points at, which D1 and J1 cannot read"
+                 for path in git_files("--cached", "--others", "--exclude-standard", "--", "frontend/src")
+                 if (Path(root) / path).is_symlink()]
     return problems
 
 
@@ -216,9 +226,9 @@ def main(argv=None):
     root = Path(args.root)
     eslint_base = read_at(root, args.base_ref, ESLINT)
     problems = []
-    for name in (OXLINT, JSON_CALLS, RAW_ENQUEUES, SOCKET_LISTENERS):
+    for name in (OXLINT, JSON_CALLS, DISABLES, RAW_ENQUEUES, SOCKET_LISTENERS):
         base_supp = read_at(root, args.base_ref, name)
-        if base_supp is None and eslint_base is not None and name in (OXLINT, JSON_CALLS):
+        if base_supp is None and eslint_base is not None and name in FROM_ESLINT:
             base_supp = from_eslint(eslint_base, name)
         if not (root / name).exists():
             if base_supp is not None:

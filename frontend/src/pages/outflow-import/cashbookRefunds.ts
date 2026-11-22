@@ -6,13 +6,17 @@
 
 import { formatCount, type CashbookRefundLine, type CashbookRefundPair } from "./cashbookPreview";
 
-/** The heading over the wallet refunds, or null when there are none. */
+/**
+ * The heading over the wallet refunds, or null when there are none. A refund is booked where its spend is booked, or,
+ * when the spend has no Expense, where its own remark places it (#1720 decision 3; wording #1715).
+ */
 export const refundsHeading = (lines: readonly CashbookRefundLine[] | undefined): string | null => {
     const n = lines?.length ?? 0;
     if (n === 0) return null;
     return n === 1
-        ? "1 wallet refund will be booked as a minus expense where its spend is booked"
-        : `${formatCount(n)} wallet refunds will be booked as minus expenses where their spends are booked`;
+        ? "1 wallet refund will be booked as a minus expense: where its spend is booked, or else where its remark says"
+        : `${formatCount(n)} wallet refunds will be booked as minus expenses: each where its spend is booked, or else ` +
+              "where its remark says";
 };
 
 /** "Credit Adjustment REF-OBO… · reduces OBO… (9surl50t7h) · Non Project Expenses · Petty Cash". */
