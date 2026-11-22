@@ -307,4 +307,39 @@ watch
 [ ! -e "$STATE/.base-w1" ] || fail "the base state of a task whose record is gone is removed"; pass "the base state of a task whose record is gone is removed"
 git -C "$L" config devbox-task.w1.box contabo
 
+# ---- stalled: alive, not finished, and nothing written to its session log for DEVBOX_STALL_SECONDS (#1698: the
+# agent sat an hour at "Not logged in" while watch said working). The log is ~/.claude/projects/<the env worktree's
+# path with every non-alphanumeric character as ->/, subagent logs in <session>/subagents/ below it.
+project() { echo "$1/.claude/projects/$(wt "$2" "$3" | sed 's/[^A-Za-z0-9]/-/g')"; }
+ago() { date -v-"$1"M '+%Y%m%d%H%M' 2>/dev/null || date -d "$1 minutes ago" '+%Y%m%d%H%M'; }
+PM="$(project "$AH" "$AROOT" m1)"; PF="$(project "$CH" "$CROOT" f1)"
+mkdir -p "$PM/s1/subagents" "$PF"
+echo '{}' > "$PM/s1.jsonl"; touch -t "$(ago 30)" "$PM/s1.jsonl"
+echo '{}' > "$PF/s1.jsonl"; touch -t "$(ago 30)" "$PF/s1.jsonl"
+: > "$OSA_LOG"
+watch
+line '^m1 +air +stalled +quiet for 30 min$' "an alive, unfinished agent quiet for 20 min is stalled, with how long"
+line '^ALERT m1 on air: working -> stalled$' "working -> stalled alerts"
+same "$(grep -c 'working -> stalled' "$OSA_LOG" || true)" 1 "the stalled alert raises one notification"
+line '^f1 +contabo +finished' "a finished agent quiet that long is still finished"
+line '^m2 +air +working *$' "an alive agent with no session log is working"
+git config -f "$R" box.air.agents 2
+pick
+line '^  air: 2 of 2 agents working$' "pick counts a stalled agent as busy: it still holds the box"
+line '^box +contabo ' "a box full of stalled and working agents passes the task on"
+git config -f "$R" box.air.agents 3
+echo '{}' > "$PM/s1/subagents/a1.jsonl"
+watch
+line '^m1 +air +working *$' "a fresh subagent log below the session makes the agent working again"
+line '^ALERT m1 on air: stalled -> working$' "stalled -> working alerts"
+touch -t "$(ago 30)" "$PM/s1/subagents/a1.jsonl"
+DEVBOX_STALL_SECONDS=3600 watch
+line '^m1 +air +working *$' "DEVBOX_STALL_SECONDS sets the quiet time that counts as stalled"
+watch
+line '^m1 +air +stalled +quiet for 30 min$' "back at the default it is stalled again"
+grep -v '^5101 ' "$AH/.stub/procs" > "$T/p" && mv "$T/p" "$AH/.stub/procs"
+watch
+line '^m1 +air +crashed *$' "a stalled agent that dies is crashed, not stalled"
+echo "5101 claude.exe $(wt "$AROOT" m1)" >> "$AH/.stub/procs"
+
 echo; echo "all $N checks passed"
