@@ -17,6 +17,10 @@
           {
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_log_polling.py\"; [ ! -f \"$f\" ] || python3 -I \"$f\""
+          },
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_react_doctor.py\"; [ ! -f \"$f\" ] || python3 -I \"$f\""
           }
         ]
       }

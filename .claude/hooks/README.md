@@ -82,3 +82,27 @@ completion notice. A box agent ran four such loops in one task with the prose ru
 - *Narrow* — a retry loop that reads no file (a readiness probe such as `until curl …`) is allowed.
 
 **Test:** `python3 -I .claude/hooks/test_guard_log_polling.py`
+
+## 5. `guard_react_doctor.py` — React Doctor only through `yarn doctor` (Claude Code hook)
+
+**What:** a `PreToolUse` hook (matcher `Bash`). It denies any shell segment that runs React Doctor directly: the
+`react-doctor` binary by name or path, `npx`/`bunx`/`pnpx`, `yarn|pnpm|npm|bun dlx|exec|x`, `yarn react-doctor`, or
+`node` on a file under `node_modules/react-doctor/`. The deny reason sends the agent to `yarn doctor <args>` from
+`frontend/` (`frontend/scripts/react_doctor.mjs`), which always adds `--no-telemetry --no-score --no-supply-chain`
+and refuses `install`, `why` and `--supply-chain`. Without those flags React Doctor sends data to Axiom, Sentry,
+react.doctor and Socket.dev; in #1698 agents ran it that way 5 times with the prose rule in their context.
+
+**Registered in** both `.claude/settings.json` and `frontend/.claude/settings.json`, so it also guards a session
+started in `frontend/`.
+
+**Properties:**
+- *Fail-open:* any parse error → allow.
+- *Reads only what runs:* the forms are a table (`RUN_FORMS`) matched at each segment's command word, after
+  `VAR=value`, `env`, `time`, `sudo`, `docker exec`, `ssh` and the like. A segment starts after `;`, `&&`, `||`, `|`,
+  `(`, `` ` `` or a newline. `grep react-doctor`, `git log -S react-doctor`, a commit message and a heredoc written to
+  a file are allowed. The string given to `sh -c`, `eval` or `ssh`, a heredoc fed to a shell, and `$(...)` inside
+  double quotes are checked as commands.
+- *Known gap:* a script file the agent writes and then runs, and React Doctor started from `node -e` or Python, are
+  not seen. The wrapper's refusals are the other guard.
+
+**Test:** `python3 -I .claude/hooks/test_guard_react_doctor.py`
