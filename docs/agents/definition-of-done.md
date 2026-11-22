@@ -36,6 +36,7 @@ The check applies only to a worktree where the task was started with `dod.py sta
 | 5 | Each changed screen was walked (when non-test `frontend/src/` files changed) | a `verify` stamp from `drive.py`: PASS, same tree as HEAD, screenshots saved |
 | 6 | The report is complete | sections Status, What changed, Evidence, Data and Open questions are filled in, no `TODO` is left, and it names HEAD's commit |
 | 7 | The `tdd` and `code-review` skills were loaded (when `nirmaan_stack/` or `frontend/src/` changed) | a Skill tool call, or the person's slash command, in a Claude Code session log of the task's worktree (subagents' included) since `dod.py start` |
+| 8 | A blocker survived a fresh bypass hunt (when the brief says `Blocker: yes`: the task builds a check that refuses something) | the report's `Bypass hunt:` line starts with `finished, ` and lists each pass. The brief is `BRIEF.md` beside the report; a brief with no `Blocker:` line counts as `no` |
 
 "Same tree as HEAD" means the stamp's code fingerprint (a git tree hash of the worktree as it was tested) equals the
 committed code. A change after a run makes its proof stale: run it again.
@@ -43,7 +44,7 @@ committed code. A change after a run makes its proof stale: run it again.
 ## When the task cannot be done
 
 Set the report's `## Status` to `BLOCKED` and explain why, and what the owner must decide. Commit what you have. Rules
-2 to 5 and 7 are then skipped, and the owner reads the report.
+2 to 5, 7 and 8 are then skipped, and the owner reads the report.
 
 ## What the hook does not check
 

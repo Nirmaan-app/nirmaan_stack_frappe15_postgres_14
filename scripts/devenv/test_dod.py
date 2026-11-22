@@ -1,4 +1,5 @@
-"""Tests dod.py's skill rule against a throwaway git repo and fake Claude Code session logs. No bench, no network.
+"""Tests dod.py's rules against a throwaway git repo, fake Claude Code session logs and fake briefs. No bench, no
+network.
 
 Run: python3 -I scripts/devenv/test_dod.py
 """
@@ -17,7 +18,9 @@ from pathlib import Path
 DOD = Path(__file__).resolve().parent / "dod.py"
 
 
-class SkillRule(unittest.TestCase):
+class TaskRepo(unittest.TestCase):
+    """A task's worktree after `dod.py start`, with HOME and the Claude home in a throwaway folder."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name).resolve()
@@ -56,6 +59,8 @@ class SkillRule(unittest.TestCase):
             for message in entries:
                 f.write(json.dumps({"timestamp": at, "message": message}) + "\n")
 
+
+class SkillRule(TaskRepo):
     def assertNoSkillOwed(self, out):
         self.assertNotIn("skill tdd:", out)
         self.assertNotIn("skill code-review:", out)
@@ -91,6 +96,54 @@ class SkillRule(unittest.TestCase):
     def test_a_change_outside_the_code_owes_no_skill(self):
         self.commit("docs/a.md", "words\n")
         self.assertNoSkillOwed(self.dod("check"))
+
+
+class BlockerBypassHunt(TaskRepo):
+    """A task whose brief says `Blocker: yes` is done only once a fresh bypass hunt has finished (#1702, #1705 and
+    #1698: each laptop review of a blocker found one more hole, over three rounds each)."""
+
+    def setUp(self):
+        super().setUp()
+        self.commit("docs/a.md", "words\n")
+        self.task_dir = self.root / "home" / "claude-artifacts" / "dod" / "box-t"
+
+    def check(self, brief, hunt, status="DONE. built"):
+        if brief is not None:
+            (self.task_dir / "BRIEF.md").write_text(f"# Task: build ticket #1702\n\n## Goal\nx\n\n{brief}\n")
+        head = subprocess.run(["git", "-C", str(self.wt), "rev-parse", "--short=9", "HEAD"], capture_output=True,
+                              text=True, check=True).stdout.strip()
+        hunt_line = f"{hunt}\n" if hunt is not None else ""
+        (self.task_dir / "REPORT.md").write_text(
+            f"# Report\n\nCommit: {head}\n\n## Status\n{status}\n\n## What changed\nx\n\n## Evidence\nx\n\n"
+            f"## Data\nnone\n\n## Review\nOwn code-review: finished, no findings\n{hunt_line}"
+            f"Separate review: pending\n\n## Open questions\nnone\n")
+        return self.dod("check")
+
+    def test_a_blocker_without_the_hunt_line_is_not_done(self):
+        for brief in ("Blocker: yes", "**Blocker:** Yes, a CI gate", "Blocker: a lint ratchet"):
+            out = self.check(brief, None)
+            self.assertIn("Bypass hunt:", out, brief)
+            self.assertNotIn("DoD met", out, brief)
+
+    def test_a_blocker_whose_hunt_has_not_finished_is_not_done(self):
+        for hunt in ("Bypass hunt: pass 2 running", "Bypass hunt: pending", "Bypass hunt: skipped, no time",
+                     "Bypass hunt: TBD", "Bypass hunt:"):
+            out = self.check("Blocker: yes", hunt)
+            self.assertIn("'Bypass hunt:' line must start with 'finished, '", out, hunt)
+
+    def test_a_blocker_whose_hunt_finished_is_done(self):
+        out = self.check("Blocker: yes", "Bypass hunt: finished, pass 1 found a symlinked config (fixed in 1a2b3c4), "
+                                         "pass 2 found nothing")
+        self.assertIn("DoD met", out)
+
+    def test_a_task_that_is_not_a_blocker_owes_no_hunt(self):
+        for brief in ("Blocker: no", "Blocker: No. It adds a column", "## How\n1. build it", None):
+            out = self.check(brief, None)
+            self.assertIn("DoD met", out, brief)
+
+    def test_a_blocked_blocker_owes_no_hunt(self):
+        out = self.check("Blocker: yes", None, status="BLOCKED. the owner must decide X")
+        self.assertIn("DoD met", out)
 
 
 class UnfinishedReport(unittest.TestCase):
