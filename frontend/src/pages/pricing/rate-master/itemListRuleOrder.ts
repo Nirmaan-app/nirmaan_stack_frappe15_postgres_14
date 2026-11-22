@@ -300,6 +300,7 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
+import { percentOf } from "@/pages/boq-wizard/rate-helper/helperWording";
 import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, oneSizeMessage, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel,
          type AccessorySpec, type CapacityUnits, type CountedSpec, type DefaultSpec, type ItemListPricingSpec, type MaterialText } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
@@ -1018,7 +1019,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           "sheet_insulation");
     } else if (si && typeof si === "object") {
       // the RETIRED DU-1 G-3 shape (v71-v74): stated as what it now does, so a historical config's tab still names the key
-      add("A historical duct-insulation check (the G-3 shape, retired by DU-3)", "no sheet check runs: the insulation line prices as usual", "sheet_insulation");
+      add("A historical duct-insulation check (retired)", "no sheet check runs: the insulation line prices as usual", "sheet_insulation");
     }
   }
   {
@@ -1051,9 +1052,16 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // anywhere else) are captured"): the rules written in CODE (reading rules over the model's items, sheet-level checks) are stated by
   // lines the config DECLARES, each naming the code rule it states -- `derivationCoverage` fails a code rule without its line and a
   // line naming no code rule. A config without `rule_lines` adds nothing.
+  // VAV-2c1 (QR-V, owner 2026-11-22 20:13 "a"): a rule line quoting a Pricing Input's value reads the LIVE value ("{uplift}" / "{threshold}")
+  const inputPct = (id: unknown): string => {
+    const it = items.find((x) => /_pricing_input$/.test(String(x.kind ?? "")) && String((x.attributes as { item?: unknown } | undefined)?.item ?? "") === String(id ?? ""));
+    const v = Number((it?.rates as { factor?: unknown } | undefined)?.factor);
+    return it && Number.isFinite(v) ? percentOf(v) : "not set";
+  };
+  const live = (t: string): string => t.split("{uplift}").join(inputPct(pr.scope?.uplift_input)).split("{threshold}").join(inputPct(pr.sheet_insulation?.threshold_input));
   for (const d of (Array.isArray(pr.rule_lines) ? pr.rule_lines : []) as Array<{ title?: unknown; detail?: unknown; rule?: unknown }>) {
     if (typeof d?.title !== "string" || !d.title.trim()) continue;
-    add(plainSentence(d.title), typeof d.detail === "string" && d.detail.trim() ? plainSentence(d.detail) : undefined, "rule_lines");
+    add(plainSentence(d.title), typeof d.detail === "string" && d.detail.trim() ? plainSentence(live(d.detail)) : undefined, "rule_lines");
     out[out.length - 1].rule = typeof d.rule === "string" ? d.rule : undefined;
   }
 
@@ -1593,7 +1601,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (pr.lot_units && Array.isArray(pr.lot_units.units)) {
     add("A row priced per Lot is not priced",
         // VP-1 (G6): the VRF-4 clause is VRF's own (a config with `extras`); every other category ends at "by hand"
-        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand${pr.extras?.from_model ? "; what the row says a Set or Lot holds is copied by the model for review only" : pr.extras ? "; what a Lot holds is read at VRF-4" : ""}`
+        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand${pr.extras?.from_model ? "; what the row says a Set or Lot holds is copied by the model for review only" : pr.extras ? "; what a Lot holds is read from the BoQ" : ""}`
         // DU-1 (VP-DRV R05; VP-3 C4 `lot_units.bar_by_unit`): a unit with its own bar says it
         + (pr.lot_units.bar_by_unit && typeof pr.lot_units.bar_by_unit === "object" && Object.keys(pr.lot_units.bar_by_unit).length
           ? `; ${Object.entries(pr.lot_units.bar_by_unit as Record<string, unknown>).map(([u, b]) => `'${u}' shows '${String(b)}'`).join(", ")}` : ""));
@@ -1607,7 +1615,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       .map((b, n) => (b.max === null ? `above ${String(bands[n - 1]?.max ?? 0)} ${unitWord}` : n === 0 ? `up to ${String(b.max)} ${unitWord}` : `above ${String(bands[n - 1]?.max)} up to ${String(b.max)} ${unitWord}`))
       .join(", ");
     add("A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
-        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), ${ex.from_model ? "on a BoQ row read PER ITEM from the model's Yes / No answers (each split module takes its item's), with a note; the sizes, thickness, cable and length the row writes are used as written" : "read from the BoQ at VRF-4"}; insulation needs copper piping`);
+        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), ${ex.from_model ? "on a BoQ row read PER ITEM from the model's Yes / No answers (each split module takes its item's), with a note; the sizes, thickness, cable and length the row writes are used as written" : "read from the BoQ"}; insulation needs copper piping`);
     add("An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
         `pipes: indoor ${bandText(ex.pipe_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))}; outdoor ${bandText(ex.pipe_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Power cable: indoor ${bandText(ex.power_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))} (above that, no default - pick a spec); outdoor ${bandText(ex.power_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Communication cable: every unit. A size typed or written on the BoQ (mm or inch) is read and laddered by Piping's own rules (next size up; no unit or above the largest refuses, in Piping's words); the insulation is priced by Insulation's rules on the copper size as read; a cable spec by Electrical's own match`);
     add("Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
@@ -1652,7 +1660,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   if (ex5 && ex5.scope) {
     add("Supply only / installation only, from the BoQ",
-        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note (owner R-F2); a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
+        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note; a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
   }
   // ── 13h. VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- ADDED LAST, each only where its key is
   // in the config (v61 and older add nothing)
@@ -1739,13 +1747,17 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       const pairNote = typeof ps1.supply_row?.pair_note === "string" && ps1.supply_row.pair_note.trim() ? String(ps1.supply_row.pair_note) : null;
       add("A 'Supply of' row whose installation is quoted on its own row of the sheet is priced supply only",
           pairNote
-            ? `the row's own words start 'Supply of' / 'Supplying of' (or the sheet heading repeated, then 'Supply of') and name no installation, and the same sheet has installation-only rows of the same item -> supply only, with the note '${plainSentence(pairNote.replace("{rows}", "row(s): <the rows>"))}'; the installation is charged once, on its own row(s) (owner Case 1 2026-11-16 15:16; QR-1 Q7 18:06)`
+            ? `the row's own words start 'Supply of' / 'Supplying of' (or the sheet heading repeated, then 'Supply of') and name no installation, and the same sheet has installation-only rows of the same item -> supply only, with the note '${plainSentence(pairNote.replace("{rows}", "row(s): <the rows>"))}'; the installation is charged once, on its own row(s) (owner 2026-11-16 15:16; 18:06)`
             : "the row's own words start 'Supply of' / 'Supplying of' and name no installation, and the same sheet has an installation-only row of the same item -> supply only, with only the note 'Installation is quoted on its own row on this sheet, so priced supply only here'; the installation is charged once, on its own row",
           "scope_pair");
     } else
     add("The BoQ scope: supply + installation unless the row says otherwise",
         `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the calculator's 'BoQ scope' choice does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);
   }
+  // VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02 "yes for both"): the lines of the row follow its scope
+  const lf = ((ex5?.scope ?? ps1) as { lines_follow?: { word?: unknown } } | null | undefined)?.lines_follow;
+  const sl = lf ? out.find((l) => l.title === "The BoQ scope: supply + installation unless the row says otherwise" || l.title === "Supply only / installation only, from the BoQ") : undefined;
+  if (lf && sl) sl.detail = `${sl.detail ?? ""}; the lines of the row follow it: each item shows the side left out as 0, '${String(lf.word ?? "")}', and the items add up to the row total`;
   if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
     add("Supply / installation settled by the sheet's own rows",
         "a 'Supply of' row under a note that includes installation: supply only when the sheet has an installation row of that kind (named), else supply + installation, with a note; an installation-only row: the uplift only when the sheet has no supply row of that kind, else the normal installation rate (named)");
@@ -2744,9 +2756,13 @@ function vav2b2Lines(pr: Record<string, unknown>, defs?: unknown): Array<{ title
   }
   const ss = pr.sheet_shares as { double_count?: { heading?: unknown; with?: Array<{ blocks?: unknown; families?: unknown; line?: unknown; anchor?: unknown }> } } | undefined;
   const dc = ss?.double_count;
+  // VAV-2c1 (R3, owner 2026-11-22 10:49): a share or full-rate block by the name the screens use, never its id
+  const named = new Map<string, string>([...((ss as { shares?: Array<{ id?: unknown; label?: unknown }> } | undefined)?.shares ?? []).map((x) => [String(x.id), String(x.label ?? x.id)] as const),
+    ...((ss as { whole?: Array<{ key?: unknown; label?: unknown }> } | undefined)?.whole ?? []).map((x) => [String(x.key), String(x.label ?? x.key)] as const)]);
+  const nm2 = (ids: unknown) => (Array.isArray(ids) ? (ids as unknown[]).map((x) => named.get(String(x)) ?? String(x)) : []);
   if (dc && Array.isArray(dc.with)) {
     out.push({ key: "sheet_shares", title: `A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel on a row shows a '${String(dc.heading ?? "")}' block`,
-      detail: [...dc.with.map((w) => `${list([...(Array.isArray(w.blocks) ? (w.blocks as unknown[]).map(String) : []), ...(Array.isArray(w.families) ? (w.families as unknown[]).map(String) : [])])} with ${Array.isArray(w.anchor) ? `its own share (${list((w.anchor as unknown[]).map(String))})` : "a DDC panel (share or full rate)"}: '${String(w.line ?? "").replace("{n}", "<the count inside the panel>").replace("{s}", "s")}'`),
+      detail: [...dc.with.map((w) => `${list([...new Set([...nm2(w.blocks), ...nm2(w.families)])])} with ${Array.isArray(w.anchor) ? `its own share (${list(nm2(w.anchor))})` : "a DDC panel (share or full rate)"}: '${String(w.line ?? "").replace("{n}", "<the count inside the panel>").replace("{s}", "s")}'`),
         "an amber block above the row total, in the 'Review before using' style; it replaces the small double-count lines of the blocks it names"].join("; ") });
   }
   // VAV-2b2 (ANSWER 16, owner 2026-11-21 15:56 "2a"): the 'not added' note says what the separate row is
@@ -2755,14 +2771,15 @@ function vav2b2Lines(pr: Record<string, unknown>, defs?: unknown): Array<{ title
     const ph = (t: unknown) => String(t ?? "").split("{share}").join("<share>").split("{rows}").join("row <n>").split("{called}").join("")
       .split("{is}").join("is").split("{prices}").join("prices").split("{that_row}").join("that row").split("{does}").join("does");
     out.push({ key: "sheet_shares", title: "When a share is not added because of a row of the sheet, the note says what that row is",
-      detail: [...nab.map((e) => `a ${String(e.label ?? "")} (the ${String(e.share ?? "")} share): ${e.line ? `'${ph(e.line)}'`
+      detail: [...nab.map((e) => `a ${String(e.label ?? "")} (the ${named.get(String(e.share)) ?? String(e.share ?? "")}): ${e.line ? `'${ph(e.line)}'`
         : `priced by this helper: '${ph(e.priced)}'${e.not_priced ? `; not priced by it: '${ph(e.not_priced)}'` : ""}`}`),
         "a DDC panel row with a quantity counts as the controller's row whatever it is filed under; every other separate row keeps the general sentence"].join("; ") });
   }
   const cf = pr.claims_filed as { categories?: Record<string, unknown>; note?: unknown; kinds?: Array<{ item?: unknown; prices?: { whole?: unknown; family?: unknown } }> } | undefined;
   if (cf && typeof cf === "object" && Array.isArray(cf.kinds)) {
     const cats = Object.values(cf.categories ?? {}).map(String);
-    const kinds = cf.kinds.map((k) => `${String(k.item ?? "")} -> ${k.prices?.whole ? `its full-rate block, per unit (the VAVs pre-filled = the sheet's VAVs / the row's quantity)` : `'${String(k.prices?.family ?? "")}'`}`);
+    const kinds0 = cf.kinds.map((k) => `${String(k.item ?? "")} -> ${k.prices?.whole ? `its full-rate block, per unit (the VAVs pre-filled = the sheet's VAVs / the row's quantity)` : `'${String(k.prices?.family ?? "")}'`}`);
+    const kinds = [...new Set(kinds0)];
     out.push({ key: "claims_filed", title: `A row filed under ${list(cats)} that names a VAV item is priced here and stays filed where it is`,
       detail: [`only on a sheet with VAV rows, only a row whose own words name one of: ${kinds.join("; ")}`,
         "every other row of those categories is untouched; the row is read with the VAV rows (the VAV questions) and still counts for the sheet as the item's own row",
@@ -2856,7 +2873,7 @@ function sheetSharesLines(pr: Record<string, unknown>, items: ReadonlyArray<Rule
   if (wh.length) {
     out.push({ key: "sheet_shares_whole", title: "A full-rate block prices the item per unit, by the same sums as its share, not divided over the boxes",
       detail: [`the entries ${list(wh.map((w) => `'${String(w.label ?? "")}'`))} in the item list, added by the user only`,
-        "the number of VAVs is typed (calculator) or pre-filled on a BoQ row as the sheet's VAVs / the row's quantity, rounded up (blank, 0 or 1: the sheet's); the counts follow it (the DDC panel inside is always 1; no VAVs typed: one controller)",
+        "the number of VAVs is typed (calculator) or pre-filled on a BoQ row as the sheet's VAVs / the row's quantity, rounded up (blank, 0 or 1: the sheet's); the counts follow it (the DDC panel inside is always 1; no VAVs typed: " + (wh.some((w) => (w as { count_without_vavs?: unknown }).count_without_vavs !== undefined) ? "one controller)" : "nothing is priced)"),
         "the row's quantity enters only that pre-fill; with the share of the same item also on the entry, a line under the full-rate block says to check it is not counted twice"].join("; ") });
   }
   // VAV-2b1 (owner 2026-11-21 01:07 / 01:09 "yes for both"): the withdrawn items the USER may still add at their full rate

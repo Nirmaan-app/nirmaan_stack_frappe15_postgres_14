@@ -35,6 +35,7 @@ import {
   type ShownAttribute,
 } from "./pricingSheetHelper";
 import { moneyValue } from "./attributeWorkingLines";
+import { ScopeBox } from "./ScopeBox";
 import { DoubleCountBlock, ReviewBlock, SharedItems } from "./SharedItemBlock";
 import { SHARES_OVERRIDE_KEY, applyShareEdit, type ShareEditOp } from "./vavSheetShares";
 import { floorBoxValue, isFloorRaised } from "./conductorFloor";
@@ -290,8 +291,10 @@ function CopyFigureButton({ value, label }: { value: number; label: string }) {
  * moved into a component and every surface mounts it. `copy` off = the figures alone (no mount uses it since DU-1 R2: the row total
  * now carries the copy control too, stacked one figure per line).
  */
-function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit }: {
+function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit, notInScope }: {
   figures: Partial<Record<string, number>> | undefined;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line ("Supply 0 per Nos - not in scope") */
+  notInScope?: { kind: string; word: string };
   copy?: boolean;
   muted?: boolean;
   /** DU-1 R2 (owner 2026-11-15 14:42 "the supply install and combined prices shown at the bottom needs to be copyable. this is
@@ -321,6 +324,7 @@ function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit
             {label && typeof v === "number" && (
               <span className={muted ? "opacity-70" : "text-muted-foreground"}>per {label}</span>
             )}
+            {notInScope?.kind === k && <span className="font-medium" data-testid="figure-not-in-scope">- {notInScope.word}</span>}
             {copy && typeof v === "number" && <CopyFigureButton value={moneyValue(v)} label={kindLabel(k)} />}
           </span>
         );
@@ -1402,7 +1406,7 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
             <div className="space-y-0.5 text-xs text-muted-foreground">
               {l.working.map((w, wi) => <div key={wi}>{w}</div>)}
               <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">{BOQ_RATE_LABEL}</div>
-              <FiguresRow figures={l.figures} unit={rateUnit} />
+              <FiguresRow figures={l.figures} unit={rateUnit} notInScope={l.notInScope} />
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -1578,6 +1582,8 @@ function ItemListBlocks({
           {view.unitBar.ring}
         </div>
       )}
+      {/* VAV-2c1 (R5 c): the Scope box, first in the card, on the panel and on the Calculator */}
+      {!section && view.scope?.picker && <ScopeBox picker={view.scope.picker} wide={view.unitPickable} onScope={onScope} />}
       {!section && view.rowQtyField && (
         <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-row-qty">
           <span className="text-muted-foreground">{view.rowQtyField.label}</span>
@@ -1661,20 +1667,7 @@ function ItemListBlocks({
           ))}
         </div>
       )}
-      {/* VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice; on a supply-only / installation-only row the note */}
-      {!section && view.scope?.picker && (
-        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-scope-picker">
-          <span className="text-muted-foreground">{view.scope.picker.title}</span>
-          <select
-            className="h-7 rounded border bg-background px-1 text-xs"
-            value={view.scope.picker.value}
-            onChange={(e) => onScope?.(e.target.value)}
-            aria-label={view.scope.picker.title}
-          >
-            {view.scope.picker.options.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-      )}
+      {/* VRF-5 (owner R4-R8): on a supply-only / installation-only row the scope's note */}
       {!section && view.scope?.note && (
         <div className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] font-medium leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="item-scope-note">
           {view.scope.note}
@@ -1719,7 +1712,7 @@ function ItemListBlocks({
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : b.helperAdded ? "added by the helper" : "split by the helper"}</span> : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.matchedByHelper ? <span data-testid="item-matched-heading">matched by the helper</span> : b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : b.helperAdded ? "added by the helper" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -2192,7 +2185,7 @@ function ItemListBlocks({
               <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
                 {BOQ_RATE_LABEL}
               </div>
-              <FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />
+              <FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} notInScope={b.notInScope} />
             </div>
           ) : (
             <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>

@@ -46,7 +46,7 @@ describe("VRF-8 K2c (R-F2 corrected, owner 18:21 'option a', ANSWER 3) -- instal
     const frame = v.items[0].extras?.lines.find((l) => l.id === "acc_frame");
     expect(frame?.state).toBe("priced");
     expect(frame?.figures).toEqual({ supply_rate: 0, install_rate: 5600, combined_rate: 5600 });
-    expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us (owner R-F2)");
+    expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us");   // VAV-2c1 PIN 1 (R3, owner 2026-11-22 10:49): BEFORE ended " (owner R-F2)"
     expect(v.totals?.supply_rate).toBe(0);
     // the unit itself keeps install x 1.5 (rounded up once): the row = the unit's uplifted install + 5,600
     const unitOnly = run([ODU("10")], "", "Installation only");
@@ -57,10 +57,10 @@ describe("VRF-8 K2c (R-F2 corrected, owner 18:21 'option a', ANSWER 3) -- instal
     const full = run([ODU("10")], "frame");
     expect(full.rowPriced).toBe(true);
     expect(full.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toMatchObject({ supply_rate: 5600, install_rate: 0 });
-    expect(full.scope?.note ?? "").not.toMatch(/owner R-F2/);
+    expect(full.scope?.note ?? "").not.toMatch(/MS frame charged at|its full cost is charged/);   // VAV-2c1 PIN 1: BEFORE /owner R-F2/
     const so = run([ODU("10")], "frame", "Supply only");
     expect(so.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toMatchObject({ supply_rate: 5600, install_rate: 0 });
-    expect(so.scope?.note ?? "").not.toMatch(/owner R-F2/);
+    expect(so.scope?.note ?? "").not.toMatch(/MS frame charged at|its full cost is charged/);   // VAV-2c1 PIN 1: BEFORE /owner R-F2/
   });
   it("NEGATIVE: a frame item with NO install figure (not a stored 0) is never charged -- the line stays blank with its own reason, no R-F2 note, 5,600 not in the row", () => {
     const items2 = ITEMS.map((it) => (it.attributes?.item === "MS frame / stand for ODU"
@@ -72,7 +72,7 @@ describe("VRF-8 K2c (R-F2 corrected, owner 18:21 'option a', ANSWER 3) -- instal
     const frame = v.items[0].extras?.lines.find((l) => l.id === "acc_frame");
     expect(frame?.state).toBe("blank");
     expect(frame?.reason).toMatch(/cost_install not on the matched row/);
-    expect(v.scope?.note ?? "").not.toMatch(/owner R-F2/);
+    expect(v.scope?.note ?? "").not.toMatch(/MS frame charged at|its full cost is charged/);   // VAV-2c1 PIN 1: BEFORE /owner R-F2/
     expect(v.totals?.install_rate).toBe(run([ODU("10")], "", "Installation only").totals?.install_rate);
   });
 });

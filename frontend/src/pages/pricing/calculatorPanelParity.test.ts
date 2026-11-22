@@ -3591,12 +3591,12 @@ describe("VRF-8 B2 -- the K1 rules on both paths; panel = calculator on every ca
       const v = (s as ItemListSuggestion).itemList!;
       expect(v.rowPriced).toBe(true);
       expect(v.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toEqual({ supply_rate: 0, install_rate: 5600, combined_rate: 5600 });
-      expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us (owner R-F2)");
+      expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us");   // VAV-2c1 PIN 2 (R3, owner 2026-11-22 10:49): BEFORE ended " (owner R-F2)"
     }
     // NEGATIVE: supply + installation -- the frame stays 5,600 supply / 0 install, no R-F2 note, on both paths
     const full = run(vc("Nos", od("10 HP", row(["frame"]))));
     expect(full.divergences).toEqual([]);
-    expect(((full.panel as ItemListSuggestion).itemList!.scope?.note ?? "")).not.toMatch(/owner R-F2/);
+    expect(((full.panel as ItemListSuggestion).itemList!.scope?.note ?? "")).not.toMatch(/MS frame charged at/);   // VAV-2c1 PIN 2: BEFORE /owner R-F2/
   });
 
   it("D12 (several unit types) is the named panel-only refusal: the panel refuses; the calculator prices the type it is given", () => {

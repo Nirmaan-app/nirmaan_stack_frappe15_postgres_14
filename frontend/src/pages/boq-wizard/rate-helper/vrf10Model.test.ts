@@ -108,7 +108,7 @@ describe("VRF-10 F2 -- a supply-type wording that is not 'Supply of', beaten by 
     const v = one(row51);
     expect(v.rowPriced).toBe(true);
     expect(v.scope?.value).toBe("Supply + installation");
-    expect(v.scope?.note).toBe("BoQ: \"Supply, port clearance, transport of AIR COOLED Variable Refrigerant\" (note row 50) reads as supply, but \"Supply, Installation,testing & commissioning of Variable Refrigerant volume - modular\" (note row 20) says installation - priced as supply + installation (owner F2)");
+    expect(v.scope?.note).toBe("BoQ: \"Supply, port clearance, transport of AIR COOLED Variable Refrigerant\" (note row 50) reads as supply, but \"Supply, Installation,testing & commissioning of Variable Refrigerant volume - modular\" (note row 20) says installation - priced as supply + installation");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F2)"
     expect(totals(v)[1]).toBeGreaterThan(0);
   });
   it("NEGATIVE: no supply-type wording anywhere (00003 r301 shape: 'Supply,installation,testing ...') -> no note (QR-3 1a)", () => {
@@ -118,7 +118,7 @@ describe("VRF-10 F2 -- a supply-type wording that is not 'Supply of', beaten by 
   });
   it("NEGATIVE: the supply wording ABOVE the installation (installation nearer) is no override -> no F2 note; v64 -> no note", () => {
     const v = one({ ...row51, chainRows: ch([51, "this row", "38 HP - Out door unit"], [49, "heading row 49", "OUTDOOR UNITS"], [50, "note row 50", N20], [19, "heading row 19", "VRV HIGHSIDE WORKS"], [20, "note row 20", N50]) });
-    expect(v.scope?.note ?? "").not.toContain("owner F2");
+    expect(v.scope?.note ?? "").not.toContain("reads as supply, but");   // VAV-2c1 PIN 3: BEFORE "owner F2"
     expect(one(row51, false).scope?.note).toBeUndefined();
   });
 });
@@ -130,7 +130,7 @@ describe("VRF-10 F3 -- MS stand / frame rows are supply + installation unless th
     const v = one(r80);
     expect(totals(v)).toEqual([140, 40]);
     expect(v.scope?.value).toBe("Supply + installation");
-    expect(v.scope?.note).toBe("BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"Supply only\") - priced as supply + installation (owner F3)");
+    expect(v.scope?.note).toBe("BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"Supply only\") - priced as supply + installation");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F3)"
     expect(v.scope?.picker?.value).toBe("Supply + installation");
   });
   it("the per-Nos frame item (catalogue install 0): S+I in scope and note, the figure stays 5,600 + 0", () => {
@@ -146,16 +146,16 @@ describe("VRF-10 F3 -- MS stand / frame rows are supply + installation unless th
     const s = at(10);
     expect(s.scope?.value).toBe("Supply only");
     expect(totals(s)).toEqual([140, 0]);
-    expect(s.scope?.note).toContain("This sheet quotes the MS frame's supply and its installation on separate rows (row 20) - kept as \"Supply only\" (owner F3).");
+    expect(s.scope?.note).toContain("This sheet quotes the MS frame's supply and its installation on separate rows (row 20) - kept as \"Supply only\".");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F3)"
     const i = at(20);
     expect(i.scope?.value).toMatch(/^Installation only/);
-    expect(i.scope?.note).toContain("separate rows (row 10) - kept as \"Installation only\" (owner F3).");
+    expect(i.scope?.note).toContain("separate rows (row 10) - kept as \"Installation only\".");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F3)"
   });
   it("NEGATIVE: v64 keeps VRF-9's supply only (140 + 0); a non-frame item is not F3's", () => {
     const v = one(r80, false);
     expect(totals(v)).toEqual([140, 0]);
     expect(v.scope?.value).toBe("Supply only");
-    expect(one({ items: [{ item: "Remote Controller", remote_type: "Wired", scope: "Supply only" }], text: "Supply of wired remote controller", headings: ["REMOTES"] }).scope?.note ?? "").not.toContain("owner F3");
+    expect(one({ items: [{ item: "Remote Controller", remote_type: "Wired", scope: "Supply only" }], text: "Supply of wired remote controller", headings: ["REMOTES"] }).scope?.note ?? "").not.toContain("an MS frame / stand row is always");   // VAV-2c1 PIN 3: BEFORE "owner F3"
   });
 });
 
@@ -235,7 +235,7 @@ describe("VRF-10 F6 -- supply + installation is the default; supply only only on
     const v = one(hw());
     expect(v.scope?.value).toBe("Supply + installation");
     expect(totals(v)[1]).toBeGreaterThan(0);
-    expect(v.scope?.note).toBe("BoQ says \"Supply of HI-WALL TYPE indoor unit as per the specification and as per the capacity below\" (a heading) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)");
+    expect(v.scope?.note).toBe("BoQ says \"Supply of HI-WALL TYPE indoor unit as per the specification and as per the capacity below\" (a heading) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only.");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F6)"
     expect(v.scope?.picker?.value).toBe("Supply + installation");
   });
   it("(ii) the row says supply only / excluding installation / installation by the client -> stays supply only", () => {
@@ -252,13 +252,13 @@ describe("VRF-10 F6 -- supply + installation is the default; supply only only on
     const at = sheet({ 10: hw(), 30: { items: [{ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", scope: "Installation only" }], text: "Installation of 10 HP ODU" } });
     const v = at(10);
     expect(v.scope?.value).toBe("Supply only");
-    expect(v.scope?.note).toContain("This sheet quotes installation on its own rows (row 30) - supply only (owner F6).");
+    expect(v.scope?.note).toContain("This sheet quotes installation on its own rows (row 30) - supply only.");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F6)"
   });
   it("(i) sheet-level, ANY category (ANSWER 2): 00149's cassette installation rows are another category -> stays supply only", () => {
     const at = sheet({ 10: hw(), 196: { text: "Shifting, Assembly, Installation, Testing and Commissioning of Cassette ACs", category: "hvac_dx_unit", node: "Line Item" } });
     const v = at(10);
     expect(v.scope?.value).toBe("Supply only");
-    expect(v.scope?.note).toContain("This sheet quotes installation on its own rows (row 196) - supply only (owner F6).");
+    expect(v.scope?.note).toContain("This sheet quotes installation on its own rows (row 196) - supply only.");   // VAV-2c1 PIN 3 (R3, owner 2026-11-22 10:49): BEFORE with " (owner F6)"
     // NEGATIVE: a line that names the supply too is no installation-only row -- whether it starts with the supply or with the
     // installation ("Installation and supply of ...")
     for (const t of ["Supply, Installation, Testing and Commissioning of Cassette ACs", "Installation and supply of Cassette ACs with all accessories"]) {

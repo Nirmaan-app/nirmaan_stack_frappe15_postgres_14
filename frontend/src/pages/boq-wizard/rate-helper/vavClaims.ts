@@ -16,6 +16,7 @@
  */
 import type { RateCategoryConfig } from "../../pricing/rate-master/rateMasterTypes";
 import type { ExtractedListItem, ItemListPricingSpec } from "./itemListPricing";
+import type { ItemBlockView, ItemListView } from "./pricingSheetHelper";
 
 /** `list_spec.pricing.claims_filed` (validated by config_validation._validate_claims_filed; VAV Box only). */
 export interface ClaimsFiledSpec {
@@ -46,6 +47,14 @@ export function claimedConfigOf(claim: RowClaim | undefined, runCategory: string
   const cfg = configs.get(runCategory) ?? null;
   const cf = specOf(cfg)?.claims_filed;
   return cf && cf.categories[filedCategory] !== undefined ? cfg : null;
+}
+
+/** VAV-2c1 (R4, owner 2026-11-22 10:51 "all a", 4.1). PURE. A claimed row's view: each item the pricer did not add or change says "matched by
+ *  the helper" (the helper's rule chose it), its borrowed items too. */
+export function matchedByHelper(view: ItemListView): ItemListView {
+  const mark = (b: ItemBlockView): ItemBlockView => (b.source === "model" ? { ...b, matchedByHelper: true } : b);
+  const own = (v: ItemListView): ItemListView => ({ ...v, items: v.items.map(mark) });
+  return { ...own(view), ...(view.sections ? { sections: { ...view.sections, independent: view.sections.independent.map((s) => ({ ...s, view: own(s.view) })) } } : {}) };
 }
 
 /** PURE. The notes a claimed row carries: the R16 note (owner 12:36 "a"), then its kind's own line if it has one (13:40, QR-K3 B2). */

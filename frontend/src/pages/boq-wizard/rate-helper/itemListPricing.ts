@@ -1184,6 +1184,9 @@ export interface ScopeSpec {
    *  only) defaulting to the helper's own scope; a pick re-prices the row by the calculator's rules, and `note` ({helper} = the
    *  helper's scope, {because} = its reason) says the user changed it. ABSENT => the panel shows the scope as a note only. */
   panel_pick?: { note: string };
+  /** VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02): the lines of the row follow its scope (`scopeLines.ts`); `word` = "not in scope".
+   *  ABSENT => the lines stay at their supply + installation working, as before. */
+  lines_follow?: { word: string };
   /** VP-1 (N1, owner VR9 2026-11-11 09:09 / QR-2 Q1 (a)): on a PRICING-LEVEL `scope` (a category without `extras`), the model
    *  attribute that carries the row's scope answer -- VRF reads its own from `extras.from_model.scope`. */
   model_attr?: string;
@@ -1769,7 +1772,9 @@ export interface OwnRowCheck {
   metre_units: string[];
   count_units: string[];
   extras: OwnRowExtra[];
-  lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string };
+  lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string;
+    /** VAV-2c1 (QR-N): the threshold input is not set (nothing compared); only SOME of the quantities compared are blank or 0 */
+    double_count_unread?: string; rate_only_some?: string };
   /** VAV-2b1 (rule 4, owner 21:05 / 21:47): an own row with quantity 0 / blank on a sheet with VAV quantities is not charged separately.
    *  ABSENT => presence of the row decides, as VAV-2a built it. */
   zero_rows?: { line: string; attr_line: string };

@@ -156,7 +156,9 @@ import type {
 } from "./rateHelperTypes";
 import { SHARES_OVERRIDE_KEY, countWords, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SeparateRowBy, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
 import { stubRunLineOf } from "./stubRunMark";
-import { claimNotesOf, claimedConfigOf, claimedItemsOf, type RowClaim } from "./vavClaims";
+import { claimNotesOf, claimedConfigOf, claimedItemsOf, matchedByHelper, type RowClaim } from "./vavClaims";
+import { scopedWarning, withScopeLines, type NotInScope } from "./scopeLines";
+import { panelPickLead, percentOf, rateShareWords, rowsStart } from "./helperWording";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
 const WIRING_CATEGORY_ID = "wiring_cabling";
@@ -1633,7 +1635,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ...(claimed?.helperWhole ? { helperWhole: claimed.helperWhole } : {}) } } : {};
       const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}) };
       const out1v = computeItemList(category, listSpec, items, withShares, (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
-      const out1 = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
+      const out1x = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
+      // VAV-2c1 (R4, owner 2026-11-22 10:51 "all a", 4.1): on a claimed row the helper's rule chose the item, not the model
+      const v1x = claimed ? (out1x as ItemListSuggestion).itemList : undefined;
+      const out1 = v1x ? { ...out1x, itemList: matchedByHelper(v1x) } as ItemListSuggestion : out1x;
       const v1 = (out1 as ItemListSuggestion).itemList;
       const out0a = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
       const v0a = (out0a as ItemListSuggestion).itemList;
@@ -2694,6 +2699,10 @@ export interface ItemBlockView {
    *  (`user_addable[].line`) */
   doubleCountLine?: string;
   changedByYou?: true;
+  /** VAV-2c1 (R4, owner 2026-11-22 10:51): on a row the helper prices by its own rule, the rule chose this item ("matched by the helper") */
+  matchedByHelper?: true;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line (`scopeLines.ts`) */
+  notInScope?: NotInScope;
   /** VAV-2a (B5): the helper ADDED this item (the integrator cabling) -- the panel says "added by the helper"; removable as any item */
   helperAdded?: true;
   /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
@@ -2806,6 +2815,8 @@ export interface ExtraLineView {
   /** the per-metre rate, kept where known even when the line cannot price (B: "unit rate kept where known") */
   perMetre?: { supply: number; install: number };
   figures: Partial<Record<RateKind, number>>;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line */
+  notInScope?: NotInScope;
   /** VRF-5 (owner R1): an ACCESSORY line -- one that cannot price (no catalogue match, a default not set) is a note, never a
    *  block: the row prices without it */
   optional?: true;
@@ -4374,7 +4385,7 @@ function computeItemListOwn(
     if (isLotUnit(spec, unit) && spec.lot_units) {
       // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
       const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];
-      return { tone: "red", title: own ?? spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+      return { tone: "red", title: (own ?? spec.lot_units.bar).replace("{UNIT}", unit.trim().toUpperCase()), lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
     }
     if (!perSetRow || !spec.per_set) return undefined;
     const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
@@ -5424,17 +5435,17 @@ export const VRF10_SCOPE = {
   supply_words: "^\\s*supply(?:ing)?\\b(?![^.;|\\n]*?\\b(?:install\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
   plain_supply: "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b|\\bexclud\\w*\\s+(?:of\\s+)?install\\w*|\\bwithout\\s+install\\w*|\\binstall\\w*[^.;|\\n]{0,40}?\\bby\\s+(?:others|the\\s+(?:client|owner)|client|owner)\\b|\\binstall\\w*[^.;|\\n]{0,20}?\\bnot\\s+(?:included|in\\s+(?:the\\s+)?scope)\\b",
   frame_families: ["MS frame / stand for ODU", "MS Angle Base Frame Structure"],
-  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation (owner F3)",
-  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\" (owner F3).",
-  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation (owner F2)",
-  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
-  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation",
+  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\".",
+  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation",
+  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only.",
+  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only.",
   f6_sheet: true,
   /** (QR-1 Q2 (a), ANSWER 2 relay: "a sheet with any installation-only row (ANY category)") a sheet line of another category -- no
    *  scope answer of its own -- reads installation-only when its text starts with installation work and names no supply */
   install_only_words: "^\\s*(?:shifting\\s*[,&]?\\s*(?:and\\s+)?)?(?:assembly\\s*[,&]?\\s*(?:and\\s+)?)?(?:install\\w*|instal\\w*|erection|fixing)\\b",
   install_only_not: "\\bsupply\\w*|\\bSITC\\b|\\bprovid\\w*|\\bprocur\\w*",
-  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only (owner F6).",
+  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only.",
 } as const;
 
 /** VRF-10 (F5a). The controller family whose "ON / OFF controller" note is kept only for a single-function controller, and the
@@ -5485,7 +5496,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   const forced = withScopeCore(spec, items, ctx, ext, overrides, res, probe, pick);
   const fs = forced.itemList?.scope;
   const because = hs?.note ? ` because: ${hs.note}` : "";
-  const lead = sc.panel_pick.note.replace("{helper}", hv).replace("{because}", because);
+  const lead = panelPickLead(sc.panel_pick.note, hv, because);
   return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
 }
 
@@ -5498,8 +5509,8 @@ export const VP5_SCOPE = {
   /** material handling in a scope list ("lifting, shifting, positioning at site") is never a refix -- removed before the refix test */
   handling: /\blifting\s*[,/&]?\s*(?:and\s+)?shifting\b|\bshifting\s*[,/&]\s*(?:positioning|placement|storing|handling|unloading)\b|\bunloading\s*,\s*shifting\b/gi,
   refix: /\b(?:dismantl\w*\s+(?:and|&)\s+re-?fix\w*|re-?fix\w*|re-?install\w*|re-?install(?:ation)?|shifting|relocat\w*)\b|\b(?:existing|old)\s+(?:valves?|gauges?|guages?|thermometers?|strainers?|meters?|instruments?|items?|units?|fittings?)\b/i,
-  both_note: "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end) (owner E11)",
-  refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift (owner E11)",
+  both_note: "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end)",
+  refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift",
   /** QR-2 (a): the pair rule's supply row -- its own words start with supply and name no installation */
   supply_row_words: /^\s*(?:supply|supplying)\b/i,
   /** DU-3 (R3, owner 2026-11-16 15:16 Case 1 "ok option A"): the same supply row behind a heading echo in capitals ("FIRE RATED DUCTING
@@ -5512,7 +5523,7 @@ export const VP5_SCOPE = {
   /** DU-2 K1b (owner QR-1 Q1 (a), 2026-11-16 01:27): a "labour charges" row is the duct's installation only -- on a scope whose own
    *  supply-row uplift is set (Ducting, G-4) only, so the Valve Package's rule is unchanged */
   labour: /\blabou?r\s+(?:charges?|only|cost)\b/i,
-  labour_note: "labour only - duct installation priced; insulation installation is priced by Insulation's own rows (owner QR-1 Q1)",
+  labour_note: "labour only - duct installation priced; insulation installation is priced by Insulation's own rows",
 } as const;
 
 function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
@@ -5766,8 +5777,8 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // the owner's note reads the figure without the rupee sign ("charged at 5,600"); the formatting is the app's own (residence R1)
   const figureText = (n: number) => formatToRoundedIndianRupee(n).replace(/^₹/, "");
   const onSiteNote = (title: string, fig: number) => (/^MS frame/i.test(title)
-    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us (owner R-F2)`
-    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged (owner R-F2)`);
+    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us`
+    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged`);
   const adj = (f: Partial<Record<RateKind, number>>, title: string, line = false): Partial<Record<RateKind, number>> => {
     const s0 = f.supply_rate ?? 0;
     const i0 = f.install_rate ?? 0;
@@ -5797,7 +5808,7 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
   // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
-  const note0 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
+  const note0 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note.replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
   const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
   const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
@@ -5818,11 +5829,12 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
                          ...(rest.lineCount && bad ? { lineCount: { ...rest.lineCount, bad: Math.max(rest.lineCount.bad, bad) } } : {}) } };
   }
   const values: Record<string, number> = { supply_rate: totals.supply_rate ?? 0, install_rate: totals.install_rate ?? 0, combined_rate: (totals.supply_rate ?? 0) + (totals.install_rate ?? 0) };
+  const after: ItemListView = { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView };
   return {
     ...res,
     values,
     workings: { ...res.workings, derivation: [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`], finalValues: { ...values } },
-    itemList: { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView },
+    itemList: sc.lines_follow ? withScopeLines(view, after, { word: sc.lines_follow.word, supplyOnly, uplift: uplift ?? 0, pct, perLine }) : after,
   };
 }
 
@@ -7635,6 +7647,10 @@ function computeItemList(
   const fin = withSheetHeadingNotes(spec, items, ctx, spec.scope && !spec.extras ? withScope(spec, items, ctx, ext, overrides, done) : done);
   // VAV-2a (B9): a row the scope pick left unpriced carries no warning
   const fv = combo ? (fin as ItemListSuggestion).itemList : undefined;
+  // VAV-2c1 (QR-SC2, owner 2026-11-22 20:09 "option a fopr 3"): which rows show the block is decided above, as before; its AMOUNTS follow the scope
+  if (fv?.rowPriced && fv.combinationWarning && spec.combination_warning && scopeSpecOf(spec)?.lines_follow && fv.scope && fv.scope.value !== scopeSpecOf(spec)!.options[0]) {
+    return { ...fin, itemList: { ...fv, combinationWarning: plainPricerText(scopedWarning(spec.combination_warning, fv), items) } } as ItemListSuggestion;
+  }
   if (fv && !fv.rowPriced) {
     const { combinationWarning: _cw, reviewHeading: _rh, ...rest } = fv;
     return { ...fin, itemList: rest } as ItemListSuggestion;
@@ -8106,7 +8122,7 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
     if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: eb.install_family, confidence: 1 };
     if (spec.scope?.model_attr && spec.scope.install_only) attrs[spec.scope.model_attr] = { value: spec.scope.install_only, confidence: 1 };
     if (kind.with_row_input) {
-      lines.push(dRows.length ? fillAll(eb.lines.with_row, { rows: vavRowsNamed(dRows), factor: String(factor ?? "-") })
+      lines.push(dRows.length ? fillAll(eb.lines.with_row, { rows: vavRowsNamed(dRows), factor: String(factor ?? "-"), share: rateShareWords(factor) })
         : fillAll(eb.lines.alone, { factor: String(factor ?? "-") }));
     }
     return { ext: { ...ext, items: [{ attributes: attrs } as unknown as ExtractedListItem] }, lines,
@@ -8134,7 +8150,7 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
       if (!its.some(carries)) continue;
       const sep = others.filter((l) => vavSeparateRow(oc, e, l)).map((l) => l.row);
       if (!sep.length) continue;
-      const base = { extra: e.label, rows: vavRowsNamed(sep) };
+      const base = { extra: e.label, rows: vavRowsNamed(sep), ...countWords(sep) };
       // VAV-2b1 (rule 4): the own row(s) all 0 / blank on a sheet with VAV quantities -> not charged separately: the extra stays, noted
       if (oc.zero_rows && allZero(sep) && sheetVavQty > 0) {
         lines.push(zeroFill(e.presence_only || e.target.attr ? oc.zero_rows.attr_line : oc.zero_rows.line, e.label, sep));
@@ -8159,11 +8175,18 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
       const naming = [...new Set([ctx.excelRow, ...[...extractionByRow.keys()].filter((r) => r !== ctx.excelRow && sheetRows.has(r)
         && catOf(r) === ownCategory && runItems(r).some(carries))])];
       const sq = sumQ(sep), vq = sumQ(naming);
-      if (!sq || !vq) { its = its.filter((it) => !carries(it)); lines.push(fillAll(oc.lines.rate_only, base)); continue; }
-      if (thr === null) { lines.push(`${fillAll(oc.lines.double_count, base)} ${oc.lines.threshold_missing}`); continue; }
+      if (!sq || !vq) {
+        its = its.filter((it) => !carries(it));
+        // VAV-2c1 (QR-N N3): only SOME of the quantities compared are blank or 0 -> its own line
+        const some = [...sep, ...naming].some((r) => (qtyOf(r) ?? 0) > 0);
+        lines.push(fillAll((some ? oc.lines.rate_only_some : undefined) ?? oc.lines.rate_only, base));
+        continue;
+      }
+      // VAV-2c1 (QR-N N2): the threshold is not set -> nothing was compared
+      if (thr === null) { lines.push(`${rowsStart(fillAll(oc.lines.double_count_unread ?? oc.lines.double_count, base))} ${oc.lines.threshold_missing}`); continue; }
       const more = { ...base, pct: String(Math.round((sq / vq) * 100)), threshold: String(Math.round(thr * 100)), separate: String(sq), boxes: String(vq) };
       if (sq / vq + 1e-9 >= thr) { its = its.filter((it) => !carries(it)); lines.push(fillAll(oc.lines.not_added, more)); }
-      else lines.push(fillAll(oc.lines.double_count, more));
+      else lines.push(rowsStart(fillAll(oc.lines.double_count, more)));
     }
   }
 
@@ -8198,7 +8221,8 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
       } else if (!its.some(isCab)) {
         if (perBox === null || !(perBox > 0)) lines.push(fillAll(ic.lines.input_missing, { input: pricingInputLabel(ic.qty_input, items) }));
         else {
-          const line = fillAll(ic.lines.added, { qty: String(perBox) });
+          // VAV-2c1 (R7, owner 2026-11-22 10:55 "6.2 a"): added because the sheet's cabling row has 0 metres -> the item says so too
+          const line = cabZero ? zeroFill(ic.zero_rows!.line, ic.family, cab0, { qty: String(perBox) }) : fillAll(ic.lines.added, { qty: String(perBox) });
           const attrs: Record<string, { value: string; confidence: number }> = { [fa]: { value: ic.family, confidence: 1 },
             [NET_LINES_ATTR]: { value: line, confidence: 1 }, [HELPER_ADDED_ATTR]: { value: line, confidence: 1 } };
           if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: ic.family, confidence: 1 };

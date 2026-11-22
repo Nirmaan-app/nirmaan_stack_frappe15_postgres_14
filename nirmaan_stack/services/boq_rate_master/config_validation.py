@@ -202,6 +202,8 @@ _KNOWN_CONFIG_KEYS = {
     # fills). Real stored row shapes; each attr must be one of the category's declared attributes. Validated by
     # `_validate_impact_examples`; absent from every other config, which is therefore byte-identical.
     "impact_examples",
+    # VAV-2c1 (R6 b, owner 2026-11-22 12:47 "a"): a Pricing Inputs category's page shows each value's plain reading, from the live value
+    "live_reading",
     # SLICE 12d-2 (owner S1, 2026-10-07): `calculator_only` is RETIRED. It was the 12c FINISH / FA7
     # temporary calculator admission (one category, one slice), with a declared removal condition --
     # "the slice that makes the category fully eligible REMOVES this key in the same change, so there
@@ -1074,8 +1076,10 @@ def _validate_own_row_check(oc, spec):
         _pattern(oc[k], f"{loc}.{k}")
     _word_list(oc["metre_units"], f"{loc}.metre_units")
     _word_list(oc["count_units"], f"{loc}.count_units")
-    _lines_exactly(oc["lines"], _OWN_ROW_CHECK_LINES, f"{loc}.lines")
-    for k in ("not_added", "double_count", "rate_only", "attr_changed"):
+    # VAV-2c1 (QR-N): the two optional lines of the cases the reworded sentences would not be true for
+    opt = [k for k in _OWN_ROW_CHECK_LINES_OPTIONAL if isinstance(oc["lines"], dict) and k in oc["lines"]]
+    _lines_exactly(oc["lines"], _OWN_ROW_CHECK_LINES | set(opt), f"{loc}.lines")
+    for k in ["not_added", "double_count", "rate_only", "attr_changed"] + opt:
         if "{rows}" not in oc["lines"][k]:
             _vthrow(f"{loc}.lines.{k} must name {{rows}}.")
     exs = oc["extras"]
@@ -1920,6 +1924,7 @@ _PRICING_KEYS = _PRICING_KEYS | {"own_row_check", "integrator_cabling", "existin
 _OWN_ROW_CHECK_KEYS = {"threshold_input", "box_words", "existing_words", "artefact_words", "cable_words", "vav_words", "metre_units",
                        "count_units", "extras", "lines"}
 _OWN_ROW_CHECK_LINES = {"not_added", "double_count", "rate_only", "attr_changed", "threshold_missing"}
+_OWN_ROW_CHECK_LINES_OPTIONAL = {"double_count_unread", "rate_only_some"}
 _OWN_ROW_EXTRA_KEYS = {"label", "target", "words"}
 _OWN_ROW_EXTRA_OPTIONAL = {"needs_vav", "not_words", "near_words", "near_chars", "not_near_words", "not_near_chars", "presence_only"}
 _INTEGRATOR_CABLING_KEYS = {"family", "box_family", "qty_input", "length_input", "integrator_words", "integrator_near_words",
@@ -2044,7 +2049,8 @@ _SHEET_SHARES_LABELS = {"vavs", "count_suffix", "typed", "typed_supply", "typed_
                         "typed_by_you", "changed_by_you", "from_input", "worked_out", "need_vavs", "no_sku", "per_box"}
 _SHEET_SHARES_LINES = {"not_added", "check", "ddc_not_inclusive", "by_others", "rate_only", "blank_rows", "zero_row"}
 _SHEET_SHARES_LINES_OPTIONAL = {"not_box_row"}
-_SHEET_SHARES_LABELS_OPTIONAL = {"cost_word", "vavs_calculator"}
+# VAV-2c1 (R2 / R4, owner 2026-11-22 10:48 / 10:51): the full-rate block's own "type the number" line; the VAVs box on a separate row
+_SHEET_SHARES_LABELS_OPTIONAL = {"cost_word", "vavs_calculator", "need_vavs_whole", "vavs_per_unit"}
 _SHARE_KEYS = {"id", "label", "heading", "add_label", "parts", "item"}
 _SHARE_OPTIONAL = {"bcs_of", "replaces", "replaces_line"}
 _SHARE_PART_KEYS = {"id", "label", "per_label", "per_input", "sku"}
@@ -2161,7 +2167,7 @@ _LIST_DEF_KEYS = _LIST_DEF_KEYS | {"required"}
 # `feeder_length.every_module`; `scope.always_note / any_level / always_both`; `safeguard.exact_quotes`;
 # `per_set.counted.defined`; `lot_units.calculator_refuses`.
 _PREPARE_KEYS = _PREPARE_KEYS | {"family_refusals", "not_includes", "tfa_capacity", "row_family"}
-_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"always_note", "any_level", "always_both", "panel_pick"}
+_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"always_note", "any_level", "always_both", "panel_pick", "lines_follow"}
 # VP-1 (N1): a PRICING-LEVEL scope names the question carrying the row's scope answer (VRF's lives in extras.from_model.scope)
 _SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"model_attr"}
 _SAFEGUARD_OPTIONAL_KEYS = _SAFEGUARD_OPTIONAL_KEYS | {"exact_quotes"}
@@ -2900,6 +2906,12 @@ def _validate_scope(sc, loc):
         if not isinstance(pk, dict) or set(pk) != {"note"}:
             _vthrow(f"{w} needs exactly note.")
         _sentence(pk, "note", w, ("{helper}",))
+    # VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02): the lines of the row follow its scope
+    if "lines_follow" in sc:
+        lf, w = sc["lines_follow"], f"{loc}.lines_follow"
+        if not isinstance(lf, dict) or set(lf) != {"word"}:
+            _vthrow(f"{w} needs exactly word.")
+        _sentence(lf, "word", w)
     if "always_both" in sc:
         ab, w = sc["always_both"], f"{loc}.always_both"
         if not isinstance(ab, dict) or set(ab) != {"families", "note"} or not isinstance(ab["families"], list) or not ab["families"] \
@@ -5148,6 +5160,8 @@ def _validate_config(cfg):
     unknown = set(cfg.keys()) - _KNOWN_CONFIG_KEYS
     if unknown:
         _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
+    if "live_reading" in cfg and (cfg["live_reading"] is not True or not all(str(k).endswith("_pricing_input") for k in (cfg.get("item_kinds") or [""]))):
+        _vthrow("live_reading must be true, on a Pricing Inputs category only.")
     _validate_alias_of(cfg)  # SLICE 3: shape of the alias key; a no-op for every config without it
     _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
     _validate_derived_rates(cfg)      # SLICE 12a: the derived-cost declaration; a no-op without the key

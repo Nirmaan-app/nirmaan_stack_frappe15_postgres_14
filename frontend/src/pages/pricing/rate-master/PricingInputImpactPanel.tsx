@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type { RateMasterItem } from "./rateMasterTypes";
 import { extrasSnapSizes, extrasTablesOf, type InputReach } from "./pricingInputReach";
 import { closestSize, readTypedSizeMm } from "@/pages/boq-wizard/rate-helper/itemListPricing";
+import { pricingInputReading } from "@/pages/boq-wizard/rate-helper/helperWording";
 import {
   adderConditionText, assemblyOnlySentence, baseMultiplierByColumn, computeImpact, ctxValuesOf, editableFieldsOf,
   isPercentField, pctText, pricingInputRangeRefusal, skuKey, workingLegs,
@@ -160,11 +161,13 @@ interface Props {
   /** resolves when the write has landed; the panel leaves its edits in place until then */
   onSave: (rates: Record<string, number>) => Promise<void>;
   canEdit: boolean;
+  /** VAV-2c1 (R6 b): show the value's plain reading (the category's `live_reading`; HVAC) */
+  liveReading?: boolean;
 }
 
 export function PricingInputImpactPanel({
   input, reach, itemsByUid, allInputs, allReach, allConfigs, allItems, exampleConfigs, exampleItems,
-  categoryLabel, onClose, onSave, canEdit,
+  categoryLabel, onClose, onSave, canEdit, liveReading,
 }: Props) {
   const stored = (input.rates ?? {}) as Record<string, number>;
   const attrs = (input.attributes ?? {}) as Record<string, unknown>;
@@ -383,6 +386,10 @@ export function PricingInputImpactPanel({
                   <span className="text-[11px] text-blue-700 dark:text-blue-300" data-testid="impact-field-snap">
                     {k in edited ? `becomes ${edited[k]} mm (the closest Piping size)` : "not a size"}
                   </span>
+                )}
+                {/* VAV-2c1 (R6 b): the plain reading of the value in the box (the edited one while it is typed) */}
+                {liveReading && pricingInputReading(input.unit, valueOf(k)) !== null && (
+                  <span className="text-[11px] font-medium" data-testid="impact-live-reading">{pricingInputReading(input.unit, valueOf(k))}</span>
                 )}
                 <span className="text-[11px] text-muted-foreground">
                   {/* VRF-4 U8 (owner 2026-11-06): "was 30" (the stored value), not "today 30" */}

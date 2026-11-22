@@ -2806,6 +2806,14 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c1_keys": {
+   "seconds": 14.6,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabMilestone Tracker"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
    "seconds": 34.8,
    "series": [],

@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { ShareEditOp, SharedItemView, SharesView } from "./vavSheetShares";
 
+/** VAV-2c1 (R5): " - not in scope" beside the side the row's scope leaves out */
+const outOf = (b: SharedItemView, kind: "supply_rate" | "install_rate") => (b.notInScope?.kind === kind ? ` - ${b.notInScope.word}` : "");
 const fig = (n: number) => formatToRoundedIndianRupee(n).replace(/^₹/, "");
 
 function Revert({ onClick, label, testId }: { onClick: () => void; label: string; testId: string }) {
@@ -61,7 +63,7 @@ function ShareBlock({ b, labels, onShares }: { b: SharedItemView; labels: Shares
         {b.sumLines.map((l, i) => <div key={i}>{l}</div>)}
         {b.figures ? (
           <div className="font-medium text-foreground" data-testid="share-figures">
-            Supply {fig(b.figures.supply_rate)} &middot; Install {fig(b.figures.install_rate)}{b.perLabel ?? labels.per_box}
+            Supply {fig(b.figures.supply_rate)}{outOf(b, "supply_rate")} &middot; Install {fig(b.figures.install_rate)}{outOf(b, "install_rate")}{b.perLabel ?? labels.per_box}
           </div>
         ) : (
           <div className="text-red-700 dark:text-red-400" data-testid="share-reason">{b.reason}</div>
