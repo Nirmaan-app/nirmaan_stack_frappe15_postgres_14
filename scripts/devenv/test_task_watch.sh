@@ -311,14 +311,15 @@ git -C "$L" config devbox-task.w1.box contabo
 # agent sat an hour at "Not logged in" while watch said working). The log is ~/.claude/projects/<the env worktree's
 # path with every non-alphanumeric character as ->/, subagent logs in <session>/subagents/ below it.
 project() { echo "$1/.claude/projects/$(wt "$2" "$3" | sed 's/[^A-Za-z0-9]/-/g')"; }
-ago() { date -v-"$1"M '+%Y%m%d%H%M' 2>/dev/null || date -d "$1 minutes ago" '+%Y%m%d%H%M'; }
+# To the second: a minute-precision touch adds up to 59 s, so 30 min could read as 31.
+ago() { date -v-"$1"M '+%Y%m%d%H%M.%S' 2>/dev/null || date -d "$1 minutes ago" '+%Y%m%d%H%M.%S'; }
 PM="$(project "$AH" "$AROOT" m1)"; PF="$(project "$CH" "$CROOT" f1)"
 mkdir -p "$PM/s1/subagents" "$PF"
 echo '{}' > "$PM/s1.jsonl"; touch -t "$(ago 30)" "$PM/s1.jsonl"
 echo '{}' > "$PF/s1.jsonl"; touch -t "$(ago 30)" "$PF/s1.jsonl"
 : > "$OSA_LOG"
 watch
-line '^m1 +air +stalled +quiet for 30 min$' "an alive, unfinished agent quiet for 20 min is stalled, with how long"
+line '^m1 +air +stalled +quiet for 30 min$' "an alive, unfinished agent quiet for 30 min is stalled, with how long"
 line '^ALERT m1 on air: working -> stalled$' "working -> stalled alerts"
 same "$(grep -c 'working -> stalled' "$OSA_LOG" || true)" 1 "the stalled alert raises one notification"
 line '^f1 +contabo +finished' "a finished agent quiet that long is still finished"
