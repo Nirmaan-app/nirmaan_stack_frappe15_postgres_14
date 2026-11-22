@@ -129,5 +129,53 @@ class ToolsEqualTheTemplate(unittest.TestCase):
                                  f"{name} differs from {TEMPLATE_BIN / name}")
 
 
+try:
+    from playwright.sync_api import sync_playwright
+    NO_PLAYWRIGHT = ""
+except ImportError:
+    NO_PLAYWRIGHT = "record.py needs Playwright, which this Python lacks"
+
+LONG_PAGE = ("<body style='margin:0'><div style='height:2000px'></div><button id=go style='height:40px'>Go</button>"
+             "<p id=near>Near note</p><div style='height:3000px'></div><p id=far>Far note</p></body>")
+
+
+@unittest.skipIf(NO_PLAYWRIGHT, NO_PLAYWRIGHT)
+class RecordBoxesMatchTheScreenshot(unittest.TestCase):
+    """Walk.step saves boxes where the controls are in its screenshot, not where they were before a later scroll."""
+
+    def walk_step(self, pins):
+        sys.path.insert(0, str(BIN))
+        from record import Walk, pin
+        with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 800, "height": 600})
+            page.set_content(LONG_PAGE)
+            seen = {}
+            real_shot = page.screenshot
+
+            def shot(**kw):
+                b = page.locator("#go").bounding_box()
+                seen["go"] = {"x": round(b["x"]), "y": round(b["y"]), "w": round(b["width"]), "h": round(b["height"])}
+                return real_shot(**kw)
+            page.screenshot = shot
+            w = Walk(Path(tmp), {"number": 1}, {}, "made up")
+            w.change("c1", "t", "c")
+            try:
+                step = w.step(page, "c1", "after", "R", "u", "Press Go", click=page.locator("#go"),
+                              pins=[pin(page.locator(sel), "note") for sel in pins], settle_ms=0)
+            finally:
+                browser.close()
+            return step, seen
+
+    def test_the_click_box_is_where_the_control_is_when_the_screen_is_shot(self):
+        step, seen = self.walk_step(["#near"])
+        self.assertEqual(step["click"], seen["go"])
+        self.assertGreater(step["pins"][0]["box"]["h"], 0)
+
+    def test_a_pin_off_the_shot_screen_stops_the_walk(self):
+        with self.assertRaisesRegex(RuntimeError, r"pin 1 \('note'\) is off the screen"):
+            self.walk_step(["#far"])
+
+
 if __name__ == "__main__":
     unittest.main()

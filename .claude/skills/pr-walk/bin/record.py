@@ -33,15 +33,27 @@ def inr(n: int) -> str:
     return ("-" if n < 0 else "") + (head + "," + tail if head else tail)
 
 
-def box_of(target: Locator | dict) -> dict | None:
+def box_of(target: Locator | dict, scroll: bool = True) -> dict | None:
+    """The target's box in viewport pixels, or None when it is not found in 5 s. scroll=False measures it where it
+    is now, so it cannot move a box measured before it."""
     if isinstance(target, dict):
         return target
     try:
-        target.first.scroll_into_view_if_needed(timeout=5000)
+        if scroll:
+            target.first.scroll_into_view_if_needed(timeout=5000)
+        else:
+            target.first.wait_for(state="visible", timeout=5000)
         b = target.first.bounding_box()
     except Exception:
         return None
     return {"x": round(b["x"]), "y": round(b["y"]), "w": round(b["width"]), "h": round(b["height"])} if b else None
+
+
+def on_screen(b: dict, vp: dict) -> dict | None:
+    """The part of box b inside the viewport, or None when none of it shows in the screenshot."""
+    x0, y0 = max(b["x"], 0), max(b["y"], 0)
+    x1, y1 = min(b["x"] + b["w"], vp["width"]), min(b["y"] + b["h"], vp["height"])
+    return {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0} if x1 > x0 and y1 > y0 else None
 
 
 def pin(target: Locator | dict, text: str, kind: str = "nit", evidence: str = "seen") -> dict:
@@ -69,17 +81,28 @@ class Walk:
              click: Locator | None = None, pins: list[dict] = (), settle_ms: int = 1200) -> dict:
         page.wait_for_timeout(settle_ms)
         sid = f"s{len(self.data['steps']) + 1:02d}"
-        click_box = box_of(click) if click is not None else None
+        # Scroll once, to the click target (else the first pin found), then measure every box without scrolling and
+        # shoot at once: a later scroll would move the screen under the boxes already measured.
+        anchor = click if click is not None else next((p["target"] for p in pins if not isinstance(p["target"], dict)), None)
+        if anchor is not None:
+            box_of(anchor)
+        vp = page.viewport_size
+        click_box = box_of(click, scroll=False) if click is not None else None
         if click is not None and click_box is None:
             raise RuntimeError(f"step {sid} ({caption!r}): the control to click was not found on screen in 5 s, so its "
                                "box is lost. Fix the locator or wait for the control before this step.")
+        if click_box is not None and (click_box := on_screen(click_box, vp)) is None:
+            raise RuntimeError(f"step {sid} ({caption!r}): the control to click is not inside the screenshot, so its "
+                               "box would be drawn on the wrong control.")
         resolved = []
-        for p in pins:
-            b = box_of(p["target"])
+        for k, p in enumerate(pins, 1):
+            b = box_of(p["target"], scroll=False)
+            if b is not None and not isinstance(p["target"], dict) and (b := on_screen(b, vp)) is None:
+                raise RuntimeError(f"step {sid} ({caption!r}): pin {k} ({p['text']!r}) is off the screen this step "
+                                   "shoots. Pin it in its own step, or scroll so it shows with the click target.")
             resolved.append({"box": b, "text": p["text"], "kind": p["kind"], "evidence": p["evidence"]})
         shot = f"shots/{sid}.jpg"
         page.screenshot(path=str(self.out / shot), type="jpeg", quality=68)
-        vp = page.viewport_size
         step = {"id": sid, "change": cid, "side": side, "role": role, "user": user, "caption": caption,
                 "shot": shot, "size": [vp["width"], vp["height"]], "click": click_box, "clicked": click is not None, "pins": resolved,
                 "url": page.url}

@@ -13,7 +13,9 @@ that opens on a phone, with the evidence behind it in `~/claude-artifacts/verify
 - `BIN/record.py` turns a Playwright walk into `walk.json` plus one screenshot per step. Its docstring holds the
   data shape. `w.step(page, change, side, role, user, caption, click=<locator>, pins=[pin(<locator>, text, kind)])`
   shoots the screen with the control it clicks next boxed, then clicks it; it stops the walk when that control
-  is not found, so no step is saved as clicked without its box. `w.check(change, role, expect, seen, ok,
+  is not found, so no step is saved as clicked without its box. It scrolls once, to that control (or the first
+  pin), and measures every box on that one screen, so it also stops when a pin is off that screen: give such a
+  pin its own step. `w.check(change, role, expect, seen, ok,
   kind)` records a role or number check. `w.status(change, "not_walked", reason)` marks a claim it could not drive.
 - `BIN/build_page.py <walk dir> <out.html> [--terms terms.json]` builds the page. It refuses a click or pin box
   without `w` and `h` above 0, or a step that clicked with no click box, and names the step.
