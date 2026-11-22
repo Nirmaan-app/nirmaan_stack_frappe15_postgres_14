@@ -4,7 +4,7 @@ PreToolUse guard: keep per-slice as-built detail OUT of the always-loaded CLAUDE
 
 Enforces the DOCS-UPDATE RULE (CLAUDE.md, 2026-06-25 context-hygiene split): per-commit /
 per-slice detail (test counts, feat hashes, 'Slice N' narratives, build logs, dated slice
-stories) belongs in the on-demand reference docs, NOT the always-loaded CLAUDE.md. This hook
+stories) belongs in the commit message and in no doc, least of all the always-loaded CLAUDE.md. This hook
 inspects edits to any project CLAUDE.md and DENIES the write when the *added* text carries
 changelog signatures, and tells the author where that text goes instead (DESTINATIONS below).
 
