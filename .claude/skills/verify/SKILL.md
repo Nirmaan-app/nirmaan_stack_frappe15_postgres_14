@@ -92,6 +92,11 @@ A proof is good when:
 Uploads and submits are safe on an env: every migrate turns off mail, clears phone push tokens and keeps uploads on
 local disk.
 
+## PR walk page
+
+A review page for one PR, built from walks driven with this skill's `drive.py`: see the `pr-walk` skill
+(`.claude/skills/pr-walk/SKILL.md`).
+
 ## Cleanup
 
 - `DEVENV stop <task>` stops what `serve` started. Never kill processes by name.

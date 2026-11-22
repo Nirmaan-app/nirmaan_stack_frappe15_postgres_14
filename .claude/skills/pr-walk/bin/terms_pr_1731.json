@@ -1,0 +1,19 @@
+[
+ ["ITM", "Internal Transfer Memo: material sent from one project, or the warehouse, to another project. It has no vendor and no payments."],
+ ["Material Usage", "A project tab that lists, per item, what was ordered, delivered, challaned and inspected."],
+ ["Ordered Qty", "What the project has asked for. With this PR: PO quantity plus the quantity of incoming ITMs at status Approved or later."],
+ ["Delivery Note Qty", "What has arrived on site, from POs and ITMs together."],
+ ["DC / MIR", "Delivery Challan (the paper that comes with a delivery) and Material Inspection Report (the site's check of it)."],
+ ["PO/ITM Wise", "The Material Usage view with one row per PO or ITM, renamed from PO Wise by this PR."],
+ ["Fully Paid / Unpaid on an ITM", "An ITM has no payments. This PR shows it as Fully Paid once Delivered and Unpaid before that."],
+ ["WO", "Work Order: an order for services from a vendor. Older screens and ids call it a Service Request (SR)."],
+ ["MTC", "Material Test Certificate: the maker's test report for material on a PO, uploaded on the PO page."],
+ ["PM / PL", "Project Manager and Project Lead. With this PR they may upload MTCs on their own projects' POs."],
+ ["Non-Billable PO", "A PO whose cost is not billed to the client. MTCs apply to Billable POs only."],
+ ["Revised PO Date", "The date the latest Approved PO Revision was approved. With this PR it replaces PO Date on a revised PO's preview and PDFs."],
+ ["MSME / Udyam", "A government registration for small businesses. The Udyam certificate carries the MSME ID, for example UDYAM-KR-03-0097422."],
+ ["Gemini", "The AI service that reads an uploaded certificate. The test envs have no key for it, so the read always fails there."],
+ ["Before / After", "Before is the code the PR starts from (develop at 42313959a). After is the PR's own code (3d2a323c4)."],
+ ["Role check", "A test that one role sees, or does not see, what the PR says it should."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]

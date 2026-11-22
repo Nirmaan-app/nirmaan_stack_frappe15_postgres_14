@@ -1,0 +1,16 @@
+[
+ ["Audit View", "A new report under Reports. It lists Orders, Invoices and Payments for a date range you pick."],
+ ["Paid", "A payment the bank has confirmed: sent online, or a cheque that has cleared."],
+ ["Cheque Pending", "A cheque payment at Reconciliation Pending: the cheque is issued but has not cleared yet."],
+ ["Other Pending Payments", "Every other payment still in progress: Requested, CEO Pending, Approved, Reconciliation Pending (online) or Rejected."],
+ ["Reconciliation Pending", "The money has left the bank and waits to be matched to the bank statement. A cheque payment lands here as soon as it is approved."],
+ ["CEO Pending", "Approved by the team and waiting for the CEO."],
+ ["TDS", "Tax deducted at source: tax held back from a vendor's payment. Here, Net Paid = Amount Paid + TDS."],
+ ["UTR", "The bank's reference number for an online transfer."],
+ ["Project Expense", "A cost on a project outside the PO and Work Order flow. The app labels it Misc Project Expense in places."],
+ ["WO / SR", "A Work Order. Older screens called it a Service Request (SR)."],
+ ["PMO", "The project management office role. With this PR it may view a vendor's cheques but not change them."],
+ ["Before / After", "Before is the code the PR starts from (develop at 42313959a). After is the PR's own code."],
+ ["Role check", "A test that one role sees, or does not see, what the PR says it should."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]

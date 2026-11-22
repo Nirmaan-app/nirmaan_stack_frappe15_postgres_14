@@ -735,3 +735,28 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Cut link** — a pasted link stored shortened by the old 140-character limit, so it no longer opens. It cannot be
   rebuilt from what was stored; its owner pastes it again. A link that looks long is not cut: Google's own share links
   end in `&rtpof=true&sd=true`. (#1680, 2026-11-10.)
+
+## PR walks
+
+- **PR walk** — a run through every change a pull request claims, on screen, as each role that uses it, once on the
+  PR's head (*after*) and once on its merge base (*before*). A rerun is a new walk. *Avoid*: demo, screen test, verify
+  run (one proof of one screen). (#1734, 2026-11-23.)
+
+- **Walk page** — the one page a reviewer reads for a PR walk: its verdict, its problems, and every step's screen.
+  *Avoid*: report, PR walk HTML. (#1734, 2026-11-23.)
+
+- **Claimed change** — one thing a PR's description says it does, walked as a unit. It ends *seen*, *failed* or *not
+  walked*, with the reason. *Avoid*: feature, item. (#1734, 2026-11-23.)
+
+- **Click box** — the box on a step's screen around the control the walk clicks next. *Avoid*: highlight, target.
+  (#1734, 2026-11-23.)
+
+- **Pin** — a numbered note placed on a step's screen where something wrong, odd or worth noting shows, ranked
+  *must*, *should*, *nit* or *info*, and marked *seen* or *guess*. *Avoid*: comment, annotation, finding.
+  (#1734, 2026-11-23.)
+
+- **Box sheet** — every screen of a walk in one image with its click box and pins drawn, to check by eye that each
+  box sits on the control its step names. *Avoid*: contact sheet, thumbnail grid. (#1734, 2026-11-23.)
+
+- **Least limited login** — for one role profile, the enabled login limited to the fewest projects. It may still be
+  locked out of the app. *Avoid*: best user, test user. (#1734, 2026-11-23.)
