@@ -127,6 +127,12 @@ DENIED = [
     "npm --loglevel info exec -- react-doctor .",
     "pnpm --filter list dlx react-doctor .",
     "yarn --cwd install react-doctor .",
+    # Only the wrapper passes: a command after it, or doctor as an option's value, still does not.
+    "yarn doctor . > react-doctor.txt; npx react-doctor .",
+    "yarn doctor $(npx react-doctor .)",
+    "yarn --cwd doctor dlx react-doctor .",
+    "npm doctor react-doctor",
+    "yarn dlx doctor react-doctor",
     "gh --repo x react-doctor",
     # git takes bundled short options and any unique start of a long one; sort too.
     "git grep -iO'npx react-doctor .' useEffect",
@@ -144,6 +150,10 @@ ALLOWED = [
     "yarn doctor",
     "cd frontend && yarn doctor --scope changed --base origin/main",
     "yarn doctor --verbose src/App.tsx",
+    # The wrapper with the name in a redirect target or an argument (denied by mistake until the retro review).
+    "cd frontend && yarn doctor . > /tmp/react-doctor.txt 2>&1",
+    "yarn doctor --verbose docs/react-doctor.md",
+    "docker exec -w /workspace/frontend frappe_docker_devcontainer-frappe-1 yarn doctor . > react-doctor.log",
     "node scripts/react_doctor.mjs --verbose src/App.tsx",
     "node frontend/scripts/react_doctor_new.mjs --base abc123",
     "docker exec -w /workspace/frontend frappe_docker_devcontainer-frappe-1 yarn doctor",

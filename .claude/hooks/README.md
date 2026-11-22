@@ -92,7 +92,8 @@ completion notice. A box agent ran four such loops in one task with the prose ru
 
 **What:** a `PreToolUse` hook (matcher `Bash`). It denies any shell segment that names `react-doctor` unless
 the segment's command only reads or names its arguments (an allowed list: `READERS`, the git and gh subcommands in
-`GIT_READS` and `GH_READS`, plus package-manager queries such as `yarn add`/`why`). The deny reason sends the agent to `yarn doctor <args>` from
+`GIT_READS` and `GH_READS`, plus package-manager queries such as `yarn add`/`why`, and `yarn doctor` itself, so its
+output may go to a file whose name holds `react-doctor`). The deny reason sends the agent to `yarn doctor <args>` from
 `frontend/` (`frontend/scripts/react_doctor.mjs`), which always adds `--no-telemetry --no-score --no-supply-chain`
 and refuses `install`, `why` and `--supply-chain`. Without those flags React Doctor sends data to Axiom, Sentry,
 react.doctor and Socket.dev; in #1698 agents ran it that way 5 times with the prose rule in their context.

@@ -28,7 +28,8 @@ and printf escapes decoded, braces expanded (react\\-doctor, react-{doctor,}, $'
 The name counts inside a quoted string and a heredoc body too, so the string given to sh -c, eval, ssh, watch or
 npm exec -c, and a heredoc fed to a shell or ssh, are denied. A shell, ssh or xargs fed by a pipe from a command
 that names react-doctor is denied. $(...) inside double quotes or an unquoted heredoc is checked as commands.
-Allowed: `yarn doctor ...` and node on the wrapper scripts (frontend/scripts/react_doctor.mjs, react_doctor_new.mjs:
+Allowed: `yarn doctor ...` (also when an argument or redirect target holds the name: yarn doctor . >
+react-doctor.txt) and node on the wrapper scripts (frontend/scripts/react_doctor.mjs, react_doctor_new.mjs:
 an underscore, not the name), and a reader that names React Doctor (grep, cat, git log -S, a commit message, a heredoc
 written to a file with cat or tee).
 Not seen: a script file the agent writes and then runs; React Doctor started from another language (node -e,
@@ -245,6 +246,9 @@ def only_names(word):
     if name == "gh":
         return len(words) > 1 and words[1] in GH_READS
     if name in PACKAGE_MANAGERS:
+        # `yarn doctor` is the wrapper itself: a path or redirect target that holds the name runs nothing else.
+        if name == "yarn" and words[1:2] == ["doctor"]:
+            return True
         return len(words) > 1 and words[1] in PACKAGE_QUERIES
     return False
 
