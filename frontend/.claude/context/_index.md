@@ -9,7 +9,8 @@ How frontend code is written (data access, state, forms, tables, effects, dates,
 
 | Plan | Feature | Status |
 |------|---------|--------|
-| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. Live status + full per-slice as-built detail. |
+| [boq-status.md](../plans/boq-status.md) | BoQ Upload & Management | Live status: where BoQ work stands now. Rewritten in place. |
+| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Closed record: the design spec and the per-slice as-built detail up to slice DU-3. Read by heading; takes no new text. |
 
 ---
 

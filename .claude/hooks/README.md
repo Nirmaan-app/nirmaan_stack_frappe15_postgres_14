@@ -10,13 +10,19 @@ Small, committed guards that enforce conventions which were previously prose-onl
 logs, dated slice stories), the hook returns `permissionDecision: deny` with a message pointing
 the author to the right destination:
 
-- backend slices  → `.claude/context/domain/boq-backend.md`
-- frontend slices → `frontend/.claude/context/domain/boq-frontend.md`
-- live status / full narrative → `frontend/.claude/plans/boq-upload-plan.md`
+- what was built, test counts, hashes, build logs → the commit message, and no doc
+- a rule a later change must not break → that domain doc's Load-bearing invariants section
+- where BoQ work stands now → `frontend/.claude/plans/boq-status.md`, rewritten in place
 
-This is the in-session enforcement of the **DOCS-UPDATE RULE** (CLAUDE.md, 2026-06-25
-context-hygiene split). The deny reason is fed back to the model, which then writes the detail
-to the domain doc instead — so the hook teaches rather than just blocks.
+The hook also denies every Edit, Write and MultiEdit tool call on
+`frontend/.claude/plans/boq-upload-plan.md`. It is not registered for Bash, so a shell write is
+not caught. That file is a
+closed record: the earlier version of this message sent every author there to append, and it
+passed 4 MB.
+
+This is the in-session enforcement of the **DOCS-UPDATE RULE** (CLAUDE.md). The deny reason is
+fed back to the model, which then puts the detail in the right place — so the hook teaches
+rather than just blocks. Tests: `python3 -I .claude/hooks/test_guard_claude_md.py`.
 
 **Registered in** both `.claude/settings.json` (app-root launches) and
 `frontend/.claude/settings.json` (frontend launches), both pointing at this one script.
@@ -27,7 +33,8 @@ to the domain doc instead — so the hook teaches rather than just blocks.
 - *Fail-open* — any error → allow (never blocks real work on a hook bug).
 - *Delta-aware* — a full-file rewrite that *removes* changelog (a cleanup/dedup pass) is not
   blocked; only genuinely-new lines are evaluated.
-- *Scoped* — only `CLAUDE.md`; never the user's global `~/.claude/CLAUDE.md`.
+- *Scoped* — the changelog check reads only `CLAUDE.md`, never the user's global
+  `~/.claude/CLAUDE.md`; the closed-record check reads only that one plan file.
 
 **Tune** the `STRONG` / `WEAK` pattern lists at the top of the script. `STRONG` = any one match
 blocks; `WEAK` = two or more together block.
@@ -85,24 +92,43 @@ completion notice. A box agent ran four such loops in one task with the prose ru
 
 ## 5. `guard_react_doctor.py` — React Doctor only through `yarn doctor` (Claude Code hook)
 
-**What:** a `PreToolUse` hook (matcher `Bash`). It denies any shell segment that runs React Doctor directly: the
-`react-doctor` binary by name or path, `npx`/`bunx`/`pnpx`, `yarn|pnpm|npm|bun dlx|exec|x`, `yarn react-doctor`, or
-`node` on a file under `node_modules/react-doctor/`. The deny reason sends the agent to `yarn doctor <args>` from
+**What:** a `PreToolUse` hook (matcher `Bash`). It denies any shell segment that names `react-doctor` unless
+the segment's command only reads or names its arguments (an allowed list: `READERS`, the git and gh subcommands in
+`GIT_READS` and `GH_READS`, plus package-manager queries such as `yarn add`/`why`, and `yarn doctor` itself, so its
+output may go to a file whose name holds `react-doctor`). The deny reason sends the agent to `yarn doctor <args>` from
 `frontend/` (`frontend/scripts/react_doctor.mjs`), which always adds `--no-telemetry --no-score --no-supply-chain`
 and refuses `install`, `why` and `--supply-chain`. Without those flags React Doctor sends data to Axiom, Sentry,
 react.doctor and Socket.dev; in #1698 agents ran it that way 5 times with the prose rule in their context.
+
+**An accident guard, not a sandbox.** It stops the plain runs that happened in #1698. An agent set on getting past it
+can (shell spelling has no end), so a new bypass trick is not a reason for another review round.
 
 **Registered in** both `.claude/settings.json` and `frontend/.claude/settings.json`, so it also guards a session
 started in `frontend/`.
 
 **Properties:**
 - *Fail-open:* any parse error → allow.
-- *Reads only what runs:* the forms are a table (`RUN_FORMS`) matched at each segment's command word, after
-  `VAR=value`, `env`, `time`, `sudo`, `docker exec`, `ssh` and the like. A segment starts after `;`, `&&`, `||`, `|`,
-  `(`, `` ` `` or a newline. `grep react-doctor`, `git log -S react-doctor`, a commit message and a heredoc written to
-  a file are allowed. The string given to `sh -c`, `eval` or `ssh`, a heredoc fed to a shell, and `$(...)` inside
-  double quotes are checked as commands.
-- *Known gap:* a script file the agent writes and then runs, and React Doctor started from `node -e` or Python, are
-  not seen. The wrapper's refusals are the other guard.
+- *Allowed list, not a list of run forms:* a way to run React Doctor nobody thought of (npx by path, `rtk proxy`,
+  `/usr/bin/env`, `npm exec -c`, `yarn node`) is denied because its command is not a reader. The command is read
+  after `VAR=value`, `env`, `time`, `sudo`, `rtk`, `docker exec`, `ssh` and the like; a segment starts after `;`,
+  `&&`, `||`, `|`, `(`, `` ` `` or a newline. The name counts as a whole word only (`box/react-doctor-1698` does not).
+  It counts inside quoted strings and heredoc bodies too, so `sh -c '…'`, `ssh r7 '…'`, `ssh r7 <<EOF`, and a shell
+  or `xargs` fed by a pipe from a command that names it are denied; `$(...)` in double quotes or an unquoted heredoc
+  is checked as commands. `grep react-doctor`, `git log -S react-doctor`, a commit message and a heredoc written to
+  a file with `cat` or `tee` are allowed. The name is looked for as the shell will see it: quotes, backslash escapes
+  and line continuations removed, `$'…'` and `printf` escapes decoded, braces expanded, so `npx react\-doctor`,
+  `npx react-{doctor,}` and `npx $'react\x2ddoctor'` are denied.
+- *A command that can run its arguments is not a reader:* `awk` (`system()`), `sed` (GNU `e`), `less`, `bat`, `ag`,
+  `ack`, `open` and `read` (a name `'a[$(cmd)]'` runs `cmd`) are left off the list, so `awk '/react-doctor/' f` is
+  denied too (use `grep`); `command` reads only with `-v` or `-V`. A listed command stops being a reader when given an
+  option that runs a command: `find -exec`, `rg --pre`, `sort --compress-program`, `printf -v`, `test -v`, `git
+  -c`/`--config-env`/`--exec-path` (a `!` alias, `core.pager`), `git grep -O`, `-x`/`--exec`, also bundled (`-iO`)
+  or shortened (`--open=`). git, gh and the package managers count only when the first word after them is a
+  subcommand that runs nothing (`git log`, `grep`, `commit`, `merge`, …; `gh issue`, `pr`, `api`, …; `yarn why`,
+  `npm view`, …), so `git bisect run`, `git rebase -x`, a git alias, `gh alias`, a gh extension and `npm --loglevel
+  info exec` are denied. A prefix that names `react-doctor` (`GIT_PAGER='npx react-doctor .' git log`, `env -S '…'`) is denied.
+- *Known gap:* a script file the agent writes and then runs; React Doctor started from another language (`node -e`,
+  `python -c`, a Python subprocess); a name built at run time (`x=react; npx $x-doctor`). The wrapper's refusals are
+  the other guard.
 
 **Test:** `python3 -I .claude/hooks/test_guard_react_doctor.py`

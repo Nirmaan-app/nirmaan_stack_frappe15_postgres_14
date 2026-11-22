@@ -47,11 +47,15 @@ REQUIRED_SKILLS = {
 # lists of "pending" and the like both missed and blocked honest text (#1699's fix round said DONE with its review
 # "pending ... is running"). The bypass hunt: in #1702, #1705 and #1698 the briefs listed the bad cases, the builder
 # refused exactly those, and each laptop review found one more hole, over three rounds each.
+# Each line: label, its shape, whether only a blocker brief owes it, how to finish it, and the pattern its value must
+# start with. Own code-review needs only the positive word "finished" (so "pending" and "running" fail); Bypass hunt
+# needs `finished, ` and then its passes, so a bare "finished" or "finished." names no pass and fails.
 FINISHED_LINES = (
     ("Own code-review", "finished, <result>, against <base commit>", False,
-     "once your code-review has finished, write it"),
+     "once your code-review has finished, write it", r"[\s*_`]*finished\b"),
     ("Bypass hunt", "finished, <each pass and what it found>", True,
-     "the brief says Blocker: yes, so run its bypass hunt until a fresh hunter's pass finds nothing, then write it"),
+     "the brief says Blocker: yes, so run its bypass hunt until a fresh hunter's pass finds nothing, then write it",
+     r"[\s*_`]*finished[*_`]*,.*\bpass(?:es)?\b"),
 )
 
 
@@ -193,14 +197,14 @@ def report_problems(path: Path, head_short: str, blocker: bool = False) -> tuple
     status = m.group(1).upper() if m else None
     if status not in ("DONE", "BLOCKED"):
         problems.append("'## Status' must start with DONE or BLOCKED")
-    for label, shape, blocker_only, how in FINISHED_LINES if status == "DONE" else ():
+    for label, shape, blocker_only, how, finished in FINISHED_LINES if status == "DONE" else ():
         if blocker_only and not blocker:
             continue
         line = re.search(rf"^[ \t>*_`-]*{re.escape(label)}:[ \t*_`]*(.*)$", text, re.M)
         if not line:
             problems.append(f"the report's Review needs its line '{label}: {shape}' ({path})")
-        elif not re.match(r"[\s*_`]*finished\b", line.group(1), re.I):
-            problems.append(f"the '{label}:' line must start with 'finished, ' and its result: {how} in {path}")
+        elif not re.match(finished, line.group(1), re.I):
+            problems.append(f"the '{label}:' line must read '{label}: {shape}': {how} in {path}")
     return problems, status
 
 

@@ -2,12 +2,13 @@
 
 > **Relocated from `frontend/CLAUDE.md`** in the 2026-06-25 context-hygiene split (the old lines 178–1490:
 > the BoQ Upload Wizard + Pricing Editor + Review-screen conventions, with full per-slice as-built detail).
-> **Load this before working on BoQ frontend code.** Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+> **Load this before working on BoQ frontend code.** Live status = `frontend/.claude/plans/boq-status.md`.
+> `frontend/.claude/plans/boq-upload-plan.md` is a closed record (the design spec and the as-built records up to slice DU-3): read it by heading, never edit it.
 > Backend = `.claude/context/domain/boq-backend.md`.
 >
 > NOTE: any "DOCS-UPDATE RULE (all three, every commit)" text reproduced BELOW is **SUPERSEDED** — the
-> revised rule (per-slice detail → these reference docs + the plan, not the always-loaded `CLAUDE.md`)
-> lives in root `CLAUDE.md` § Session workflow.
+> current rule (per-commit detail → the commit message; a lasting rule → Load-bearing invariants below;
+> current status → `boq-status.md`) lives in root `CLAUDE.md` § Session workflow.
 
 ---
 
@@ -17,7 +18,7 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
 
 All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`; do not scatter wizard
 components into other page folders. This section keeps ONLY the stable conventions + load-bearing /
-owner-locked invariants. The full as-built detail (component contracts, per-slice records) is further down this file: find the section you need with `grep -n '^#'`, never load it whole. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+owner-locked invariants. The full as-built detail (component contracts, per-slice records) is further down this file: find the section you need with `grep -n '^#'`, never load it whole. Live status = `frontend/.claude/plans/boq-status.md`.
 **Pricing Module + Rate Master frontend detail** (the rate-helper panel's attribute semantics, the workbook pages, the RM-2 screens): `frontend/.claude/context/domain/pricing-rate-master-frontend.md`.
 
 ### Wizard (hub / spoke / review) -- stable conventions
@@ -194,7 +195,7 @@ lives further down this file.
 
 ## BoQ Upload Wizard -- Frontend Conventions (Module 1b onward)
 
-**Docs discipline -- DOCS-UPDATE RULE (all three, every commit):** Every docs or feat+docs commit updates ALL THREE docs -- `frontend/.claude/plans/boq-upload-plan.md`, root `CLAUDE.md`, and `frontend/CLAUDE.md` (this file) -- with NO exceptions. A doc not substantively affected still gets a MINIMAL TOUCH (bump its last-updated/status line + a one-line note of what landed), never a skip. Rationale: "update CLAUDE.md" without naming which one let this file silently fall a full module behind (stale through all of Module 2b). Naming all three by full path removes the routing ambiguity. **This file's path: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+**Docs discipline:** what a commit built goes in its commit message and in no doc. A lasting BoQ frontend rule goes in this file's Load-bearing invariants section. Where BoQ work stands now goes in `frontend/.claude/plans/boq-status.md`, rewritten in place. `frontend/.claude/plans/boq-upload-plan.md` is a closed record: `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on it, and does not see a shell write. The full rule is root `CLAUDE.md` § Session workflow (DOCS-UPDATE RULE). The earlier rule, "update all three docs on every commit", is retired.
 
 All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
 wizard components into other page folders.
