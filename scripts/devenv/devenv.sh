@@ -243,12 +243,16 @@ PY
   echo "  notification settings: created $(tail -1 <<<"$made") for enabled Nirmaan users that had none"
 }
 
-role_logins() {   # one "<role profile>  <email>" per role profile: its first enabled user whose SPA loads
-  psql -v ON_ERROR_STOP=1 -qAt -F $'\t' -d "$DB" <<'SQL' | while IFS=$'\t' read -r role email; do printf '    %-46s %s\n' "$role" "$email"; done
-SELECT DISTINCT ON (n.role_profile) n.role_profile, u.name
+# One "<role profile>  <email>  <n> user permissions" per role profile: of its enabled users whose SPA loads, the one
+# with the fewest User Permission rows, then by name. Each row limits what the user sees (Admin abhishek@ has one
+# project, so its lists come back near empty), so the least limited login shows the most on a walk.
+role_logins() {
+  psql -v ON_ERROR_STOP=1 -qAt -F $'\t' -d "$DB" <<'SQL' | while IFS=$'\t' read -r role email n; do printf '    %-46s %-36s %s user permissions\n' "$role" "$email" "$n"; done
+SELECT DISTINCT ON (n.role_profile) n.role_profile, u.name, coalesce(p.n, 0)
 FROM "tabNirmaan Users" n JOIN "tabUser" u ON u.name = n.name JOIN "tabNotification Settings" s ON s.name = u.name
+LEFT JOIN (SELECT "user", count(*) AS n FROM "tabUser Permission" GROUP BY "user") p ON p."user" = u.name
 WHERE u.enabled = 1 AND coalesce(n.role_profile, '') <> ''
-ORDER BY n.role_profile, u.name
+ORDER BY n.role_profile, coalesce(p.n, 0), u.name
 SQL
 }
 
@@ -577,7 +581,8 @@ PY
       echo "  not served: realtime (Socket.IO), so a screen that waits for a realtime event does not refresh"
       echo "  log in: 'devenv.sh run $TASK set-admin-password <pw>' sets a test password on this env's DB only;"
       echo "  'devenv.sh run $TASK set-password <email> <pw>' does the same for a user. One working login per role profile"
-      echo "  (enabled, with Nirmaan Users and Notification Settings rows; impersonate it or set its password):"
+      echo "  (enabled, with Nirmaan Users and Notification Settings rows, fewest user permissions first; impersonate it"
+      echo "  or set its password):"
       role_logins
       echo "  Restart the backend after a Python change: devenv.sh restart $TASK.  Stop with: devenv.sh stop $TASK"
       ;;
