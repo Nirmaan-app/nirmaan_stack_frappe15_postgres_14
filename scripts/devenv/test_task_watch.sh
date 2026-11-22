@@ -342,4 +342,59 @@ watch
 line '^m1 +air +crashed *$' "a stalled agent that dies is crashed, not stalled"
 echo "5101 claude.exe $(wt "$AROOT" m1)" >> "$AH/.stub/procs"
 
+# ---- watch --install: a launchd user agent runs the pass every 300 s, so no chat has to keep a loop alive (#1698:
+# the chat's background watch died with the chat when the laptop ran low on memory). Fake HOME, stub launchctl.
+cat > "$T/bin/launchctl" <<'EOF'
+#!/bin/bash
+echo "launchctl $*" >> "$LAUNCHCTL_LOG"
+EOF
+printf '#!/bin/bash\n' > "$T/bin/orca"
+chmod +x "$T/bin/launchctl" "$T/bin/orca"
+export LAUNCHCTL_LOG="$T/launchctl.log"; : > "$LAUNCHCTL_LOG"
+H="$T/home"; mkdir -p "$H" "$T/home-linux/.stub"; echo Linux > "$T/home-linux/.stub/uname"
+PLIST="$H/Library/LaunchAgents/app.nirmaan.task-watch.plist"; LOG="$T/state/devbox/watch.log"; UID_="$(id -u)"
+inst() { run env HOME="$H" /bin/bash "$L/scripts/devenv/task.sh" watch "$@"; }
+inst --install now
+rc_is 1 "--install with an extra argument is a usage error"
+run env HOME="$T/home-linux" /bin/bash "$L/scripts/devenv/task.sh" watch --install
+rc_is 1 "--install off macOS is refused"; line 'macOS only' "the refusal says macOS only"
+[ ! -e "$T/home-linux/Library" ] || fail "the refusal writes nothing"; pass "the refusal writes nothing"
+inst --install
+rc_is 0 "--install exits 0"
+[ -f "$PLIST" ] || fail "--install writes the plist under ~/Library/LaunchAgents"; pass "--install writes the plist under ~/Library/LaunchAgents"
+plutil -lint -s "$PLIST" || fail "the plist is valid"; pass "the plist is valid"
+P="$(cat "$PLIST")"
+case "$P" in *"<string>app.nirmaan.task-watch</string>"*) pass "the label is app.nirmaan.task-watch" ;; *) fail "the label is app.nirmaan.task-watch" ;; esac
+SELF="$(cd "$L/scripts/devenv" && pwd -P)/task.sh"
+case "$P" in *"<string>/bin/bash</string>"*"<string>-c</string>"*"<string>\"$SELF\" watch &gt; \"$LOG\" 2&gt;&amp;1</string>"*) pass "the job runs this task.sh watch with its log at devbox/watch.log" ;; *) fail "the job runs this task.sh watch with its log at devbox/watch.log" ;; esac
+case "$P" in *"<key>StartInterval</key>"*"<integer>300</integer>"*) pass "the job runs every 300 s" ;; *) fail "the job runs every 300 s" ;; esac
+case "$P" in *"<key>RunAtLoad</key>"*"<true/>"*) pass "the job runs at load" ;; *) fail "the job runs at load" ;; esac
+case "$P" in *"<key>PATH</key>"*"<string>$T/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"*) pass "the job's PATH has orca's folder and the usual bins" ;; *) fail "the job's PATH has orca's folder and the usual bins" ;; esac
+case "$P" in *"<key>XDG_STATE_HOME</key>"*"<string>$T/state</string>"*) pass "the job keeps the installer's XDG_STATE_HOME" ;; *) fail "the job keeps the installer's XDG_STATE_HOME" ;; esac
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch
+launchctl bootstrap gui/$UID_ $PLIST" "--install boots out any old job, then bootstraps the plist"
+line "^ok +installed .*app.nirmaan.task-watch" "--install says what it installed"
+line "watch.log" "--install names the log"
+: > "$LAUNCHCTL_LOG"
+inst --install
+rc_is 0 "a second --install exits 0"
+same "$(cat "$PLIST")" "$P" "a second --install writes the same plist"
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch
+launchctl bootstrap gui/$UID_ $PLIST" "a second --install boots out the first, then bootstraps again"
+mkdir -p "$T/bin-no-orca"; cp "$T/bin/launchctl" "$T/bin-no-orca/"
+run env HOME="$H" PATH="$T/bin-no-orca:/usr/bin:/bin" /bin/bash "$L/scripts/devenv/task.sh" watch --install
+rc_is 0 "--install with no orca on PATH exits 0"
+case "$(cat "$PLIST")" in *"<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"*) pass "with no orca on PATH the job's PATH is the usual bins alone" ;; *) fail "with no orca on PATH the job's PATH is the usual bins alone" ;; esac
+inst --install
+: > "$LAUNCHCTL_LOG"
+inst --uninstall
+rc_is 0 "--uninstall exits 0"
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch" "--uninstall boots the job out"
+[ ! -e "$PLIST" ] || fail "--uninstall moves the plist aside"; pass "--uninstall moves the plist aside"
+[ -f "$PLIST.off" ] || fail "the plist is kept as .off"; pass "the plist is kept as .off"
+inst --uninstall
+rc_is 0 "--uninstall with nothing installed exits 0"; line "nothing installed" "and says so"
+run env HOME="$T/home-linux" /bin/bash "$L/scripts/devenv/task.sh" watch --uninstall
+rc_is 1 "--uninstall off macOS is refused"
+
 echo; echo "all $N checks passed"

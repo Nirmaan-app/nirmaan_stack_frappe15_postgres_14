@@ -23,7 +23,7 @@
 #                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task.
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
 #   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
-#   task.sh watch [--every <seconds>]
+#   task.sh watch [--every <seconds> | --install | --uninstall]
 #                            each recorded task's agent: working, stalled (alive, not finished, and nothing written to
 #                            its session log for DEVBOX_STALL_SECONDS, 1200), finished (its report's Status is DONE or
 #                            BLOCKED), crashed (no agent in its env and no finished report) or unreachable (the box
@@ -35,7 +35,11 @@
 #                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
 #                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
 #                            when that changes. done prints the same WARN.
-#                            --every repeats until Ctrl-C.
+#                            --every repeats until Ctrl-C. --install (macOS) runs a pass every 300 s as the launchd
+#                            user agent app.nirmaan.task-watch, from this task.sh (so from the checkout whose records
+#                            you want watched), its last pass in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch.log;
+#                            a chat then needs no watch loop of its own (one died with its chat on #1698). A rerun
+#                            replaces the job. --uninstall boots it out and keeps its plist as .off.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
 # <box>: a box in the registry (scripts/devenv/boxes.sh). Without --box, start picks one: with devbox.order in the
@@ -274,6 +278,68 @@ watch_pass() {
   done
 }
 
+# The watch as a launchd user agent (macOS): a pass every 300 s, so no chat has to keep a loop alive. On #1698 the
+# chat's background `watch --every 300` died with the chat when the laptop ran low on memory, and no alert came.
+WATCH_LABEL="app.nirmaan.task-watch"
+WATCH_PLIST="$HOME/Library/LaunchAgents/$WATCH_LABEL.plist"
+WATCH_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch.log"
+
+watch_launchd_only() { [ "$(uname)" = Darwin ] || die "task.sh watch --install and --uninstall are macOS only (launchd). Elsewhere, run task.sh watch --every 300 under a service of your own."; }
+xml() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+
+# Written whole each time and bootstrapped after a bootout, so a rerun converges on the same job. The job's PATH is
+# fixed here: launchd gives it none of the shell's, and it needs ssh, git, python3 and orca.
+watch_install() {
+  local path orca_dir uid
+  watch_launchd_only
+  path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+  orca_dir="$(dirname "$(command -v orca || echo /nowhere/orca)")"
+  [ "$orca_dir" = /nowhere ] || case ":$path:" in *":$orca_dir:"*) ;; *) path="$orca_dir:$path" ;; esac
+  uid="$(id -u)"
+  mkdir -p "$(dirname "$WATCH_PLIST")" "$(dirname "$WATCH_LOG")"
+  {
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$WATCH_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>$(printf '"%s" watch > "%s" 2>&1' "$SELF_DIR/task.sh" "$WATCH_LOG" | xml)</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(printf '%s' "$path" | xml)</string>
+EOF
+    [ -z "${XDG_STATE_HOME:-}" ] || printf '    <key>XDG_STATE_HOME</key>\n    <string>%s</string>\n' "$(printf '%s' "$XDG_STATE_HOME" | xml)"
+    cat <<EOF
+  </dict>
+</dict>
+</plist>
+EOF
+  } > "$WATCH_PLIST.new"
+  mv "$WATCH_PLIST.new" "$WATCH_PLIST"
+  launchctl bootout "gui/$uid/$WATCH_LABEL" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$uid" "$WATCH_PLIST"
+  ok "installed $WATCH_PLIST: task.sh watch every 300 s, its last pass in $WATCH_LOG (launchctl print gui/$uid/$WATCH_LABEL shows the job)"
+}
+
+watch_uninstall() {
+  watch_launchd_only
+  launchctl bootout "gui/$(id -u)/$WATCH_LABEL" >/dev/null 2>&1 || true
+  if [ -f "$WATCH_PLIST" ]; then mv "$WATCH_PLIST" "$WATCH_PLIST.off"; ok "removed the job; its plist is kept at $WATCH_PLIST.off"
+  else echo "nothing installed at $WATCH_PLIST"; fi
+}
+
 # box_pick: set PICK and PICK_WHY for a start without --box (the rule is in the header, under <box>).
 box_pick() {
   local order b names n out rc busy cap alive dod idle line word
@@ -400,8 +466,9 @@ case "$CMD" in
     prune_tasks "$([ $# = 2 ] && echo 1 || echo 0)"
     exit ;;
   watch)
+    case "$#:${2:-}" in 2:--install) watch_install; exit 0 ;; 2:--uninstall) watch_uninstall; exit 0 ;; esac
     [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
-      || die "usage: task.sh watch [--every <seconds>]"
+      || die "usage: task.sh watch [--every <seconds> | --install | --uninstall]"
     while :; do watch_pass; [ $# = 3 ] || break; sleep "$3"; done
     exit 0 ;;
   pick)
@@ -418,7 +485,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,47p' "$0"; exit 1 ;;
+  *) sed -n '2,50p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
