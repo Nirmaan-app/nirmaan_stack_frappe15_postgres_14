@@ -22,7 +22,8 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Cast a bound `SUBSTRING` offset:** `SUBSTRING(col FROM %s::integer)`. An uncast `%s` arrives as text and
   selects the regex overload, so the predicate quietly never matches.
 - **Generated and append-only paths are never hand-edited:** doctype JSON, existing files in `patches/`,
-  `www/frontend.html`, `frontend/src/components/ui/`, `frontend/src/types/doctypes/`, `nirmaan_stack/public/`.
+  `www/frontend.html`, the shadcn-generated files of `frontend/src/components/ui/`, `frontend/src/types/doctypes/`,
+  `nirmaan_stack/public/`.
   Change the source or use the tool instead; the sanctioned doctype-JSON exceptions are in `CODING_STANDARDS.md`
   § Don't touch.
 
