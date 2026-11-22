@@ -6,7 +6,9 @@ Enforces the DOCS-UPDATE RULE (CLAUDE.md, 2026-06-25 context-hygiene split): per
 per-slice detail (test counts, feat hashes, 'Slice N' narratives, build logs, dated slice
 stories) belongs in the on-demand reference docs, NOT the always-loaded CLAUDE.md. This hook
 inspects edits to any project CLAUDE.md and DENIES the write when the *added* text carries
-changelog signatures, redirecting the author to the domain docs.
+changelog signatures, and tells the author where that text goes instead (DESTINATIONS below).
+
+It also DENIES every edit to the closed BoQ plan (FROZEN_PLAN below), so the record stops growing.
 
 Registered as a PreToolUse hook (matcher Edit|Write|MultiEdit) in:
   - .claude/settings.json            (when Claude Code is launched from the app root)
@@ -50,21 +52,31 @@ WEAK = [
 STRONG_RE = [re.compile(p, re.IGNORECASE) for p in STRONG]
 WEAK_RE = [re.compile(p, re.IGNORECASE) for p in WEAK]
 
+# Where each kind of text goes instead. Shared by both denials below.
+DESTINATIONS = (
+    "  - what was built, test counts, hashes, build logs -> the commit message, and no doc\n"
+    "  - a rule a later change must not break -> that domain doc's Load-bearing invariants section\n"
+    "  - where BoQ work stands now -> frontend/.claude/plans/boq-status.md, rewritten in place\n"
+)
+
 REASON = (
     "This edit to CLAUDE.md looks like per-slice / per-commit as-built detail "
     "(test counts, feat hashes, 'Slice N', dates, or build logs).\n"
-    "Per the DOCS-UPDATE RULE (context-hygiene split, 2026-06-25), that detail belongs in the "
-    "on-demand reference docs, NOT the always-loaded CLAUDE.md:\n"
-    "  - backend slices  -> .claude/context/domain/boq-backend.md\n"
-    "  - frontend slices -> frontend/.claude/context/domain/boq-frontend.md\n"
-    "  - per-slice as-built record -> frontend/.claude/plans/boq-upload-plan.md\n"
-    "    (append a '## <record title>' section; the plan doc is the single live record)\n"
-    "  - design / live status -> frontend/.claude/plans/boq-upload-plan.md\n"
-    "Write the slice detail in the domain doc / plan instead. Touch CLAUDE.md ONLY for a STABLE "
-    "convention or a load-bearing / owner-locked invariant, phrased WITHOUT per-commit metrics "
-    "(no test counts, hashes, dates, or 'Slice N').\n"
+    "Per the DOCS-UPDATE RULE, that detail does not belong in the always-loaded CLAUDE.md:\n"
+    + DESTINATIONS +
+    "Touch CLAUDE.md ONLY for a STABLE convention or a load-bearing / owner-locked invariant, phrased "
+    "WITHOUT per-commit metrics (no test counts, hashes, dates, or 'Slice N').\n"
     "If this is genuinely a stable convention and the match is incidental, rephrase to drop the "
     "changelog-style wording."
+)
+
+# The BoQ plan is a closed record: every author was once sent here to append, and it passed 4 MB.
+FROZEN_PLAN = os.path.join("frontend", ".claude", "plans", "boq-upload-plan.md")
+
+FROZEN_REASON = (
+    "frontend/.claude/plans/boq-upload-plan.md is a closed record and takes no new text.\n"
+    + DESTINATIONS +
+    "To read the record, list its headings with grep and read one range."
 )
 
 
@@ -100,6 +112,16 @@ def is_changelog(text):
     return sum(1 for rx in WEAK_RE if rx.search(text)) >= 2
 
 
+def deny(reason):
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }))
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -112,8 +134,11 @@ def main():
 
     tool_input = data.get("tool_input") or {}
     path = tool_input.get("file_path", "") or ""
+    if os.path.normpath(path).endswith(os.sep + FROZEN_PLAN):
+        deny(FROZEN_REASON)
+        return
     if os.path.basename(path) != "CLAUDE.md":
-        return  # only guard CLAUDE.md files
+        return  # the diary check is for CLAUDE.md files only
 
     # Never interfere with the user's global ~/.claude config.
     home_claude = os.path.abspath(os.path.join(os.path.expanduser("~"), ".claude"))
@@ -125,13 +150,7 @@ def main():
 
     try:
         if is_changelog(added_text(tool_name, tool_input)):
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": REASON,
-                }
-            }))
+            deny(REASON)
     except Exception:
         return  # fail-open
 

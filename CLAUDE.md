@@ -60,12 +60,14 @@ Three standards fail silently when broken, so they are summarised here too (full
   worktree-creating skill stand down.
 
 **Docs discipline — DOCS-UPDATE RULE.** Per-commit as-built detail (hashes, test counts, build logs, dated
-narratives) goes to the on-demand reference docs only: `frontend/.claude/plans/boq-upload-plan.md` (live status,
-source of truth), `.claude/context/domain/boq-backend.md`, `frontend/.claude/context/domain/boq-frontend.md`.
+narratives) goes in the commit message and in no doc. Where BoQ work stands now goes in
+`frontend/.claude/plans/boq-status.md`, which is rewritten in place and stays under 200 lines.
+`frontend/.claude/plans/boq-upload-plan.md` is a closed record and takes no new text.
 Touch a `CLAUDE.md` only when a stable convention or an owner-locked invariant changes. A domain rule goes in that
 domain doc's Load-bearing invariants section, with at most a pointer row in Domain docs; a coding rule goes in
 `CODING_STANDARDS.md` (frontend: `frontend/CODING_STANDARDS.md`). The `.claude/hooks/guard_claude_md.py`
-PreToolUse hook enforces this and redirects changelog-style text to the reference docs (patterns: `.claude/hooks/README.md`).
+PreToolUse hook refuses changelog-style text in a `CLAUDE.md` and any edit to the closed record (patterns:
+`.claude/hooks/README.md`).
 
 ## Commands
 
@@ -121,7 +123,8 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 
 | Touching… | Read |
 |---|---|
-| **BoQ status**: the active phase or slice, the design spec, as-built records | `frontend/.claude/plans/boq-upload-plan.md` |
+| **BoQ status**: the active phase or slice | `frontend/.claude/plans/boq-status.md` |
+| **BoQ history**: the design spec and the as-built records (closed, read by heading) | `frontend/.claude/plans/boq-upload-plan.md` |
 | **BoQ wizard**: upload, parser, review tree, AI-assist prompts, commit, BoQ doctypes, a wizard-vs-app-wide scope fork | `boq-backend.md` § Load-bearing invariants |
 | **Reading an uploaded file's bytes** (BoQ upload worker, any upload code) | `CODING_STANDARDS.md` § Writing backend Python |
 | **BoQ classification**: `BoQ Row Category`, engines, rules runner, routing, AI voter, truth snapshots | `boq-classification.md` |

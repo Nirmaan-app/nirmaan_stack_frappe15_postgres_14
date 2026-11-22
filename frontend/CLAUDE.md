@@ -57,7 +57,8 @@ headings with `grep -n '^#' <file>`, then read only that range.
 |---|---|
 | **BoQ pricing editor**: `PricingGrid.tsx`, `SheetPricingPage.tsx`, the BCS cost block, the Category column, the rate-helper chassis, view filters | `boq-pricing-editor-frontend.md` |
 | **BoQ wizard** (`src/pages/boq-wizard/`): upload, hub, spoke, the review screen | `boq-frontend.md` § Load-bearing invariants |
-| **BoQ status**: the active slice, the design spec, as-built records | `.claude/plans/boq-upload-plan.md` |
+| **BoQ status**: the active slice | `.claude/plans/boq-status.md` |
+| **BoQ history**: the design spec and the as-built records (closed, read by heading) | `.claude/plans/boq-upload-plan.md` |
 | **Rate-helper panel** attributes, Pricing Module workbook pages, Rate Master screens | `pricing-rate-master-frontend.md` |
 | **Procurement**: Loss Justification (PR/SB), Critical PO Task packages and links | `../.claude/context/domain/procurement.md` § Load-bearing invariants |
 | **CEO Hold**, including the Delivery Note exemption | `ceo-hold.md` |

@@ -10,13 +10,17 @@ Small, committed guards that enforce conventions which were previously prose-onl
 logs, dated slice stories), the hook returns `permissionDecision: deny` with a message pointing
 the author to the right destination:
 
-- backend slices  → `.claude/context/domain/boq-backend.md`
-- frontend slices → `frontend/.claude/context/domain/boq-frontend.md`
-- live status / full narrative → `frontend/.claude/plans/boq-upload-plan.md`
+- what was built, test counts, hashes, build logs → the commit message, and no doc
+- a rule a later change must not break → that domain doc's Load-bearing invariants section
+- where BoQ work stands now → `frontend/.claude/plans/boq-status.md`, rewritten in place
 
-This is the in-session enforcement of the **DOCS-UPDATE RULE** (CLAUDE.md, 2026-06-25
-context-hygiene split). The deny reason is fed back to the model, which then writes the detail
-to the domain doc instead — so the hook teaches rather than just blocks.
+The hook also denies every edit to `frontend/.claude/plans/boq-upload-plan.md`. That file is a
+closed record: the earlier version of this message sent every author there to append, and it
+passed 4 MB.
+
+This is the in-session enforcement of the **DOCS-UPDATE RULE** (CLAUDE.md). The deny reason is
+fed back to the model, which then puts the detail in the right place — so the hook teaches
+rather than just blocks. Tests: `python3 -I .claude/hooks/test_guard_claude_md.py`.
 
 **Registered in** both `.claude/settings.json` (app-root launches) and
 `frontend/.claude/settings.json` (frontend launches), both pointing at this one script.
@@ -27,7 +31,8 @@ to the domain doc instead — so the hook teaches rather than just blocks.
 - *Fail-open* — any error → allow (never blocks real work on a hook bug).
 - *Delta-aware* — a full-file rewrite that *removes* changelog (a cleanup/dedup pass) is not
   blocked; only genuinely-new lines are evaluated.
-- *Scoped* — only `CLAUDE.md`; never the user's global `~/.claude/CLAUDE.md`.
+- *Scoped* — the changelog check reads only `CLAUDE.md`, never the user's global
+  `~/.claude/CLAUDE.md`; the closed-record check reads only that one plan file.
 
 **Tune** the `STRONG` / `WEAK` pattern lists at the top of the script. `STRONG` = any one match
 blocks; `WEAK` = two or more together block.
