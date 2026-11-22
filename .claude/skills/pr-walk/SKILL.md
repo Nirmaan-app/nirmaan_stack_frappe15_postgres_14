@@ -46,16 +46,19 @@ If `create` or `migrate` fails because the template DB is stale, stop and tell t
 
 ## 3. One user per role
 
-The roles this app has, and a user for each that sees all the data the walk needs:
+The roles this app has, and a user for each that sees all the data the walk needs: `DEVENV serve <env>` lists them.
+Per role profile it prints the enabled login with the fewest user permissions, and that count. Every user
+permission in this app limits a user to one project, so 0 means no project limit and n means the user sees n
+projects only. Walk each role as the login `serve` prints for it.
 
-| Role | User | Why this one |
-|---|---|---|
-| Admin | `admins@nirmaan.app` | No project limits. Not `abhishek@nirmaan.app`: it is limited to 1 project. |
-| Accountant | `swathi@nirmaan.app` | No project limits. |
-| Accountant Lead | `deepa@nirmaan.app` | No project limits. |
-| Procurement Lead | `sowmya@nirmaan.app` | Sees every project. Procurement Executives see only their own. |
-| PMO | `deven@nirmaan.app` | No project limits. |
-| Project Manager | `abdul.hannan@nirmaan.app` | Assigned to 2 projects; pick data from those. |
+What that list does not say:
+
+| Role | What to know |
+|---|---|
+| Procurement Executive | Every one is limited to the projects they are assigned. Pick the walk's data from those. |
+| Procurement Lead | Can be limited too: read its count before you assume it sees every project. |
+| Project Manager | Most are assigned to a few projects. When the printed login has a count, pick data from its projects. |
+| Any role | A role whose printed count is above 0 has no user that sees every project. |
 
 Set one test password per user on both envs: `DEVENV run <env> set-password <email> <pw>`. `free_users.py` marks
 users holding an asset as locked; that flag does not stop a login.
