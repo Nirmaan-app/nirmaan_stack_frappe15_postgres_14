@@ -130,7 +130,8 @@ class BlockerBypassHunt(TaskRepo):
                      "Bypass hunt: TBD", "Bypass hunt:", "Bypass hunt: finished", "Bypass hunt: finished.",
                      "Bypass hunt: Finished - nothing", "Bypass hunt: **finished**", "Bypass hunt: finished, ok"):
             out = self.check("Blocker: yes", hunt)
-            self.assertIn("'Bypass hunt:' line must start with 'finished, '", out, hunt)
+            self.assertIn("'Bypass hunt:' line must read 'Bypass hunt: finished, <each pass and what it found>'", out,
+                          hunt)
 
     def test_a_blocker_whose_hunt_finished_is_done(self):
         out = self.check("Blocker: yes", "Bypass hunt: finished, pass 1 found a symlinked config (fixed in 1a2b3c4), "
@@ -177,7 +178,7 @@ class UnfinishedReport(unittest.TestCase):
         for value in ("pending: code-review against 03d44ec3e is running", "**pending**", "(pending)", "in progress",
                       "review started, results soon", "waiting for subagents", "queued", "unfinished", ""):
             out = self.problems(f"Own code-review: {value}\nSeparate review: pending")
-            self.assertTrue(any("must start with 'finished" in p for p in out), (value, out))
+            self.assertTrue(any("must read 'Own code-review: finished, " in p for p in out), (value, out))
 
     def test_a_done_report_without_the_own_review_line_is_not_done(self):
         out = self.problems("code-review: no findings")

@@ -2,6 +2,10 @@
 """
 PreToolUse guard (matcher Bash): deny any command that runs React Doctor except through `yarn doctor`.
 
+An accident guard, not a sandbox: it catches an agent that runs React Doctor the plain way (every one of #1698's 5
+runs was plain), not one set on getting past it. Shell spelling has no end, so three review rounds that each found
+one more trick were stopped by the owner's decision (2026-11-22); the wrapper's refusals are the second guard.
+
 React Doctor run without --no-telemetry --no-score --no-supply-chain sends rule names, counts and file names to Sentry
 and Axiom, asks react.doctor for a score, and checks dependencies with Socket.dev; `why` reaches Socket.dev whatever
 the flags say. Data once sent cannot be recalled. In #1698 it ran without the flags 5 times (4 by a box agent, 1 by a
@@ -68,8 +72,9 @@ GIT_READS = frozenset("""
 """.split())
 # Options of those subcommands that run a command. git takes short options bundled (-iO<pager> is -i -O<pager>) and
 # any unique start of a long option (--open=<pager>), so a short cluster holding O or x, and a long option that
-# starts one of GIT_RUN_LONG, count.
-GIT_RUN_SHORT = re.compile(r"-[A-Za-z0-9]*[Ox]")
+# starts one of GIT_RUN_LONG, count. A letter that takes a value (-S, -G, -e, -f, ...) ends the cluster: the rest of
+# the word is that value, so `git log -SOptions` searches for "Options" and runs nothing.
+GIT_RUN_SHORT = re.compile(r"-(?:(?![SGefCABUL])[A-Za-z0-9])*[Ox]")
 GIT_RUN_LONG = ("open-files-in-pager", "exec", "extcmd", "upload-pack", "receive-pack")
 # gh subcommands that run nothing locally; gh alias and an extension (gh <name>) can.
 GH_READS = frozenset("issue pr search api repo release run workflow label gist browse status".split())

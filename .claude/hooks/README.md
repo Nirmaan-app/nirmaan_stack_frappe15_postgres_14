@@ -92,6 +92,9 @@ the segment's command only reads or names its arguments (an allowed list: `READE
 and refuses `install`, `why` and `--supply-chain`. Without those flags React Doctor sends data to Axiom, Sentry,
 react.doctor and Socket.dev; in #1698 agents ran it that way 5 times with the prose rule in their context.
 
+**An accident guard, not a sandbox.** It stops the plain runs that happened in #1698. An agent set on getting past it
+can (shell spelling has no end), so a new bypass trick is not a reason for another review round.
+
 **Registered in** both `.claude/settings.json` and `frontend/.claude/settings.json`, so it also guards a session
 started in `frontend/`.
 

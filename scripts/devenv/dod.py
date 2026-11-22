@@ -204,7 +204,7 @@ def report_problems(path: Path, head_short: str, blocker: bool = False) -> tuple
         if not line:
             problems.append(f"the report's Review needs its line '{label}: {shape}' ({path})")
         elif not re.match(finished, line.group(1), re.I):
-            problems.append(f"the '{label}:' line must start with 'finished, ' and its result: {how} in {path}")
+            problems.append(f"the '{label}:' line must read '{label}: {shape}': {how} in {path}")
     return problems, status
 
 
