@@ -4,6 +4,28 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-19 — Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
+
+Branch `feat/vendor-wo-pdf` (5 commits, unpushed). Backend, schema and print formats: `../../.claude/CHANGELOG.md`
+(same date).
+
+- **Vendor page → Work Orders:** "Download PDF" before Export on All / Approved / Finalized, only under `for_vendor`
+  (`ServiceRequests/hooks/useVendorWorkOrdersPdf.ts` + test).
+- **WO lists:** Project / Vendor link icons via the new shared `components/helpers/NameWithLinkIcon.tsx` (+ DOM test);
+  no Vendor link under `for_vendor`.
+- **MTC:** `constants/roles.ts` `MTC_UPLOAD_PROFILES`, `canUploadMTC`, `canEditMTC`; `UploadMTCButton` on
+  `canUploadMTC`; `MTCCard` / `MTCTable` per-row Edit (`canEditMTC`) and Delete (managers only); `useMTCMutations`
+  creates through `create_mtc`.
+- **PO preview:** `purchase-order/hooks/usePOHeaderDate.ts` (+ test) gives `POPdf.tsx` "Revised PO Date" or "PO Date".
+- **MSME:** `pages/vendors/utils/msme.ts` (Udyam rules, `refineMsmePair` both-or-neither, `msmeValuesToSave` sends
+  the read data as JSON text) + test; `components/VendorMsmeFields.tsx` on New and Edit Vendor (upload, Gemini read,
+  editable ID, warnings; the missing half's message under its own field; Reset clears the picked file and remounts
+  the picker) + DOM test; Vendor Overview MSME ID links to the certificate with an arrow (`VendorOverviewCard.tsx`).
+  Types regenerated (`types/doctypes/Vendors.ts`).
+- Tests: MSME 20/20, vendor form utils 82/82; browser walk on localhost (MSME A–G) passed.
+
+---
+
 ## 2026-11-12 — L1 single reject no longer stamps `approval_date`
 
 `approve-payments/ApprovePayments.tsx`: the L1 dialog's update writes `approval_date` only on an approve. A reject

@@ -184,7 +184,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
                 <span>Delivery Status</span>
               </div>
             </TableHead>
-            <TableHead className="text-center min-w-[170px]">PO Number(s)</TableHead>
+            <TableHead className="text-center min-w-[170px]">PO / ITM Number(s)</TableHead>
             <TableHead className="text-center min-w-[80px]">DCs</TableHead>
             <TableHead className="text-center min-w-[80px]">MIRs</TableHead>
             <TableHead className="min-w-[180px]">

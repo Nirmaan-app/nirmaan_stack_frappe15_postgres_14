@@ -194,9 +194,27 @@ export const MTC_MANAGE_PROFILES: readonly string[] = [
   ...PROCUREMENT_PROFILES,
 ];
 
-/** True when `role` (a role PROFILE) may upload / edit / delete an MTC. */
+/** True when `role` (a role PROFILE) may upload, edit any and delete an MTC. */
 export const canManageMTC = (role?: string | null, userId?: string | null): boolean =>
   userId === "Administrator" || (!!role && MTC_MANAGE_PROFILES.includes(role));
+
+/**
+ * May upload an MTC on the PO page: the managers plus Project Manager and Project Lead (owner,
+ * 2026-11-19). Mirrored server-side by `role_profiles.MTC_UPLOAD_PROFILES`; a PM / PL is also
+ * held to their assigned projects there.
+ */
+export const MTC_UPLOAD_PROFILES: readonly string[] = [
+  ...MTC_MANAGE_PROFILES,
+  PROJECT_MANAGER_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+export const canUploadMTC = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && MTC_UPLOAD_PROFILES.includes(role));
+
+/** May edit this MTC: a manager any; a Project Manager / Lead only one they uploaded. Never delete. */
+export const canEditMTC = (role?: string | null, userId?: string | null, owner?: string | null): boolean =>
+  canManageMTC(role, userId) || (!!userId && owner === userId && canUploadMTC(role, userId));
 
 /**
  * The MTC list page and its dashboard card: Project Manager and Project Lead, each seeing

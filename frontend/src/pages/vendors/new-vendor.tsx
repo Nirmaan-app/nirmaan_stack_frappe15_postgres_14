@@ -17,6 +17,8 @@ import {
   vendorTaxIdSchemas,
 } from "./utils/vendorTaxIds"
 import { VendorTdsRateHint } from "./components/VendorTdsRateHint"
+import { VendorMsmeFields } from "./components/VendorMsmeFields"
+import { msmeValuesToSave, refineMsmePair, vendorMsmeSchemas } from "./utils/msme"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee"
 import { VendorPayeeSection } from "@/components/payees/VendorPayeeSection"
@@ -125,6 +127,8 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
       //     }),
       // GST required unless Service; PAN required for every vendor.
       ...vendorTaxIdSchemas(existingVendors, service),
+      // MSME (Udyam) details: optional, but ID and certificate come together (refineMsmePair).
+      ...vendorMsmeSchemas,
       // `coerce` because an <Input type="number"> hands back a string. Without it
       // every submit fails a zod number check on a field the user never touched.
       // ⚠️ A BLANK MUST NOT REACH `z.coerce.number()` -- `Number("")` is 0, so an
@@ -140,7 +144,7 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
       ),
     // An Individual / HUF PAN must be at 1%; the server applies the same rule on save
     // (services/vendor_tds.py).
-    }).superRefine(refineTdsRateAgainstPan);
+    }).superRefine(refineTdsRateAgainstPan).superRefine(refineMsmePair);
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
@@ -205,6 +209,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
             // NOT `undefined` like its neighbours -- "Reset" must return this to
             // the standard rate, the same state a freshly-opened form is in.
             tds_deduction_percentage: 2,
+            msme_id: "",
+            msme_attachment: "",
+            autofill_all_entities_json: null,
         });
         form.clearErrors();
         payeeChoice.reset();
@@ -264,7 +271,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
             // No categories: a new vendor starts empty and the daily job
             // (tasks/vendor_category_sync.py) fills them in from its POs and Work Orders.
             const response: { message: CreateVendorReply } = await createVendorAndAddress({
-                values: { ...values },
+                values: { ...values, ...msmeValuesToSave(values) },
                 vendorType: vendorType,
                 service: service,
                 ...payeeChoice.answer(),
@@ -499,6 +506,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                         </FormItem>
                                     )}
                                 />
+                                <VendorMsmeFields />
                                 <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
                                 <FormField
                                     control={form.control}

@@ -5,6 +5,14 @@
 _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
 
 - **PO Revision simplified to 2 steps**: Item editing + Summary (Step 2 financial allocation removed). Payment reconciliation handled by PO Adjustments system post-approval. See `.claude/context/domain/po-revisions.md`.
+- **A revised PO shows "Revised PO Date" (owner, 2026-11-19).** When the PO has at least one **Approved** PO
+  Revision, its header shows "Revised PO Date" = the **latest** approved revision's `approval_date`; otherwise
+  "PO Date" = the PO's `creation`. Pending and Rejected revisions never count.
+  - Three places, one rule, change them together: the preview sheet (`purchase-order/hooks/usePOHeaderDate.ts`,
+    used by `POPdf.tsx`) and the print formats "PO Orders" and "PO Orders Without Rate"
+    (`fixtures/print_format.json`, a Jinja `frappe.get_all("PO Revisions", … pluck="approval_date")`).
+  - Take the latest by reading every approved date and taking the max. On Postgres a Datetime
+    `["approval_date", "is", "set"]` filter fails (it compares to `""`), and `ORDER BY … DESC` puts NULLs first.
 
 ---
 

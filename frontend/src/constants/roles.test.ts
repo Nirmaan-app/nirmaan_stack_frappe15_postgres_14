@@ -8,7 +8,10 @@ import {
   canAddInflow,
   canAddProjectInvoice,
   canDeleteInflow,
+  canEditMTC,
   canEditProjectInvoice,
+  canManageMTC,
+  canUploadMTC,
   isNirmaanAdmin,
 } from "./roles";
 
@@ -134,5 +137,37 @@ describe("client money pages and reports: PMO opens them view-only (owner, 2026-
   it("no longer narrows PMO's Reports › Projects list (source)", () => {
     expect(read("pages/reports/ReportsContainer.tsx")).not.toContain(`role === "${PMO}"`);
     expect(read("pages/reports/store/useReportStore.ts")).not.toContain(`userRole === "${PMO}"`);
+  });
+});
+
+describe("Material Test Certificate rights (the server's role_profiles MTC rules)", () => {
+  const PM = "Nirmaan Project Manager Profile";
+  const PL = "Nirmaan Project Lead Profile";
+  const BUYER = "Nirmaan Procurement Executive Profile";
+  const ACCOUNTANT = "Nirmaan Accountant Profile";
+
+  it.each<[string, string, boolean, boolean]>([
+    // role, user, may upload, may delete (= manage)
+    [BUYER, "buyer@x", true, true],
+    ["Nirmaan PMO Executive Profile", "pmo@x", true, true],
+    ["Nirmaan Admin Profile", "admin@x", true, true],
+    ["", "Administrator", true, true],
+    [PM, "pm@x", true, false],
+    [PL, "pl@x", true, false],
+    [ACCOUNTANT, "acc@x", false, false],
+    ["Loading", "pm@x", false, false],
+  ])("%j (%j): upload %s, delete %s", (role, user, upload, manage) => {
+    expect(canUploadMTC(role, user)).toBe(upload);
+    expect(canManageMTC(role, user)).toBe(manage);
+  });
+
+  it("a PM / PL edits only the MTCs they uploaded; a manager edits any", () => {
+    expect(canEditMTC(PM, "pm@x", "pm@x")).toBe(true);
+    expect(canEditMTC(PM, "pm@x", "buyer@x")).toBe(false);
+    expect(canEditMTC(PL, "pl@x", "pl@x")).toBe(true);
+    expect(canEditMTC(PL, "pl@x", "pm@x")).toBe(false);
+    expect(canEditMTC(PM, "pm@x", undefined)).toBe(false);
+    expect(canEditMTC(BUYER, "buyer@x", "pm@x")).toBe(true);
+    expect(canEditMTC(ACCOUNTANT, "acc@x", "acc@x")).toBe(false);
   });
 });

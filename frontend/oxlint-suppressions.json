@@ -1575,9 +1575,6 @@
   "src/pages/MaterialTestCertificates/hooks/useMTCMutations.ts": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 1
     }
   },
   "src/pages/MaterialTestCertificates/hooks/useMTCs.ts": {

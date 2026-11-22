@@ -27,6 +27,9 @@ from nirmaan_stack.services import mtc_rules
 MTC = "Material Test Certificate"
 PROCUREMENT_PROFILE = "Nirmaan Procurement Executive Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
+PL_PROFILE = "Nirmaan Project Lead Profile"
+ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
+A_TATA = [{"item_id": "ITEM-A", "make": "Tata"}]
 OLD_URL = cloud_url("mtc-test-old.pdf", MTC)
 NEW_URL = cloud_url("mtc-test-new.pdf", MTC)
 
@@ -176,6 +179,18 @@ class _MTCCase(FrappeTestCase):
 		self._evicted.add(user)
 		_evict_permission_cache(user)
 
+	def _any_user(self, profile):
+		user = _user(profile, with_projects=True) or _user(profile, with_projects=False)
+		if not user:
+			raise unittest.SkipTest(f"no {profile} on this site")
+		return user
+
+	def _create_as(self, user, items=A_TATA):
+		"""Upload through `create_mtc` (the screen's path) as `user`; returns the MTC name."""
+		return self._as(
+			user, mtc_api.create_mtc, self.po, frappe.as_json(items), OLD_URL, frappe.utils.today()
+		)["name"]
+
 	def _as(self, user, fn, *args, **kwargs):
 		frappe.set_user(user)
 		try:
@@ -273,12 +288,48 @@ class TestMTCCreate(_MTCCase):
 		past = frappe.utils.add_days(frappe.utils.today(), -400)
 		self.assertTrue(self._mtc([("ITEM-B", "Jindal")], certificate_date=past).name)
 
-	def test_a_project_manager_cannot_upload(self):
-		pm = _user(PM_PROFILE, with_projects=True) or _user(PM_PROFILE, with_projects=False)
-		if not pm:
-			raise unittest.SkipTest("no Project Manager on this site")
+	def test_pm_and_pl_upload_on_an_assigned_project(self):
+		for profile in (PM_PROFILE, PL_PROFILE):
+			with self.subTest(profile):
+				user = self._any_user(profile)
+				self._assign(user, self.project)
+				name = self._create_as(user, [{"item_id": "ITEM-A", "make": "Tata" if profile == PM_PROFILE else "Local"}])
+				self.assertEqual(frappe.db.get_value(MTC, name, "owner"), user)
+
+	def test_pm_and_pl_cannot_upload_on_an_unassigned_project(self):
+		for profile in (PM_PROFILE, PL_PROFILE):
+			with self.subTest(profile):
+				user = self._any_user(profile)
+				with self.assertRaises(frappe.PermissionError):
+					self._create_as(user)
+				self.assertFalse(frappe.db.exists(MTC, {"procurement_order": self.po}))
+
+	def test_a_pl_cannot_dodge_the_project_rule_with_a_plain_insert(self):
+		# A Project Lead also holds the `Nirmaan Procurement Executive` Role (create on the doctype),
+		# so the SDK / Desk insert gets past Frappe's Role check; the controller must still refuse.
+		pl = self._any_user(PL_PROFILE)
 		with self.assertRaises(frappe.PermissionError):
-			self._mtc([("ITEM-A", "Tata")], user=pm)
+			self._mtc([("ITEM-A", "Tata")], user=pl)
+
+	def test_pm_upload_still_follows_the_po_rules(self):
+		pm = self._any_user(PM_PROFILE)
+		self._assign(pm, self.project)
+		self._po_status(status="Merged")
+		with self.assertRaises(frappe.ValidationError):
+			self._create_as(pm)
+
+	def test_other_profiles_cannot_upload(self):
+		accountant = self._any_user(ACCOUNTANT_PROFILE)
+		with self.assertRaises(frappe.PermissionError):
+			self._create_as(accountant)
+		with self.assertRaises(frappe.PermissionError):
+			self._mtc([("ITEM-A", "Tata")], user=accountant)
+
+	def test_create_endpoint_works_for_procurement_as_before(self):
+		buyer = self._any_user(PROCUREMENT_PROFILE)
+		name = self._create_as(buyer)
+		doc = frappe.get_doc(MTC, name)
+		self.assertEqual((doc.owner, doc.project, doc.items[0].item_name), (buyer, self.project, "MS Pipe 25mm"))
 
 	def test_procurement_can_upload(self):
 		# Uses a buyer WITH project assignments, which every buyer on this site has. Frappe's
@@ -371,13 +422,64 @@ class TestMTCEdit(_MTCCase):
 		with self.assertRaises(frappe.ValidationError):
 			mtc_api.update_mtc(first.name, [{"item_id": "ITEM-A", "make": "Tata"}])
 
-	def test_a_project_manager_cannot_edit(self):
-		pm = _user(PM_PROFILE, with_projects=True) or _user(PM_PROFILE, with_projects=False)
-		if not pm:
-			raise unittest.SkipTest("no Project Manager on this site")
+	def test_a_project_manager_cannot_edit_someone_elses(self):
+		pm = self._any_user(PM_PROFILE)
+		self._assign(pm, self.project)  # assigned, so only "not theirs" can refuse it
 		first = self._mtc([("ITEM-A", "Tata")])
 		with self.assertRaises(frappe.PermissionError):
-			self._as(pm, mtc_api.update_mtc, first.name, [{"item_id": "ITEM-A", "make": "Tata"}])
+			self._as(pm, mtc_api.update_mtc, first.name, A_TATA)
+
+	def test_pm_and_pl_edit_their_own(self):
+		for profile, make in ((PM_PROFILE, "Tata"), (PL_PROFILE, "Local")):
+			with self.subTest(profile):
+				user = self._any_user(profile)
+				self._assign(user, self.project)
+				name = self._create_as(user, [{"item_id": "ITEM-A", "make": make}])
+				past = frappe.utils.add_days(frappe.utils.today(), -3)
+				self._as(user, mtc_api.update_mtc, name, [{"item_id": "ITEM-A", "make": make}], NEW_URL, past)
+				self.assertEqual(frappe.db.get_value(MTC, name, ["attachment", "certificate_date"]), (NEW_URL, frappe.utils.getdate(past)))
+
+	def test_a_pl_cannot_edit_someone_elses_through_a_plain_save(self):
+		# The Project Lead's `Nirmaan Procurement Executive` Role grants write on the doctype.
+		pl = self._any_user(PL_PROFILE)
+		self._assign(pl, self.project)
+		first = self._mtc([("ITEM-A", "Tata")])
+
+		def plain_save():
+			doc = frappe.get_doc(MTC, first.name)
+			doc.certificate_date = frappe.utils.add_days(frappe.utils.today(), -1)
+			doc.owner = pl  # a tampered owner must not count
+			doc.save()
+
+		with self.assertRaises(frappe.PermissionError):
+			self._as(pl, plain_save)
+
+	def test_own_mtc_cannot_be_edited_once_the_project_is_unassigned(self):
+		pm = self._any_user(PM_PROFILE)
+		self._assign(pm, self.project)
+		name = self._create_as(pm)
+		frappe.db.delete("User Permission", {"user": pm, "for_value": self.project})
+		_evict_permission_cache(pm)
+		with self.assertRaises(frappe.PermissionError):
+			self._as(pm, mtc_api.update_mtc, name, A_TATA)
+
+	def test_a_manager_edits_an_mtc_a_pm_uploaded(self):
+		pm = self._any_user(PM_PROFILE)
+		buyer = self._any_user(PROCUREMENT_PROFILE)
+		self._assign(pm, self.project)
+		name = self._create_as(pm)
+		self._assign(buyer, self.project)
+		self._as(buyer, mtc_api.update_mtc, name, A_TATA, NEW_URL)
+		self.assertEqual(frappe.db.get_value(MTC, name, "attachment"), NEW_URL)
+
+	def test_a_buyer_still_cannot_edit_on_a_project_not_assigned_to_them(self):
+		# Unchanged from before: a manager's edit keeps Frappe's write check, User Permissions included.
+		buyer = _user(PROCUREMENT_PROFILE, with_projects=True)
+		if not buyer:
+			raise unittest.SkipTest("no Procurement Executive with assigned projects")
+		first = self._mtc([("ITEM-A", "Tata")])
+		with self.assertRaises(frappe.PermissionError):
+			self._as(buyer, mtc_api.update_mtc, first.name, A_TATA)
 
 
 class TestMTCDelete(_MTCCase):
@@ -423,6 +525,16 @@ class TestMTCDelete(_MTCCase):
 		with self.assertRaises(frappe.PermissionError):
 			self._as(pm, frappe.delete_doc, MTC, first.name)
 		self.assertTrue(frappe.db.exists(MTC, first.name))
+
+	def test_pm_and_pl_cannot_delete_even_their_own(self):
+		for profile, make in ((PM_PROFILE, "Tata"), (PL_PROFILE, "Local")):
+			with self.subTest(profile):
+				user = self._any_user(profile)
+				self._assign(user, self.project)
+				name = self._create_as(user, [{"item_id": "ITEM-A", "make": make}])
+				with self.assertRaises(frappe.PermissionError):
+					self._as(user, frappe.delete_doc, MTC, name)
+				self.assertTrue(frappe.db.exists(MTC, name))
 
 	def test_po_cleanup_removes_mtcs_whatever_the_status(self):
 		first = self._mtc([("ITEM-A", "Tata")])

@@ -118,6 +118,13 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
+  - `msme_autofill.extract_msme_fields(file_url, vendor_name, vendor_id)` - Document AI read of a Udyam (MSME)
+    certificate for the vendor form; persists nothing (see `domain/invoice-autofill.md`).
+    `msme_autofill.msme_duplicates(msme_id, vendor_id)` - other vendors with the same MSME ID (a warning).
+    Both need Vendors create or write permission
+- `material_test_certificates/mtc_api.py` - MTC reads (`get_mtcs`, `get_mtc_projects`) and writes
+  `create_mtc(procurement_order, items, attachment, certificate_date)` / `update_mtc`, so a Project Manager / Lead
+  (no create Role) can upload and edit their own; the controller decides (see `domain/material-test-certificates.md`)
 - `customers/` - Customer financials
   - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
     `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
@@ -129,7 +136,7 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 
 ### Master Data
-- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields
+- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields. Also carries the MSME fields (`msme_id`, `msme_attachment`, `autofill_all_entities_json`); `Vendors` validates them and attaches the certificate
 - `bank_details.py` - IFSC lookup (`generate_bank_details`; no caller in the app since #1432, the Payee module uses `services/payees/ifsc`)
 - `users.py` - User management (rename, etc.)
 - `items.py` - Items doctype with `on_update` hook syncing item_name and category to TDS Repository

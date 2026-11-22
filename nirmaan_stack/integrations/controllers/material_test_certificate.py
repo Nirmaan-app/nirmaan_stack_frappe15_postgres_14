@@ -4,10 +4,15 @@
 """Lifecycle controller for the Material Test Certificate (MTC) doctype.
 
 An MTC is one certificate file plus the Billable PO lines it covers. This controller
-is the ENFORCEMENT boundary for every write path -- the SDK create, the
-`update_mtc` endpoint, Desk and the delete -- because the doctype's Role rows
-cannot express "Procurement, PMO, Admin only" (`System Manager` and
-`Nirmaan Procurement Executive` also ride on the Project Lead profile).
+is the ENFORCEMENT boundary for every write path -- the `create_mtc` and
+`update_mtc` endpoints, the SDK, Desk and the delete -- because the doctype's Role
+rows cannot express who may do what (`System Manager` and `Nirmaan Procurement
+Executive` also ride on the Project Lead profile):
+
+- upload: Procurement, PMO, Admin, and Project Manager / Project Lead;
+- edit: Procurement, PMO, Admin any MTC; a Project Manager / Lead only one they uploaded;
+- delete: Procurement, PMO, Admin only;
+- a Project Manager / Lead only on a PO of a project assigned to them.
 
 The line rules live in `services/mtc_rules.py`.
 """
@@ -17,7 +22,7 @@ from frappe import _
 from frappe.utils import getdate, today
 
 from nirmaan_stack.services import mtc_rules
-from nirmaan_stack.services.role_profiles import can_manage_mtc
+from nirmaan_stack.services.role_profiles import can_edit_mtc, can_manage_mtc, can_upload_mtc
 
 MTC = "Material Test Certificate"
 MTC_ITEM = "Material Test Certificate Item"
@@ -26,9 +31,18 @@ _COPIED_FIELDS = ("item_name", "make", "category", "procurement_package")
 
 
 def validate(doc, method=None):
-    if not can_manage_mtc(frappe.session.user):
+    user = frappe.session.user
+    if doc.is_new():
+        if not can_upload_mtc(user):
+            frappe.throw(
+                _("Only Procurement, PMO, Admin, Project Managers or Project Leads can upload a "
+                  "Material Test Certificate."),
+                frappe.PermissionError,
+            )
+    # The STORED owner: the incoming doc's `owner` is whatever the caller sent.
+    elif not can_edit_mtc(user, frappe.db.get_value(MTC, doc.name, "owner")):
         frappe.throw(
-            _("Only Procurement, PMO or Admin can upload or change a Material Test Certificate."),
+            _("You can edit only the Material Test Certificates you uploaded."),
             frappe.PermissionError,
         )
 
@@ -36,6 +50,16 @@ def validate(doc, method=None):
     reason = mtc_rules.po_block_reason(po.billing_status, po.status)
     if reason:
         frappe.throw(_(reason))
+
+    # A Project Manager / Lead works only on the projects assigned to them (none = nowhere).
+    from nirmaan_stack.api.material_test_certificates.mtc_api import mtc_allowed_projects
+
+    allowed = mtc_allowed_projects(user)
+    if allowed is not None and po.project not in allowed:
+        frappe.throw(
+            _("You can upload or edit Material Test Certificates only on your assigned projects."),
+            frappe.PermissionError,
+        )
 
     doc.project = po.project
     doc.vendor = po.vendor
