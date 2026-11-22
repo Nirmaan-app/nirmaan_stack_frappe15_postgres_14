@@ -6,9 +6,10 @@ walk.json shape:
   data_note where the env's data came from, shown on the page
   changes  [{id, title, claim, status: seen|failed|not_walked, reason}]
   steps    [{id, change, side: after|before, role, user, caption, shot, size: [w, h],
-             click: box|None, pins: [{box, text, kind: must|should|nit|info, evidence: seen|guess}]}]
+             click: box|None, clicked: bool, pins: [{box, text, kind: must|should|nit|info, evidence: seen|guess}]}]
   checks   [{change, role, expect, seen, ok, kind: how bad a failure is}]
-A box is {x, y, w, h} in screenshot pixels.
+A box is {x, y, w, h} in screenshot pixels. clicked says the step clicked a control, so click None with clicked
+true is a lost box, which build_page.py refuses.
 """
 
 from __future__ import annotations
@@ -67,17 +68,20 @@ class Walk:
     def step(self, page: Page, cid: str, side: str, role: str, user: str, caption: str,
              click: Locator | None = None, pins: list[dict] = (), settle_ms: int = 1200) -> dict:
         page.wait_for_timeout(settle_ms)
+        sid = f"s{len(self.data['steps']) + 1:02d}"
         click_box = box_of(click) if click is not None else None
+        if click is not None and click_box is None:
+            raise RuntimeError(f"step {sid} ({caption!r}): the control to click was not found on screen in 5 s, so its "
+                               "box is lost. Fix the locator or wait for the control before this step.")
         resolved = []
         for p in pins:
             b = box_of(p["target"])
             resolved.append({"box": b, "text": p["text"], "kind": p["kind"], "evidence": p["evidence"]})
-        sid = f"s{len(self.data['steps']) + 1:02d}"
         shot = f"shots/{sid}.jpg"
         page.screenshot(path=str(self.out / shot), type="jpeg", quality=68)
         vp = page.viewport_size
         step = {"id": sid, "change": cid, "side": side, "role": role, "user": user, "caption": caption,
-                "shot": shot, "size": [vp["width"], vp["height"]], "click": click_box, "pins": resolved,
+                "shot": shot, "size": [vp["width"], vp["height"]], "click": click_box, "clicked": click is not None, "pins": resolved,
                 "url": page.url}
         self.data["steps"].append(step)
         if click is not None:

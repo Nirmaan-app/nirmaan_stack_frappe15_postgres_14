@@ -4,7 +4,8 @@ box sits on the control it names. build_page.py refuses boxes with no size; this
     python3 -I sheet.py <walk dir> <out.jpg> [--cols 3] [--tile 520]
 
 Click boxes are blue. Pins are numbered and coloured by kind: red must, orange should, yellow nit, grey note.
-A box with no width or height is drawn as a red X with "NO SIZE".
+A box with no width or height is drawn as a red X with "NO SIZE"; a step that clicked but lost its box gets a red
+"CLICK BOX LOST" in its corner.
 """
 
 from __future__ import annotations
@@ -44,6 +45,9 @@ def tile(walk_dir: Path, st: dict, size: int, font) -> Image.Image:
     d = ImageDraw.Draw(shot)
     if st.get("click") is not None:
         draw_box(d, st["click"], scale, CLICK, max(3, round(3 * scale)), "")
+    elif st.get("clicked"):
+        d.rectangle([0, 0, 150 * scale, 22 * scale], fill=KIND["must"])
+        d.text((6 * scale, 4 * scale), "CLICK BOX LOST", fill=(255, 255, 255), font_size=round(12 * scale))
     for k, p in enumerate(st["pins"], 1):
         if p.get("box") is not None:
             draw_box(d, p["box"], scale, KIND.get(p["kind"], KIND["info"]), max(2, round(2 * scale)), str(k))

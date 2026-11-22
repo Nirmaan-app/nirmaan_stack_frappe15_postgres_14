@@ -25,7 +25,7 @@ def load(walk_dir: Path) -> tuple[dict, dict]:
 def bad_boxes(data: dict) -> list[str]:
     """Every click or pin box the page would draw wrong. A box needs numeric x, y and w, h above 0 (a box once saved
     as width/height drew as a dot and the page still built). A pin with box None is fine: the page says "spot not
-    found"."""
+    found". A click box None is fine only on a step that clicked nothing; with clicked true its box was lost."""
     def wrong(b: dict) -> str:
         if not isinstance(b, dict):
             return f"not a box: {b!r}"
@@ -34,6 +34,8 @@ def bad_boxes(data: dict) -> list[str]:
         return "" if b["w"] > 0 and b["h"] > 0 else f"w={b['w']} h={b['h']}, both must be above 0"
     out = []
     for st in data["steps"]:
+        if st.get("click") is None and st.get("clicked"):
+            out.append(f"step {st['id']} ({st['caption']!r}): click box lost (clicked, but the control was not found)")
         if st.get("click") is not None and (why := wrong(st["click"])):
             out.append(f"step {st['id']} ({st['caption']!r}): click box {why}")
         for k, p in enumerate(st["pins"], 1):
