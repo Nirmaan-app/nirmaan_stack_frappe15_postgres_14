@@ -27,14 +27,18 @@
 #                            answer). One SSH per box, read only. A change prints ALERT and raises a macOS notification;
 #                            the last state per task is kept in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch/<name>.
 #                            It also WARNs while a box checkout's core.hooksPath is not .githooks (its worktrees
-#                            would run another checkout's hooks), and alerts when that path changes.
+#                            would run another checkout's hooks), and alerts when that path changes; and WARNs while
+#                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
+#                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
+#                            when that changes. done prints the same WARN.
 #                            --every repeats until Ctrl-C.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
 # <box>: a box in the registry (scripts/devenv/boxes.sh). Without --box, start picks one: with devbox.order in the
 # registry, the first box in that order whose working agents (as watch counts them) are fewer than its
 # box.<name>.agents (1 when unset), passing over a box that does not answer; without devbox.order, devbox.default.
-# start records the box in the repo's git config (devbox-task.<name>.box), and every later command goes to that box.
+# start records the box in the repo's git config (devbox-task.<name>.box), with the ref and commit it cut the branch
+# from (.from, .base), and every later command goes to that box. clean removes the record.
 # Exit 3: the box did not answer; run the same command again once it is awake (watch reports it as a state instead).
 # The brief and the report live on the box in ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may
 # describe what must not be published).
@@ -62,6 +66,22 @@ task_state() {
     1:*) echo working ;;
     *) echo crashed ;;
   esac
+}
+
+# base_check <name>: BASED=ok while the commit the task was cut from (devbox-task.<name>.base) is still in the ref it
+# was cut from (.from), rewound when it is not, - when the task has no base record (started before 2026-11-22) or the
+# ref is gone. Also sets T_FROM and T_BASE. Laptop git only. #1698 was cut from master at 032fab717; another chat
+# then reset master to fd2c67255, and the merge found out only by reflog.
+base_check() {
+  T_FROM="$(git config "devbox-task.$1.from" || true)"; T_BASE="$(git config "devbox-task.$1.base" || true)"; BASED=-
+  [ -n "$T_FROM" ] && [ -n "$T_BASE" ] && git rev-parse -q --verify "$T_FROM^{commit}" >/dev/null || return 0
+  git merge-base --is-ancestor "$T_BASE" "$T_FROM" && BASED=ok || BASED=rewound
+}
+
+# base_warn <name>: the WARN line for a rewound base; prints nothing otherwise.
+base_warn() {
+  base_check "$1"; [ "$BASED" = rewound ] || return 0
+  echo "WARN  $1: its base ${T_BASE:0:9} is no longer in $T_FROM (reset or rebased): rebase box/$1 onto $T_FROM before merging"
 }
 
 # Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<dod>\t<the
@@ -153,6 +173,15 @@ watch_pass() {
         alerts="$alerts$n on $box: $old -> $state"$'\n'
       fi
       echo "$state" > "$WATCH_DIR/$n.new" && mv "$WATCH_DIR/$n.new" "$WATCH_DIR/$n"
+      base_warn "$n"
+      if [ "$BASED" != - ]; then
+        old="$(cat "$WATCH_DIR/.base-$n" 2>/dev/null || echo ok)"
+        [ "$old" = "$BASED" ] || case "$BASED" in
+          rewound) alerts="$alerts$n: base ${T_BASE:0:9} left $T_FROM"$'\n' ;;
+          *) alerts="$alerts$n: base ${T_BASE:0:9} is back in $T_FROM"$'\n' ;;
+        esac
+        echo "$BASED" > "$WATCH_DIR/.base-$n.new" && mv "$WATCH_DIR/.base-$n.new" "$WATCH_DIR/.base-$n"
+      fi
     done
     hooks="$(printf '%s\n' "$out" | awk -F'\t' '$1 == "@hooks" {print $2; exit}')"
     if [ -n "$hooks" ]; then
@@ -172,7 +201,7 @@ watch_pass() {
     [ -e "$f" ] || continue
     n="${f##*/}"
     printf '%s\n' "$recs" | awk -v n="$n" '$1 == n {f=1} END {exit !f}' && continue
-    rm -f "$f"; echo "gone  $n: no task record, its watch state removed"
+    rm -f "$f" "$WATCH_DIR/.base-$n"; echo "gone  $n: no task record, its watch state removed"
   done
 }
 
@@ -319,7 +348,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,38p' "$0"; exit 1 ;;
+  *) sed -n '2,43p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -382,7 +411,11 @@ case "$CMD" in
 
     step "1. branch $BRANCH"
     if git rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null; then ok "$BRANCH exists (at $(git rev-parse --short "$BRANCH"))"
-    else git branch "$BRANCH" "$FROM"; ok "made $BRANCH from $FROM ($(git rev-parse --short "$FROM"))"; fi
+    else
+      git branch "$BRANCH" "$FROM"; ok "made $BRANCH from $FROM ($(git rev-parse --short "$FROM"))"
+      # watch and done compare them with the ref later: a reset of the ref under the task is found before the merge.
+      git config "devbox-task.$NAME.from" "$FROM"; git config "devbox-task.$NAME.base" "$(git rev-parse "$FROM^{commit}")"
+    fi
     git config "$RECORD" "$BOX_NAME"
     export BOX_STARTED=1
 
@@ -467,12 +500,15 @@ case "$CMD" in
       rsync -a --exclude '*.md' -e "ssh ${BOX_SSH_OPTS[*]}" "$BOX_SSH:$d/" "$HOME_COPY/$(basename "$d")/" \
         && ok "copied the box's ~/$d to $HOME_COPY/$(basename "$d")/"
     done
+    base_warn "$NAME"
     echo; echo "Review: git log --stat master..$BRANCH ; git diff master...$BRANCH"
     # The report's ## Review is the runner's step (docs/agents/definition-of-done.md): a fresh read against the task's
-    # own base, which the box knows (a branch cut --from another ref has a base master does not).
+    # own base, which the box knows (a branch cut --from another ref has a base master does not), else the laptop's
+    # record of it, else master (which a rewound master no longer shares with the branch).
     ROOT="$(box_root)"
     BASE="$(box_ssh "cd $ROOT/benches/$NAME/apps/nirmaan_stack 2>/dev/null && python3 scripts/devenv/dod.py base" 2>/dev/null || true)"
-    git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$(git merge-base master "$BRANCH")"
+    git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$T_BASE"
+    [ -n "$BASE" ] || BASE="$(git merge-base master "$BRANCH" || true)"
     echo "Separate review (fills the report's 'Separate review:' line): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
     echo "Then merge and push yourself. After the merge: task.sh prune (lists what can go; --yes cleans it)"
     ;;
@@ -503,8 +539,9 @@ case "$CMD" in
     [ "$RC" != 3 ] || exit 3
     [ "$RC" = 0 ] && grep -qE "^(Destroyed env|No env) $NAME[ .]" <<<"$OUT" \
       || die "the box did not destroy env $NAME (above). The record stays: fix it there, then run task.sh clean $NAME again."
-    # Last, so a clean that stopped on the box can be rerun and still finds its box.
-    git config --unset "$RECORD"
+    # Last, so a clean that stopped on the box can be rerun and still finds its box. The section holds the task's
+    # whole record (box, from, base).
+    git config --remove-section "devbox-task.$NAME"
     ok "cleaned $NAME on box $BOX_NAME. The report stays at $BOX_SSH:~/$DIR/ ; the laptop branch $BRANCH is yours to keep or delete."
     ;;
 esac

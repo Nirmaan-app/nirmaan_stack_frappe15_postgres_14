@@ -279,4 +279,32 @@ watch
 no_line '^WARN  air' "a box back on .githooks does not warn"
 line '^ALERT air: core.hooksPath /elsewhere/dev/.githooks -> .githooks$' "a hooksPath set back alerts too"
 
+# ---- a task's base rewound out of its ref (#1698: another chat reset master under box/1698; found at merge by reflog)
+BASE="$(git -C "$L" rev-parse master)"
+git -C "$L" config devbox-task.w1.from master; git -C "$L" config devbox-task.w1.base "$BASE"
+git -C "$L" config devbox-task.m1.from gone-ref; git -C "$L" config devbox-task.m1.base "$BASE"
+: > "$OSA_LOG"
+watch
+no_line '^WARN  w1' "a base still in its ref does not warn"
+no_line '^WARN  m1' "a task whose from-ref is gone is not judged"
+no_line '^WARN  f1' "a task with no base record (started before the record) is not judged"
+same "$(alerts)" 0 "a base in place raises no alert"
+REWOUND="$(git -C "$L" commit-tree -m rewound 'master^{tree}')"; git -C "$L" update-ref refs/heads/master "$REWOUND"
+watch
+line "^WARN  w1: its base ${BASE:0:9} is no longer in master \(reset or rebased\): rebase box/w1 onto master before merging" "a base that left its ref warns, with the fix"
+line "^ALERT w1: base ${BASE:0:9} left master$" "a base leaving its ref alerts"
+same "$(grep -c 'left master' "$OSA_LOG" || true)" 1 "the base alert raises one notification"
+no_line '^WARN  m1' "a gone from-ref still does not warn"
+watch
+line '^WARN  w1: its base' "the warning repeats while the base is out"
+no_line '^ALERT w1: base' "an unchanged rewound base alerts once only"
+git -C "$L" update-ref refs/heads/master "$BASE"
+watch
+no_line '^WARN  w1' "a base back in its ref does not warn"
+line "^ALERT w1: base ${BASE:0:9} is back in master$" "a base back in its ref alerts too"
+git -C "$L" config --unset devbox-task.w1.box
+watch
+[ ! -e "$STATE/.base-w1" ] || fail "the base state of a task whose record is gone is removed"; pass "the base state of a task whose record is gone is removed"
+git -C "$L" config devbox-task.w1.box contabo
+
 echo; echo "all $N checks passed"
