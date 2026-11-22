@@ -4,6 +4,26 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-20: PMO may view cheques (Vendor page Cheques tab)
+
+**Summary** (branch `feat/audit-view`, `c94d7f84a`): the Vendor page's new Cheques tab is for everyone with a Vendors
+link in the sidebar, so PMO may now READ cheques (owner, 2026-11-20). A second role list,
+`role_profiles.CHEQUE_VIEW_PROFILES` = `CHEQUE_ACCESS_PROFILES` + PMO Executive, gates the three read endpoints through
+the new `assert_cheque_view_access`. Everything that changes a cheque keeps its old check: `save_cheque` and `pickers`
+on `assert_cheque_access` (`CHEQUE_ACCESS_PROFILES`), cancel on `CHEQUE_ACCOUNTS_PROFILES`. Project Managers stay
+refused. No schema change, no migrate.
+
+| File | Change |
+|---|---|
+| `services/role_profiles.py` | `CHEQUE_VIEW_PROFILES`, `can_view_cheques`, `assert_cheque_view_access` |
+| `api/cheques/list_cheques.py` | `get_cheques`, `get_cheque_facets` read through the view check |
+| `api/cheques/cheque_detail.py` | `get_cheque` reads through the view check |
+| `api/cheques/test_list_cheques.py` | PMO reads list, facets and detail; PMO cannot record / edit / cancel; a PM still cannot open a detail; the vendor filter lists only that vendor's cheques |
+| `services/test_role_mirrors.py` | `CHEQUE_VIEW_PROFILES` pinned to `frontend/src/constants/roles.ts` |
+
+Tests run on the restored copy `cachetest.localhost`, not live localhost: `test_list_cheques` 27 OK,
+`test_role_mirrors` 4 OK.
+
 ## 2026-11-19: Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
 
 **Summary** (branch `feat/vendor-wo-pdf`, 5 commits `0d5dc3f8e`..`c13dda255`, unpushed): five owner asks on one

@@ -4,6 +4,39 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-20 — Vendor page: Payments sub-tabs and a Cheques tab
+
+**Payments tab split into three sub-tabs** (`4ba6c8caa`). The Vendor page's Payments tab listed every payment in one
+table. It now has **Paid** (status Paid, online or a cleared cheque), **Cheque Pending** (a cheque payment at
+Reconciliation Pending: its cheque is Issued, not cleared) and **Other Pending Payments** (Requested, CEO Pending,
+Approved, an online Reconciliation Pending, Rejected). A payment is in exactly one. Each sub-tab has its own columns,
+sort and search; Reference Doc links to the PO / WO and reads (PO) or (WO); on Paid, the UTR opens its receipt, or
+shows a paperclip that opens the upload dialog when there is none (no separate Receipt column, no Payment ID line);
+Export is on. Counts and ₹ totals cover all the vendor's payments (Rejected are counted but left out of the total).
+
+| File | Change |
+|---|---|
+| `utils/vendorPayments/paymentGroups.ts` (new) + test | The group rule, each sub-tab's filters, the totals, Issued On and days waiting |
+| `pages/vendors/components/VendorPaymentsTabs.tsx` (new) | Sub-tab bar with counts, the total line |
+| `pages/vendors/components/VendorPaymentsTable.tsx` | Per-sub-tab columns; receipt kept in the UTR cell (link, or paperclip → `PaymentScreenshotDialog`) |
+| `pages/vendors/vendor.tsx` | The Payments tab shows `VendorPaymentsTabs` |
+
+**Cheques tab** (`c94d7f84a`). A new Vendor page tab: the Cheque Tracker narrowed to that vendor (Vendor / Payee
+column hidden). Shown to `CHEQUE_VIEW_PROFILES` (the cheque users + PMO, view only; owner 2026-11-20). The Cheque
+Tracker page itself is unchanged.
+
+| File | Change |
+|---|---|
+| `pages/cheque-tracker/components/ChequeTrackerTabs.tsx` (new) | Tab bar + table, shared by the page and the vendor tab (`tabParam`, `vendorId`) |
+| `pages/cheque-tracker/ChequeTrackerPage.tsx` | Heading + `ChequeTrackerTabs` |
+| `pages/cheque-tracker/components/ChequeTrackerTable.tsx` | `vendorId`: vendor filter, own URL keys, export name, no Vendor / Payee column |
+| `pages/cheque-tracker/config/useChequeTabCounts.ts` | Badges take the vendor filter |
+| `utils/cheques/chequeTabs.ts` + test | `chequeTabFiltersFor(tab, vendorId)` |
+| `constants/roles.ts` | `CHEQUE_VIEW_PROFILES` |
+| `pages/vendors/vendor.tsx` | The Cheques tab |
+
+Browser-tested 2026-11-20 as Accountant, Accountant Lead, Procurement and PMO (PMO: list and detail, no Edit / Cancel).
+
 ## 2026-11-19 — Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
 
 Branch `feat/vendor-wo-pdf` (5 commits, unpushed). Backend, schema and print formats: `../../.claude/CHANGELOG.md`

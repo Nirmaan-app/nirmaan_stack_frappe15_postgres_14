@@ -25,6 +25,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 | `data_table/` (new module) | Refactored data aggregation: `search.py`, `facets.py`, `aggregations.py`, `utils.py` |
 | `sidebar_counts.py` | Badge counts for navigation |
 | `get_project_reports.py` | Report generation |
+| `reports/audit_view.py` | Reports → Audit View: `get_audit_view_rows(view, tab, from_date, to_date)` (one tab's rows: `project` / `nonproject` × `orders` / `invoices` / `payments`) and `get_audit_view_summary(view, from_date, to_date)` (count and sums per tab, split by Against). Each tab is dated by its own date (created / invoice / payment). Refuses a profile outside `role_profiles.AUDIT_VIEW_PROFILES` (Admin, Accountant, Accountant Lead), the enforcement boundary; reads with `frappe.get_all`. Payment TDS is all recorded tax (Vendor- and Company-borne) from `payment_tds.paid_borne_tds_sql`, never the legacy `Project Payments.tds` box |
 
 ## Domain-Specific APIs
 

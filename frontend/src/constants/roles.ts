@@ -639,6 +639,19 @@ export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
 ];
 
 /**
+ * Reports > Audit View: every order, approved invoice and paid payment in one date range (All Project
+ * View and Non Project View). Admin, Accountant and Accountant Lead.
+ *
+ * UI gate only. Mirrored server-side by `role_profiles.AUDIT_VIEW_PROFILES`, the enforcement boundary:
+ * both endpoints in `api/reports/audit_view` refuse anyone outside it. Change the two together.
+ */
+export const AUDIT_VIEW_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
  * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
  * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
  * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.
@@ -836,6 +849,12 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
+/**
+ * Who may VIEW cheques (owner, 2026-11-20): the Vendor page's Cheques tab, for everyone with a Vendors link in the
+ * sidebar, so PMO too. Read-only for PMO: its rows offer no Edit or Cancel (`chequeRowActions`). Mirrors
+ * `services/role_profiles.py::CHEQUE_VIEW_PROFILES`, which the read endpoints in `api/cheques/` enforce.
+ */
+export const CHEQUE_VIEW_PROFILES: readonly string[] = [...CHEQUE_ACCESS_PROFILES, PMO_EXECUTIVE_PROFILE];
 
 // ---------------------------------------------------------------------------
 // Reimbursements (owner, 2026-10-21/22). Mirrored server-side by `REIMBURSEMENT_*` in

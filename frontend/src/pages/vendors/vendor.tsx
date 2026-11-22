@@ -13,7 +13,7 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
-import { canBulkDownloadVendor } from "@/constants/roles";
+import { canBulkDownloadVendor, CHEQUE_VIEW_PROFILES } from "@/constants/roles";
 import { vendorHandlesMaterial, vendorHandlesService } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
@@ -26,7 +26,7 @@ const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewC
 const VendorAccountCard = React.lazy(() => import("./components/VendorAccountCard"));
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorDeliveryNotesTable = React.lazy(() => import("./components/VendorDeliveryNotesTable"));
-const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
+const VendorPaymentsTabs = React.lazy(() => import("./components/VendorPaymentsTabs"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
@@ -39,7 +39,12 @@ const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoi
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 
+const ChequeTrackerTabs = React.lazy(() =>
+    import("@/pages/cheque-tracker/components/ChequeTrackerTabs").then((m) => ({ default: m.ChequeTrackerTabs })),
+);
+
 const BULK_DOWNLOAD_TAB = "bulkDownload";
+const VENDOR_CHEQUES_TAB = "vendorCheques";
 
 type MenuItem = { label: string; key: string };
 
@@ -83,6 +88,9 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     // A typed `?tab=bulkDownload` from anyone else is bounced too -- but only once the role has
     // loaded, or a correct deep link would be redirected before the role arrives.
     const canBulkDownload = role !== "Loading" && canBulkDownloadVendor(role, user_id);
+    // The Cheques tab: everyone with a Vendors link (the cheque users and PMO, read-only), as the server's cheque
+    // read endpoints allow (`CHEQUE_VIEW_PROFILES`).
+    const canSeeCheques = user_id === "Administrator" || CHEQUE_VIEW_PROFILES.includes(role);
     useEffect(() => {
         if (currentTab === BULK_DOWNLOAD_TAB && role !== "Loading" && !canBulkDownloadVendor(role, user_id)) {
             setCurrentTab("overview");
@@ -124,6 +132,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         vendorHandlesService(vendor?.vendor_type) &&
         { label: "Work Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
+        canSeeCheques &&
+        { label: "Cheques", key: VENDOR_CHEQUES_TAB },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
         vendorHandlesMaterial(vendor?.vendor_type) &&
@@ -134,7 +144,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Vendor Refunds", key: "vendorRefunds" },
         canBulkDownload &&
         { label: "Bulk Download", key: BULK_DOWNLOAD_TAB },
-    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type, canBulkDownload]);
+    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type, canBulkDownload, canSeeCheques]);
 
     // --- SR Counts Data ---
     const { approvedSRs, finalizedSRs } = useVendorServiceRequestCounts(vendorId);
@@ -219,10 +229,17 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     </div>
                 );
             case "vendorPayments":
-                return <VendorPaymentsTable
+                return <VendorPaymentsTabs
                     vendorId={vendorId}
                     projectOptions={projectOptions}
                 />;
+            case VENDOR_CHEQUES_TAB:
+                if (!canSeeCheques) return role === "Loading" ? <LoadingFallback /> : null;
+                return (
+                    <div className="space-y-4">
+                        <ChequeTrackerTabs tabParam="cheque_tab" vendorId={vendorId} />
+                    </div>
+                );
             case "approvedQuotes":
                 return <VendorApprovedQuotesTable
                     vendorId={vendorId}
