@@ -14,6 +14,7 @@ import { KEYS } from "./vav2a.harness";
 import { V78 } from "./v78ByName.harness";
 import { KEYS3 } from "./vav2b1Keys.harness";
 import { KEYS81 } from "./vav2b2Keys.harness";
+import { inputName81, undoVav2c1 } from "./vav2c1Edits.harness";
 
 const C = BY_ID.get(VAV)! as unknown as { calculator_only?: boolean; list_spec: { pricing: Record<string, unknown>; sections: Array<Record<string, unknown>> } };
 const BOX = blk("VAV box", { shape: "Rectangular", vav_type: "Nothing specific mentioned", integrator_included: "No", cfm_range: "450-800" });
@@ -25,7 +26,8 @@ describe(`VAV-2a on ${LATEST}`, () => {
     expect(version).toBeGreaterThanOrEqual(77);
     // VAV-2a2 (v78): own_row_check gains `serves` (B8); every VAV-2a value is still there unchanged
     for (const [k, v] of Object.entries(KEYS.pricing)) {
-      const got = structuredClone(C.list_spec.pricing[k]) as Record<string, unknown>;
+      // VAV-2c1 K2 (HVAC v82; PIN K2-B B3): the newest file's block with this slice's text edits undone. BEFORE: as stored
+      const got = structuredClone((undoVav2c1(BY_ID.get(VAV)!) as unknown as typeof C).list_spec.pricing[k]) as Record<string, unknown>;
       if (k === "own_row_check" && version >= 78) delete got.serves;
       // VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority; VAV-2a2's PIN 3 idiom): v79 adds sub-keys to three blocks the VAV-2a
       // keys own -- taken out here ONLY, each pinned to the VAV-2b1 keys file below. BEFORE: compared as stored
@@ -86,7 +88,8 @@ describe(`VAV-2a on ${LATEST}`, () => {
       // VAV-2a keys file's
       const changed = version >= 81 ? KEYS81.pricing_inputs[id] : undefined;
       expect(Number((it!.rates as { factor?: unknown }).factor), id).toBe(changed ? changed.to : v.factor);
-      expect(it!.attributes?.name, id).toBe(v.name);
+      // VAV-2c1 K2 (PIN K2-B B3; R7 renames one input, same item and value): its name in the v81 file. BEFORE: as stored
+      expect(inputName81(it!), id).toBe(v.name);
       expect((reach[id] as unknown as { readByCategories?: string[] })?.readByCategories, id).toEqual([VAV]);
     }
   });

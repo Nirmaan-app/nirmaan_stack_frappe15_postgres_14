@@ -23,3 +23,21 @@ export function applyConfig(cfg: RateCategoryConfig, edits: readonly ConfigEdit[
   }
   return c;
 }
+
+/** PURE. A category's config from the newest file with this slice's edits undone = what v81 held there (a test that compares an older file
+ *  with the newest one reads through this). A config that does not hold v82's own texts (v81 or older) is returned as it is; a text of v82
+ *  that is in the file is reversed edit by edit, and an edit whose new text is absent is refused -- nothing else can hide in the undo. */
+export function undoVav2c1(cfg: RateCategoryConfig): RateCategoryConfig {
+  const mine = EDITS.configs.filter((e) => e.c === (cfg as unknown as { category_id: string }).category_id);
+  const holds = (e: ConfigEdit): unknown => e.p.reduce<unknown>((n, p) => (n as Record<string | number, unknown> | undefined)?.[p], cfg);
+  const isV82 = mine.length > 0 && mine.every((e) => JSON.stringify(holds(e) ?? null) === JSON.stringify(e.to));
+  const isV81 = mine.every((e) => JSON.stringify(holds(e) ?? null) === JSON.stringify(e.from));
+  if (!mine.length || isV81) return cfg;
+  if (!isV82) throw new Error(`undoVav2c1: ${(cfg as unknown as { category_id: string }).category_id} holds neither v81's nor v82's texts`);
+  return applyConfig(cfg, [...mine].reverse().map((e) => ({ ...e, from: e.to, to: e.from })));
+}
+/** a Pricing Input's name in the file it came from (v82 renames one) */
+export const inputName81 = (item: { item_uid?: unknown; attributes?: Record<string, unknown> | null }): string => {
+  const ch = EDITS.pricing_inputs[String(item.item_uid)]?.name, n = String(item.attributes?.name ?? "");
+  return ch && n === ch[1] ? ch[0] : n;
+};

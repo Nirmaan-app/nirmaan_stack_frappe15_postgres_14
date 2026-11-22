@@ -7,6 +7,7 @@ __fixtures__/vav2c1Edits.json) -- the v82 file is not read, so this commits befo
 Run: bench --site localhost run-tests --module nirmaan_stack.services.boq_rate_master.test_vav2c1_keys
 """
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -15,6 +16,7 @@ import sys
 import unittest
 
 from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+from nirmaan_stack.services.boq_rate_master import vav2c1_undo_support as U
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
@@ -160,7 +162,6 @@ class TestVav2c1(unittest.TestCase):
         self.assertEqual([t for t in texts if re.search(r"\d{4}-\d\d-\d\d|\bowner\b|\btoday\b|\(0\.\d+ = \d+%\)", t)], [])
 
     def test_09_the_electrical_file_is_untouched(self):
-        import hashlib
         with open(os.path.join(DATA, "rate_master_electrical_all_v72.json"), "rb") as f:
             self.assertEqual(hashlib.sha256(f.read()).hexdigest()[:8], "80395f68")
         with open(os.path.join(DATA, "rate_master_electrical_all_v72.json"), encoding="utf-8") as f:
@@ -183,6 +184,76 @@ class TestVav2c1(unittest.TestCase):
                 if n.endswith(".py"):
                     with open(os.path.join(root, n), encoding="utf-8") as f:
                         if re.search(r"get_boq_ai_api_key[\"']?\s*,\s*(?:lambda[^:]*:\s*[\"']|return_value\s*=\s*[\"'])", f.read()):
+                            bad.append(n)
+        self.assertEqual(bad, [])
+
+    # ---- the undo the older "live / newest == an older file" tests read through (PIN K2-C C2, K2-E; ANSWER 29, 37) ----
+    def _v82_file(self):
+        with open(os.path.join(DATA, "rate_master_hvac_all_v82.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_11_undo_support_reads_only_the_edits_file_and_gives_v81_back(self):
+        with open(os.path.join(FIX, "vav2c1Edits.json"), "rb") as f:
+            self.assertEqual(hashlib.sha256(f.read()).hexdigest()[:8], "0b4aa1f9")   # the reviewed file
+        v81, v82 = _v81(), self._v82_file()
+        back = U.asset_as_v81(v82)
+        self.assertEqual(json.dumps(back["category_configs"], sort_keys=True), json.dumps(v81["category_configs"], sort_keys=True))
+        self.assertEqual(json.dumps(back["items"], sort_keys=True), json.dumps(v81["items"], sort_keys=True))
+        self.assertEqual(U.as_v81(v81["category_configs"][0]), v81["category_configs"][0])   # v81 itself untouched
+        # it opens ONE file: the edits fixture
+        src = open(os.path.join(HERE, "vav2c1_undo_support.py"), encoding="utf-8").read()
+        self.assertEqual(re.findall(r"open\(([^,)]+)", src), ["_FIX"])
+        self.assertEqual(len(re.findall(r"\.json", src.split('"""')[2])), 1)
+
+    def test_12_PLANTED_undeclared_changes_go_red_one_of_each_kind(self):
+        v81 = _v81()
+        def differs(asset):
+            """what an older-file comparison through the undo would show: the names of everything not equal to v81"""
+            try:
+                b = U.asset_as_v81(asset)
+            except AssertionError as e:
+                return ["REFUSED %s" % str(e)[:40]]
+            out, ia, ib = [], {i["item_uid"]: i for i in v81["items"]}, {i["item_uid"]: i for i in b["items"]}
+            out += ["removed " + u for u in ia if u not in ib] + ["added " + u for u in ib if u not in ia]
+            out += ["item " + u for u in ia if u in ib and json.dumps(ia[u], sort_keys=True) != json.dumps(ib[u], sort_keys=True)]
+            ca = {c["category_id"]: c for c in v81["category_configs"]}
+            return out + ["config " + c["category_id"] for c in b["category_configs"] if json.dumps(c, sort_keys=True) != json.dumps(ca[c["category_id"]], sort_keys=True)]
+        ducting = lambda a: next(c for c in a["category_configs"] if c["category_id"] == "hvac_ducting")
+        item = lambda a, kind: next(i for i in a["items"] if i["kind"] == kind)
+        self.assertEqual(differs(self._v82_file()), [])
+        a = self._v82_file(); it = item(a, "hvac_duct_item"); k = next(iter(it["rates"])); it["rates"][k] += 1                            # a rate
+        self.assertEqual(differs(a), ["item " + it["item_uid"]])
+        a = self._v82_file(); it = item(a, "hvac_vav_item"); it["rates"]["supply_markup"] += 0.01                                     # a markup
+        self.assertEqual(differs(a), ["item " + it["item_uid"]])
+        a = self._v82_file(); a["items"].append(dict(copy.deepcopy(a["items"][0]), item_uid="planted"))                              # an item added
+        self.assertEqual(differs(a), ["added planted"])
+        a = self._v82_file(); gone = a["items"].pop(5)["item_uid"]                                                                  # an item removed
+        self.assertEqual(differs(a), ["removed " + gone])
+        a = self._v82_file(); ducting(a)["category_display"] = "Ducting (changed)"                                                   # a key outside the edits
+        self.assertEqual(differs(a), ["config hvac_ducting"])
+        a = self._v82_file(); ducting(a)["planted_key"] = 1
+        self.assertEqual(differs(a), ["config hvac_ducting"])
+        a = self._v82_file(); ducting(a)["list_spec"]["pricing"]["planted_text"] = "a text in no edit"                                # a text not in the edits
+        self.assertEqual(differs(a), ["config hvac_ducting"])
+        e = next(x for x in _edits()["configs"] if x["c"] == "hvac_ducting" and isinstance(x["to"], str) and isinstance(x["from"], str))
+        for bad in (e["to"] + "!", e["from"]):                                                                                        # a v82 text altered / half reverted
+            a = self._v82_file(); c = ducting(a); node = c
+            for p in e["p"][:-1]:
+                node = node[p]
+            node[e["p"][-1]] = bad
+            self.assertTrue(differs(a)[0].startswith("REFUSED"), bad)
+        # an edit whose 'before' is not what v81 holds is refused by the same rule as the mint
+        with self.assertRaises(SystemExit):
+            MINT.apply_config({"category_id": "hvac_ducting", "p": "v81"}, [{"c": "hvac_ducting", "p": ["p"], "from": "other", "to": "x"}])
+
+    def test_13_no_product_module_imports_the_undo_support(self):
+        app = os.path.join(APP, "nirmaan_stack")
+        bad = []
+        for root, _, files in os.walk(app):
+            for n in files:
+                if n.endswith(".py") and not n.startswith("test_") and n != "vav2c1_undo_support.py":
+                    with open(os.path.join(root, n), encoding="utf-8") as f:
+                        if "vav2c1_undo_support" in f.read():
                             bad.append(n)
         self.assertEqual(bad, [])
 

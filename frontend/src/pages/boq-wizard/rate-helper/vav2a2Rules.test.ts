@@ -65,7 +65,7 @@ describe("VAV-2a2 B5 - lines 9 and 11 carry the owner's quantity rulings", () =>
 describe("VAV-2a2 R10 - every rule this slice adds is a line with its OWN reason", () => {
   const lines = linesOf(vav78());
   const want: Array<[RegExp, string]> = [
-    [/^A VAV box's airflow band \(cfm\) is worked out from its airflow, never picked$/, "owner ruling 2a \"agree\", 2026-11-18 22:16"],
+    [/^A VAV box's airflow band \(cfm\) is worked out from its airflow, never picked$/, "owner \"agree\", 2026-11-18 22:16"],
     [/^With no airflow, the band comes from the inlet size table$/, "the owner's own table of inlet sizes against the sheet's airflow bands"],
     [/^No airflow and no inlet size -> not priced$/, "\"airflow not stated, enter the CFM\""],
     [/^The user types the CFM or the inlet size, and only one of the two is needed$/, "clearly indicated that only one is required"],
@@ -225,7 +225,7 @@ describe("VAV-2a2 B8 - the controller's own row decides by PRESENCE (owner 2026-
       30: { text: "VAV box 650 CFM", qty: 10, items: [box(), { _section: "misc", item: "Digital Thermostat", item_as_written: "digital thermostat", qty_per_box: "None" }] },
       31: { text: "Digital thermostat for VAV", qty: 8, category: "hvac_misc" },
     }, { cfg: vav78(), items: withInputs() })(30);
-    expect(JSON.stringify(s.itemList)).toContain("Digital thermostat added - possible double counting - also priced in row 31.");
+    expect(JSON.stringify(s.itemList)).toContain("Digital thermostat added. Row 31 also prices it, but for fewer units than this sheet's boxes need. Check for double counting and remove one if not needed.");
   });
   it("v78 by name: the per-box controller, withdrawn on v79 - NEGATIVE: a box row never counts as the controller's row, presence or not", () => {
     const s = vavSheet({

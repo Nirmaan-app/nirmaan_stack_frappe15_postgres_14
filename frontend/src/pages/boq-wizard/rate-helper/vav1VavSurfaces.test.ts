@@ -18,6 +18,7 @@ import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import { COMING_SOON_REASON, buildExtractionByRow, isEligibleConfig, makePricingSheetHelper, rowUsesPreRunHelper } from "./pricingSheetHelper";
 import { RATE_MASTER_CONFIG_TARGETS } from "./rateHelperPlumbing";
 import { BY_ID, D2, ITEMS, LATEST, VAV, calc, surfaceMap, tot, bandFromOf } from "./vav1Vav.harness";
+import { undoVav2c1 } from "./vav2c1Edits.harness";
 
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
 const cell = (value: string) => ({ value, confidence: 0.9 });
@@ -149,8 +150,11 @@ describe(`VAV-1 T5 built categories on ${LATEST} vs v75`, () => {
     it(`${id}: its own config byte-identical; its Derivation tab equal except the two nested Misc lines under line ${line} (QR-C3)`, () => {
       // VAV-2a2 (HVAC v78; owner QR-V (a) 2026-11-20 00:10, R7): the Valve Package config's DECLARED changes -- the two scope notes lose
       // " (owner VR9)" and the Derivation gains the E13 line -- are undone on a copy before the byte comparison; every other byte is pinned
+      // VAV-2c1 K2 (HVAC v82; PIN K2-B B1, ANSWER 20): the newest file WITH THIS SLICE'S TEXT EDITS UNDONE (undoVav2c1, driven by vav2c1Edits.json alone).
+      // BEFORE: the newest file as stored
       const cur = new Map(BY_ID);
-      if (id === "hvac_valve_package" && Number(LATEST.match(/v(\d+)/)![1]) >= 78) cur.set(id, withoutR7(BY_ID.get(id)!, C75.get(id)!));
+      for (const [cid, c] of cur) cur.set(cid, undoVav2c1(c));
+      if (id === "hvac_valve_package" && Number(LATEST.match(/v(\d+)/)![1]) >= 78) cur.set(id, withoutR7(cur.get(id)!, C75.get(id)!));   // VAV-2c1 K2 (PIN K2-B B1): of the undone copy (BEFORE BY_ID.get(id)!)
       expect(JSON.stringify(cur.get(id))).toBe(JSON.stringify(C75.get(id)));
       const was = tab(C75, I75, id), now = tab(cur, ITEMS, id);
       expect(now.length).toBe(was.length);

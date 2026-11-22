@@ -15,6 +15,7 @@ import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import { buildExtractionByRow, makePricingSheetHelper, type ItemListSuggestion } from "./pricingSheetHelper";
 import { BY_ID, ITEMS, surfaceMap } from "./vav1Vav.harness";
 import { withV78Valve } from "./vav2a2.harness";
+import { undoVav2c1 } from "./vav2c1Edits.harness";
 
 const VALVE = "hvac_valve_package";
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
@@ -88,7 +89,8 @@ describe("VAV-2a2 R7 - the owner tags are gone from the scope notes", () => {
       .category_configs.find((c) => c.category_id === VALVE)!;
     const after = withV78Valve(before);
     // ... and the newest asset carries exactly that transformation (on v78; idempotent on v77)
-    expect(withV78Valve(BY_ID.get(VALVE)!)).toEqual(after);
+    // VAV-2c1 K2 (PIN K2-B B2): read with this slice's text edits undone. BEFORE: withV78Valve(BY_ID.get(VALVE)!)
+    expect(withV78Valve(undoVav2c1(BY_ID.get(VALVE)!))).toEqual(after);
     const sr = (x: RateCategoryConfig) => (x as unknown as { list_spec: { pricing: { scope: { supply_row: { with_row: string; no_row: string } } } } }).list_spec.pricing.scope.supply_row;
     expect(sr(after).with_row).toBe("Supply row(s) of this valve on this sheet: {rows}.");
     expect(sr(after).no_row).toBe("The sheet does not quote this valve's supply on another row, so the uplift applies. Switch back to Supply + installation if the BoQ supplies it too.");
