@@ -3,7 +3,7 @@
 # touching the checkout itself (no index, branch or file of it changes). Runs inside a frappe container (env_sync.sh,
 # B1) or in Git Bash on the desktop host (a desktop session at a milestone, B4) - it needs only bash, git and tar.
 #
-#   ckpt_code.sh <repo> <out dir> [<base commit>] [<checkpoint commit>]
+#   ckpt_code.sh <repo> <out dir> [<base commit>] [<checkpoint commit>] [--held=<sha>:<sha>:...]
 #
 # With <checkpoint commit> (a ckpt_branch.sh commit, B3) the snapshot is that commit instead of the live tree: head = its
 # parent, tracked.diff = parent..commit (new files included), untracked.tar empty, and the bundle carries its ckpt/ branch.
@@ -13,11 +13,19 @@
 #                   (what a takeover must end equal to), built in a TEMPORARY index.
 #   commits.bundle  the commits after <base> (only when <base> is given, known here, and behind HEAD); with no usable base,
 #                   a bundle of the whole branch is NOT made (too big) and head.txt says bundle=none.
+#                   --held= (a dev2 unit only, BCS-T1 2026-11-22) lists commits the LAPTOP holds (its dev2 HEAD, its branch and
+#                   remote-tracking tips): when <base> is not usable, the bundle starts from the nearest commit this branch
+#                   shares with one of them - an ancestor of a commit the laptop holds, so the laptop holds it too. head.txt
+#                   then always has a commits= line: carried since ..., nothing to carry ..., or NOT carried: <reason>.
+#                   Without --held (every main dev unit) head.txt and the bundle decision are exactly as before.
 #   tracked.diff    git diff --binary HEAD (staged and unstaged changes to tracked files, deletions included)
 #   untracked.tar   new files git does not ignore, minus the declared noise (ENV_SYNC_NOISE, newline-separated paths)
 #   files.txt       the porcelain list the snapshot was taken from
 # Prints ckpt=<out dir>, tree=, size= (bytes of the folder) and files= on success; error=... and exit 1 otherwise.
 set -uo pipefail
+CARRY=0 HELD="" ARGS=()
+for a in "$@"; do case "$a" in --held=*) CARRY=1; HELD=${a#--held=};; *) ARGS+=("$a");; esac; done
+set -- "${ARGS[@]}"
 REPO=$1 OUT=$2 BASE=${3:-} COMMIT=${4:-}
 NOISE=${ENV_SYNC_NOISE:-$'BOQ-26-00145_SOW_faithful.csv\nHandover doc.pdf\n_classification_review/\ntendering-won.patch'}
 cd "$REPO" 2>/dev/null || { echo "error=no checkout at $REPO"; exit 1; }
@@ -87,8 +95,30 @@ if [ -n "$COMMIT" ]; then
 elif [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null && [ "$BASE" != "$head" ] && git merge-base --is-ancestor "$BASE" HEAD; then
   git bundle create -q "$OUT/commits.bundle" "^$BASE" "refs/heads/$branch" 2>/dev/null && bundle=commits.bundle
 fi
+# A dev2 unit: the branch's commits must reach the laptop, or the copy says why they do not - never silently.
+commits=""
+if [ "$CARRY" = 1 ] && [ -z "$COMMIT" ]; then
+  if [ "$bundle" = commits.bundle ]; then commits="carried since ${BASE:0:9}"
+  elif [ "$branch" = HEAD ]; then commits="NOT carried: the checkout is on no branch (detached HEAD)"
+  else
+    near="" nearn=0
+    for c in ${HELD//:/ }; do
+      [[ "$c" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$c^{commit}" 2>/dev/null || continue
+      mb=$(git merge-base "$c" HEAD 2>/dev/null) || continue
+      n=$(git rev-list --count "$mb..HEAD")
+      if [ -z "$near" ] || [ "$n" -lt "$nearn" ]; then near=$mb nearn=$n; fi
+    done
+    if [ -z "$HELD" ]; then commits="NOT carried: the laptop has no dev2 checkout, so no common commit is known"
+    elif [ -z "$near" ]; then commits="NOT carried: no commit the laptop holds is known here and shared with $branch"
+    elif [ "$nearn" = 0 ]; then commits="nothing to carry: the laptop already holds ${head:0:9}"
+    elif git bundle create -q "$OUT/commits.bundle" "^$near" "refs/heads/$branch" 2>/dev/null; then
+      bundle=commits.bundle; commits="carried since ${near:0:9} (the laptop's HEAD ${BASE:0:9} is not a usable base)"; BASE=$near
+    else commits="NOT carried: the bundle could not be made"; fi
+  fi
+fi
 { echo "branch=$branch"; echo "head=$head"; echo "base=${BASE:-none}"; echo "bundle=$bundle"; echo "tree=$tree"
-  echo "tracked_files=$n_tracked"; echo "untracked_files=$n_untracked"; echo "made=$(date '+%F %T')"; } > "$OUT/head.txt"
+  echo "tracked_files=$n_tracked"; echo "untracked_files=$n_untracked"; echo "made=$(date '+%F %T')"
+  [ -n "$commits" ] && echo "commits=$commits"; } > "$OUT/head.txt"
 echo "ckpt=$OUT"
 echo "branch=$branch"
 echo "head=$(git rev-parse HEAD)"
@@ -96,5 +126,6 @@ if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
   echo "base_known=1"; git merge-base --is-ancestor "$BASE" HEAD && echo "base_is_ancestor=1" || echo "base_is_ancestor=0"
 else echo "base_known=0"; fi
 echo "tree=$tree"
+[ -n "$commits" ] && echo "commits=$commits"
 echo "size=$(du -sb "$OUT" | cut -f1)"
 echo "files=$(( n_tracked + n_untracked ))"

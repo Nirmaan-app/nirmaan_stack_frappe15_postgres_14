@@ -17,11 +17,13 @@
 #   AWAY                                          -> also B2 for MAIN DEV when a session's newest DBCOPY-POINT is newer than
 #                                                    the last copy (memory guard, one retry an hour, Docker standby)
 #   dev2                                          -> code copies only. Its containers are NEVER started; if they run on the
-#                                                    desktop and dev2 has work, ONE question goes to the relay, no copy
+#                                                    desktop and dev2 has work, ONE question goes to the relay, no copy.
+#                                                    Commits that could not travel are said in its unit line
 #   the shared LEAVING flag (chat-Claude, `env_sync.sh leaving`, the Desktop shortcut "Leaving")
 #                                                 -> every detected unit is checkpointed NOW, office or away: sessions that
 #                                                    honour CHECKPOINT (a status file from our brief footer) are asked to
-#                                                    pause at their safe point, any other is copied as it stands; ONE
+#                                                    pause at their safe point (main dev's and dev2's, each in its own
+#                                                    sessions folder), any other is copied as it stands; ONE
 #                                                    database copy for main dev; READY / FAILED per unit in the heartbeat
 #                                                    and ONE relay entry; the flag is cleared
 # A failure never stops any session (CKP-2 F1): it is written once per unit to the heartbeat, the log and the relay, the
@@ -122,7 +124,33 @@ if ! mkdir "$ST/lock" 2>/dev/null; then
   if [ "$age" -ge "$LOCK_STALE_MIN" ]; then rmdir "$ST/lock" 2>/dev/null; mkdir "$ST/lock" 2>/dev/null || exit 0; say "a lock $age min old was removed"
   else say "SKIP another run holds the lock ($age min)"; exit 0; fi
 fi
-trap 'rmdir "$ST/lock" 2>/dev/null' EXIT
+# DEV2_ASKED (BCS-T1): the dev2 sessions sent a CHECKPOINT by a "leaving" run and not yet released, one "name|path" line each.
+# The release is unconditional: after its unit's copy - paused, not paused or timed out - and if this run ends in any other way.
+# A request that could not be confirmed as written (DEV2_UNSURE) is not waited for, but released all the same at the end.
+DEV2_ASKED=""; DEV2_UNSURE=""
+asked_of() { local n p; while IFS='|' read -r n p; do if [ "$p" = "$1" ]; then echo "$n"; fi; done <<< "$DEV2_ASKED"; }
+tell_dev2() { es 120 tell --name "$1" --text "$3" --checkout "$2" --env dev2 > /dev/null 2>&1; }
+# release_dev2 <path or "all"> <TAKEN|FAILED> [<why it failed>]: "CHECKPOINT TAKEN <time> - carry on"
+release_dev2() {
+  local n p left=""
+  while IFS='|' read -r n p; do
+    [ -n "$n" ] || continue
+    if [ "$1" != all ] && [ "$p" != "$1" ]; then left+="$n|$p"$'\n'; continue; fi
+    tell_dev2 "$n" "$p" "CHECKPOINT $2 $(date '+%F %H:%M')$( [ "$2" = TAKEN ] || echo " | $3 |" ) - carry on" || say "LEAVING: the release of $n (dev2) could not be written"
+  done <<< "$DEV2_ASKED"
+  DEV2_ASKED="$left"
+}
+# dev2_pending [<path>]: how many asked dev2 sessions (of that unit) are not at their safe point in the units output $UNOW.
+dev2_pending() {
+  local n p k=0 lines; lines=$(grep '^unit|dev2|' <<< "$UNOW")
+  while IFS='|' read -r n p; do
+    [ -n "$n" ] || continue; if [ -n "${1:-}" ] && [ "$p" != "$1" ]; then continue; fi
+    grep -q "[|,]$n:[0-9a-f]*:[a-z]*:CHECKPOINT" <<< "$lines" || k=$((k + 1))
+  done <<< "$DEV2_ASKED"
+  echo "$k"
+}
+on_exit() { DEV2_ASKED+="$DEV2_UNSURE"; if [ -n "$DEV2_ASKED" ]; then release_dev2 all FAILED "the copier ended before this unit was copied"; fi; rmdir "$ST/lock" 2>/dev/null; }
+trap on_exit EXIT
 if [ -f "$LOG" ]; then cut_off=$(date -d '30 days ago' +%F); awk -v c="$cut_off" '$1 >= c' "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"; fi
 
 [ -f "$ST/paused" ] && finish "PAUSED (since $(cat "$ST/paused"); env_sync.sh poller resume)"
@@ -165,7 +193,7 @@ if [ "$LEAVING" = 1 ]; then
   say "LEAVING flag found ($(head -1 "$LEAVING_FLAG" | one_line 120)) - every detected unit is checkpointed now"
   heartbeat "RUNNING since $RUN_START - LEAVING: asking the sessions to pause at their safe point" y
   while IFS='|' read -r tag env path branch head key changed sess; do
-    [ "$tag" = unit ] && [ "$env" = main ] || continue
+    [ "$tag" = unit ] || continue; [ "$env" = main ] || [ "$env" = dev2 ] || continue
     for s in ${sess//,/ }; do
       IFS=: read -r sname sid sstate sfirst <<< "$s"
       # a session honours CHECKPOINT when it keeps a status file (our brief footer); a rehearsal may leave named ones alone
@@ -173,14 +201,20 @@ if [ "$LEAVING" = 1 ]; then
       case " ${POLLER_LEAVING_SKIP:-} " in *" $sname "*) continue;; esac
       # a rehearsal names the ONLY sessions it may pause, so it can never reach a session it did not start
       if [ -n "${POLLER_LEAVING_ONLY:-}" ]; then case " $POLLER_LEAVING_ONLY " in *" $sname "*) ;; *) continue;; esac; fi
+      # a dev2 session gets the same message in ITS OWN sessions folder; main's checkpoint, its wait and its release are as before
+      if [ "$env" = dev2 ]; then
+        if tell_dev2 "$sname" "$path" "CHECKPOINT $(date '+%F %H:%M') | the owner is leaving"; then DEV2_ASKED+="$sname|$path"$'\n'; else DEV2_UNSURE+="$sname|$path"$'\n'; fi
+        continue
+      fi
       es 120 tell --name "$sname" --text "CHECKPOINT $(date '+%F %H:%M') | the owner is leaving" > /dev/null 2>&1 && PAUSED_NAMES+=" $sname"
     done
   done <<< "$UOUT"
+  ASK_T0=$(date +%s)
   if [ -n "$PAUSED_NAMES" ]; then
     waited=0
     while [ "$waited" -lt "$LEAVING_WAIT" ]; do
       pending=0; UNOW=$(es 180 units 2>/dev/null | tr -d '\r')
-      for n in $PAUSED_NAMES; do grep -q "[|,]$n:[0-9a-f]*:[a-z]*:CHECKPOINT" <<< "$UNOW" || pending=$((pending + 1)); done
+      for n in $PAUSED_NAMES; do grep '^unit|main|' <<< "$UNOW" | grep -q "[|,]$n:[0-9a-f]*:[a-z]*:CHECKPOINT" || pending=$((pending + 1)); done
       [ "$pending" = 0 ] && break
       sleep "${POLLER_LEAVING_STEP:-20}"; waited=$((waited + ${POLLER_LEAVING_STEP:-20}))
     done
@@ -191,8 +225,13 @@ fi
 
 # ---- per unit: the code copy ----------------------------------------------------------------------------------------
 RESULT=""; NDET=0; NFAIL=0; MAIN_ID=""; MAIN_PATH=""; MAIN_NAME=""; LEAVE_LINES=""; DEV2_WORK=0
+# On "leaving" a dev2 unit whose asked session is not at its safe point yet is left for after main dev's checkpoint
+# (DEFERRED), so main never waits for it; it is then waited for under the same time limit and copied.
+DEFERRED=""; UNOW="$UOUT"
+copy_units() {   # copy_units first|deferred
 while IFS='|' read -r tag env path branch head key changed sess; do
   [ "$tag" = unit ] || continue
+  if [ "$1" = deferred ]; then case $'\n'"$DEFERRED" in *$'\n'"$path"$'\n'*) ;; *) continue;; esac; fi
   id=$(unit_id "$env" "$branch"); is_root=0
   [ "$env" = main ] && [ "$(tr '[:upper:]' '[:lower:]' <<< "$path")" = "$MAIN_ROOT" ] && is_root=1
   working=0; names=""; first=""
@@ -213,6 +252,15 @@ while IFS='|' read -r tag env path branch head key changed sess; do
   [ "$env" = dev2 ] && [ -n "$mode" ] && DEV2_WORK=1
   [ "$LEAVING" = 1 ] && [ "$working" -gt 0 ] && mode=leave
   [ -n "$BACK" ] && [ -n "$mode" ] && mode=final
+  asked=""; [ "$env" = dev2 ] && asked=$(asked_of "$path" | tr '\n' ' ' | sed 's/ *$//')
+  if [ -n "$asked" ]; then
+    mode=leave; DEV2_WORK=1; npend=$(dev2_pending "$path")
+    if [ "$1" = first ] && [ "$npend" -gt 0 ] && [ "$LEAVING_WAIT" -gt 0 ]; then
+      [ "$working" -gt 0 ] && NDET=$((NDET - 1))      # counted when it is copied
+      DEFERRED+="$path"$'\n'; RESULT+="${RESULT:+; }$id: waiting for its safe point"; continue
+    fi
+    if [ "$npend" = 0 ]; then asked_say="paused at its safe point: $asked"; else asked_say="asked to pause: $asked; $npend not at a safe point after $(( $(date +%s) - ASK_T0 )) s - copied as it stands"; fi
+  fi
   [ -n "$mode" ] || continue
   args=(checkpoint-code --slice "$id" --checkout "$path" --env "$env"); [ -n "$first" ] && args+=(--name "$first")
   [ "$mode" = due ] && args+=(--if-older "$B1_EVERY")
@@ -221,16 +269,24 @@ while IFS='|' read -r tag env path branch head key changed sess; do
   case "$ck" in
     *"checkpoint not due"*) r="B1 SKIP not due";;
     *"CHECKPOINT CODE"*) r="B1 OK"; echo "$key" > "$ST/units/$id.key"; rm -f "$ST/units/$id.failed"
-        echo "$(now) $id $(sed -n 's/^CHECKPOINT CODE [^:]*: //p' <<< "$ck" | head -1 | sed 's#.*/##')" > "$ST/units/$id.last";;
+        echo "$(now) $id $(sed -n 's/^CHECKPOINT CODE [^:]*: //p' <<< "$ck" | head -1 | sed 's#.*/##')" > "$ST/units/$id.last"
+        # dev2 only: the branch's commits could not travel; said in the unit line until a copy carries them
+        if grep -q '^  commits NOT carried: ' <<< "$ck"; then sed -n 's/^  commits NOT carried: //p' <<< "$ck" | head -1 > "$ST/units/$id.nocommits"; else rm -f "$ST/units/$id.nocommits"; fi;;
     *) r="FAILED B1 (rc $rc): $(one_line 160 <<< "$ck")"; NFAIL=$((NFAIL + 1))
        if [ ! -f "$ST/units/$id.failed" ]; then now > "$ST/units/$id.failed"; relay "CKPFAIL-$id" "- The checkpoint copier could not copy unit $id ($env, $branch): $(one_line 200 <<< "$ck")
 - Last good copy of it: $(cat "$ST/units/$id.last" 2>/dev/null || echo none). No session is stopped or blocked; the other units are still copied; next try at the next run."; fi;;
   esac
   [ "$mode" = final ] && [ "$r" = "B1 OK" ] && r="B1 OK (last state; no session working)"
-  RESULT+="${RESULT:+; }$id: $r"
-  [ "$mode" = leave ] && [ "$is_root" != 1 ] && LEAVE_LINES+="- $id ($env, $branch; ${names:-no session}): $( [ "${r%% (*}" = "B1 OK" ] && echo "READY - code copied as it stands (best effort)" || echo "FAILED - $r" )"$'\n'
-  UNIT_LINES+="unit:              $id | $env | $branch | sessions: ${names:-none} | last code copy: $(cat "$ST/units/$id.last" 2>/dev/null | cut -d' ' -f1,2,4 || echo none) | this run: $r"$'\n'
+  if [ "$1" = deferred ]; then w="$id: waiting for its safe point"; RESULT="${RESULT%%"$w"*}$id: $r${RESULT#*"$w"}"; else RESULT+="${RESULT:+; }$id: $r"; fi
+  nocommits=$(cat "$ST/units/$id.nocommits" 2>/dev/null | one_line 200)
+  [ "$mode" = leave ] && [ "$is_root" != 1 ] && LEAVE_LINES+="- $id ($env, $branch; ${names:-no session}): $( [ "${r%% (*}" = "B1 OK" ] && echo "READY - code copied $( [ -n "$asked" ] && echo "($asked_say)" || echo "as it stands (best effort)" )${nocommits:+; commits NOT carried: $nocommits}" || echo "FAILED - $r${asked:+ ($asked_say)}" )"$'\n'
+  UNIT_LINES+="unit:              $id | $env | $branch | sessions: ${names:-none} | last code copy: $(cat "$ST/units/$id.last" 2>/dev/null | cut -d' ' -f1,2,4 || echo none) | this run: $r${asked:+ | leaving: $asked_say}${nocommits:+ | commits NOT carried: $nocommits}"$'\n'
+  if [ -n "$asked" ]; then   # the release: after the copy, whatever the session did
+    if [ "${r%% (*}" = "B1 OK" ]; then release_dev2 "$path" TAKEN; else release_dev2 "$path" FAILED "the code copy failed"; fi
+  fi
 done <<< "$UOUT"
+}
+copy_units first
 DETECTED="$NDET unit(s) with a working session"
 [ -n "$RESULT" ] || RESULT="IDLE (detected 0: no Claude Code session is working in a Stack checkout on the desktop)"
 if [ -n "$BACK" ]; then
@@ -300,6 +356,18 @@ elif [ -n "$POINT" ] && [ -n "$MAIN_ID" ]; then
     fi
   fi
 fi
+
+# ---- "leaving": the dev2 units whose session was still on its way to a safe point ------------------------------------
+if [ -n "$DEFERRED" ]; then
+  heartbeat "RUNNING since $RUN_START - LEAVING: waiting for a dev2 session's safe point (at most $LEAVING_WAIT s from the request), then its code is copied" y
+  while UNOW=$(es 180 units 2>/dev/null | tr -d '\r'); [ "$(dev2_pending)" != 0 ] && [ $(( $(date +%s) - ASK_T0 )) -lt "$LEAVING_WAIT" ]; do sleep "${POLLER_LEAVING_STEP:-20}"; done
+  if grep -q '^unit|dev2|' <<< "$UNOW"; then UOUT="$UNOW"; fi      # an answer that did not come keeps the units as first seen
+  say "LEAVING: the dev2 sessions asked to pause: $(dev2_pending) not at a safe point after $(( $(date +%s) - ASK_T0 )) s"
+  copy_units deferred
+  DETECTED="$NDET unit(s) with a working session"
+fi
+if [ -n "$DEV2_ASKED" ]; then release_dev2 all FAILED "its checkout is no longer listed, so it was not copied"; fi
+if [ -n "$DEV2_UNSURE" ]; then DEV2_ASKED="$DEV2_UNSURE"; DEV2_UNSURE=""; release_dev2 all TAKEN; fi      # its unit was copied as it stands above
 
 # ---- "leaving": the result, ONE relay entry, the flag cleared -------------------------------------------------------
 if [ "$LEAVING" = 1 ]; then

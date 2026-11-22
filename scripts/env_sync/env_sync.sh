@@ -40,6 +40,9 @@
 #   env_sync.sh resume-on-laptop --slice S [--name N] [--dry-run | --takeover --yes]
 #                                      B5: desktop up -> report only; down -> on the owner's word, rebuild the newest
 #                                      checkpoint on the laptop and make the laptop the master
+#   env_sync.sh resume-on-laptop --slice <dev2 unit> --code-only [--dry-run | --yes]
+#                                      a dev2 unit's newest CODE copy onto the laptop's dev2 checkout, on the owner's word:
+#                                      no data, no container, no master record (dev2 = code copies only)
 #
 # The checkpoint poller - a Windows scheduled task on the laptop, so the copies go on without Claude Code (CKP-3):
 #   env_sync.sh units                  CKP-4: which Claude Code sessions work in which Stack checkout on the desktop, read-only
@@ -149,7 +152,12 @@ DEV2_L_REPO="${ENV_SYNC_DEV2_LAPTOP_REPO:-$(cygpath -u "$USERPROFILE")/Documents
 MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
 TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_turn.txt}"
 GITBASH="${ENV_SYNC_DESKTOP_GITBASH:-C:/Program Files/Git/bin/bash.exe}"   # the desktop host's Git Bash (hrun)
-LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
+# The environment these settings belong to (BCS-T1): dev2 when the containers named above are dev2's or this is dev2's
+# checkout, else main. The laptop containers a command may start follow it: main has its four by default, dev2 has NO
+# default (2026-11-19 16:1x: a dev2 db-pull started main's) - it must name its own in .claude/state/env.local.
+case "$FRAPPE_C|$PG_C|$REPO/" in *frappe_dev2-*|*/frappe_docker_dev2/*) ENV_NAME=dev2;; *) ENV_NAME=main;; esac
+LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-}"
+[ -n "$LAPTOP_CONTAINERS" ] || [ "$ENV_NAME" = dev2 ] || LAPTOP_CONTAINERS="frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
 # ConnectTimeout only covers CONNECTING. A connection that stalls afterwards (CKP-4, 2026-11-18 18:25: the copier's first
@@ -374,6 +382,7 @@ pull_backup() {
   [ -n "$PB_PREFIX" ] || die "the desktop backup failed; the laptop is unchanged:\n$out"
   PB_TOOK=$(( $(date +%s) - t ))
   grep '^pruned=' <<< "$out" | sed 's/^pruned=/desktop: pruned /'
+  grep '^lock=' <<< "$out" | sed 's/^lock=/desktop: backup lock: /'
   PB_AFTER=$(d_counts "$PB_DB") || die "cannot count the desktop's rows after the backup"
   out=$(rrun desktop bash prove_backup.sh "$PB_PREFIX"); printf '%s\n' "$out" | sed 's/^/  /'
   [ "$(kv proof "$out")" = ok ] || die "the desktop backup did not prove whole (sizes, sha256, gzip -t, tar); the laptop is unchanged"
@@ -598,6 +607,7 @@ cmd_db_pull() {
   [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
   local t0 goes; t0=$(date +%s)
   goes=$(where_db_goes)
+  [ "$goes" = restore ] && need_laptop_list
   pull_backup
   if [ "$goes" = restore ]; then
     # the office: loaded as before. Docker is started here if it is off (time-limited, one recovery) and put back after.
@@ -744,6 +754,8 @@ cmd_print() {
   echo "  container env       ${CENV[*]:-none}"
   echo "  launcher task       envsync-claude-launch-$(basename "$(dirname "$(dirname "$D_BENCH")")")"
   echo "  pull record         $PULL_RECORD"
+  echo "  environment         $(this_env)"
+  echo "  laptop containers   $(laptop_list | grep . || echo "NOT SET - a command that needs the laptop's containers refuses; set ENV_SYNC_LAPTOP_CONTAINERS in .claude/state/env.local")"
 }
 
 cmd_watch() {
@@ -874,11 +886,23 @@ engine_down() {
 
 # laptop_up / laptop_down: the laptop's containers only for a database copy (owner 2026-10-26 / CKP-1 Q3), through the
 # laptop's turn file (shared with the dev2 lane): claim it first, free it after. Refuses while another lane holds it.
+# The turn file's tag is the environment the command was called for, and it never overwrites the other lane's line.
 # With LAPTOP_UP_SOFT=1 a Docker that will not start returns 1 (ENGINE_WHY says why) instead of ending the command.
+# this_env: the environment THIS command is for (--env when given, else this checkout's own).
+this_env() { echo "${CK_ENV:-$ENV_NAME}"; }
+# laptop_list: the laptop containers this command may start; "" when none is configured for its environment (a list set for
+# the other environment is never used).
+laptop_list() { if [ "$(this_env)" = "$ENV_NAME" ]; then echo "$LAPTOP_CONTAINERS"; fi; }
+need_laptop_list() {
+  [ -n "$(laptop_list)" ] && return 0
+  local why="no laptop containers are configured for $(this_env): nothing was started (main's containers are never started for it). Set ENV_SYNC_LAPTOP_CONTAINERS in the .claude/state/env.local of the laptop's $(this_env) checkout and run the command from there"
+  if [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ]; then ckfail "$why"; fi
+  die "$why"
+}
 laptop_up() {
-  local t c; t=$(head -1 "$TURN_FILE" 2>/dev/null)
-  case "$t" in free*|"main "*) ;; "") die "the laptop turn file $TURN_FILE is missing; ask the owner";; *) die "the laptop turn file says '$t'; wait until it is free";; esac
-  case "$t" in "main "*) LAPTOP_TURN_OURS=0;; *) echo "main $SLICE $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=1;; esac
+  local t c e; need_laptop_list; e=$(this_env); t=$(head -1 "$TURN_FILE" 2>/dev/null)
+  case "$t" in free*|"$e "*) ;; "") die "the laptop turn file $TURN_FILE is missing; ask the owner";; *) die "the laptop turn file says '$t'; wait until it is free";; esac
+  case "$t" in "$e "*) LAPTOP_TURN_OURS=0;; *) echo "$e $SLICE $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=1;; esac
   LAPTOP_STARTED=""
   if ! engine_ensure; then
     [ "${LAPTOP_TURN_OURS:-0}" = 1 ] && { echo "free $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=0; }
@@ -886,7 +910,7 @@ laptop_up() {
     if [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ]; then ckfail "$ENGINE_WHY"; fi
     die "$ENGINE_WHY"
   fi
-  for c in $LAPTOP_CONTAINERS; do
+  for c in $(laptop_list); do
     [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { docker start "$c" > /dev/null || die "cannot start $c"; LAPTOP_STARTED+="$c "; }
   done
   [ -n "$LAPTOP_STARTED" ] && { echo "laptop: started $LAPTOP_STARTED"; sleep 5; }
@@ -899,14 +923,25 @@ laptop_down() {
   return 0
 }
 
+# unit_sdir: the desktop sessions folder of the unit this command is about. Main dev's units (any worktree) use main's bench,
+# exactly as before; a dev2 unit (--env dev2) uses the dev2 bench its checkout belongs to - never main's, where a main session
+# of the same name may keep its own files (BCS-T1).
+unit_sdir() {
+  if [ "${CK_ENV:-main}" != dev2 ]; then echo "$SDIR"; return; fi
+  case "${CK_CHECKOUT:-}" in
+    */apps/nirmaan_stack) echo "${CK_CHECKOUT%/apps/nirmaan_stack}/$STAGE/sessions";;
+    *) echo "${DEV2_D_CHECKOUT%/apps/nirmaan_stack}/$STAGE/sessions";;      # another dev2 worktree: detect_units.ps1 uses the root's bench too
+  esac
+}
+
 # resume_note <file> <kind>: the RESUME NOTE beside a code checkpoint - where the slice stands and what is open, read from
 # the desktop session's own files (status file, newest line first; the resume note it keeps) and the laptop's relay file.
 # Read-only on the desktop.
 resume_note() {
-  local f="$1" kind="$2" st="" rs="" relay last
+  local f="$1" kind="$2" st="" rs="" relay last sd; sd=$(unit_sdir)
   if [ -n "${NAME:-}" ]; then
-    st=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -LiteralPath '$SDIR/$NAME.status.md' -TotalCount 40 }")
-    rs=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.resume.md') { Get-Content -LiteralPath '$SDIR/$NAME.resume.md' }")
+    st=$(dps "if (Test-Path -LiteralPath '$sd/$NAME.status.md') { Get-Content -LiteralPath '$sd/$NAME.status.md' -TotalCount 40 }")
+    rs=$(dps "if (Test-Path -LiteralPath '$sd/$NAME.resume.md') { Get-Content -LiteralPath '$sd/$NAME.resume.md' }")
   fi
   relay="$RELAY_ROOT/$SLICE/to_chat.md"
   last=$([ -f "$relay" ] && grep -o "id $SLICE-[0-9]*" "$relay" | tail -1)
@@ -932,10 +967,17 @@ hrun() {
   dps "& '$GITBASH' '$D_BENCH/$STAGE/$s' $*"
 }
 
+# dev2_held_tips: commits the laptop's dev2 checkout holds (HEAD first, then its newest branch and remote-tracking tips),
+# joined by ":"; "" without a dev2 checkout. ckpt_code.sh bundles from the nearest one it shares when HEAD is no usable base.
+dev2_held_tips() {
+  { git -C "$DEV2_L_REPO" rev-parse HEAD; git -C "$DEV2_L_REPO" for-each-ref --sort=-committerdate --format='%(objectname)' refs/heads refs/remotes; } 2>/dev/null |
+    grep -E '^[0-9a-f]{40}$' | awk '!seen[$0]++' | head -60 | paste -sd: -
+}
+
 # make_code_ckpt <kind> [<commit>]: build a code checkpoint on the desktop host, copy it to the laptop's slice folder, check
 # every file's sha256 on both sides, add the resume note and ckpt.txt. Sets CK_DIR, CK_TREE, CK_SIZE, CK_OUT, D_HEAD, D_BRANCH.
 make_code_ckpt() {
-  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum repo base
+  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum repo base held=""
   # CKP-4: a UNIT is any checkout / worktree of main dev or dev2 (--checkout, --env); without --checkout it is main dev's
   # own checkout, exactly as before. The bundle's base is what the laptop already has of that environment.
   repo="${CK_CHECKOUT:-$D_BENCH/apps/nirmaan_stack}"
@@ -943,8 +985,8 @@ make_code_ckpt() {
   [ "$kind" = B1 ] && test_fail b1
   hdir="$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
   L_HEAD=$(lgit rev-parse HEAD); base="$L_HEAD"
-  if [ "${CK_ENV:-main}" = dev2 ]; then base=$(git -C "$DEV2_L_REPO" rev-parse HEAD 2>/dev/null); base="${base:-none}"; fi
-  CK_OUT=$(hrun ckpt_code.sh "$repo" "$hdir" "$base" "$commit")
+  if [ "${CK_ENV:-main}" = dev2 ]; then base=$(git -C "$DEV2_L_REPO" rev-parse HEAD 2>/dev/null); base="${base:-none}"; held="--held=$(dev2_held_tips)"; fi
+  CK_OUT=$(hrun ckpt_code.sh "$repo" "$hdir" "$base" "$commit" $held)
   [ -n "$(kv ckpt "$CK_OUT")" ] || ckfail "the desktop could not make the code checkpoint:\n$CK_OUT"
   CK_TREE=$(kv tree "$CK_OUT"); D_HEAD=$(kv head "$CK_OUT"); D_BRANCH=$(kv branch "$CK_OUT")
   [ -n "${CK_CHECKOUT:-}" ] || [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
@@ -979,6 +1021,7 @@ cmd_checkpoint_code() {
   make_code_ckpt B1
   echo "CHECKPOINT CODE $SLICE: $CK_DIR"
   echo "  desktop ${D_HEAD:0:9}, tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
+  case "$(kv commits "$CK_OUT")" in "NOT carried: "*) echo "  commits $(kv commits "$CK_OUT")";; esac      # a dev2 unit only
   # the desktop's commits come across as after every commit (fast-forward only, no restart: nothing is served from
   # here). Only when the desktop is ahead - its git_state check in the container is the slow part.
   local ff=1
@@ -997,9 +1040,10 @@ cmd_checkpoint_code() {
 # tell_session <text>: append an ANSWER-style entry to the desktop session's message file (never overwrites).
 tell_session() {
   [ -n "${NAME:-}" ] || return 0
+  local sd; sd=$(unit_sdir)
   printf '\n=== %s ===\n' "$1" > "$TMPD/msg"
-  "$SCP" -q "${SSHO[@]}" "$TMPD/msg" "$DESKTOP:$SDIR/$NAME.msg_append.tmp" &&
-    dps "Get-Content -LiteralPath '$SDIR/$NAME.msg_append.tmp' | Add-Content -LiteralPath '$SDIR/$NAME.message.md'; Remove-Item -LiteralPath '$SDIR/$NAME.msg_append.tmp'" > /dev/null
+  "$SCP" -q "${SSHO[@]}" "$TMPD/msg" "$DESKTOP:$sd/$NAME.msg_append.tmp" &&
+    dps "Get-Content -LiteralPath '$sd/$NAME.msg_append.tmp' | Add-Content -LiteralPath '$sd/$NAME.message.md'; Remove-Item -LiteralPath '$sd/$NAME.msg_append.tmp'" > /dev/null
 }
 
 cmd_checkpoint() {
@@ -1084,7 +1128,7 @@ cmd_catch_up() {
 # ---- resume on the laptop (CKP-1, B5) ----------------------------------------------------------------------------
 desktop_alive() {   # prints the session's state lines; 0 when the desktop answers over SSH
   local out ps
-  ps="\$s='$SDIR/${NAME:-none}.status.md'; 'ssh=ok'; if (Test-Path -LiteralPath \$s) { 'status=' + (Get-Item -LiteralPath \$s).LastWriteTime.ToString('HH:mm:ss') + ' ' + (Get-Content -LiteralPath \$s -TotalCount 1) }; Get-ChildItem (Join-Path \$env:USERPROFILE '.claude/jobs') -Directory -ErrorAction SilentlyContinue | ForEach-Object { \$j = Get-Content (Join-Path \$_.FullName 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; if (\$j.name -eq '${NAME:-none}') { 'job=' + \$_.Name + ' ' + \$j.state } }"
+  ps="\$s='$(unit_sdir)/${NAME:-none}.status.md'; 'ssh=ok'; if (Test-Path -LiteralPath \$s) { 'status=' + (Get-Item -LiteralPath \$s).LastWriteTime.ToString('HH:mm:ss') + ' ' + (Get-Content -LiteralPath \$s -TotalCount 1) }; Get-ChildItem (Join-Path \$env:USERPROFILE '.claude/jobs') -Directory -ErrorAction SilentlyContinue | ForEach-Object { \$j = Get-Content (Join-Path \$_.FullName 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; if (\$j.name -eq '${NAME:-none}') { 'job=' + \$_.Name + ' ' + \$j.state } }"
   out=$(timeout 30 "$SSH" "${SSHO[@]}" "$DESKTOP" "$ps" 2>&1 | tr -d '\r')
   grep -q '^ssh=ok' <<< "$out" || return 1
   printf '%s\n' "$out" | grep -v '^ssh=ok'
@@ -1169,6 +1213,46 @@ cmd_resume_on_laptop() {
   LAPTOP_TURN_OURS=0; echo "main $SLICE MASTER $(date '+%F %T')" > "$TURN_FILE"
   echo "RESUMED-ON-LAPTOP $SLICE $(date '+%F %H:%M'): the laptop is the master; continue from $prev/resume.md:"
   sed -n '1,12p' "$prev/resume.md" | sed 's/^/  /'
+}
+
+# resume-on-laptop --slice <dev2 unit> --code-only [--dry-run | --yes] (BCS-T1 P5d): the newest CODE copy of a dev2 unit onto
+# the laptop's dev2 checkout. CODE ONLY: no database, no container, no turn file, no master record (dev2 = code copies only,
+# owner 2026-11-21). --dry-run rebuilds it on a throw-away clone of that checkout; --yes does it, on the owner's word, and
+# refuses while the desktop answers, on another branch, or over uncommitted tracked changes (nothing changed in each case).
+cmd_resume_code() {
+  need_slice
+  local dir u env branch s newest="" target rc cur dirty up=0 clash
+  dir=$(ckpt_dir); u="$dir/unit.txt"
+  [ -f "$u" ] || die "no unit $SLICE in $CKPT_ROOT (resume-on-laptop --units lists them)"
+  env=$(sed -n 's/^env=//p' "$u")
+  [ "$env" = dev2 ] || die "--code-only is for a dev2 unit; $SLICE is a $env unit (its takeover is resume-on-laptop --slice $SLICE --takeover --yes)"
+  for s in $(ls -1d "$dir"/[0-9]*_[0-9]* 2>/dev/null | sort); do if [ -f "$s/head.txt" ]; then newest="$s"; fi; done
+  [ -n "$newest" ] || die "unit $SLICE has no code copy yet"
+  branch=$(sed -n 's/^branch=//p' "$newest/head.txt")
+  echo "unit $SLICE (dev2, $branch): newest code copy $(basename "$newest"), head $(sed -n 's/^head=//p' "$newest/head.txt" | cut -c1-9), tree $(sed -n 's/^tree=//p' "$newest/head.txt" | cut -c1-12), made $(sed -n 's/^made=//p' "$newest/head.txt"); commits: $(sed -n 's/^commits=//p' "$newest/head.txt" | grep . || echo "bundle $(sed -n 's/^bundle=//p' "$newest/head.txt")")"
+  git -C "$DEV2_L_REPO" rev-parse --git-dir > /dev/null 2>&1 || die "the laptop has no dev2 checkout ($DEV2_L_REPO)"
+  cur=$(git -C "$DEV2_L_REPO" rev-parse --abbrev-ref HEAD); dirty=$(git -C "$DEV2_L_REPO" status --porcelain --untracked-files=no)
+  echo "the laptop's dev2 checkout: $cur @ $(git -C "$DEV2_L_REPO" rev-parse --short=9 HEAD), uncommitted tracked changes: $(grep -c . <<< "$dirty")"
+  [ "$cur" = "$branch" ] || die "refusing: the laptop's dev2 checkout is on $cur, the copy is of $branch; nothing changed"
+  [ -z "$dirty" ] || die "refusing: the laptop's dev2 checkout has uncommitted tracked changes; nothing changed"
+  if desktop_alive > /dev/null; then up=1; echo "DESKTOP UP: it answers over SSH"; else echo "DESKTOP DOWN: no SSH answer in 30 s"; fi
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    target="$TMPD/clone_code"; git clone -q --shared --branch "$cur" "$DEV2_L_REPO" "$target" || die "cannot make the dry-run clone"
+    clash=$(tar --force-local -tf "$newest/untracked.tar" | while IFS= read -r s; do case "$s" in */) ;; *) if [ -e "$DEV2_L_REPO/$s" ]; then echo "$s"; fi;; esac; done)
+    bash "$HERE/remote/ckpt_apply.sh" apply "$target" "$newest" > "$TMPD/apply.out" 2>&1; rc=$?
+    sed 's/^/  /' "$TMPD/apply.out"
+    [ -z "$clash" ] || { echo "  CONFLICT: these new files of the copy already exist in the real checkout:"; head -10 <<< "$clash" | sed 's/^/    /'; rc=1; }
+    if [ "$rc" = 0 ]; then echo "DRY RUN OK: rebuilt on a throw-away clone, tree equals the copy's; nothing was applied, no data, no container"
+    else echo "DRY RUN FAILED (see above); nothing was applied, no data, no container"; fi
+    return $rc
+  fi
+  if [ "${YES:-0}" != 1 ]; then echo "nothing done: add --dry-run to rehearse, or --yes on the owner's word (code only)"; return 0; fi
+  [ "$up" = 0 ] || die "refusing: the desktop answers, so work continues there (owner 2026-11-17 14:13); nothing changed"
+  bash "$HERE/remote/ckpt_apply.sh" apply "$DEV2_L_REPO" "$newest" > "$TMPD/apply.out" 2>&1; rc=$?
+  sed 's/^/  /' "$TMPD/apply.out"
+  [ "$rc" = 0 ] || die "STOPPED (see above): the laptop's dev2 checkout is left as the lines above say; no data, no container"
+  echo "RESUMED-ON-LAPTOP (CODE ONLY) $SLICE $(date '+%F %H:%M'): the laptop's dev2 checkout holds $(basename "$newest"); NO dev2 data was loaded, no container was started, the master record and the turn file are untouched. Continue from $newest/resume.md:"
+  sed -n '1,12p' "$newest/resume.md" | sed 's/^/  /'
 }
 
 # ---- delegated desktop sessions ---------------------------------------------------------------------------------
@@ -1380,7 +1464,7 @@ while [ $# -gt 0 ]; do
     --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
     --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;; --hold) HOLD=1;; --restore) RESTORE=1;;
     --text) TEXT="${2:-}"; shift;; --also-tell) ALSO_TELL="${2:-}"; shift;;
-    --checkout) CK_CHECKOUT="${2:-}"; shift;; --env) CK_ENV="${2:-}"; shift;; --units) UNITS=1;; --no-data-check) SKIP_DATA=1;;
+    --checkout) CK_CHECKOUT="${2:-}"; shift;; --env) CK_ENV="${2:-}"; shift;; --units) UNITS=1;; --no-data-check) SKIP_DATA=1;; --code-only) CODE_ONLY=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
     --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
@@ -1394,7 +1478,7 @@ case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; db-restore-held) cmd_db_restore_held;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
   checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;;
-  resume-on-laptop) if [ "${UNITS:-0}" = 1 ]; then cmd_resume_units; else cmd_resume_on_laptop; fi;;
+  resume-on-laptop) if [ "${UNITS:-0}" = 1 ]; then cmd_resume_units; elif [ "${CODE_ONLY:-0}" = 1 ]; then cmd_resume_code; else cmd_resume_on_laptop; fi;;
   units) cmd_units;; leaving) cmd_leaving;; tell) cmd_tell;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;

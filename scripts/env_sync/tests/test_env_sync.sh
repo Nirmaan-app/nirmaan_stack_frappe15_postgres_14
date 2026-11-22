@@ -114,6 +114,7 @@ cp "$L" "${KEEP_LOGS:-$W}/dev2_commands.log" 2>/dev/null
 echo "== 3. remote scripts: with the site set back to localhost (and the port to 8080) each is the old script"
 for f in backup.sh destale.sh restore_files.sh; do
   t=$(grep -v '^SITE="${ENV_SYNC_SITE:-localhost}" ' "$SRC/remote/$f"); t=${t//'"$SITE"'/localhost}
+  t=${t/'env/bin/python -I envsync/backup_site.py --site'/bench --site}      # BCS-T1 P6b: backup.sh's one change (no password on a command line)
   check "$f" '[ "$t" = "$(old "remote/$f")" ]'
 done
 for f in ports.sh stop_bench.sh; do
@@ -722,6 +723,9 @@ check "the leaving checkpoint holds its database copy by default (--restore asks
   grep -q "local hold=1; \[ \"\${RESTORE:-0}\" = 1 \] && hold=0" "$SRC/env_sync.sh" && grep -q "HELD on the laptop (not loaded" "$SRC/env_sync.sh"'
 H=$(bash "$SRC/env_sync.sh" 2>/dev/null)
 check "the help names db-restore-held and the held / restore switch" 'grep -q "db-restore-held --yes" <<< "$H" && grep -q "db-pull --yes --hold | --restore" <<< "$H"'
+
+# 9 - 14: the dev2 lane's code and the backup lock (BCS-T1)
+. "$HERE/dev2_lane.sh"
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
