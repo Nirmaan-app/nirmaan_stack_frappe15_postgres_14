@@ -119,7 +119,7 @@ stale, read-only DB inspect): `BoQ_Environment_Testing_Runbook_v1_0.md` in proje
 Read the doc for the area you touch before writing code; where it has a Load-bearing invariants section, read
 that first. Paths are under `.claude/context/domain/` unless given in full.
 
-The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-plan.md` (~3 MB), `boq-backend.md`
+The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-plan.md` (~4 MB), `boq-backend.md`
 (~250 KB), `boq-rate-master.md`. List the headings with `grep -n '^#' <file>`, then read only that range.
 
 | Touching… | Read |
