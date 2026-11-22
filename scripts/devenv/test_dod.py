@@ -127,13 +127,16 @@ class BlockerBypassHunt(TaskRepo):
 
     def test_a_blocker_whose_hunt_has_not_finished_is_not_done(self):
         for hunt in ("Bypass hunt: pass 2 running", "Bypass hunt: pending", "Bypass hunt: skipped, no time",
-                     "Bypass hunt: TBD", "Bypass hunt:"):
+                     "Bypass hunt: TBD", "Bypass hunt:", "Bypass hunt: finished", "Bypass hunt: finished.",
+                     "Bypass hunt: Finished - nothing", "Bypass hunt: **finished**", "Bypass hunt: finished, ok"):
             out = self.check("Blocker: yes", hunt)
             self.assertIn("'Bypass hunt:' line must start with 'finished, '", out, hunt)
 
     def test_a_blocker_whose_hunt_finished_is_done(self):
         out = self.check("Blocker: yes", "Bypass hunt: finished, pass 1 found a symlinked config (fixed in 1a2b3c4), "
                                          "pass 2 found nothing")
+        self.assertIn("DoD met", out)
+        out = self.check("Blocker: yes", "**Bypass hunt:** **finished**, pass 1 found nothing")
         self.assertIn("DoD met", out)
 
     def test_a_task_that_is_not_a_blocker_owes_no_hunt(self):

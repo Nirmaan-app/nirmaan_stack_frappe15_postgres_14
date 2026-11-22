@@ -104,14 +104,18 @@ started in `frontend/`.
   It counts inside quoted strings and heredoc bodies too, so `sh -c '…'`, `ssh r7 '…'`, `ssh r7 <<EOF`, and a shell
   or `xargs` fed by a pipe from a command that names it are denied; `$(...)` in double quotes or an unquoted heredoc
   is checked as commands. `grep react-doctor`, `git log -S react-doctor`, a commit message and a heredoc written to
-  a file with `cat` or `tee` are allowed.
+  a file with `cat` or `tee` are allowed. The name is looked for as the shell will see it: quotes, backslash escapes
+  and line continuations removed, `$'…'` and `printf` escapes decoded, braces expanded, so `npx react\-doctor`,
+  `npx react-{doctor,}` and `npx $'react\x2ddoctor'` are denied.
 - *A command that can run its arguments is not a reader:* `awk` (`system()`), `sed` (GNU `e`), `less`, `bat`, `ag`,
-  `ack` and `open` are left off the list, so `awk '/react-doctor/' f` is denied too (use `grep`). A listed command
-  stops being a reader when given an option that runs a command: `find -exec`, `rg --pre`, `sort
-  --compress-program`, `git -c`/`--config-env`/`--exec-path` (a `!` alias, `core.pager`), `git grep -O`,
-  `-x`/`--exec`. git and gh count only with a subcommand that runs nothing (`git log`, `grep`, `commit`, `merge`, …;
-  `gh issue`, `pr`, `api`, …), so `git bisect run`, `git rebase -x`, a git alias, `gh alias` and a gh extension are
-  denied. A prefix that names `react-doctor` (`GIT_PAGER='npx react-doctor .' git log`, `env -S '…'`) is denied.
+  `ack`, `open` and `read` (a name `'a[$(cmd)]'` runs `cmd`) are left off the list, so `awk '/react-doctor/' f` is
+  denied too (use `grep`); `command` reads only with `-v` or `-V`. A listed command stops being a reader when given an
+  option that runs a command: `find -exec`, `rg --pre`, `sort --compress-program`, `printf -v`, `test -v`, `git
+  -c`/`--config-env`/`--exec-path` (a `!` alias, `core.pager`), `git grep -O`, `-x`/`--exec`, also bundled (`-iO`)
+  or shortened (`--open=`). git, gh and the package managers count only when the first word after them is a
+  subcommand that runs nothing (`git log`, `grep`, `commit`, `merge`, …; `gh issue`, `pr`, `api`, …; `yarn why`,
+  `npm view`, …), so `git bisect run`, `git rebase -x`, a git alias, `gh alias`, a gh extension and `npm --loglevel
+  info exec` are denied. A prefix that names `react-doctor` (`GIT_PAGER='npx react-doctor .' git log`, `env -S '…'`) is denied.
 - *Known gap:* a script file the agent writes and then runs; React Doctor started from another language (`node -e`,
   `python -c`, a Python subprocess); a name built at run time (`x=react; npx $x-doctor`). The wrapper's refusals are
   the other guard.

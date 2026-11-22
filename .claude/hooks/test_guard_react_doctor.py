@@ -104,6 +104,40 @@ DENIED = [
     "LESSOPEN='|npx react-doctor %s' cat x",
     "env -S 'npx react-doctor .'",
     "sort --compress-program=react-doctor x",
+    # Shell escapes, brace expansion and ANSI-C quoting the shell removes before the run (third review).
+    "npx react\\-doctor .",
+    "npx re\\act-doctor .",
+    "npx react-doct\\or .",
+    "npx react-\\\ndoctor .",
+    "yarn dlx react\\-doctor@latest . --verbose",
+    "npx react-{doctor,} .",
+    "npx {react,x}-doctor .",
+    "npx react-{d..d}octor .",
+    "npx react-{doctor,{a}} .",
+    "npx $'react\\x2ddoctor' .",
+    "npx $'react\\055doctor' .",
+    "sh -c 'npx react\\-doctor .'",
+    "bash -c \"npx react-{doctor,} .\"",
+    "printf 'npx react\\x2ddoctor .' | sh",
+    "echo \\' ; npx react-doctor . ; echo \\'",
+    # command without -v/-V runs its argument; options before a package manager's subcommand hide it.
+    "command -- npx react-doctor .",
+    "command -p -- npx react-doctor .",
+    "command -p -p npx react-doctor .",
+    "npm --loglevel info exec -- react-doctor .",
+    "pnpm --filter list dlx react-doctor .",
+    "yarn --cwd install react-doctor .",
+    "gh --repo x react-doctor",
+    # git takes bundled short options and any unique start of a long one; sort too.
+    "git grep -iO'npx react-doctor .' useEffect",
+    "git grep --open='npx react-doctor .' useEffect",
+    "git grep --open-files='npx react-doctor .' x",
+    "git -P grep -nO'npx react-doctor' x",
+    "sort --compress=react-doctor x",
+    # Readers that assign to a name: 'a[$(cmd)]' runs cmd as a subscript (bash and zsh read, zsh printf -v, test -v).
+    "read 'a[$(npx react-doctor .)]' <<< x",
+    "printf -v 'a[$(npx react-doctor .)]' %s y",
+    "test -v 'a[$(npx react-doctor .)]'",
 ]
 
 ALLOWED = [
@@ -149,6 +183,18 @@ ALLOWED = [
     "gh pr view 12 --json body | grep react-doctor",
     "rg --pre-glob '*.gz' react-doctor",
     "sort react-doctor.txt",
+    "command -pv react-doctor",
+    "command -V react-doctor",
+    "grep -rn 'react\\-doctor' frontend",
+    "grep -rn react\\-doctor frontend",
+    "echo it\\'s; grep react-doctor x",
+    "git grep -n react-doctor -- '*.json'",
+    "git log --oneline --exclude=refs/stash --all -S react-doctor",
+    "git log --format=%h -S react-doctor",
+    "printf '%s\\n' react-doctor",
+    "test -e node_modules/.bin/react-doctor",
+    "sort --reverse react-doctor.txt",
+    "grep -c '{react-doctor,x}' notes.md",
 ]
 
 
