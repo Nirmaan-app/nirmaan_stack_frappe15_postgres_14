@@ -86,8 +86,8 @@ completion notice. A box agent ran four such loops in one task with the prose ru
 ## 5. `guard_react_doctor.py` — React Doctor only through `yarn doctor` (Claude Code hook)
 
 **What:** a `PreToolUse` hook (matcher `Bash`). It denies any shell segment that names `react-doctor` unless
-the segment's command only reads or names its arguments (an allowed list, `READERS`, plus package-manager queries
-such as `yarn add`/`why`). The deny reason sends the agent to `yarn doctor <args>` from
+the segment's command only reads or names its arguments (an allowed list: `READERS`, the git and gh subcommands in
+`GIT_READS` and `GH_READS`, plus package-manager queries such as `yarn add`/`why`). The deny reason sends the agent to `yarn doctor <args>` from
 `frontend/` (`frontend/scripts/react_doctor.mjs`), which always adds `--no-telemetry --no-score --no-supply-chain`
 and refuses `install`, `why` and `--supply-chain`. Without those flags React Doctor sends data to Axiom, Sentry,
 react.doctor and Socket.dev; in #1698 agents ran it that way 5 times with the prose rule in their context.
@@ -105,6 +105,13 @@ started in `frontend/`.
   or `xargs` fed by a pipe from a command that names it are denied; `$(...)` in double quotes or an unquoted heredoc
   is checked as commands. `grep react-doctor`, `git log -S react-doctor`, a commit message and a heredoc written to
   a file with `cat` or `tee` are allowed.
+- *A command that can run its arguments is not a reader:* `awk` (`system()`), `sed` (GNU `e`), `less`, `bat`, `ag`,
+  `ack` and `open` are left off the list, so `awk '/react-doctor/' f` is denied too (use `grep`). A listed command
+  stops being a reader when given an option that runs a command: `find -exec`, `rg --pre`, `sort
+  --compress-program`, `git -c`/`--config-env`/`--exec-path` (a `!` alias, `core.pager`), `git grep -O`,
+  `-x`/`--exec`. git and gh count only with a subcommand that runs nothing (`git log`, `grep`, `commit`, `merge`, …;
+  `gh issue`, `pr`, `api`, …), so `git bisect run`, `git rebase -x`, a git alias, `gh alias` and a gh extension are
+  denied. A prefix that names `react-doctor` (`GIT_PAGER='npx react-doctor .' git log`, `env -S '…'`) is denied.
 - *Known gap:* a script file the agent writes and then runs; React Doctor started from another language (`node -e`,
   `python -c`, a Python subprocess); a name built at run time (`x=react; npx $x-doctor`). The wrapper's refusals are
   the other guard.

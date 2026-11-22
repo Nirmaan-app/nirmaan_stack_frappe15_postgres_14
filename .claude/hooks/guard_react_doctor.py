@@ -8,10 +8,16 @@ the flags say. Data once sent cannot be recalled. In #1698 it ran without the fl
 laptop reviewer) while frontend/CODING_STANDARDS.md § React Doctor said never to, so the rule is enforced here.
 
 Allowed-list design. A shell segment that names react-doctor is denied unless its command is in READERS (grep, cat,
-git, echo, ls, ...: commands that only read or name their arguments) or is a package-manager query (yarn add/why,
-npm install/view, ...). So a way to run it that nobody listed (npx by path, rtk proxy, /usr/bin/env, npm exec -c,
-yarn node, a new runner) is denied, not missed. A segment starts after ; && || | & ( ) ` or a newline, and after any
-PREFIXES (VAR=value, env, time, sudo, rtk, docker exec, ssh, ...), so `rtk grep react-doctor` is read as grep.
+echo, ls, ...: commands that only read or name their arguments), is a git or gh subcommand in GIT_READS or GH_READS,
+or is a package-manager query (yarn add/why, npm install/view, ...). So a way to run it that nobody listed (npx by
+path, rtk proxy, /usr/bin/env, npm exec -c, yarn node, a new runner) is denied, not missed. A command that can run
+its arguments is not a reader: awk (system()), sed (GNU `e`), less, bat, ag, ack, open. Neither is a listed command
+given an option that runs one (RUNS_OPTIONS: find -exec, rg --pre, sort --compress-program; git -c, --config-env,
+--exec-path; GIT_RUNS: grep -O, -x, --exec), nor git or gh with a subcommand outside GIT_READS or GH_READS (git
+bisect run, rebase -x, an alias; gh alias, a gh extension). A segment starts after ; && || | & ( ) ` or a
+newline, and after any PREFIXES (VAR=value, env, time, sudo, rtk, docker exec, ssh, ...), so `rtk grep react-doctor`
+is read as grep. A prefix that itself names react-doctor (GIT_PAGER='npx react-doctor .' git log, env -S '...') is
+denied.
 The name counts inside a quoted string and a heredoc body too, so the string given to sh -c, eval, ssh, watch or
 npm exec -c, and a heredoc fed to a shell or ssh, are denied. A shell, ssh or xargs fed by a pipe from a command
 that names react-doctor is denied. $(...) inside double quotes or an unquoted heredoc is checked as commands.
@@ -32,13 +38,30 @@ NAME = re.compile(r"(?<![\w-])react-doctor(?![\w-])")
 # Stands in for a quoted string or heredoc body that names react-doctor. Holds neither a separator nor the name.
 MARK = "\x00RD\x00"
 
-# Commands whose arguments are only read or named, never run.
+# Commands whose arguments are only read or named, never run (unless RUNS_OPTIONS says so).
 READERS = frozenset("""
-    grep egrep fgrep zgrep rg ag ack cat bat less more head tail ls tree find which type whereis command hash file
-    stat wc du diff cmp echo printf git gh sed awk jq sort uniq cut tr tee cd pushd mkdir touch cp mv ln readlink
-    realpath basename dirname test [ open code read
+    grep egrep fgrep zgrep rg cat head tail ls tree find which type whereis command hash file stat wc du diff cmp
+    echo printf jq sort uniq cut tr tee cd pushd mkdir touch cp mv ln readlink realpath basename dirname test [ read
 """.split())
-FIND_RUNS = re.compile(r"\s-(?:exec|execdir|ok|okdir)\b")
+# Options that make a reader run a command.
+RUNS_OPTIONS = {
+    "find": re.compile(r"\s-(?:exec|execdir|ok|okdir)\b"),
+    "rg": re.compile(r"\s--pre(?:[=\s]|$)"),
+    "sort": re.compile(r"\s--compress-program\b"),
+}
+# git options allowed before the subcommand; any other (-c, --config-env, --exec-path) can run a command.
+GIT_GLOBALS = re.compile(r"-C|--git-dir|--work-tree|--namespace")
+GIT_GLOBAL_FLAGS = frozenset("-P -p --no-pager --paginate --no-optional-locks --literal-pathspecs --bare".split())
+# git subcommands that run nothing named in their arguments (hooks are files: the script-file gap).
+GIT_READS = frozenset("""
+    log show diff grep status blame shortlog reflog describe rev-parse rev-list ls-files ls-tree cat-file show-ref
+    branch tag switch checkout restore add rm mv commit merge stash notes
+""".split())
+# Options of those subcommands that run a command.
+GIT_RUNS = re.compile(r"\s(?:-x|--exec\S*|--extcmd\S*|-O\S*|--open-files-in-pager\S*|--upload-pack\S*"
+                      r"|--receive-pack\S*)(?=\s|$)")
+# gh subcommands that run nothing locally; gh alias and an extension (gh <name>) can.
+GH_READS = frozenset("issue pr search api repo release run workflow label gist browse status".split())
 PACKAGE_MANAGERS = frozenset(("yarn", "npm", "pnpm", "bun"))
 PACKAGE_QUERIES = frozenset("""
     add remove install i uninstall un why info view show list ls outdated upgrade up update explain audit search
@@ -78,15 +101,18 @@ REASON = (
     "install, why and --supply-chain before React Doctor starts; its tests (frontend/scripts/react_doctor.test.mjs) "
     "prove both, and a scan through it made 0 network attempts (measured, commit 945bc0893). Run directly, React "
     "Doctor sends data to Axiom, Sentry, react.doctor and Socket.dev (#1698, frontend/CODING_STANDARDS.md § React "
-    "Doctor). Only reading commands (grep, cat, git, ls, echo, ...) may name react-doctor."
+    "Doctor). Only reading commands (grep, rg, cat, ls, echo, git log/grep/commit, ...) may name react-doctor; "
+    "awk, sed, less and git -c are not reading commands here."
 )
 
 
 def command_word(segment):
-    segment = segment.strip()
+    """The segment from its command on, and whether a prefix before it names react-doctor."""
+    segment, named = segment.strip(), False
     while match := PREFIXES.match(segment):
+        named = named or bool(NAME.search(match.group())) or MARK in match.group()
         segment = segment[match.end():]
-    return segment
+    return segment, named
 
 
 def program(word):
@@ -94,11 +120,28 @@ def program(word):
     return words[0].rsplit("/", 1)[-1] if words else ""
 
 
+def git_only_names(words):
+    i = 1
+    while i < len(words) and words[i].startswith("-"):
+        option = words[i].split("=", 1)[0]
+        if words[i] in GIT_GLOBAL_FLAGS or (GIT_GLOBALS.fullmatch(option) and "=" in words[i]):
+            i += 1
+        elif GIT_GLOBALS.fullmatch(option):
+            i += 2
+        else:
+            return False
+    return i < len(words) and words[i] in GIT_READS and not GIT_RUNS.search(" " + " ".join(words[i:]))
+
+
 def only_names(word):
     """True when the segment's command only reads or names its arguments."""
     name = program(word)
     if name in READERS:
-        return name != "find" or not FIND_RUNS.search(word)
+        return name not in RUNS_OPTIONS or not RUNS_OPTIONS[name].search(word)
+    if name == "git":
+        return git_only_names(word.split())
+    if name == "gh":
+        return next((w for w in word.split()[1:] if not w.startswith("-")), "") in GH_READS
     if name in PACKAGE_MANAGERS:
         return next((w for w in word.split()[1:] if not w.startswith("-")), "") in PACKAGE_QUERIES
     return False
@@ -131,8 +174,8 @@ def runs_react_doctor(code):
 
     parts = SEPARATORS.split(QUOTED.sub(quoted, HEREDOC.sub(heredoc, code)))
     for i in range(0, len(parts), 2):
-        raw, word = parts[i], command_word(parts[i])
-        if denied_segment(word):
+        raw, (word, prefix_names) = parts[i], command_word(parts[i])
+        if prefix_names or denied_segment(word):
             return True
         fed_code = i and parts[i - 1] == "|" and NAME.search(code)
         if fed_code and (SHELL.fullmatch(word) or (raw.strip() and not word)

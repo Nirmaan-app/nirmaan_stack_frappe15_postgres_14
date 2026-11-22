@@ -83,6 +83,27 @@ DENIED = [
     "cat <<EOF\n$(npx react-doctor .)\nEOF",
     "find src -name '*.tsx' -exec react-doctor {} +",
     "RD=react-doctor; npx $RD .",
+    # Readers that can run their arguments, found allowed by the second review.
+    "awk 'BEGIN{system(\"npx react-doctor .\")}'",
+    "sed '1e npx react-doctor .' x",
+    "git -c alias.rd='!npx react-doctor .' rd",
+    'git -c alias.rd="!npx react-doctor ." rd',
+    "git -c core.pager='npx react-doctor .' log",
+    "git --config-env=core.pager=RD log -S react-doctor",
+    "git bisect run npx react-doctor .",
+    "git rebase -x 'npx react-doctor .' HEAD~1",
+    "git rebase --exec='npx react-doctor .' HEAD~1",
+    "git grep --open-files-in-pager='npx react-doctor' x",
+    "git grep -O'npx react-doctor' x",
+    "rg --pre react-doctor x .",
+    "rg --pre=react-doctor x .",
+    "gh alias set --shell rd 'npx react-doctor .'",
+    "gh react-doctor",
+    "less '+!npx react-doctor .' x",
+    "GIT_PAGER='npx react-doctor .' git log",
+    "LESSOPEN='|npx react-doctor %s' cat x",
+    "env -S 'npx react-doctor .'",
+    "sort --compress-program=react-doctor x",
 ]
 
 ALLOWED = [
@@ -120,6 +141,14 @@ ALLOWED = [
     "python3 - <<'EOF'\nprint('npx react-doctor .')\nEOF",
     "bash scripts/devenv/task.sh done react-doctor-1698",
     "git switch box/react-doctor-1698",
+    "git -C frontend log -S react-doctor",
+    "git --no-pager grep -n react-doctor",
+    "git -C /x/y --no-pager show HEAD:frontend/node_modules/react-doctor/package.json",
+    "git -c core.pager=cat log",
+    'gh issue create --title "x" --body "npx react-doctor . sent data out"',
+    "gh pr view 12 --json body | grep react-doctor",
+    "rg --pre-glob '*.gz' react-doctor",
+    "sort react-doctor.txt",
 ]
 
 
