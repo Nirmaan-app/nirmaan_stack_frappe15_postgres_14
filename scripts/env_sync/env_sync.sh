@@ -179,15 +179,32 @@ at_exit() {
 }
 trap at_exit EXIT
 
-# Copy remote/ into frappe-bench/envsync on both machines, once per run.
+# stage_new <""|desktop/> <file>...: STAGE_NEW = the files the desktop does not already hold under that name with the same
+# sha256 ($STAGE_HAVE, its own list). A file whose sha256 is unknown on either side counts as different.
+stage_new() {
+  local sub="$1" f h; shift
+  local -A sum=(); STAGE_NEW=()
+  while read -r h f; do [ -n "$f" ] && sum["${f#\*}"]="$h"; done <<< "$(sha256sum -- "$@" 2>/dev/null)"
+  for f in "$@"; do
+    h="${sum["$f"]:-unknown}"
+    case $'\n'"$STAGE_HAVE"$'\n' in *$'\n'"staged=$h $sub${f##*/}"$'\n'*) ;; *) STAGE_NEW+=("$f");; esac
+  done
+}
+
+# Copy remote/ into frappe-bench/envsync on both machines, once per run. On the desktop only what differs or is missing is
+# copied (BCS-T1 F-1, 2026-11-22): Windows cannot overwrite a script that bash is running in the container, so while a backup
+# ran - or waited for the backup lock - re-copying the same bytes failed and the copier read "the desktop did not answer".
 ensure_stage() {
   [ -n "${STAGED:-}" ] && return 0
   mkdir -p "$BENCH_HOST/$STAGE" && cp "$HERE"/remote/* "$BENCH_HOST/$STAGE/" || die "cannot stage scripts on the laptop"
   # resume-on-laptop must work with the desktop gone: stage the laptop only
   [ "${STAGE_LAPTOP_ONLY:-0}" = 1 ] && { STAGED=1; return 0; }
-  dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/$STAGE/desktop', '$SDIR' | Out-Null" > /dev/null
-  "$SCP" -q "${SSHO[@]}" "$HERE"/remote/* "$DESKTOP:$D_BENCH/$STAGE/" || die "cannot reach the desktop over SSH ($DESKTOP)"
-  "$SCP" -q "${SSHO[@]}" "$HERE"/desktop/*.ps1 "$DESKTOP:$D_BENCH/$STAGE/desktop/" || die "cannot stage the desktop launch scripts"
+  local STAGE_HAVE STAGE_NEW
+  STAGE_HAVE=$(dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/$STAGE/desktop', '$SDIR' | Out-Null; foreach (\$d in '', 'desktop/') { Get-ChildItem -LiteralPath ('$D_BENCH/$STAGE/' + \$d) -File | Where-Object { '.sh', '.py', '.ps1' -contains \$_.Extension } | ForEach-Object { 'staged=' + (Get-FileHash -Algorithm SHA256 -LiteralPath \$_.FullName).Hash.ToLower() + ' ' + \$d + \$_.Name } }")
+  stage_new "" "$HERE"/remote/*
+  [ "${#STAGE_NEW[@]}" = 0 ] || "$SCP" -q "${SSHO[@]}" "${STAGE_NEW[@]}" "$DESKTOP:$D_BENCH/$STAGE/" || die "cannot reach the desktop over SSH ($DESKTOP)"
+  stage_new desktop/ "$HERE"/desktop/*.ps1
+  [ "${#STAGE_NEW[@]}" = 0 ] || "$SCP" -q "${SSHO[@]}" "${STAGE_NEW[@]}" "$DESKTOP:$D_BENCH/$STAGE/desktop/" || die "cannot stage the desktop launch scripts"
   STAGED=1
 }
 

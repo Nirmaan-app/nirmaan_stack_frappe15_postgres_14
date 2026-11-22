@@ -724,7 +724,7 @@ check "the leaving checkpoint holds its database copy by default (--restore asks
 H=$(bash "$SRC/env_sync.sh" 2>/dev/null)
 check "the help names db-restore-held and the held / restore switch" 'grep -q "db-restore-held --yes" <<< "$H" && grep -q "db-pull --yes --hold | --restore" <<< "$H"'
 
-# 9 - 14: the dev2 lane's code and the backup lock (BCS-T1)
+# 9 - 15: the dev2 lane's code, the backup lock, the staging of only what differs (BCS-T1)
 . "$HERE/dev2_lane.sh"
 
 echo "== $PASS passed, $FAIL failed"

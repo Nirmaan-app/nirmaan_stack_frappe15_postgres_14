@@ -299,3 +299,61 @@ fi
 check "P6b: no remote script runs 'bench ... backup' itself any more (Frappe would put the password on pg_dump's command line); both backup scripts use the helper" '
   ! grep -nE "bench .*backup" "$SRC"/remote/*.sh | grep -vE "^[^:]*:[0-9]*: *#" | grep -q . && grep -q "backup_site.py" "$SRC/remote/backup.sh" && grep -q "backup_site.py" "$SRC/remote/backup_local.sh"'
 check "P6b: no env_sync script but backup_site.py reads or writes the password, and none writes a connection string" '! grep -nE "postgres(ql)?://|PGPASSWORD|db_password" "$SRC"/*.sh "$SRC"/remote/*.sh "$SRC"/desktop/* "$SRC"/laptop/* | grep -v "^[^:]*:[0-9]*: *#" | grep -q .'
+
+echo "== 15. only a script that differs is re-copied to the desktop (F-1)"
+# ensure_stage itself. The "desktop" is a folder: ssh's PowerShell command runs in the local powershell.exe against it (so the
+# real command text is tested), scp is a stub that logs and copies - and, as Windows does for a script that is being run,
+# refuses to overwrite a file named in held.txt.
+if command -v powershell.exe > /dev/null 2>&1; then
+  S15="$W/s15"; mkdir -p "$S15/lap"; cp -r "$SRC" "$S15/src"; export S15
+  cat > "$S15/scp" <<'EOF'
+#!/usr/bin/env bash
+echo "scp $*" >> "$S15/scp.log"
+while [ $# -gt 0 ]; do case "$1" in -q) shift;; -o) shift 2;; *) break;; esac; done
+dst="${@: -1}"; dst="$(cygpath -u "${dst#desktop:}")"; rc=0
+for f in "${@:1:$#-1}"; do
+  if grep -qx "$(basename "$f")" "$S15/held.txt" 2>/dev/null; then echo "dest open \"$dst\": Failure" >&2; rc=1; else cp "$f" "$dst" || rc=1; fi
+done
+exit $rc
+EOF
+  chmod +x "$S15/scp"
+  P15='D_BENCH="$(cygpath -m "$S15/desk")"; SDIR="$D_BENCH/envsync/sessions"; BENCH_HOST="$S15/lap"; HERE="$S15/src"; SCP="$S15/scp"; unset STAGED
+       dps() { echo "dps" >> "$S15/dps.log"; case "$1" in *detect_units*) echo "ssh=ok";; *) [ -f "$S15/down" ] && { echo "ssh: connect to host desktop: Connection timed out"; return 255; }; [ -f "$S15/garble" ] && { echo "Get-FileHash : The term is not recognized"; return 0; }; powershell.exe -NoProfile -Command "$1" 2>&1 | tr -d "\r";; esac; }'
+  st15() { : > "$S15/scp.log"; : > "$S15/dps.log"; e8reset; e8 "$P15; ensure_stage; echo \"staged=\$STAGED\"; ${1:-:}"; }
+  n15() { awk '{ for (i = 1; i <= NF; i++) if ($i ~ /env_sync|s15\/src/ && $i !~ /^desktop:/) print $i }' "$S15/scp.log" | sed 's#.*/##' | sort | tr '\n' ' '; }
+  tree15() { ( cd "$1/envsync" && find . -type f -exec sha256sum {} + | sort -k2 ); }
+  all15=$(ls "$SRC"/remote "$SRC"/desktop/*.ps1 | grep -v ':$' | sed 's#.*/##' | grep . | sort | tr '\n' ' ')
+  st15; a15=$(n15)
+  check "F-1-: a script that is MISSING on the desktop is copied (an empty desktop gets every one, each in its place)" '
+    [ "$a15" = "$all15" ] && grep -q "^staged=1$" "$E8/out" && [ "$(ls "$S15/desk/envsync/desktop" | wc -l)" = "$(ls "$SRC"/desktop/*.ps1 | wc -l)" ] && cmp -s "$SRC/remote/backup_local.sh" "$S15/desk/envsync/backup_local.sh"'
+  st15
+  check "F-1+: identical scripts are NOT re-copied: not one scp, and one call to the desktop (the one that was always made)" '[ ! -s "$S15/scp.log" ] && [ "$(wc -l < "$S15/dps.log")" = 1 ] && grep -q "^staged=1$" "$E8/out"'
+  echo "# a new line" >> "$S15/src/remote/destale.sh"; echo "# a new line" >> "$S15/src/desktop/launch.ps1"; st15; b15=$(n15)
+  check "F-1-: a script that DIFFERS is copied, and only that one (remote/ and desktop/ alike); the desktop then holds the new bytes" '
+    [ "$b15" = "destale.sh launch.ps1 " ] && cmp -s "$S15/src/remote/destale.sh" "$S15/desk/envsync/destale.sh" && cmp -s "$S15/src/desktop/launch.ps1" "$S15/desk/envsync/desktop/launch.ps1"'
+  echo "# changed on the desktop" >> "$S15/desk/envsync/ports.sh"; rm "$S15/desk/envsync/db_fingerprint.py"; st15; c15=$(n15)
+  check "F-1-: a script changed or removed ON THE DESKTOP is put back" '[ "$c15" = "db_fingerprint.py ports.sh " ] && cmp -s "$SRC/remote/ports.sh" "$S15/desk/envsync/ports.sh" && cmp -s "$SRC/remote/db_fingerprint.py" "$S15/desk/envsync/db_fingerprint.py"'
+  mkdir -p "$S15/desk/envsync/desktop"; cp "$S15/desk/envsync/desktop/launch.ps1" "$S15/desk/envsync/launch.ps1"; rm "$S15/desk/envsync/desktop/launch.ps1"; st15; d15=$(n15); rm "$S15/desk/envsync/launch.ps1"
+  check "F-1-: the same name in the other folder does not count as staged" '[ "$d15" = "launch.ps1 " ] && [ -f "$S15/desk/envsync/desktop/launch.ps1" ]'
+  echo backup_local.sh > "$S15/held.txt"; st15 'cmd_units'
+  check "F-1+: a run DURING A HELD FILE (a backup runs or waits) reads as a normal run: nothing is copied, the desktop answers (ssh=ok)" '[ ! -s "$S15/scp.log" ] && grep -q "^ssh=ok$" "$E8/out"'
+  echo "# a new line" >> "$S15/src/remote/backup_local.sh"; st15 'cmd_units'; e15=$(cat "$E8/out"); : > "$S15/held.txt"; st15; f15=$(n15)
+  check "F-1-: a held file that DIFFERS still fails as before (said, nothing run on old scripts) and is copied on the next run once it is free" '
+    grep -q "^env_sync: cannot reach the desktop over SSH" <<< "$e15" && ! grep -q "ssh=ok" <<< "$e15" && [ "$f15" = "backup_local.sh " ] && cmp -s "$S15/src/remote/backup_local.sh" "$S15/desk/envsync/backup_local.sh"'
+  touch "$S15/down"; printf '%s\n' $(ls "$SRC/remote") > "$S15/held.txt"; st15; rm "$S15/down"; : > "$S15/held.txt"
+  check "F-1-: a desktop that does not answer ends the command with the same message as before" 'grep -q "^env_sync: cannot reach the desktop over SSH (desktop)" "$E8/out" && ! grep -q "^staged=1" "$E8/out"'
+  # "could not compare" is never "identical": the copy is made as before
+  rm "$S15/held.txt"; touch "$S15/garble"; st15; g15=$(n15); rm "$S15/garble"
+  check "F-1-: when the desktop's list cannot be made (the hash command fails) EVERYTHING is copied, as before" '[ "$g15" = "$all15" ] && grep -q "^staged=1$" "$E8/out"'
+  mkdir -p "$S15/nosum"; printf '#!/usr/bin/env bash\nexit 1\n' > "$S15/nosum/sha256sum"; chmod +x "$S15/nosum/sha256sum"; : > "$S15/scp.log"; e8reset; e8 "$P15"'; PATH="$S15/nosum:$PATH"; ensure_stage; echo "staged=$STAGED"'; h15=$(n15)
+  check "F-1-: when the laptop's own hashes cannot be made everything is copied, as before" '[ "$h15" = "$all15" ] && grep -q "^staged=1$" "$E8/out"'
+  powershell.exe -NoProfile -Command "\$f = New-Object IO.FileStream('$(cygpath -w "$S15/desk/envsync/ports.sh")', [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None); Start-Sleep 12; \$f.Close()" & h=$!; sleep 4; st15; i15=$(n15); wait "$h"
+  check "F-1-: one script that cannot be READ on the desktop counts as different: it, and only it, is copied as before (and, held like that, refused as before)" '[ "$i15" = "ports.sh " ] && grep -q "^env_sync: cannot reach the desktop over SSH" "$E8/out"'
+  : > "$S15/held.txt"
+  # main dev: an empty desktop ends up byte for byte as the old ensure_stage leaves it
+  git -C "$REPO" show 6200cef22:scripts/env_sync/env_sync.sh | sed -n '/^ensure_stage()/,/^}/p' > "$S15/old_stage.sh"; mv "$S15/desk" "$S15/desk_used"; rm -rf "$S15/src"; cp -r "$SRC" "$S15/src"; st15; mv "$S15/desk" "$S15/desk_new"
+  e8reset; e8 "$P15"'; . "$S15/old_stage.sh"; ensure_stage'; mv "$S15/desk" "$S15/desk_old"
+  check "F-1, MAIN UNCHANGED: what the desktop holds afterwards equals, byte for byte and place for place, what the old staging left" '[ -s "$S15/old_stage.sh" ] && [ "$(tree15 "$S15/desk_old")" = "$(tree15 "$S15/desk_new")" ] && [ "$(tree15 "$S15/desk_new" | wc -l)" -gt 20 ]'
+else
+  echo "skip the staging checks: no powershell.exe here"
+fi
