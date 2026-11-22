@@ -249,6 +249,17 @@ class Body(unittest.TestCase):
         self.assertEqual(second.count("<details>"), 1)
         self.assertEqual(split_body(second), ("## Summary\n\nTwo.", "The author's words."))
 
+    def test_a_closing_line_added_after_the_first_run_survives_the_rerun(self):
+        first = rewrite_body("## Summary\n\nOne.", "The author's words.")
+        second = rewrite_body("## Summary\n\nTwo.", first + "\n\nCloses #77")
+        self.assertTrue(second.startswith("Closes #77\n\n## Summary\n\nTwo."))
+        third = rewrite_body("## Summary\n\nThree.", second)
+        self.assertEqual(third.count("Closes #77"), 1)
+
+    def test_a_closing_line_in_the_original_is_not_repeated(self):
+        body = rewrite_body("## Summary", "Fixes #12 by sorting.")
+        self.assertEqual(body.count("#12"), 1)
+
     def test_an_empty_original_says_so_and_stays_empty_on_rerun(self):
         first = rewrite_body("## Summary", None)
         self.assertIn("_The author left no description._", first)

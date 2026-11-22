@@ -58,6 +58,8 @@ done
 if [ "$expect" = private ]; then
   fork_pr=$(gh api "repos/$REPO/actions/permissions/fork-pr-workflows-private-repos" -q .run_workflows_from_fork_pull_requests 2>/dev/null)
   check "CI runs on PRs from forks" "${fork_pr:-unknown}" true
+  check "default branch" "$(gh api "repos/$REPO" -q .default_branch)" develop
+  check "devs can fork the private repo" "$(gh api "repos/$REPO" -q .allow_forking)" true
 fi
 
 info collaborators "$(gh api "repos/$REPO/collaborators" -q '[.[] | .login + "=" + .role_name] | join(" ")')"

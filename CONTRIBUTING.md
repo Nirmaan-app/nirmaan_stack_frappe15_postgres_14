@@ -1,0 +1,40 @@
+# Contributing
+
+This repo is private. Everyone who changes it follows the same five steps, whatever their role.
+
+## Steps
+
+1. **Get a copy.** The owner clones `Nirmaan-app/nirmaan_stack_frappe15_postgres_14` itself. Everyone else forks it
+   (the fork is private too), clones the fork, and adds the main repo as `upstream`:
+   `git remote add upstream https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git`
+2. **Branch from the newest `develop`.** `git fetch upstream && git switch -c <name> upstream/develop`. Name the
+   branch `<issue>-<short-name>` when the work has an issue, and `<short-name>` when it doesn't.
+3. **Open a PR into `develop` on the day you start**, as a draft if it isn't ready. An open PR is how the team sees
+   what you are working on. Work that sits only in a fork stays hidden.
+4. **Link an issue.** If the work came from an issue, write `Closes #<issue>` in the PR description. If it didn't, a
+   bot opens an issue from your PR, assigns it to you, labels it `auto-tracked`, and adds the `Closes` line.
+   Merging the PR closes the issue, so don't close issues by hand.
+5. **Review and merge.** The owner reviews each PR and merges it into `develop`. A release is a PR from `develop`
+   into `main`. A tag on `main` then builds the production image.
+
+## Rules
+
+- Never push to `main` or `develop` directly. Every change arrives through a PR.
+- Never push to a fork that is still public. A branch pushed there is public.
+- Keep secrets (keys, passwords, tokens) out of the repo, its history and its PR descriptions.
+
+## Moving off an old public fork
+
+Forks made before the repo went private stay public, and GitHub can't make them private. Move your checkout to a
+new private fork once, from your checkout. Both commands print what they would do until you add `--apply`:
+
+```bash
+bash scripts/fork_swap.sh prepare <your-github-login> --apply    # forks the private repo as <login>/<repo>-private
+bash scripts/fork_swap.sh swap --new <url it prints> --apply     # moves every branch there and checks each
+```
+
+`swap` keeps every local branch and every branch found only on the old fork, and blocks pushes to the old fork. It
+asks the new fork for each branch and prints one PASS or FAIL line per branch. Tags are not moved.
+
+Run `swap` in every clone on every machine you use. When each one ends with `0 failed`, open your PRs again from the
+new fork and delete the old public fork: `gh auth refresh -s delete_repo && gh repo delete <login>/<repo>`.
