@@ -138,6 +138,16 @@ agent_alive() {
   agent_route && "$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -q "^term_"
 }
 
+# agent_tail <worktree on the box>: the last 15 rows of its terminal's screen (the rendered screen, not the
+# stream: a TUI repaints lines, and the stream shows each repaint as a fragment). Nothing on a box with no Orca server.
+agent_tail() {
+  local t
+  agent_route && [ -x "$ORCA" ] || return 0
+  t="$("$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -oE '^term_[a-z0-9-]+' | head -1)"
+  [ -n "$t" ] || return 0
+  "$ORCA" terminal read "${AGENT_ROUTE[@]}" --terminal "$t" --screen --limit 15 2>/dev/null | tail -n 15 | sed 's/^/      | /'
+}
+
 # agent_stop <worktree on the box>: close its terminals. A box with no Orca server has none.
 agent_stop() {
   local t

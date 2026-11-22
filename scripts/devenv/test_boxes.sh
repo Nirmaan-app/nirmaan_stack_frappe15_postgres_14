@@ -36,13 +36,23 @@ args=(); while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; -q) shift ;; *) args
 at() { case "$1" in *@*:*) p="${1#*:}"; echo "$STUB_BOXES/${1%%:*}/${p#\~/}" ;; *) echo "$1" ;; esac; }
 cp "$(at "${args[0]}")" "$(at "${args[1]}")"
 EOF
+# A launch leaves a real first reply in the contabo box's session log, where Claude Code keeps it (an env that is
+# not a folder, such as /wt, gets none).
 cat > "$T/bin/orca" <<'EOF'
 #!/bin/bash
 echo "orca $*" >> "$STUB_LOG"
-[ "$1 $2" != "terminal list" ] || echo "term_t1  claude"
+case "$1 $2" in
+  "terminal list") echo "term_t1  claude" ;;
+  "terminal read") echo "> the screen" ;;
+  "agent launch")
+    for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; done
+    [ -d "$wt" ] || exit 0
+    d="$STUB_CLAUDE_HOME/projects/$(cd "$wt" && pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
+    echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
+esac
 EOF
 chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca"
-export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes"
+export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes" STUB_CLAUDE_HOME="$T/boxes/t@contabo-test/.claude"
 unset BOX_STARTED STUB_DOWN STUB_FAIL_ON STUB_FAIL_RC
 
 R="$T/boxes.conf"; export DEVBOX_REGISTRY="$R"
@@ -106,6 +116,11 @@ run lib 'box_load contabo; agent_ready; agent_launch /wt "the prompt"; agent_ali
 rc_is 0 "agent route on an env: box"; has alive "agent_alive sees the terminal"; has "closed Orca terminal term_t1" "agent_stop closes the terminals"
 log_has "orca agent launch --environment test-orca --agent claude --surface terminal --focus --worktree path:/wt --prompt the prompt --json" "agent_launch passes env: as --environment"
 log_has "orca terminal close --environment test-orca --terminal term_t1" "agent_stop closes on the box's server"
+run lib 'box_load contabo; agent_tail /wt'
+rc_is 0 "agent_tail on an env: box"; has "> the screen" "agent_tail prints the terminal's screen"
+log_has "orca terminal read --environment test-orca --terminal term_t1 --screen --limit 15" "agent_tail reads the env's terminal on the box's server"
+run lib 'box_load air; agent_tail /wt'
+rc_is 0 "agent_tail on a box without orca is a no-op"
 
 # ---- task.sh and handoff.sh, on a temp laptop repo (it holds the task records) and a checkout of it per box
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
@@ -162,6 +177,7 @@ rc_is 1 "handoff.sh refuses an ssh target"; has "no box 't@contabo-test'" "hando
 task start t2 --box air --no-agent --brief "$T/brief.md"
 rc_is 0 "start t2 on air"; has "box   air (me@air-test), checkout ~/work/y/variants/master   [--box]" "start prints the box line first"
 same "$(rec t2)" air "start records the box"
+same "$(git -C "$L" config devbox-task.t2.from) $(git -C "$L" config devbox-task.t2.base)" "master $(git -C "$L" rev-parse master)" "start records the ref and the commit the branch was cut from"
 same "$(git -C "$AIR" rev-parse box/t2)" "$(git -C "$L" rev-parse box/t2)" "the branch reached the air box"
 same "$(cat "$T/boxes/me@air-test/claude-artifacts/dod/box-t2/BRIEF.md")" "# Task: experiment: the brief" "the brief reached the air box"
 has "ok    test dod start" "the Definition of Done was turned on"
@@ -210,6 +226,13 @@ has "note  plugin versions differ (laptop -> box): pstack@p 1.0 -> 2.0" "another
 task done t3
 rc_is 0 "done t3"
 has "Separate review (fills the report's 'Separate review:' line): /mattpocock-skills:code-review $(git -C "$L" merge-base master box/t3 | cut -c1-9), on box/t3" "done names the separate review against the task's base"
+case "$OUT" in *"WARN  t3: its base"*) fail "done with the base in place does not warn" ;; *) pass "done with the base in place does not warn" ;; esac
+BASE="$(git -C "$L" rev-parse master)"
+git -C "$L" update-ref refs/heads/master "$(git -C "$L" commit-tree -m rewound 'master^{tree}')"
+task done t3
+rc_is 0 "done t3 after master was rewound"
+has "WARN  t3: its base ${BASE:0:9} is no longer in master (reset or rebased): rebase box/t3 onto master before merging" "done warns when the task's base left its ref (#1698)"
+git -C "$L" update-ref refs/heads/master "$BASE"
 
 TASK_ENV="STUB_FAIL_ON=_box STUB_FAIL_RC=255" task start t4 --box air --no-agent
 rc_is 3 "a box lost mid-start is exit 3"; has "Steps already done stay done" "a box lost mid-start says rerun"
@@ -222,6 +245,7 @@ rc_is 1 "clean stops when the box side fails"; same "$(rec t2)" air "a failed cl
 task clean t2
 rc_is 0 "clean t2"; has "deleted the box branch box/t2" "clean removes the box branch"; has "cleaned t2 on box air" "clean names the box"
 same "$(rec t2)" none "clean unsets the record"
+same "$(git -C "$L" config --get-regexp '^devbox-task\.t2\.' || echo none)" none "clean removes the task's from and base too"
 git -C "$AIR" rev-parse -q --verify refs/heads/box/t2 >/dev/null && fail "the air box still has box/t2"; pass "the air box no longer has box/t2"
 fresh_log
 task clean t3
