@@ -36,13 +36,23 @@ args=(); while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; -q) shift ;; *) args
 at() { case "$1" in *@*:*) p="${1#*:}"; echo "$STUB_BOXES/${1%%:*}/${p#\~/}" ;; *) echo "$1" ;; esac; }
 cp "$(at "${args[0]}")" "$(at "${args[1]}")"
 EOF
+# A launch leaves a real first reply in the contabo box's session log, where Claude Code keeps it (an env that is
+# not a folder, such as /wt, gets none).
 cat > "$T/bin/orca" <<'EOF'
 #!/bin/bash
 echo "orca $*" >> "$STUB_LOG"
-[ "$1 $2" != "terminal list" ] || echo "term_t1  claude"
+case "$1 $2" in
+  "terminal list") echo "term_t1  claude" ;;
+  "terminal read") echo "> the screen" ;;
+  "agent launch")
+    for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; done
+    [ -d "$wt" ] || exit 0
+    d="$STUB_CLAUDE_HOME/projects/$(cd "$wt" && pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
+    echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
+esac
 EOF
 chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca"
-export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes"
+export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes" STUB_CLAUDE_HOME="$T/boxes/t@contabo-test/.claude"
 unset BOX_STARTED STUB_DOWN STUB_FAIL_ON STUB_FAIL_RC
 
 R="$T/boxes.conf"; export DEVBOX_REGISTRY="$R"
@@ -106,6 +116,11 @@ run lib 'box_load contabo; agent_ready; agent_launch /wt "the prompt"; agent_ali
 rc_is 0 "agent route on an env: box"; has alive "agent_alive sees the terminal"; has "closed Orca terminal term_t1" "agent_stop closes the terminals"
 log_has "orca agent launch --environment test-orca --agent claude --surface terminal --focus --worktree path:/wt --prompt the prompt --json" "agent_launch passes env: as --environment"
 log_has "orca terminal close --environment test-orca --terminal term_t1" "agent_stop closes on the box's server"
+run lib 'box_load contabo; agent_tail /wt'
+rc_is 0 "agent_tail on an env: box"; has "> the screen" "agent_tail prints the terminal's screen"
+log_has "orca terminal read --environment test-orca --terminal term_t1 --screen --limit 15" "agent_tail reads the env's terminal on the box's server"
+run lib 'box_load air; agent_tail /wt'
+rc_is 0 "agent_tail on a box without orca is a no-op"
 
 # ---- task.sh and handoff.sh, on a temp laptop repo (it holds the task records) and a checkout of it per box
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"

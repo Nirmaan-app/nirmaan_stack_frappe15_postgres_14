@@ -4,7 +4,9 @@
 #   task.sh start <name> [--box <box>] [--brief <file>] [--from <ref>] [--no-agent]
 #       branch box/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
 #       outside the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on
-#       -> start Claude in that env, visible in Orca. --no-agent stops before Claude.
+#       -> start Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first
+#       reply in its session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
+#       --no-agent stops before Claude.
 #       Write the brief from scripts/devenv/BRIEF_TEMPLATE.md, keeping the filled copy outside the repo.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report, kept at
@@ -135,6 +137,46 @@ try:
         print("pstack-models.md", hashlib.sha256(f.read()).hexdigest()[:12])
 except OSError:
     print("pstack-models.md absent")
+EOF
+}
+
+# Runs under python3 - <env worktree> <epoch seconds> on a box: the agent's first reply since that time, from the
+# session logs Claude Code keeps under ~/.claude/projects/<the worktree's real path, every non-alphanumeric character
+# as ->/*.jsonl. Prints real (an assistant entry from a model), "synthetic<tab><its text>" (an assistant entry whose
+# model is <synthetic>: an error Claude Code wrote itself, such as "Not logged in · Please run /login", after which
+# the prompt is dropped), or none. A real reply wins over a synthetic one.
+reply_probe() {
+  cat <<'EOF'
+import json, os, re, sys
+wt, since = sys.argv[1], int(sys.argv[2])
+d = os.path.join(os.path.expanduser("~/.claude/projects"), re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(wt)))
+try:
+    names = sorted(os.listdir(d))
+except OSError:
+    names = []
+verdict, text = "none", ""
+for name in names:
+    p = os.path.join(d, name)
+    if not name.endswith(".jsonl") or os.path.getmtime(p) < since:
+        continue
+    with open(p, errors="replace") as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") != "assistant":
+                continue
+            m = e.get("message") or {}
+            if m.get("model") != "<synthetic>":
+                verdict = "real"
+                break
+            if verdict == "none":
+                verdict = "synthetic"
+                text = " ".join(c.get("text", "") for c in m.get("content") or [] if isinstance(c, dict))
+    if verdict == "real":
+        break
+print(verdict + ("\t" + " ".join(text.split()) if verdict == "synthetic" else ""))
 EOF
 }
 
@@ -348,7 +390,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,43p' "$0"; exit 1 ;;
+  *) sed -n '2,45p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -460,11 +502,27 @@ case "$CMD" in
     else ok "Claude plugins and pstack-models.md match the laptop's"; fi
     [ "$(names "$HERE_SETUP")" != "$(names "$BOX_SETUP")" ] || [ "$HERE_SETUP" = "$BOX_SETUP" ] \
       || echo "note  plugin versions differ (laptop -> box): $(join -j 2 <(printf '%s\n' "$HERE_SETUP" | awk '$1 == "plugin"' | sort -k2,2) <(printf '%s\n' "$BOX_SETUP" | awk '$1 == "plugin"' | sort -k2,2) | awk '$3 != $5 {printf "%s%s %s -> %s", s, $1, $3, $5; s = "; "}')"
+    SINCE="$(box_ssh 'date +%s')"
     agent_launch "$WT" "$(prompt)"
     n=0; until agent_alive "$WT"; do
       n=$((n + 1)); [ $n -gt 20 ] && die "no Claude terminal in '$NAME' after 60 s; open the env in Orca and run claude there"; sleep 3
     done
-    ok "Claude is working in '$NAME'. Watch it in Orca (box $BOX_NAME). Next: task.sh status $NAME"
+    # A terminal is not a working agent. On #1698 Claude's login had expired: it wrote "Not logged in" into its
+    # session log as a synthetic entry, dropped the prompt, and sat an hour while watch said working. The proof is
+    # its first real reply in that log.
+    WAIT="${DEVBOX_REPLY_WAIT:-180}"; n=0
+    RERUN="close that terminal and rerun task.sh start $NAME: it reuses the branch, record, brief and env, and only starts Claude again"
+    while :; do
+      REPLY="$(reply_probe | box_ssh "python3 - $WT $SINCE")"
+      case "$REPLY" in
+        real) break ;;
+        synthetic*) die "Claude in '$NAME' stopped before the task: ${REPLY#*$'\t'}. Fix it in Orca (box $BOX_NAME): open the env's terminal there and do what it says (/login for an expired login), then $RERUN" ;;
+      esac
+      n=$((n + 5))
+      [ "$n" -lt "$WAIT" ] || { agent_tail "$WT"; die "no reply from Claude in '$NAME' after $WAIT s (its terminal's last lines above). Look at it in Orca (box $BOX_NAME); if it is stuck, $RERUN"; }
+      sleep 5
+    done
+    ok "Claude is working in '$NAME' (its first reply is in). Watch it in Orca (box $BOX_NAME). Next: task.sh status $NAME"
     ;;
 
   status)
