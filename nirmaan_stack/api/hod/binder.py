@@ -28,13 +28,12 @@ them off first. Switched-off documents are never included.
 The Commission reports, TDS sheets, snag batches and drawings that go in are the ones TICKED on the document
 (`form_data.selected`, a list of record names; absent = all of them).
 
-Progress is reported per step (every report / file / page), not per document, so a long Commission
-section still moves the bar. Every event is ALSO kept in the cache under the job_id (`get_job_status`):
-realtime events do not reliably reach the browser on every setup, so the screen polls it as well.
+A build is a background operation (ADR 0047, #1663): `start_binder` starts it through
+`services/background_ops`, the screen follows its status record (`api/background_ops.get_status`), and the finished
+PDF is kept privately for the user who started it (`api/background_ops.collect_result`). Progress is reported per
+step (every report / file / page), not per document, so a long Commission section still moves the bar.
 The divider pages are rendered in ONE pass.
 
-Pattern: `api/commission_report/bulk_download_reports.py` (per-user NX lock, enqueue, realtime events
-carrying a job_id, temp-file token downloaded through `pdf_helper.bulk_download.fetch_temp_file`).
 Rendering goes through `frappe.get_print` with the Jinja cache dropped before every render
 (`api/snags/bulk_download._drop_jinja_cache`): the formats read `form_dict` (`hod_system`, `task_row`).
 The Snag List's jump links (thumbnail -> photo -> back to the row) survive: its renders go through the
@@ -58,10 +57,10 @@ from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 from nirmaan_stack.api.hod import om_fit, page_frame, print_context
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import as_dict
-from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
 from nirmaan_stack.api.pdf_helper.keep_links import KEEP_LINKS, LinkedPdf
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
 from nirmaan_stack.api.snags.bulk_download import _drop_jinja_cache
+from nirmaan_stack.services import background_ops
 from nirmaan_stack.services.hod import checklist, index, sources
 
 DOCTYPE = "Project HOD Document"
@@ -70,11 +69,8 @@ PF_CHECKLIST = "HOD Checklist"
 PF_SNAG = "Project Snag"
 COMMISSION_PARENT = "Project Commission Report"
 
-LOCK_TTL_SECONDS = 900  # also the job timeout; the lock auto-releases if a worker dies
-
-EV_PROGRESS = "hod_binder_progress"
-EV_READY = "hod_binder_ready"
-EV_FAILED = "hod_binder_failed"
+#: Time limit of one build, counted from when it starts running (time in the queue does not count).
+BUILD_TIMEOUT_SECONDS = 900
 
 # A4 at 150 dpi, for fitting an uploaded picture onto a page without stretching it.
 _A4_PX = (1240, 1754)
@@ -94,33 +90,6 @@ EMPTY_REASON = {
 	index.LIB_MAINT: "no maintenance checklist in the library",
 	"recommended_tools": "no tools listed for this system",
 }
-
-
-def _lock_key(user):
-	return f"hod_binder_lock:{user}"
-
-
-STATUS_TTL_SECONDS = 3600
-
-
-def _status_key(job_id):
-	return f"hod_binder_status:{job_id}"
-
-
-def _emit(event: str, data: dict, user: str):
-	"""Publish a job event AND keep it as the job's status for the polling fallback."""
-	state = {EV_PROGRESS: "running", EV_READY: "ready", EV_FAILED: "failed"}[event]
-	frappe.cache().set_value(_status_key(data["job_id"]), {**data, "state": state, "user": user}, expires_in_sec=STATUS_TTL_SECONDS)
-	frappe.publish_realtime(event, data, user=user)
-
-
-@frappe.whitelist()
-def get_job_status(job_id: str) -> dict:
-	"""The last event of one of the caller's own jobs (the screen polls this; realtime may not arrive)."""
-	status = frappe.cache().get_value(_status_key(job_id)) or {}
-	if status and status.get("user") != frappe.session.user:
-		raise frappe.PermissionError
-	return {k: v for k, v in status.items() if k != "user"} or {"state": "queued", "job_id": job_id}
 
 
 # ------------------------------------------------------------------------------------------- the plan
@@ -277,7 +246,7 @@ def check_binder(project: str, hod_system: str) -> dict:
 	"""Which switched-on documents have nothing to include, and how many steps a build takes.
 
 	The screen no longer pre-checks (owner 2026-09-23: the binder button waits until every switched-on
-	document is Done). `enqueue_binder` still refuses an empty document on its own; this stays as
+	document is Done). `start_binder` still refuses an empty document on its own; this stays as
 	the read that says WHICH one and why."""
 	_require(project, hod_system)
 	sections, empty = build_plan(project, hod_system)
@@ -285,9 +254,11 @@ def check_binder(project: str, hod_system: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def enqueue_binder(project: str, hod_system: str, document: str | None = None) -> dict:
-	"""Start building the binder (or, with `document`, that document's content). Returns at once with a
-	job_id; progress, the download token and errors arrive as `hod_binder_*` realtime events."""
+def start_binder(op_id: str, project: str, hod_system: str, document: str | None = None) -> dict:
+	"""Start building the binder (or, with `document`, that document's content) as a background operation and
+	return its record. The browser makes `op_id`; the screen follows the build with `api/background_ops.get_status`
+	and collects the PDF with `collect_result`, which only the user who started it can do. A build that cannot
+	have content is refused here, before anything is queued."""
 	_require(project, hod_system)
 	sections, empty = build_plan(project, hod_system, document)
 	if document and not sections:
@@ -303,31 +274,22 @@ def enqueue_binder(project: str, hod_system: str, document: str | None = None) -
 			if not frappe.db.exists("Print Format", pf):
 				frappe.throw(_("Print Format '{0}' is missing -- it has to be created first.").format(pf))
 
-	user = frappe.session.user
-	cache = frappe.cache()
-	if not cache.set(cache.make_key(_lock_key(user)), "1", ex=LOCK_TTL_SECONDS, nx=True):
-		frappe.throw(_("A handover download is already being built for you. Please wait for it to finish."))
-
-	job_id = frappe.generate_hash(length=16)
-	try:
-		frappe.enqueue(
-			"nirmaan_stack.api.hod.binder._run_binder_job",
-			queue="long",
-			timeout=LOCK_TTL_SECONDS,
-			# `job_id` is a parameter of enqueue ITSELF (the RQ job id), so it never reaches the function:
-			# the job's own id has to travel under another name, or every event is published for job None
-			# and the screen -- which polls its own id -- never learns the file is ready.
-			job_id=job_id,
-			hod_job_id=job_id,
-			user=user,
-			project=project,
-			hod_system=hod_system,
-			document=document,
-		)
-	except Exception:
-		cache.delete_value(_lock_key(user))
-		raise
-	return {"status": "enqueued", "job_id": job_id}
+	# One binder queued or running per user, and one document's content: each holds a `long` worker for minutes.
+	# Each has its own slot, so a binder waiting in the queue never holds back a one-document download.
+	project_name = frappe.db.get_value("Projects", project, "project_name") or project
+	what = f"{sections[0]['title']} download" if document else "handover binder"
+	return background_ops.start(
+		"hod_document" if document else "hod_binder",
+		"nirmaan_stack.api.hod.binder.binder_op",
+		op_id=op_id,
+		timeout=BUILD_TIMEOUT_SECONDS,
+		one_per_user=_("Your {0} for {1} ({2}) is still being prepared. Wait for it to finish, then try again.").format(
+			what, project_name, hod_system
+		),
+		project=project,
+		hod_system=hod_system,
+		document=document,
+	)
 
 
 # ----------------------------------------------------------------------------------------- rendering
@@ -492,9 +454,7 @@ def _file_pdf(url: str, prefetched=None) -> bytes:
 
 
 class _Job:
-	def __init__(self, user, job_id, total):
-		self.user = user
-		self.job_id = job_id
+	def __init__(self, total):
 		self.total = total
 		self.done = 0
 		# A `LinkedPdf`, so a part with jump links (the Snag List) keeps them in the merged file;
@@ -517,7 +477,7 @@ class _Job:
 			self.failed.append(label)
 			frappe.log_error(title=f"HOD download: {label} failed", message=frappe.get_traceback())
 		self.done += 1
-		_emit(EV_PROGRESS, {"job_id": self.job_id, "done": self.done, "total": self.total, "label": label}, self.user)
+		background_ops.set_progress(self.done * 100 // max(self.total, 1), label)
 
 
 def _render(step: dict, futures: dict) -> bytes:
@@ -537,27 +497,26 @@ def _render(step: dict, futures: dict) -> bytes:
 	return _file_pdf(url, futures.get(url))
 
 
-def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod_job_id=None):
-	job_id = hod_job_id
-	frappe.set_user(user or "Administrator")
+def binder_op(project, hod_system, document=None):
+	"""The work of `start_binder`, run as its owner: the PDF, kept privately for the owner. A part that fails is
+	named in `failed`, never fatal; a build that produces no page at all fails the operation."""
 	try:
 		system = system_meta(hod_system)
 		project_name = frappe.db.get_value("Projects", project, "project_name") or project
 		sections, _empty = build_plan(project, hod_system, document)
 		safe = lambda s: "".join(c if (c.isalnum() or c in "-_") else "_" for c in s)  # noqa: E731
+		if document and not sections:
+			frappe.throw(_("Nothing to download for this document."))
 		pool, futures = _prefetch(sections)
 
 		if document:
-			if not sections:
-				_emit(EV_FAILED, {"job_id": job_id, "message": "Nothing to download for this document."}, user)
-				return
 			sec = sections[0]
-			job = _Job(user, job_id, len(sec["steps"]))
+			job = _Job(len(sec["steps"]))
 			for st in sec["steps"]:
 				job.step(st["label"], lambda st=st: _render(st, futures), keep_links=st.get("links", False))
 			filename = f"{safe(project_name)}_{safe(hod_system)}_{sec['sno']:02d}_{safe(sec['title'])}_{today()}.pdf"
 		else:
-			job = _Job(user, job_id, 2 + sum(len(s["steps"]) for s in sections))
+			job = _Job(2 + sum(len(s["steps"]) for s in sections))
 			rendered = {}
 
 			def cover_and_checklist():
@@ -585,17 +544,8 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 
 		pool.shutdown(wait=False, cancel_futures=True)
 		if not job.writer.pages:
-			_emit(EV_FAILED, {"job_id": job_id, "message": "Nothing could be generated."}, user)
-			return
-		ensure_temp_dir()
-		token = frappe.generate_hash(length=32)
-		with open(get_temp_path(token), "wb") as f:
-			f.write(job.pdf.to_bytes())
-		_emit(EV_READY, {"job_id": job_id, "token": token, "filename": filename, "failed": job.failed}, user)
-	except Exception:
-		frappe.log_error(title="HOD download job crashed", message=frappe.get_traceback())
-		_emit(EV_FAILED, {"job_id": job_id, "message": "The download could not be built. Please try again."}, user)
+			frappe.throw(_("Nothing could be generated."))
+		background_ops.write_result_file(job.pdf.to_bytes(), filename)
+		return {"failed": job.failed}
 	finally:
 		frappe.local.form_dict = frappe._dict()
-		if user:
-			frappe.cache().delete_value(_lock_key(user))

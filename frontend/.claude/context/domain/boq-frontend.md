@@ -38,8 +38,13 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
   — read via `get_boq_work_packages` (hub and spoke both consume it). Never `order_by` a Frappe field
   literally named `order` (PG reserved word Frappe's REST list layer does not quote → 500): keep it in
   `fields` and sort client-side.
-- **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
-  `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
+- **The hub parse and each sheet's automatic check are background operations (ADR 0047; spec #1654, #1668).**
+  `BoqHubPage.tsx` starts `run_parse` with the shared `useBackgroundOperation` hook (slot `boq_parse:<boq>`) and
+  shows "Waiting in the queue..." apart from "Parsing..."; a failed or lost parse ends the wait with the server's
+  words (the pure `hubParseOperation.ts`). The parse's result names each parsed sheet's check (`checks`); a
+  `SheetCheckOperation` per sheet follows it (slot `boq_ai_check:<boq>::<sheet>`, shared with the review screen) and
+  feeds the card chip "Waiting to check rows…" / "Checking rows…". `parse_in_progress` speaks only for a parse the
+  tab does not follow (another tab or user), with the reconnect self-heal; commit flows are unchanged; the acknowledge-only completion / commit-results modals are
   hub-scoped. See the wizard-upload surface.
 - **SheetCard is a persistent 3-zone stepper** (`① Configure → ② Review → ③ Commit & Tender`). The
   effective-status → zone mapping lives in the PURE `sheetCardStages.ts` (`computeSheetStages`, unit-tested,
@@ -112,12 +117,15 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
 - **Row colour order (the channel-collision rule):** the orange wash of an open flag sits BEFORE the edited-green
   tint, so an edited row stays green; the orange left edge is withheld on an unconfirmed revision row, whose red
   edge keeps the left border.
-- **The page re-reads itself when a parse of its BoQ ends** (`boq:parse_run_done` in `SheetReviewPage.tsx`) and
-  when the check ends (`boq:ai_pass_done`, plus a 3-second poll while `isCheckRunning`). The poll stops itself
-  once the refreshed data says the check is over - the resolve handler must not stop it.
+- **The page re-reads itself when a parse of its BoQ ends** (`SheetReviewPage.tsx` re-reads the BoQ every 5 s while
+  the sheet's `parse_in_progress` is set, then everything when it clears) and when the check ends: it follows the
+  check's own background operation (#1668; slot `boq_ai_check:<boq>::<sheet>`, so the hub's check is picked up in the
+  same tab), else, while `isCheckRunning`, asks `ai_assist.get_check_operation` for the caller's own live check every
+  10 s and follows it, re-reading itself when it finds none (another user's check). The chip says "Waiting to check
+  rows…" while the followed check is queued.
 - **The hub and the parse summary read S3's counts only (S4b, ADR-0035, owner-locked).** `BoqHubPage.tsx`
   fetches `review_flags.get_check_summary` (SWR key `boq-check-summary::<boq>`, a 4-second poll only while a check
-  runs, re-read on `boq:parse_run_done` and `boq:ai_pass_done`); the pure `hubCheckSummary.ts` turns it into the
+  runs, re-read when the parse finishes and when each followed check ends, #1668); the pure `hubCheckSummary.ts` turns it into the
   card lines (`cardCheck`), the footer piece (`footerRowsToCheck`) and the summary (`parseSummary`). The summary is
   HELD until no sheet that parse parsed is still being checked (`summaryReady`, Q-c). A sheet whose check is
   running is left out of the footer sum, and the review counter strip is hidden while the check runs
@@ -268,46 +276,37 @@ treatment on the REAL detected values. The sparkle/opacity condition checks BOTH
 `!confirmed && value !== ""` -- empty fields never show sparkle pre-parse. The
 1b-ii-a `useEffect` that pre-filled `boqName` from `project.project_name` is REMOVED.
 
-**Upload trigger flow (1b-ii-b):** On valid drop, `BoqDropZone` immediately POSTs to
-`/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file` via native `fetch` with
-`FormData` (fields: `project_id` from store, `file`). CSRF token from
-`(window as any).frappe?.csrf_token`. Returns `{message: {job_id}}` synchronously;
-`setUploadStatus("parsing")` + `setJobId(job_id)` on success. Upload HTTP failure
-calls `resetUpload()` (not just `setUploadStatus("idle")`) so the drop zone
-reappears for retry.
+**Upload trigger flow (#1665, ADR 0047):** On valid drop, `BoqDropZone` builds the
+`FormData` (`project_id` from store, `file`, and `source_boq` for a revision) and hands it to
+`BoqUploadScreen`, which starts it with `useBackgroundOperation` (storage key
+`boq_upload:<project>`): the hook posts the form with the browser-made `op_id` to
+`nirmaan_stack.api.boq.wizard.upload_file.upload_file` (POST), whose reply is the operation's
+status record. The upload is followed through `api/background_ops.get_status` alone; there is
+no upload socket event and no `get_upload_status` any more. A reload picks a running upload up
+again (per tab), with the file name from the operation's context.
 
-**uploadStatus lifecycle (1b-ii-b):** `idle` | `uploading` (POST in flight) |
-`parsing` (job enqueued, waiting for socket) | `done` (parse success, BOQs row
-created) | `error-E` (corrupted workbook, error_code="corrupted") | `error-F` (zero
-sheets, error_code="zero_sheets") | `error-internal` (unexpected server error).
-`BoqDropZone` renders spinner for uploading/parsing, error states for error-*, and
-file tile for idle/done. The 30s "taking longer" message is a local `setTimeout`
-in `BoqDropZone` that fires only during "parsing" -- not a timeout, parsing continues.
+**Upload status (`boqUploadOperation.uploadOutcome`):** the screen's status is derived from the
+operation's view, not held in `useBoqWizardStore`: `idle` | `uploading` (POST in flight) |
+`queued` (the parse waits in the queue: "Waiting in the queue...") | `parsing` (running) |
+`done` (finished, result `{status: "success", boq_name}`) | `error-E` / `error-F` (finished,
+result `{status: "error", error_code: "corrupted" | "zero_sheets"}`) | `error-internal`
+(failed or lost, with the server's words). `boqDocName` is the done result's `boq_name`. The
+30 s "taking longer" note in `BoqDropZone` counts from `parsing` (the operation running),
+never the queue wait. The template seed (`TemplateEditorPage`, storage key
+`boq_template_seed`, `is_template_source=1`) follows its own operation the same way.
 
-**Socket listener pattern (1b-ii-b):** `boq:wizard_parse_done` is registered
-SCREEN-SCOPED in `BoqUploadScreen.tsx` via `useContext(FrappeContext)` -- NOT added
-to `socketListeners.ts` or `SocketInitializer.tsx`. Pattern: `socket.on(event, handler)`
-in a `useEffect([socket])` cleanup, `socket.off(event, handler)` in the cleanup
-return. Handler guards on `useBoqWizardStore.getState().uploadStatus === "parsing"` to
-filter events from concurrent uploads by other users (frappe.publish_realtime
-broadcasts to ALL connected clients without user targeting). Success path sets
-`boqDocName` + `uploadStatus("done")`; error path sets the appropriate error-* status.
-`useFrappeGetDoc("BOQs", boqDocName, boqDocName ? undefined : null)` then fetches the
-doc (third arg null disables SWR until boqDocName is set per sdk gotcha). A separate
-`useEffect([boqDoc, uploadStatus])` calls `fillFromParse` when the doc arrives.
-
-**Socket listener pattern (2b-frontend-i) -- hub `boq:parse_run_done` listener:** `boq:parse_run_done` is registered SCREEN-SCOPED in `BoqHubPage.tsx` via `useContext(FrappeContext)` -- NOT added to `socketListeners.ts` or `SocketInitializer.tsx` (same screen-scoped convention as the 1b-ii-b upload listener). `socket.on(event, handler)` in `useEffect([socket])`, `socket.off` in cleanup. KEY DIFFERENCE from the 1b-ii-b upload listener: guards on `payload.boq_name === boqId` (hub always knows its BoQ; no store-state check needed) rather than a store `uploadStatus` flag. On success: calls `mutate()` + sets `parseResult({parsed, notParsed, failed})` to open the completion modal (Bucket-2 Slice 2); on error: uses `PARSE_ERROR_MSGS` module-level const to set `parseError({message, severity})`. `boq:wizard_parse_done` (upload flow, 1b-ii-b, in `BoqUploadScreen`) and `boq:parse_run_done` (parse-run flow, 2b-frontend-i, in `BoqHubPage`) are DISTINCT events for DISTINCT flows -- do NOT conflate them.
+**Hub parse follower (#1668; replaces the 2b-frontend-i `boq:parse_run_done` listener):** the parse is a background operation followed with `useBackgroundOperation` (slot `boq_parse:<boq>`): its finished result opens the summary (`hubParseOperation.parseOutcomeOf`), a `nothing_to_parse` result shows the neutral notice, a failed or lost operation shows the server's words (destructive) and heals the BoQ flag via `check_parse_status`. No socket message carries a parse outcome.
 
 **Parse completion modal pattern (Bucket-2 Slice 2, feat 21e56963):** `BoqHubPage` shows parse results in an acknowledge-only `AlertDialog` (single OK action, no Cancel). Open-state is derived from `parseResult || parseError` -- the modal opens automatically when either is set; OK action (and Escape key via `onOpenChange`) clears both. HUB-SCOPED only; never make this app-global. Per-case message convention:
 - SUCCESS: up to 3 independent sub-lines, each shown only if the list is non-empty: (1) `Parsed: {names}` -- `font-medium text-foreground`; (2) `Not parsed (skipped, hidden, or general-specs): {names}` -- `text-muted-foreground` (NEUTRAL); (3) `Failed to parse: {names}` -- `text-destructive`. If all lists empty, show "Parse complete." fallback.
-- ERROR: one message per error code. `no_eligible_sheets` is NEUTRAL (`text-muted-foreground`) -- it is advisory, not a failure; all other codes are `text-destructive`. Exact messages in `PARSE_ERROR_MSGS` const in `BoqHubPage.tsx` (module-level, not re-defined per event).
+- ERROR: the failed or lost parse operation's own words (`parse_run.*_MESSAGE`, destructive). A parse with no eligible sheet is not a failure: it finishes `nothing_to_parse` and shows `NOTHING_TO_PARSE_MESSAGE` NEUTRAL (`text-muted-foreground`) -- advisory (#1668).
 - `parseError` state shape: `{ message: string; severity: "destructive" | "neutral" } | null` -- preserving the error code semantics for styling. Do NOT flatten to a pre-baked string that loses the code.
 
 **On-mount parse_in_progress recovery convention (Bucket-2 Slice 2, feat 21e56963):** `parseInFlight` must be initialized from the server flag on every hub mount so it survives navigation and missed socket events. Pattern: a `useEffect([boq])` (mirrors the specs-checklist `useEffect([boq])` pattern) that calls `setParseInFlight(boq.parse_in_progress === 1)`. The live socket event still clears `parseInFlight` on done -- the on-mount read is the fallback only. Do NOT poll; a single read on doc-load is sufficient. Apply this pattern to any future hub-scoped "job is running" indicator that must survive navigation.
 
 **Parse button in-progress convention (Bucket-2 Slice 2):** When `parseInFlight=true`, the Parse workbook button should be `disabled` AND show a spinner (e.g. `<Loader2 className="mr-2 h-4 w-4 animate-spin" /> Parsing...`). This makes the recovered `parseInFlight=true` state visible without re-opening the confirm dialog. Pattern: `disabled={!canParse || parseInFlight}`.
 
-**Hub reconnect self-heal convention (#147 option-4, feat 193327b1):** The hub socket `useEffect([socket])` registers both the `boq:parse_run_done` done-handler AND a `socket.on("connect", onReconnect)` reconnect handler in the same effect body. `onReconnect = () => { void mutate(); }` re-fetches the BoQ doc on socket reconnect (and initial connect -- harmless, SWR deduplicates). The existing `useEffect([boq])` on-mount recovery then re-syncs `parseInFlight` from the fresh `parse_in_progress` server value, self-healing a missed done-event without a manual refresh. Cleanup: `socket.off("connect", onReconnect)` in the same return alongside `socket.off("boq:parse_run_done", handler)`. Reuses the existing `mutate` from `useFrappeGetDoc`; no new fetch mechanism. Apply this pattern to any future hub-scoped long-running job that uses a socket done-event + on-mount recovery.
+**Hub reconnect self-heal convention (#147 option-4, feat 193327b1; #1668):** The hub socket `useEffect([socket])` registers only `socket.on("connect", onReconnect)`; `onReconnect = () => { void mutate(); }` re-fetches the BoQ doc so a parse the tab does not follow (another tab or user) shows from the fresh `parse_in_progress` (`hubParseOperation.hubParseOf`). The tab's own parse and checks are followed through their status records, never a socket message.
 
 **ParseRunDialog dismiss convention (#147 option-4, feat 193327b1):** `ParseRunDialog`'s `onOpenChange` must allow dismiss even when `isLoading` (a parse is in flight) -- closing the dialog does NOT cancel the server parse job. The parse keeps running; the hub's Parse button continues showing Parsing... spinner (driven by `parseInFlight`). Pattern: `onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}` -- no `isLoading` guard. The **Cancel button stays disabled** while loading because "Cancel" implies aborting the job, which is not supported (no cancel API exists). Three dismiss affordances are always available: X button (built-in via `disableCloseIcon=true` default in `DialogContent`), Escape key, and overlay-click. This pattern enables navigate-away-during-parse: user closes dialog mid-parse, hub body becomes interactive, user navigates away. On return, on-mount recovery restores `parseInFlight=true` from `parse_in_progress`.
 

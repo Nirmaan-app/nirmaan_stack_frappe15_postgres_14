@@ -1,67 +1,74 @@
 // @vitest-environment jsdom
 //
-// Two defects of the Bulk Download job lifecycle, on the side that broke:
+// The Bulk Download screens (Quick Download and the wizard) follow each download as a background operation
+// (ADR 0047, #1664), through the real shared hook. Only the server is faked, at the hook's two edges: the SDK's
+// call API (`FrappeContext.call`) answers a start, the status read and Cancel, `fetch` answers the file collect,
+// and a fake socket sends the "read now" message.
 //
-//  1. A FAILED DOWNLOAD NEVER SHOWS "Download Complete!". The failure listener ran the `stopProgress`
-//     of the render in which Download was clicked; that closure still held the previous download's
-//     `progress === 100`, so a failure after an earlier success jumped to the Done step and dropped
-//     the selection. Only a delivered file means done.
-//  2. A REFUSED START SHOWS THE SERVER'S REASON. Frappe puts it in `_server_messages` / `exception`,
-//     never in `message`, so every refusal read "Internal error" (wizard) or a bare status (Quick
-//     Download).
+// What this pins, on the side that broke before:
+//  1. A FAILED DOWNLOAD NEVER SHOWS "Download Complete!". Only a delivered file means done; a failure after an
+//     earlier success keeps the selection.
+//  2. A REFUSED START SHOWS THE SERVER'S REASON (`_server_messages` / `exception`), never "Internal error" or a
+//     bare status.
+//  3. A DOWNLOAD IS ITS OWN OPERATION: the window reads its own record, the file is collected by its id, Cancel
+//     stops only it, and leaving the page keeps it (coming back picks it up again).
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BulkDocType, BulkDownloadScope } from "@/utils/bulkDownload/bulkDownloadTypes";
-import type { BulkDownloadHandlers } from "@/utils/bulkDownload/bulkDownloadEvents";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
+import { isRecord } from "@/utils/backgroundOps/operationFollower";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type Handlers = BulkDownloadHandlers;
-const h = vi.hoisted(() => ({
-    toast: vi.fn(), cancel: vi.fn(), handlers: null as Handlers | null,
-    /** Doctype -> rows the list hook returns (when the wizard asks for that list at all), or a
-     *  function of the query when one doctype backs two lists (PO / WO payments). */
-    lists: {} as Record<string, unknown[] | ((args: { filters: unknown[] }) => unknown[])>,
-    /** Every list query the wizard made: doctype + its arguments. */
-    queries: [] as { doctype: string; args: { filters: unknown[] }; key: unknown }[],
-    /** Every server call the wizard made (method + SWR key; a null key fetches nothing). */
-    calls: [] as { method: string; key: unknown }[],
-}));
-
-vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast: h.toast }) }));
-vi.mock("@/hooks/useUserData", () => ({ useUserData: () => ({ role: "Nirmaan Admin Profile" }) }));
-vi.mock("frappe-react-sdk", async () => {
-    const { createContext } = await import("react");
+const h = vi.hoisted(() => {
+    const listeners = new Map<string, Set<(data: unknown) => void>>();
     return {
-        FrappeContext: createContext({ socket: {} }),
-        useFrappeGetDocList: (doctype: string, args: { filters: unknown[] }, key: unknown) => {
-            h.queries.push({ doctype, args, key });
-            const rows = h.lists[doctype];
-            return { data: key ? (typeof rows === "function" ? rows(args) : rows) : undefined, isLoading: false };
+        toast: vi.fn(),
+        /** The socket the screens listen on: `emit` delivers a message to every listener of the event. */
+        socket: {
+            connected: true,
+            on: (event: string, fn: (data: unknown) => void) => void (listeners.get(event) ?? listeners.set(event, new Set()).get(event)!).add(fn),
+            off: (event: string, fn: (data: unknown) => void) => void listeners.get(event)?.delete(fn),
+            emit: (event: string, data: unknown) => listeners.get(event)?.forEach((fn) => fn(data)),
         },
-        useFrappeGetCall: (method: string, _args: unknown, key: unknown) => {
-            h.calls.push({ method, key });
-            return { data: undefined, isLoading: false };
-        },
+        /** The SDK's call API the screens reach through `FrappeContext`: a start, the status read and Cancel go
+         *  through it. `beforeEach` gives each a fresh fake-server implementation. */
+        call: { get: vi.fn(), post: vi.fn() },
+        /** Doctype -> rows the list hook returns (when the wizard asks for that list at all), or a
+         *  function of the query when one doctype backs two lists (PO / WO payments). */
+        lists: {} as Record<string, unknown[] | ((args: { filters: unknown[] }) => unknown[])>,
+        /** Every list query the wizard made: doctype + its arguments. */
+        queries: [] as { doctype: string; args: { filters: unknown[] }; key: unknown }[],
+        /** Every server call the wizard made (method + SWR key; a null key fetches nothing). */
+        calls: [] as { method: string; key: unknown }[],
     };
 });
+
+vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast: h.toast }), toast: h.toast }));
+vi.mock("@/hooks/useUserData", () => ({ useUserData: () => ({ role: "Nirmaan Admin Profile" }) }));
+// The shared background-operation hook reads the socket and the SDK's call API from here.
+vi.mock("@/lib/frappe", async () => {
+    const { createContext } = await import("react");
+    return { FrappeContext: createContext({ socket: h.socket, call: h.call }) };
+});
+vi.mock("frappe-react-sdk", () => ({
+    useFrappeGetDocList: (doctype: string, args: { filters: unknown[] }, key: unknown) => {
+        h.queries.push({ doctype, args, key });
+        const rows = h.lists[doctype];
+        return { data: key ? (typeof rows === "function" ? rows(args) : rows) : undefined, isLoading: false };
+    },
+    useFrappeGetCall: (method: string, _args: unknown, key: unknown) => {
+        h.calls.push({ method, key });
+        return { data: undefined, isLoading: false };
+    },
+}));
 vi.mock("@/pages/projects/data/critical-po/useCriticalPOQueries", () => ({
     useProjectPOTaskLinks: () => ({ taskPOMap: {}, isLoading: false }),
 }));
 vi.mock("@/pages/projects/CriticalPOTasks/utils", () => ({ attachLinkedPOs: (tasks: unknown) => tasks }));
-vi.mock("@/utils/bulkDownload/bulkDownloadEvents", () => ({
-    newDownloadId: () => "test-download-0001",
-    listenForDownload: (_socket: unknown, _id: string, handlers: Handlers) => {
-        h.handlers = handlers;
-        // Removing the listeners: no later event reaches this download any more.
-        return () => { if (h.handlers === handlers) h.handlers = null; };
-    },
-    cancelBulkDownload: h.cancel,
-}));
 
 const SCOPE: BulkDownloadScope = { kind: "vendor", id: "VEN-1", name: "Vendor One", vendorType: "Material & Service" };
 const TYPES: BulkDocType[] = ["PO", "POPaymentVoucher", "WOPaymentVoucher"];
@@ -70,9 +77,82 @@ const SERVER_REFUSAL = {
     _server_messages: JSON.stringify([JSON.stringify({ message: "Select at least one PO to download." })]),
 };
 
-const started = { ok: true, status: 200, json: async () => ({ message: "Job enqueued", download_id: "test-download-0001" }) };
-const refused = (status: number, body: unknown) => ({ ok: false, status, json: async () => body });
-const htmlPage = (status: number) => ({ ok: false, status, json: async () => { throw new SyntaxError("Unexpected token '<'"); } });
+/** A reply as `fetch` gives it (only the finished file goes through `fetch`). */
+const reply = (status: number, body: unknown) => ({
+    ok: status < 400,
+    status,
+    text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+    blob: async () => new Blob(["%PDF-1.4"]),
+});
+/** How the SDK's `call.post` rejects a failed reply (frappe-js-sdk `FrappeCall`): the reply body's own fields,
+ *  spread as they come (an HTML page spreads to its characters), then the status and the SDK's fallbacks. */
+const refused = (status: number, body: unknown) => {
+    const data = isRecord(body) ? body : {};
+    return Object.assign({}, body, {
+        httpStatus: status,
+        httpStatusText: "",
+        message: data.message ?? "There was an error.",
+        exception: data.exception ?? "",
+    });
+};
+const htmlPage = (status: number) => refused(status, "<html><body>Bad gateway</body></html>");
+
+const STATUS_METHOD = "nirmaan_stack.api.background_ops.get_status";
+
+/** The fake server: what each operation's record says now, and what the next start is refused with, if anything. */
+let records: Map<string, Record<string, unknown>>;
+let nextStart: ReturnType<typeof refused> | null;
+let fetchMock: ReturnType<typeof vi.fn>;
+
+const urlOf = (input: unknown) => String(input);
+/** The start requests (a download endpoint) as `call.post` got them: the method and its params. */
+const starts = () => h.call.post.mock.calls
+    .filter(([method]) => /bulk_download\.download_/.test(String(method)))
+    .map(([method, params]) => ({ method: String(method), args: params as Record<string, unknown> }));
+const cancels = () => h.call.post.mock.calls
+    .filter(([method]) => String(method).endsWith("cancel_bulk_download"))
+    .map(([, params]) => (params as Record<string, unknown>).op_id);
+const collects = () => fetchMock.mock.calls.filter(([url]) => urlOf(url).includes("background_ops.collect_result"));
+const lastOpId = () => String(starts().at(-1)!.args.op_id);
+
+/** `call.post`: a start records its operation as queued, or is refused; Cancel is acknowledged. */
+async function servePost(method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (/bulk_download\.download_/.test(method)) {
+        if (nextStart) {
+            const refusal = nextStart;
+            nextStart = null;
+            throw refusal;
+        }
+        const opId = String(params.op_id);
+        records.set(opId, { op_id: opId, state: "queued", now: 1000 });
+        return { message: { op_id: opId, state: "queued" } };
+    }
+    return { message: "ok" };
+}
+/** `call.get`: the status read answers from the records. */
+async function serveGet(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (method !== STATUS_METHOD) throw refused(404, {});
+    const opId = String(params?.op_id);
+    return { message: records.get(opId) ?? { op_id: opId, state: "lost", error: "No record." } };
+}
+/** `fetch`: only the finished file; any other request is a wrong edge and fails. */
+function serve(input: unknown) {
+    return Promise.resolve(urlOf(input).includes("background_ops.collect_result") ? reply(200, "") : reply(404, {}));
+}
+
+/** The server moves the last download on, and tells the screen to read it now. */
+const serverSays = async (record: Record<string, unknown>) => {
+    const opId = lastOpId();
+    records.set(opId, { op_id: opId, now: 1000, started_at: 1000, timeout: 1500, ...record });
+    await act(async () => {
+        h.socket.emit("background_op:read_now", { op_id: opId });
+        for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+};
+const progress = (detail: Record<string, unknown>) => serverSays({ state: "running", progress: { percent: 0, message: null, detail } });
+const finished = (filename: string, counts: Record<string, unknown> = {}) =>
+    serverSays({ state: "finished", result: { ...counts, file: { filename, size_bytes: 8 } } });
+const failed = (error: string) => serverSays({ state: "failed", error });
 
 let wiz!: ReturnType<typeof useBulkDownloadWizard>;
 let quick!: ReturnType<typeof useBulkPdfDownload>;
@@ -93,18 +173,22 @@ function Quick() {
 
 let container: HTMLDivElement;
 let root: Root;
-let fetchMock: ReturnType<typeof vi.fn>;
 let anchorClick: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
     h.toast.mockReset();
-    h.cancel.mockReset();
-    h.handlers = null;
     h.lists = {};
     h.queries = [];
     h.calls = [];
-    fetchMock = vi.fn().mockResolvedValue(started);
+    records = new Map();
+    nextStart = null;
+    window.sessionStorage.clear();
+    h.call.get.mockReset().mockImplementation(serveGet);
+    h.call.post.mockReset().mockImplementation(servePost);
+    fetchMock = vi.fn(serve);
     vi.stubGlobal("fetch", fetchMock);
+    window.URL.createObjectURL = vi.fn(() => "blob:test");
+    window.URL.revokeObjectURL = vi.fn();
     anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -128,14 +212,15 @@ describe("the wizard's progress window", () => {
     it("a download that fails after an earlier success stays on the selection, never 'Download Complete!'", async () => {
         mount(Wizard);
         await download("PO", ["PO-1", "PO-2"]);
-        act(() => h.handlers!.onProgress({ progress: 100, message: "Processing POs 2 of 2..." }));
-        act(() => h.handlers!.onReady({ token: "tok-1", filename: "Vendor One_Selected_POs.pdf" }));
+        await progress({ done: 1, total: 2 });
+        await finished("Vendor One_Selected_POs.pdf", { included: 2, total: 2 });
         expect(wiz.step).toBe(3);
         expect(anchorClick).toHaveBeenCalledTimes(1);
 
+        act(() => wiz.closeProgress());
         act(() => wiz.resetToTypeSelection());
         await download("WOPaymentVoucher", ["PAY-1"]);
-        act(() => h.handlers!.onFailed({ message: "The download failed. Please try again." }));
+        await failed("The operation failed. The error has been logged.");
 
         expect(wiz.step).toBe(2);
         expect(wiz.selectedIds).toEqual(["PAY-1"]);
@@ -143,44 +228,42 @@ describe("the wizard's progress window", () => {
         expect(wiz.loading).toBe(false);
         expect(anchorClick).toHaveBeenCalledTimes(1);
         // The window stays open on the reason (no toast on top of it).
-        expect(wiz.run).toMatchObject({ status: "failed", error: "The download failed. Please try again." });
+        expect(wiz.run).toMatchObject({ status: "failed", error: "The operation failed. The error has been logged." });
+        expect(h.toast).not.toHaveBeenCalled();
     });
 
     it("a first download that fails also stays on the selection", async () => {
         mount(Wizard);
         await download("PO", ["PO-1"]);
-        act(() => h.handlers!.onFailed({ message: "No PO items found." }));
+        await failed("No PO items found.");
         expect(wiz.step).toBe(2);
         expect(wiz.selectedIds).toEqual(["PO-1"]);
         expect(wiz.showProgress).toBe(false);
     });
 
-    it("the delivered file is what makes a download done, whatever progress last said", async () => {
+    it("follows its own operation from queued to the file, and Done counts what the file holds", async () => {
         mount(Wizard);
         await download("PO", ["PO-1", "PO-2", "PO-3"]);
-        act(() => h.handlers!.onProgress({ progress: 66 })); // the last progress event never arrived
-        act(() => h.handlers!.onReady({ token: "tok-2", filename: "Vendor One_Selected_POs.pdf" }));
-        expect(wiz.step).toBe(3);
-        expect(wiz.downloadedCount).toBe(3);
-        expect(wiz.showProgress).toBe(false);
-        expect(anchorClick).toHaveBeenCalledTimes(1);
-    });
-
-    it("follows the job from queued to the file, and Done counts what the file holds", async () => {
-        mount(Wizard);
-        await download("PO", ["PO-1", "PO-2", "PO-3"]);
+        expect(starts()).toHaveLength(1);
         expect(wiz.run).toMatchObject({ status: "queued", type: "PO", details: ["3 selected", "With rate"] });
         expect(wiz.showProgress).toBe(true);
 
-        act(() => h.handlers!.onProgress({ done: 0, total: 3, current: "PO-1" }));
+        // Another operation's message changes nothing.
+        await act(async () => h.socket.emit("background_op:read_now", { op_id: "bbbbbbbb-0000-4000-8000-000000000002" }));
+        expect(wiz.run?.status).toBe("queued");
+
+        await progress({ done: 0, total: 3, current: "PO-1" });
         expect(wiz.run).toMatchObject({ status: "preparing", done: 0, total: 3, current: "PO-1" });
-        act(() => h.handlers!.onProgress({ stage: "merging", done: 3, total: 3 }));
+        await progress({ stage: "merging", done: 3, total: 3 });
         expect(wiz.run?.status).toBe("merging");
 
-        act(() => h.handlers!.onReady({ token: "tok-4", filename: "Vendor One_Selected_POs.pdf", included: 2, total: 3 }));
-        expect(wiz.run).toMatchObject({ status: "ready", included: 2, total: 3 });
-        expect(wiz.showProgress).toBe(false); // the job is over; the window shows the outcome
+        await finished("Vendor One_Selected_POs.pdf", { included: 2, total: 3 });
+        expect(wiz.run).toMatchObject({ status: "ready", included: 2, total: 3, filename: "Vendor One_Selected_POs.pdf" });
+        expect(wiz.showProgress).toBe(false); // the download is over; the window shows the outcome
         expect(wiz.downloadedCount).toBe(2);
+        // The file is collected by this operation's id, once.
+        expect(collects()).toHaveLength(1);
+        expect(urlOf(collects()[0][0])).toContain(`op_id=${lastOpId()}`);
         expect(anchorClick).toHaveBeenCalledTimes(1);
 
         act(() => wiz.closeProgress());
@@ -191,6 +274,22 @@ describe("the wizard's progress window", () => {
         mount(Wizard);
         await download("PO", ["PO-1"]);
         expect(h.toast).not.toHaveBeenCalled();
+    });
+
+    it("leaving the page keeps the download, and coming back picks it up again", async () => {
+        mount(Wizard);
+        await download("PO", ["PO-1"]);
+        act(() => root.unmount());
+        root = createRoot(container);
+        expect(cancels()).toEqual([]);
+
+        await progress({ done: 0, total: 1, current: "PO-1" });
+        mount(Wizard);
+        await act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
+        expect(wiz.run).toMatchObject({ status: "preparing", type: "PO", details: ["1 selected", "With rate"] });
+        await finished("Vendor One_Selected_POs.pdf", { included: 1, total: 1 });
+        expect(anchorClick).toHaveBeenCalledTimes(1);
+        expect(wiz.step).toBe(3);
     });
 });
 
@@ -266,78 +365,65 @@ describe("payment vouchers", () => {
 
     it("PO: Download posts the payment names to the PO voucher endpoint; Done names the kind", async () => {
         await download("POPaymentVoucher", ["PAY-P1", "PAY-P3"]);
-        const [url, init] = fetchMock.mock.calls[0];
-        expect(url).toMatch(/bulk_download\.download_selected_po_payment_vouchers$/);
-        expect((init.body as FormData).get("names")).toBe(JSON.stringify(["PAY-P1", "PAY-P3"]));
-        expect((init.body as FormData).get("vendor")).toBe("VEN-1");
-        act(() => h.handlers!.onReady({ token: "tok-4", filename: "Vendor One_Selected_PO_Payment_Vouchers.pdf" }));
+        const [{ method, args }] = starts();
+        expect(method).toMatch(/bulk_download\.download_selected_po_payment_vouchers$/);
+        expect(args.names).toBe(JSON.stringify(["PAY-P1", "PAY-P3"]));
+        expect(args.vendor).toBe("VEN-1");
+        await finished("Vendor One_Selected_PO_Payment_Vouchers.pdf", { included: 2, total: 2 });
         expect(wiz.downloadedLabel).toBe("PO Payment Voucher");
     });
 
     it("WO: Download posts to the WO voucher endpoint", async () => {
         await download("WOPaymentVoucher", ["PAY-W1"]);
-        expect(fetchMock.mock.calls[0][0]).toMatch(/bulk_download\.download_selected_wo_payment_vouchers$/);
+        expect(starts()[0].method).toMatch(/bulk_download\.download_selected_wo_payment_vouchers$/);
     });
 
     it("Quick Download: 'all' asks the server for each kind by its own doc type", async () => {
         mount(Quick);
-        await act(() => quick.handleBulkDownload("POPaymentVoucher", "PO Payment Vouchers"));
-        await act(() => quick.handleBulkDownload("WOPaymentVoucher", "WO Payment Vouchers"));
-        const sent = fetchMock.mock.calls.map(([url, init]) => [String(url).split(".").pop(), (init.body as FormData).get("doc_type")]);
+        await act(() => quick.handleBulkDownload("POPaymentVoucher"));
+        await act(() => quick.handleBulkDownload("WOPaymentVoucher"));
+        const sent = starts().map(({ method, args }) => [method.split(".").pop(), args.doc_type]);
         expect(sent).toEqual([["download_project_attachments", "PO Payment Vouchers"], ["download_project_attachments", "WO Payment Vouchers"]]);
     });
 
     it("Quick Download: the window names what it downloads", async () => {
         mount(Quick);
-        await act(() => quick.handleBulkDownload("PO", "POs", { withRate: false }));
+        await act(() => quick.handleBulkDownload("PO", { withRate: false }));
         expect(quick.run).toMatchObject({ status: "queued", type: "PO", details: ["All POs", "Without rate"] });
-        await act(() => quick.handleBulkDownload("Invoice", "Invoices", { invoiceType: "WO Invoices" }));
+        await act(() => quick.handleBulkDownload("Invoice", { invoiceType: "WO Invoices" }));
         expect(quick.run?.details).toEqual(["WO Invoices"]);
     });
 });
 
 describe("Cancel download", () => {
-    it("tells the server to stop THIS download, stops listening, and keeps the selection", async () => {
+    it("tells the server to stop THIS download, stops following it, and keeps the selection", async () => {
         mount(Wizard);
         await download("PO", ["PO-1", "PO-2"]);
-        act(() => h.handlers!.onProgress({ progress: 20, message: "Processing PO 1 of 5..." }));
+        await progress({ done: 1, total: 5, current: "PO-1" });
+        const opId = lastOpId();
         act(() => wiz.cancelDownload());
+        await act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); });
 
-        expect(h.cancel).toHaveBeenCalledOnce();
-        expect(h.cancel).toHaveBeenCalledWith("test-download-0001");
-        expect(h.handlers).toBeNull(); // a late file or failure can no longer reach the page
+        expect(cancels()).toEqual([opId]);
         expect(wiz.showProgress).toBe(false);
         expect(wiz.run).toBeNull(); // Cancel closes the window outright
         expect(wiz.loading).toBe(false);
         expect(wiz.step).toBe(2);
         expect(wiz.selectedIds).toEqual(["PO-1", "PO-2"]);
-        expect(anchorClick).not.toHaveBeenCalled();
         expect(h.toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Download cancelled" }));
-    });
 
-    it("leaving the page mid-download cancels it on the server too", async () => {
-        mount(Wizard);
-        await download("PO", ["PO-1"]);
-        act(() => root.unmount());
-        root = createRoot(container); // afterEach unmounts a live root
-        expect(h.cancel).toHaveBeenCalledWith("test-download-0001");
-    });
-
-    it("leaving the page after the file arrived cancels nothing", async () => {
-        mount(Wizard);
-        await download("PO", ["PO-1"]);
-        act(() => h.handlers!.onReady({ token: "tok-3", filename: "Vendor One_Selected_POs.pdf" }));
-        act(() => root.unmount());
-        root = createRoot(container);
-        expect(h.cancel).not.toHaveBeenCalled();
+        // A late file can no longer reach the page.
+        await finished("Vendor One_Selected_POs.pdf", { included: 2, total: 2 });
+        expect(anchorClick).not.toHaveBeenCalled();
+        expect(wiz.run).toBeNull();
     });
 
     it("Quick Download: Cancel stops its own download the same way", async () => {
         mount(Quick);
-        await act(() => quick.handleBulkDownload("DC", "Delivery Challans"));
+        await act(() => quick.handleBulkDownload("DC"));
+        const opId = lastOpId();
         act(() => quick.cancelDownload());
-        expect(h.cancel).toHaveBeenCalledWith("test-download-0001");
-        expect(h.handlers).toBeNull();
+        expect(cancels()).toEqual([opId]);
         expect(quick.showProgress).toBe(false);
         expect(quick.loading).toBe(false);
     });
@@ -346,27 +432,26 @@ describe("Cancel download", () => {
 describe("a refused start shows the server's reason", () => {
     it("wizard: the server's message, not 'Internal error'", async () => {
         mount(Wizard);
-        fetchMock.mockResolvedValueOnce(refused(417, SERVER_REFUSAL));
+        nextStart = refused(417, SERVER_REFUSAL);
         await download("PO", ["PO-1"]);
-        expect(h.toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Error", description: "Select at least one PO to download." }));
+        expect(wiz.run).toMatchObject({ status: "failed", error: "Select at least one PO to download." });
         expect(wiz.showProgress).toBe(false);
         expect(wiz.loading).toBe(false);
     });
 
-    it("wizard: an HTML error page (server restarting) gives a plain sentence, not a JSON parse error", async () => {
+    it("wizard: an HTML error page (server restarting) gives a plain sentence, not a parse error", async () => {
         mount(Wizard);
-        fetchMock.mockResolvedValueOnce(htmlPage(502));
+        nextStart = htmlPage(502);
         await download("PO", ["PO-1"]);
-        const { description } = h.toast.mock.lastCall![0];
-        expect(description).toContain("502");
-        expect(description).not.toMatch(/Unexpected token|Internal error/);
+        expect(wiz.run?.status).toBe("failed");
+        expect(wiz.run?.error).not.toMatch(/Unexpected token|Internal error|<html/);
     });
 
     it("Quick Download: the server's message, not a bare status code", async () => {
         mount(Quick);
-        fetchMock.mockResolvedValueOnce(refused(417, SERVER_REFUSAL));
-        await act(() => quick.handleBulkDownload("DC", "Delivery Challans"));
-        expect(h.toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Error", description: "Select at least one PO to download." }));
+        nextStart = refused(417, SERVER_REFUSAL);
+        await act(() => quick.handleBulkDownload("DC"));
+        expect(quick.run).toMatchObject({ status: "failed", error: "Select at least one PO to download." });
         expect(quick.showProgress).toBe(false);
     });
 });
@@ -416,31 +501,30 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
     it("Download posts all_scope=1 and no project or vendor", async () => {
         mount(AllWizard);
         await download("PO", ["PO-1", "PO-2"]);
-        const [endpoint, init] = fetchMock.mock.calls[0];
-        expect(endpoint).toContain("download_selected_pos");
-        const body = (init as { body: FormData }).body;
-        expect(body.get("all_scope")).toBe("1");
-        expect(body.get("project")).toBeNull();
-        expect(body.get("vendor")).toBeNull();
-        expect(body.get("names")).toBe(JSON.stringify(["PO-1", "PO-2"]));
+        const [{ method, args }] = starts();
+        expect(method).toContain("download_selected_pos");
+        expect(args.all_scope).toBe(1);
+        expect(args).not.toHaveProperty("project");
+        expect(args).not.toHaveProperty("vendor");
+        expect(args.names).toBe(JSON.stringify(["PO-1", "PO-2"]));
     });
 
     it("refuses more than 500 before asking the server; exactly 500 goes through", async () => {
         mount(AllWizard);
         await download("PO", Array.from({ length: 501 }, (_, i) => `PO-${i}`));
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(starts()).toHaveLength(0);
         expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Too many items" }));
         await download("PO", Array.from({ length: 500 }, (_, i) => `PO-${i}`));
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(starts()).toHaveLength(1);
     });
 
     it("a project scope still loads its lists up front and sends its project (unchanged)", async () => {
         mount(ProjectWizard);
         expect(fetched().map(([doctype]) => doctype)).toContain("Procurement Orders");
         await download("PO", ["PO-1"]);
-        const body = (fetchMock.mock.calls[0][1] as { body: FormData }).body;
-        expect(body.get("project")).toBe("P-1");
-        expect(body.get("all_scope")).toBeNull();
+        const [{ args }] = starts();
+        expect(args.project).toBe("P-1");
+        expect(args).not.toHaveProperty("all_scope");
     });
 });
 
@@ -475,12 +559,11 @@ describe("Porter Invoices (Report Bulk Download only)", () => {
     it("Download posts the invoice numbers (never file links) with all_scope", async () => {
         mount(AllWizard);
         await download("PorterInvoice", ["PRT-BLR-0412", "PRT-CHN-0091"]);
-        const [endpoint, init] = fetchMock.mock.calls[0];
-        expect(endpoint).toContain("bulk_download.download_selected_porter_invoices");
-        const body = (init as { body: FormData }).body;
-        expect(body.get("names")).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
-        expect(body.get("all_scope")).toBe("1");
-        expect(body.get("attachment_names")).toBeNull();
+        const [{ method, args }] = starts();
+        expect(method).toContain("bulk_download.download_selected_porter_invoices");
+        expect(args.names).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
+        expect(args.all_scope).toBe(1);
+        expect(args).not.toHaveProperty("attachment_names");
     });
 });
 

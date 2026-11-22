@@ -1,27 +1,29 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Classifier endpoints + long worker + job plumbing (Classifier CL-1b).
+"""Classifier endpoints + the per-engine background operation (Classifier CL-1b; spec #1654, #1666).
 
-Five whitelisted endpoints (list_engines / start_classify / get_classify_status /
-get_sheet_categories / set_row_category) + the background worker, following the wizard's
-canonical long-job pattern (parse_run.py): a raw 32-char job_id, an in-progress marker, a
-commit BEFORE publish_realtime, a Redis fallback for a client that missed the socket, and a
-self-heal reader with a stale-seconds cap.
+Whitelisted endpoints: list_engines / start_classify / get_sheet_categories / set_row_category (and the
+resolved, catalog, freeze and truth readers below).
 
-DIVERGENCE from parse_run (disclosed): the in-progress marker + terminal payload live in
-REDIS keyed by (boq, sheet_name, discipline), NOT in doctype fields. parse_run stores its
-markers on BOQs / BoQ Sheet Draft columns; ai_assist stores ai_in_progress on BoQ Sheet
-Draft. Classify runs on the COMMITTED tier (a committed sheet may have no live draft row) and
-CL-1b adds NO doctype fields, so a per-sheet Redis marker is the schema-free equivalent that
-still honours "per-sheet, not a single global flag".
+A Classify click starts one **background operation per engine** (ADR 0047): `start_classify` takes the
+browser-made `op_id` and starts `_classify_worker` through `services/background_ops`. The screen follows each
+engine through that operation's own status record (`api/background_ops.get_status`): queued, running (progress
+`detail` = {done, total}), then finished with the engine's summary as its `result`, or failed with the
+server's words. No per-sheet status key holds a result, so one run can never overwrite another run's.
+
+The "already running?" marker stays per (boq, sheet_name, discipline), in Redis (#1660): claimed before the
+operation is queued, so a second start of the same engine on the same sheet is refused while the first waits in
+the queue or runs, and released by the operation itself when it ends (only while it still names that operation).
+Classify runs on the COMMITTED tier (a committed sheet may have no live draft row), so the marker is not a doctype
+field.
 """
 
 import json
 
 import frappe
-from frappe.utils.background_jobs import get_job_status
 
+from nirmaan_stack.services import background_ops, operation_marker
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.runner import load_ruleset
 from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
@@ -31,27 +33,22 @@ _BOQ_SHEET = "BoQ Sheet"
 _TRUTH_SNAPSHOT = "BoQ Category Truth Snapshot"
 _FROZEN_SNAPSHOT_SOURCE = "Frozen in product"
 
-_STATUS_PREFIX = "boq_classify_status"
 _MARKER_PREFIX = "boq_classify_marker"
-_STATUS_TTL_SEC = 3600  # 1h -- ample for a client to poll the fallback
-_MARKER_TTL_SEC = 3600
 _STALE_CLASSIFY_SECONDS = 1200  # mirrors parse_run._STALE_PARSE_SECONDS
+_CLASSIFY_TIMEOUT_SEC = 600  # the operation's time limit, counted from when it starts running
+OPERATION_KIND = "boq_classify"
 
 
-# ── Redis key + marker helpers ───────────────────────────────────────────────────
-def _status_key(boq, sheet_name, discipline):
-    return f"{_STATUS_PREFIX}::{boq}::{sheet_name}::{discipline}"
-
-
+# ── Redis marker helpers ─────────────────────────────────────────────────────────
 def _marker_key(boq, sheet_name, discipline):
     return f"{_MARKER_PREFIX}::{boq}::{sheet_name}::{discipline}"
 
 
 def _set_marker(boq, sheet_name, discipline, job_id, user):
-    frappe.cache().set_value(
+    """Claim the marker for `job_id`: set only when no marker is there (operation_marker.claim). True when set."""
+    return operation_marker.claim(
         _marker_key(boq, sheet_name, discipline),
         {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        expires_in_sec=_MARKER_TTL_SEC,
     )
 
 
@@ -59,52 +56,10 @@ def _get_marker(boq, sheet_name, discipline):
     return frappe.cache().get_value(_marker_key(boq, sheet_name, discipline))
 
 
-def _clear_marker(boq, sheet_name, discipline):
-    frappe.cache().delete_value(_marker_key(boq, sheet_name, discipline))
-
-
-def _update_marker_progress(boq, sheet_name, discipline, done, total):
-    """Merge per-batch done/total into the EXISTING in-progress marker, preserving
-    job_id/enqueued_at/user and the marker TTL. A SIBLING of _set_marker (kept separate so the
-    start-write signature stays minimal and the two sites don't drift). RE-READS the marker each
-    call; if it is gone (expired or the run was already cleared) it SKIPS SILENTLY -- never
-    re-creates a marker for a terminated job. done/total are ints (stored as-is)."""
-    marker = _get_marker(boq, sheet_name, discipline)
-    if not marker:
-        return
-    marker["done"] = done
-    marker["total"] = total
-    frappe.cache().set_value(
-        _marker_key(boq, sheet_name, discipline),
-        marker,
-        expires_in_sec=_MARKER_TTL_SEC,
-    )
-
-
 def _maybe_self_heal(boq, sheet_name, discipline, marker):
-    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale'. Clears the marker
-    when the RQ job is terminal (finished/failed/unknown) or the enqueue is older than the stale
-    cap. Mirrors parse_run._maybe_self_heal_parse_state."""
-    job_id = marker.get("job_id")
-    status = None
-    if job_id:
-        try:
-            status = get_job_status(job_id)
-        except Exception:
-            status = None
-    if status in ("finished", "failed") or status is None:
-        _clear_marker(boq, sheet_name, discipline)
-        return "cleared"
-    enqueued_at = marker.get("enqueued_at")
-    if enqueued_at:
-        try:
-            age = frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at)
-        except Exception:
-            age = 0
-        if age > _STALE_CLASSIFY_SECONDS:
-            _clear_marker(boq, sheet_name, discipline)
-            return "cleared_stale"
-    return "running"
+    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale' (operation_marker.heal: stale counts
+    from the start of running), clearing the marker unless it is running."""
+    return operation_marker.heal(_marker_key(boq, sheet_name, discipline), marker, _STALE_CLASSIFY_SECONDS)
 
 
 def _resolve_committed_version(boq, sheet_name):
@@ -145,14 +100,26 @@ def list_engines():
 
 
 @frappe.whitelist(methods=["POST"])
-def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=None):
-    """Enqueue a background classification run for one committed sheet. Returns immediately.
+def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=None, op_id=None):
+    """Start one engine's classification of one committed sheet as a background operation. Returns at once.
+
+    A Classify click calls this once per engine, each with its own browser-made `op_id` (a lowercase UUID). The
+    reply is the operation's status record; the screen follows it with `api/background_ops.get_status`. The
+    finished record's `result` is the engine's summary: {status: "success", boq_name, sheet_name, discipline,
+    total_in_range, eligible_classified, needs_review, auto_accepted, skipped_total, skipped_by_reason,
+    committed_version, sheet_warnings, ai_status, category_override_cleared}. A run that raises ends the
+    operation failed, with the server's words in its `error`.
 
     scope = {"mode":"sheet"} or {"mode":"range","start":<int>,"end":<int>} (Excel rows).
-    Validates: engine available (registry), the sheet is committed, and start<=end for a range.
-    Sets a per-(boq,sheet,discipline) Redis in-progress marker AFTER a successful enqueue, then
-    commits. URL: /api/method/nirmaan_stack.api.boq.wizard.classify.start_classify
+    Validates: engine available (registry), the sheet is committed and not classification-frozen, and
+    start<=end for a range. Refused while this engine already has an operation queued or running on this sheet
+    (the per-(boq, sheet, discipline) marker, claimed before the operation is queued, #1660). The same user
+    repeating an `op_id` gets the existing record back and nothing is queued again.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.start_classify
     """
+    earlier = background_ops.started_before(op_id)
+    if earlier:
+        return earlier
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
     if not frappe.db.exists("BOQs", boq):
@@ -198,83 +165,66 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
     else:
         frappe.throw(f"Unknown scope mode {mode!r}.", title="Bad scope")
 
-    # Double-fire guard + self-heal.
+    # Double-fire guard + self-heal, then CLAIM the marker before the operation is queued (#1660): set only when
+    # absent, so of two starts that both read "no marker" only one queues. The marker names the operation id,
+    # which is also its raw rq job id (background_ops.start queues the wrapper with job_id=op_id).
     marker = _get_marker(boq, sheet_name, discipline)
-    if marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running":
+    if (marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running") or not _set_marker(
+        boq, sheet_name, discipline, op_id, frappe.session.user
+    ):
         frappe.throw(
             "A classification run is already in progress for this sheet. "
             "Wait for it to finish before starting another.",
             title="Classify in progress",
         )
-
-    # Raw (un-namespaced) job id -- frappe.enqueue namespaces internally; get_job_status
-    # re-namespaces on read, so the RAW id is what we store (parse_run convention).
-    raw_job_id = frappe.generate_hash(length=32)
-    user = frappe.session.user
-    frappe.enqueue(
+    # Queued once this request commits (the work reads only committed rows). A start whose queue call fails ends
+    # its operation failed; its marker then names an RQ job that was never queued, which the next start heals after
+    # operation_marker.ENQUEUE_GRACE_SEC.
+    return background_ops.start(
+        OPERATION_KIND,
         "nirmaan_stack.api.boq.wizard.classify._classify_worker",
-        queue="long",
-        timeout=600,
-        job_id=raw_job_id,
-        user=user,
+        op_id=op_id,
+        timeout=_CLASSIFY_TIMEOUT_SEC,
         boq=boq,
         sheet_name=sheet_name,
         discipline=discipline,
         scope=norm_scope,
     )
-    # Clear any stale terminal payload from a prior run, set the marker, commit -- all AFTER a
-    # successful enqueue so a failed enqueue never leaves state stuck.
-    frappe.cache().delete_value(_status_key(boq, sheet_name, discipline))
-    _set_marker(boq, sheet_name, discipline, raw_job_id, user)
-    frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id}
 
 
-def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=None, user=None):
-    """Background worker: orchestrate the run, commit, then record + publish the terminal payload.
-    On any failure, records a terminal error payload and clears the marker (never left stuck)."""
+def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=None):
+    """One engine's background operation work (runs as its owner, under `background_ops.run`): orchestrate, commit,
+    clear the category-gate override after a whole-sheet run, and return the engine's summary as the operation's
+    result. Anything the run raises reaches `background_ops.run`, which rolls back and ends the operation failed.
+    The marker is released either way, but only while it still names this operation."""
     row_filter = None
     if scope and scope.get("mode") == "range":
         row_filter = (int(scope["start"]), int(scope["end"]))
 
     def _progress(done, total):
-        # Incremental progress, emitted once per 20-row AI batch. No DB dependency (transient
-        # counts only), so no commit-before-publish is needed. The terminal boq:classify_sheet_done
-        # is unchanged. TWO sinks now: (1) the marker carries done/total so the get_classify_status
-        # poll can drive the progress bar (the socket is unreliable in some deployments); (2) the
-        # additive realtime event stays as-is.
-        _update_marker_progress(boq, sheet_name, discipline, done, total)
-        _publish_classify_progress(boq, sheet_name, discipline, user, done, total)
+        # Once per 20-row AI batch, into this operation's own record (the screen's bar reads `detail`).
+        background_ops.set_row_progress(done, total)
 
     try:
         summary = orchestrator.classify_sheet_rows(
             boq, sheet_name, discipline, row_filter=row_filter, progress_cb=_progress
         )
-        frappe.db.commit()  # commit BEFORE publish (CODING_STANDARDS.md rule)
+        frappe.db.commit()
         # G2d: on a SUCCESSFUL WHOLE-SHEET re-classify, clear the category-gate override for this
         # sheet. Placed AFTER the classify commit, never fails the run (see helper). Per-engine by
-        # design -- each engine's worker clears independently (there is no single all-engines
+        # design -- each engine's operation clears independently (there is no single all-engines
         # completion point); a range/partial run leaves the override intact.
         override_cleared = _clear_override_after_reclassify(boq, sheet_name, scope)
-        payload = {
+        return {
             "status": "success",
             "boq_name": boq,
             "sheet_name": sheet_name,
             "discipline": discipline,
             **summary,
-            "category_override_cleared": override_cleared,  # additive; after **summary so it wins
+            "category_override_cleared": override_cleared,  # after **summary so it wins
         }
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(title="BoQ classify worker failed", message=frappe.get_traceback())
-        payload = {
-            "status": "error",
-            "boq_name": boq,
-            "sheet_name": sheet_name,
-            "discipline": discipline,
-            "error_code": "classify_failed",
-        }
-    _publish_classify_event(boq, sheet_name, discipline, user, payload)
+    finally:
+        operation_marker.release_own(_marker_key(boq, sheet_name, discipline))
 
 
 def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:
@@ -292,7 +242,7 @@ def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:
       admin already chose.
 
     Returns True iff an override was actually present and has now been cleared. PER-ENGINE by design:
-    each engine's worker calls this independently (there is no single all-engines completion point),
+    each engine's operation calls this independently (there is no single all-engines completion point),
     so a multi-engine whole-sheet re-classify clears once per engine and an override re-set between two
     engines' completions is wiped by the later one.
     """
@@ -310,57 +260,6 @@ def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:
             title="BoQ re-classify override clear failed", message=frappe.get_traceback()
         )
         return False
-
-
-def _publish_classify_progress(boq, sheet_name, discipline, user, done, total):
-    """Emit incremental classify progress (once per 20-row AI batch). NEW event, additive -- the
-    terminal boq:classify_sheet_done + get_classify_status poll are unchanged. Payload is keyed
-    by (boq, sheet_name, discipline) so the client gates it to the active sheet."""
-    payload = {"boq": boq, "sheet_name": sheet_name, "discipline": discipline,
-               "done": done, "total": total}
-    publish_kwargs = {"user": user} if user else {}
-    frappe.publish_realtime("boq:classify_sheet_progress", payload, **publish_kwargs)
-
-
-def _publish_classify_event(boq, sheet_name, discipline, user, payload):
-    """Choke-point: record the terminal payload (Redis fallback), clear the marker, THEN publish.
-    Redis writes live outside the DB transaction, so they survive a worker rollback."""
-    frappe.cache().set_value(
-        _status_key(boq, sheet_name, discipline), payload, expires_in_sec=_STATUS_TTL_SEC
-    )
-    _clear_marker(boq, sheet_name, discipline)
-    publish_kwargs = {}
-    if user:
-        publish_kwargs["user"] = user
-    frappe.publish_realtime("boq:classify_sheet_done", payload, **publish_kwargs)
-
-
-@frappe.whitelist()
-def get_classify_status(boq=None, sheet_name=None, discipline="Electrical"):
-    """Polling fallback for a classify run, keyed by (boq, sheet_name, discipline). Same payload
-    shape as the boq:classify_sheet_done socket event so one frontend handler serves both.
-
-    States: {"state":"done", **payload} | {"state":"running"} | {"state":"idle"}.
-    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.get_classify_status
-    """
-    if not boq:
-        frappe.throw("boq is required.", title="Missing field: boq")
-    if not sheet_name:
-        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-
-    term = frappe.cache().get_value(_status_key(boq, sheet_name, discipline))
-    if term:
-        return {"state": "done", **term}
-    marker = _get_marker(boq, sheet_name, discipline)
-    if marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running":
-        out = {"state": "running"}
-        # Carry done/total ONLY once a batch has written them (a run before its first batch has
-        # none -> bare running; the TS side reads done?/total? guarded by typeof === "number").
-        if isinstance(marker.get("done"), int) and isinstance(marker.get("total"), int):
-            out["done"] = marker["done"]
-            out["total"] = marker["total"]
-        return out
-    return {"state": "idle"}
 
 
 @frappe.whitelist()

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 import { Loader2, Plus } from "lucide-react";
 
 import { ChequeDetailDialog } from "@/components/cheques/ChequeDetailDialog";
@@ -45,7 +46,7 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
         { filters: JSON.stringify(poChequesFilters(record.name ?? "")), order_by: "creation desc", limit_page_length: 100 },
         ready ? `cheques-of-po-${record.name}` : null,
     );
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => {
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => {
         if (ready) mutate();
     });
     const [adding, setAdding] = useState(false);

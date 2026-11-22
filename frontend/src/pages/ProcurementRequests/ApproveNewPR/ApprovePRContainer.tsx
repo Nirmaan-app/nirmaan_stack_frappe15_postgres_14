@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
+import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe';
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
@@ -54,7 +55,7 @@ export const ApprovePRContainer: React.FC = () => {
         prQueryKey
     );
 
-    useFrappeDocumentEventListener("Procurement Requests", prId || '', (event) => {
+    useDocumentEventListener("Procurement Requests", prId || '', (event) => {
         console.log("Procurement Requests document updated (real-time):", event?.name);
         toast({
             title: "Document Updated",

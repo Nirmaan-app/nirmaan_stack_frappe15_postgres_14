@@ -1,7 +1,11 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Hourly janitor for bulk-download temp files (Leak A).
+"""Janitor for the old bulk-download temp files (Leak A).
+
+Since #1664 nothing writes to `temp_downloads`: bulk PDF download and commission bulk download keep their file
+privately as a background operation. This sweep stays only to clear files left from before; removing it (and the
+folder) is the owner's call. What follows describes the old token path.
 
 `run_bulk_download_job` writes the merged PDF to
 `public/files/temp_downloads/{token}.bin` and fires a realtime event; the client
@@ -48,8 +52,7 @@ def cleanup_temp_downloads():
             removed += 1
             freed += size
         except OSError:
-            # File vanished mid-sweep (a concurrent fetch_temp_file won the race)
-            # or is unreadable — either way it is not ours to worry about.
+            # File vanished mid-sweep or is unreadable: either way it is not ours to worry about.
             continue
 
     if removed:

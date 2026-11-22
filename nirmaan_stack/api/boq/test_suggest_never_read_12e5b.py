@@ -61,8 +61,10 @@ class TestSelectedRunsSR1(FrappeTestCase):
             self.assertEqual(rate_master._selected_carry_source("B", "S", 3), (None, None))
 
     def _start(self, only_rows):
-        """Drive the REAL start_suggest with its gates passed and the queue captured."""
-        enq = mock.MagicMock()
+        """Drive the REAL start_suggest with its gates passed and the operation's start captured (#1667: the
+        selection reaches the work's kwargs; the reply keys travel in the operation's result,
+        test_suggest_operations)."""
+        enq = mock.MagicMock(return_value={"state": "queued"})
         patches = [
             mock.patch.object(rate_master, "_require_login"),
             mock.patch.object(rate_master, "_resolve_committed_version", return_value=3),
@@ -74,12 +76,13 @@ class TestSelectedRunsSR1(FrappeTestCase):
             mock.patch.object(rate_master.extraction, "assemble_population", return_value=(3, POP)),
             mock.patch.object(frappe.db, "exists", return_value=True),
             mock.patch.object(frappe.db, "commit"),
-            mock.patch.object(frappe, "enqueue", enq),
+            mock.patch.object(rate_master.background_ops, "start", enq),
         ]
         for p in patches:
             p.start()
         try:
-            out = rate_master.start_suggest(boq="B", sheet_name="S", only_rows=only_rows)
+            out = rate_master.start_suggest(boq="B", sheet_name="S", only_rows=only_rows,
+                                            op_id="aaaaaaaa-0000-4000-8000-000000000001")
         finally:
             for p in reversed(patches):
                 p.stop()
@@ -87,18 +90,16 @@ class TestSelectedRunsSR1(FrappeTestCase):
 
     def test_02_INVERTED_a_selected_run_reads_ONLY_the_ticked_rows(self):
         """INVERTS 12e-5b test_02 (owner QR-1 "option a"): ticks 10 + 11 on a sheet whose live run never read 40-42 ->
-        the worker gets 10 and 11 ONLY; nothing is added and the echo says so."""
-        out, kw = self._start([10, 11])
+        the worker gets 10 and 11 ONLY; nothing is added."""
+        _out, kw = self._start([10, 11])
         self.assertEqual(kw["only_rows"], [10, 11])
-        self.assertEqual(out["never_read_added"], [])
-        self.assertEqual(out["scoped_row_count"], 2)
-        out, kw = self._start([40])
-        self.assertEqual((kw["only_rows"], out["never_read_added"]), ([40], []))
+        _out, kw = self._start([40])
+        self.assertEqual(kw["only_rows"], [40])
 
     def test_03_whole_sheet_run_unchanged(self):
-        """NEGATIVE (the pinned unchanged case): no ticks -> a whole-sheet run, no scope, empty echo."""
-        out, kw = self._start(None)
-        self.assertEqual((kw["only_rows"], out["never_read_added"], out["scoped_row_count"]), (None, [], None))
+        """NEGATIVE (the pinned unchanged case): no ticks -> a whole-sheet run, no scope."""
+        _out, kw = self._start(None)
+        self.assertIsNone(kw["only_rows"])
 
     def test_04_never_read_rows_is_information_counted_against_the_carried_run(self):
         """never_read_rows = eligible rows the run a selected pass WOULD carry has not read; carry_source names it.

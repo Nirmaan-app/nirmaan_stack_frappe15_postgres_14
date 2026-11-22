@@ -31,8 +31,10 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
-      # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
-      # type-coverage's --at-least; it may not grow a count (oxlint's, J1's or D1's file), add a file or rule (`oxlint --suppress-all`), or lower
+      # A PR may shrink frontend/oxlint-suppressions.json, frontend/json-call-suppressions.json,
+      # frontend/disable-comment-suppressions.json and the frozen raw enqueues and socket listeners
+      # (scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json), and raise type-coverage's
+      # --at-least; it may not grow a count (oxlint's, J1's, D1's, Q1's or L2's file), add a file or rule (`oxlint --suppress-all`), or lower
       # the threshold. Nor may it loosen the lint settings (#1702): .oxlintrc.json (ignorePatterns, a rule off or
       # "warn", an override), a nested oxlint config or ignore file, the `lint` script, or a residence_baseline.json
       # count CI reads. `yarn lint` alone cannot see
@@ -55,12 +57,12 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
-      # The eight residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # The twelve residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
       # ADR-0010's two (B1, B3) stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails. J1 and D1 hold per file against their frozen files instead: a file over or
-      # under its frozen count fails, so a count that fell fails until the change lowers it. After Install: J1 and D1
-      # parse with frontend/node_modules/typescript.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments)
+      # passes, a count that rose fails. J1, D1, Q1 and L2 hold per file against their frozen files instead: a file over
+      # or under its frozen count fails, so a count that fell fails until the change lowers it. After Install: J1, D1
+      # and L2 parse with frontend/node_modules/typescript.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments, L1 raw listener hooks, N1 counted names, Q1 raw enqueues, L2 socket listeners)
         working-directory: .
         run: python3 scripts/residence_check.py --check --only ci
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBoqWizardStore } from "@/zustand/useBoqWizardStore";
+import type { UploadedFile, UploadStatus } from "./boqUploadOperation";
 
 const ACCEPTED_EXTS = new Set([".xlsx", ".xlsm"]);
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -13,7 +14,18 @@ function fmtBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function BoqDropZone() {
+interface BoqDropZoneProps {
+  /** The upload's state, from its background operation (BoqUploadScreen follows it). */
+  status: UploadStatus;
+  /** The server's words for error-internal. */
+  error: string | null;
+  /** Start the upload: the workbook's form data and the file it names. */
+  onUpload: (form: FormData, file: UploadedFile) => void;
+  /** Forget the upload (Try a different file / Replace file). */
+  onReset: () => void;
+}
+
+export function BoqDropZone({ status: uploadStatus, error, onUpload, onReset }: BoqDropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   // In Revise mode a file dropped BEFORE an original is picked is HELD here (order-independence,
   // ADR-0014 D1) and uploaded once the original is selected -- source_boq must ride the POST.
@@ -24,12 +36,9 @@ export function BoqDropZone() {
 
   const {
     droppedFile,
-    uploadStatus,
     revisionMode,
     sourceBoq,
     setDroppedFile,
-    setUploadStatus,
-    setJobId,
     resetUpload,
   } = useBoqWizardStore();
 
@@ -37,7 +46,8 @@ export function BoqDropZone() {
   // upload waits for an original to be picked (so source_boq is present in the POST).
   const readyToUpload = revisionMode !== "revise" || !!sourceBoq;
 
-  // 30-second soft "taking longer" message -- fires during parsing, not a timeout.
+  // 30-second soft "taking longer" message -- counts from when the parse starts running (never the
+  // time in the queue); not a timeout.
   useEffect(() => {
     if (uploadStatus !== "parsing") {
       setTakingLong(false);
@@ -53,13 +63,13 @@ export function BoqDropZone() {
     if (readyToUpload && pendingFileRef.current && uploadStatus === "idle") {
       const held = pendingFileRef.current;
       pendingFileRef.current = null;
-      void triggerUpload(held);
+      triggerUpload(held);
     }
     // triggerUpload reads fresh state via getState(); safe to exclude from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyToUpload, uploadStatus]);
 
-  async function triggerUpload(file: File): Promise<void> {
+  function triggerUpload(file: File): void {
     // Read fresh state at call time -- this can fire from an effect after the original is
     // picked, so a render-time closure could be stale.
     const {
@@ -67,41 +77,14 @@ export function BoqDropZone() {
       revisionMode: mode,
       sourceBoq: src,
     } = useBoqWizardStore.getState();
-    setUploadStatus("uploading");
     setLocalError(null);
-    try {
-      const fd = new FormData();
-      fd.append("project_id", projectId);
-      fd.append("file", file, file.name);
-      // A revision carries source_boq -> the picked original (ADR-0014 D1/D2).
-      if (mode === "revise" && src) fd.append("source_boq", src);
-
-      const res = await fetch(
-        "/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file",
-        {
-          method: "POST",
-          headers: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "X-Frappe-CSRF-Token": (window as any).frappe?.csrf_token ?? "",
-          },
-          body: fd,
-        }
-      );
-
-      if (!res.ok) {
-        setLocalError("Upload failed. Please try again.");
-        resetUpload();
-        return;
-      }
-
-      const json = await res.json() as { message?: { job_id?: string } };
-      const jobId = json?.message?.job_id ?? null;
-      setJobId(jobId);
-      setUploadStatus("parsing");
-    } catch {
-      setLocalError("Upload failed. Check your connection and try again.");
-      resetUpload();
-    }
+    const fd = new FormData();
+    fd.append("project_id", projectId);
+    fd.append("file", file, file.name);
+    // A revision carries source_boq -> the picked original (ADR-0014 D1/D2).
+    if (mode === "revise" && src) fd.append("source_boq", src);
+    // A refused or failed start ends the operation failed, shown as error-internal with the server's words.
+    onUpload(fd, { name: file.name, size: file.size });
   }
 
   function acceptFile(file: File) {
@@ -120,7 +103,7 @@ export function BoqDropZone() {
     setDroppedFile({ name: file.name, size: file.size });
     if (readyToUpload) {
       pendingFileRef.current = null;
-      void triggerUpload(file);
+      triggerUpload(file);
     } else {
       // Revise mode, no original picked yet: hold the file. The effect below uploads it
       // as soon as an original is selected (D1: file-drop and pick are order-independent).
@@ -142,12 +125,33 @@ export function BoqDropZone() {
     if (f) acceptFile(f);
   }
 
+  function startOver() {
+    pendingFileRef.current = null;
+    resetUpload();
+    onReset();
+    setLocalError(null);
+    setTakingLong(false);
+  }
+
   // ── Uploading spinner ──────────────────────────────────────────────────────
   if (uploadStatus === "uploading") {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-background p-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm font-medium text-foreground">Uploading file...</p>
+      </div>
+    );
+  }
+
+  // ── Waiting in the queue ───────────────────────────────────────────────────
+  if (uploadStatus === "queued") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-background p-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm font-medium text-foreground">Waiting in the queue...</p>
+        <p className="text-xs text-muted-foreground text-center max-w-xs">
+          Parsing starts as soon as the server is free.
+        </p>
       </div>
     );
   }
@@ -191,7 +195,7 @@ export function BoqDropZone() {
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={startOver}
         >
           Try a different file
         </button>
@@ -212,7 +216,7 @@ export function BoqDropZone() {
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={startOver}
         >
           Try a different file
         </button>
@@ -225,15 +229,15 @@ export function BoqDropZone() {
     return (
       <div className="space-y-3">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <p className="font-medium text-destructive">Parsing failed</p>
+          <p className="font-medium text-destructive">Upload failed</p>
           <p className="mt-1 text-muted-foreground">
-            An unexpected error occurred while processing the file. Please try again.
+            {error ?? "An unexpected error occurred while processing the file. Please try again."}
           </p>
         </div>
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={startOver}
         >
           Try a different file
         </button>
@@ -265,10 +269,7 @@ export function BoqDropZone() {
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
           onClick={() => {
-            pendingFileRef.current = null;
-            resetUpload();
-            setLocalError(null);
-            setTakingLong(false);
+            startOver();
             // defer click until re-render has mounted the idle-state input
             setTimeout(() => inputRef.current?.click(), 0);
           }}

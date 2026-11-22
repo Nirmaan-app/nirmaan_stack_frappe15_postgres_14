@@ -20,7 +20,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { useFrappeEventListener } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 import { Info, ShieldCheck } from "lucide-react";
 
 import { useChequeEdit } from "@/components/cheques/useChequeEdit";
@@ -131,7 +131,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
     };
 
     // Another user's save shows up without a reload.
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
 
     const { facetOptions, onFacetOpen } = useChequeFacets({
         baseFilters: tabFilters,

@@ -4988,24 +4988,16 @@ class TestRateMaster(FrappeTestCase):
 
     def _run_worker_capture(self, env, only_rows=None, prior_results=None, prior_attempted=None):
         """Drive the REAL _suggest_worker payload construction with the DB + AI mocked out, and
-        return the terminal payload it publishes. No AI call, no DB write, no enqueue."""
-        published = {}
-
-        def _capture(event, payload, **kw):
-            published.update(payload)
-
+        return the result it returns (the operation's result, #1667). No AI call, no DB write, no enqueue."""
         prior_results = prior_results or []
         prior_attempted = prior_attempted or []
-        with mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),              mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
+        with               mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
                                return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted,
-                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
+                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),                            mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
             # DEV2-B4 (mechanical inversion; the B4 brief's S2 trigger + S5 "match_enabled LEFT ON in dev2"): these pins
             # are the pre-B4 payload, i.e. historical matching OFF - pinned explicitly here instead of read from the live
             # setting. With it ON the payload gains exactly one key, "match" (test_rate_match.TestSuggestWorkerHook).
-            rate_master._suggest_worker(
-                boq="B", sheet_name="S", user="u@x", only_rows=only_rows,
-            )
-        return published
+            return rate_master._suggest_worker(boq="B", sheet_name="S", only_rows=only_rows)
 
     def test_81_worker_publishes_the_pass_count_and_changes_nothing_else(self):
         """The wiring, on the REAL worker. A carried SCOPED pass that halted part-way must publish a
@@ -5062,7 +5054,9 @@ class TestRateMaster(FrappeTestCase):
                     "run_status", "results", "attempted_count", "population_count", "halt_reason",
                     "scoped_row_count", "pass_attempted_count",
                     # SLICE SR-1 C10 (2026-11-17): the additive, informational first-selected-run flag
-                    "first_selected_run"}
+                    "first_selected_run",
+                    # #1667: SR-1's start reply keys, now carried in the operation's result
+                    "only_rows", "resumed_run_id"}
         self.assertEqual(set(self._run_worker_capture(complete_env).keys()), expected)
 
     # ── SCOPE PERSISTENCE: a halted scoped run must resume SCOPED ────────────────────
@@ -5089,21 +5083,13 @@ class TestRateMaster(FrappeTestCase):
     def _resume_processed_rows(self, population, doc_attempted, doc_scope):
         """Drive the REAL _suggest_worker + REAL run_extraction for a RESUME of a run whose stored
         state is (attempted_rows=doc_attempted, scope_rows=doc_scope). Returns the excel_rows the
-        pass actually processed, read off the terminal payload. No DB write, no AI call."""
-        published = {}
-
-        def _capture(event, payload, **kw):
-            published.update(payload)
-
+        pass actually processed, read off the operation's result. No DB write, no AI call."""
         stack = self._extraction_env_mocks(population) + [
-            mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),
             mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),
             mock.patch.object(rate_master, "_open_run_doc",
                               return_value=("N", "RID", [], list(doc_attempted), doc_scope)),
             mock.patch.object(rate_master, "_finalise_run"),
             mock.patch.object(rate_master, "_write_run_progress"),
-            mock.patch.object(rate_master, "_s_clear_marker"),
-            mock.patch.object(frappe, "publish_realtime", side_effect=_capture),
             mock.patch.object(frappe, "log_error"),
             mock.patch.object(frappe.db, "commit"),
             mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),
@@ -5111,7 +5097,7 @@ class TestRateMaster(FrappeTestCase):
         for m in stack:
             m.start()
         try:
-            rate_master._suggest_worker(boq="B", sheet_name="S", user="u", resume_run_id="RID")
+            published = rate_master._suggest_worker(boq="B", sheet_name="S", resume_run_id="RID")
         finally:
             for m in reversed(stack):
                 m.stop()

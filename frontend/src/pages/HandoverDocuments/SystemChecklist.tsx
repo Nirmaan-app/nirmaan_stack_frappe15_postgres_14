@@ -42,6 +42,7 @@ import {
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
+import { binderStartBlocked, documentBuilding, documentStartBlocked } from "@/utils/hodBinderBuild";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { BinderDialog } from "./BinderDialog";
@@ -78,7 +79,7 @@ import type {
   HodStatus,
   HodSystemOption,
 } from "./types";
-import type { BinderProgress, HodJob } from "./useHodBinder";
+import type { BinderProgress, HodBuilds } from "./useHodBinder";
 
 /** Mirrors `services/hod/checklist.STATUSES`. */
 const STATUSES: HodStatus[] = ["Not Started", "WIP", "Done"];
@@ -156,8 +157,8 @@ export interface SystemChecklistProps {
   updateRow: (name: string, patch: HodRowPatch) => Promise<unknown>;
   /** `force`: the user confirmed that the package's entries are deleted with it. */
   onRemoveSystem: (force: boolean) => Promise<void>;
-  /** The server-built PDF running for this user (binder or one document's content), if any. */
-  job: HodJob | null;
+  /** The server-built PDFs this tab follows: a binder and one document's content, each on its own. */
+  builds: HodBuilds;
   progress: BinderProgress | null;
   /** Start a build: the binder (`document` null) or one document's content. */
   onBuild: (document: string | null, title: string) => void;
@@ -176,7 +177,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   canEdit,
   updateRow,
   onRemoveSystem,
-  job,
+  builds,
   progress,
   onBuild,
   signedCopy,
@@ -218,8 +219,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     : "";
   const { busyKey, download } = usePdfDownload();
 
-  const building = job !== null;
-  const buildingBinderHere = job?.hodSystem === system.name && !job.document;
+  const buildingBinderHere = builds.binder?.hodSystem === system.name;
   // The binder dialog closes when THIS binder's build ends -- downloaded or failed, the toast says which.
   const wasBuildingRef = React.useRef(false);
   React.useEffect(() => {
@@ -278,9 +278,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
 
   const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
     if (meta.kind === "app") {
-      const mine =
-        job?.hodSystem === system.name && job.document === row.document;
-      if (mine) return; // already being prepared for this row; the button shows it
+      // Already being prepared for this row; the button shows it.
+      if (documentBuilding(builds, system.name, row.document)) return;
       // A saved selection IS the answer to "which records?" (owner 2026-09-24), so the download starts
       // straight away and the picker is not asked again. Without one, pick first (owner 2026-09-22).
       if (Array.isArray(row.form_data?.selected))
@@ -449,7 +448,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               <Button
                 size="sm"
                 className="h-8"
-                disabled={!binderEnabled || (building && !buildingBinderHere)}
+                disabled={!binderEnabled || binderStartBlocked(builds, system.name)}
                 title={
                   allDone
                     ? "Cover, logos, checklist and every document in one PDF"
@@ -560,8 +559,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 const off = !!row.disabled;
                 const editable = rowEditable(row, canEdit);
                 const kind = documentChip(meta);
-                const contentBusy =
-                  job?.hodSystem === system.name && job.document === row.document;
+                const contentBusy = documentBuilding(builds, system.name, row.document);
                 const rowBusy =
                   savingRow === row.name ||
                   busyKey === `doc:${row.name}` ||
@@ -630,11 +628,12 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                         row={row}
                         meta={meta}
                         canEdit={editable}
-                        // Disabled while any build runs (the server takes one at a time) but only THIS
-                        // row's own work spins its button.
+                        // Disabled while another document's download runs (a binder never holds it back),
+                        // and only THIS row's own work spins its button.
                         busy={
                           rowBusy ||
-                          (meta.kind === "app" && building && !contentBusy)
+                          (meta.kind === "app" &&
+                            documentStartBlocked(builds, system.name, row.document))
                         }
                         working={rowBusy}
                         onOpen={() => setOpenRow(row.name)}

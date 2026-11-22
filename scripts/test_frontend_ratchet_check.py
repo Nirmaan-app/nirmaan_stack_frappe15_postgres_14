@@ -17,6 +17,8 @@ from frontend_ratchet_check import (  # noqa: E402
     DISABLES,
     JSON_CALLS,
     OXLINT,
+    RAW_ENQUEUES,
+    SOCKET_LISTENERS,
     suppression_loosenings,
     threshold_loosenings,
 )
@@ -241,6 +243,58 @@ class CommandLine(GitRepo, unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("rose 1 -> 2", result.stderr)
         self.assertIn("src/new.tsx no-json-call is new", result.stderr)
+
+
+class BackgroundOperationRatchets(GitRepo, unittest.TestCase):
+    """Residence checks Q1 and L2 (#1671): the raw enqueues and the socket listeners that stay are frozen per file;
+    a pull request may lower a count, never raise one or add a file."""
+
+    FROZEN = {
+        RAW_ENQUEUES: {"nirmaan_stack/api/cron.py": {"no-raw-enqueue": {"count": 1, "reason": "a cron job"}}},
+        SOCKET_LISTENERS: {"src/lock.ts": {"no-socket-listener": {"count": 2, "reason": "a lock's presence"}}},
+    }
+
+    def setUp(self):
+        self.repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.repo)
+        self.git("init", "-q", "-b", "base")
+        (self.repo / "frontend").mkdir()
+        (self.repo / "scripts").mkdir()
+        (self.repo / "frontend/package.json").write_text(json.dumps(package(97.47)))
+        for name, frozen in self.FROZEN.items():
+            (self.repo / name).write_text(json.dumps(frozen))
+        self.commit("base")
+
+    def test_a_raised_count_or_a_new_file_is_refused_and_a_lower_one_passes(self):
+        for name, rule, path in ((RAW_ENQUEUES, "no-raw-enqueue", "nirmaan_stack/api/cron.py"),
+                                 (SOCKET_LISTENERS, "no-socket-listener", "src/lock.ts")):
+            with self.subTest(name):
+                was = self.FROZEN[name][path][rule]["count"]
+
+                def entry(n):
+                    return {rule: {"count": n, "reason": "why"}}
+
+                (self.repo / name).write_text(json.dumps({path: entry(was + 1)}))
+                result = self.run_script()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"{name}: {path} {rule} rose {was} -> {was + 1}", result.stderr)
+                (self.repo / name).write_text(json.dumps({path: entry(was), "new/file.py": entry(1)}))
+                result = self.run_script()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"{name}: new/file.py {rule} is new (1)", result.stderr)
+                (self.repo / name).write_text(json.dumps({path: entry(was - 1)}))
+                result = self.run_script()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                (self.repo / name).write_text(json.dumps(self.FROZEN[name]))
+
+    def test_a_deleted_frozen_file_is_refused(self):
+        for name in (RAW_ENQUEUES, SOCKET_LISTENERS):
+            with self.subTest(name):
+                (self.repo / name).unlink()
+                result = self.run_script()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"{name} was deleted", result.stderr)
+                (self.repo / name).write_text(json.dumps(self.FROZEN[name]))
 
 
 # The lint settings (#1702): a made-up config in .oxlintrc.json's shape, with JSONC comments and a trailing comma.

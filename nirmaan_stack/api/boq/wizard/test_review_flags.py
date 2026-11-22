@@ -687,9 +687,8 @@ class TestWorkerAndCachePath(_FlagCase):
 
     def _work(self, run_name, service):
         with patch(_SETTINGS, return_value=_settings()), patch(_API_KEY, return_value="k"), \
-             patch(_GUIDANCE, return_value={}), patch(_SERVICE, side_effect=service), \
-             patch("frappe.publish_realtime"):
-            ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, user=None, run_name=run_name)
+             patch(_GUIDANCE, return_value={}), patch(_SERVICE, side_effect=service):
+            ai_assist._run_ai_pass_worker(self.boq_name, _SHEET, run_name=run_name)
 
     def test_the_worker_applies_the_sure_change_and_the_row_is_not_flagged(self):
         self._rows()

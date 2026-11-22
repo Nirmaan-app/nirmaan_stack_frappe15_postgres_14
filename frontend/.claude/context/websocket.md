@@ -283,6 +283,8 @@ const useNotificationStore = create(
 
 ## Adding a New Event Type
 
+An event here is a document change, a notification or a lock, never a background operation's progress or result: a screen follows an operation with `useBackgroundOperation` (`frontend/CODING_STANDARDS.md` § Realtime events). Register a global event in `src/services/socketListeners.ts` or listen with `useSocketEventListener`: residence check L2 refuses a raw `socket.on` anywhere else (frozen per file in `frontend/socket-listener-suppressions.json`).
+
 ### Backend (Python)
 
 1. **In the relevant controller** (e.g., `integrations/controllers/my_doctype.py`):

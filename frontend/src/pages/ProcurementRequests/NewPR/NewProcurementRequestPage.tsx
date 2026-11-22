@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useFrappeDocumentEventListener } from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe';
 
 // Import UI Components
 import { ItemSelectorControls } from './components/ItemSelectorControls';
@@ -50,7 +50,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useProcurementRequest(prId)
 
-    const { emitDocOpen } = useFrappeDocumentEventListener("Procurment Requests", prId!, () => {
+    const { emitDocOpen } = useDocumentEventListener("Procurment Requests", prId!, () => {
         if (prId) {
             existingPRDataMutate();
             toast({ title: "Document Updated", description: `Procurement Request ${prId} has been modified.` });

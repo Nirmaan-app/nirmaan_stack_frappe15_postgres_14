@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { saveBlobAs } from "@/utils/saveUrlAs";
 
 import { HOD_PRINT_CHECKLIST } from "./hodApi";
 
@@ -81,15 +82,6 @@ async function assertPdfResponse(response: Response): Promise<void> {
   throw new Error(message);
 }
 
-export function saveUrlAs(url: string, filename: string): void {
-  const link = document.createElement("a");
-  link.href = url;
-  link.setAttribute("download", filename);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
 /** Fetch a print URL as a PDF and save it. `busyKey` lets one hook serve every row's button. */
 export function usePdfDownload() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -100,9 +92,7 @@ export function usePdfDownload() {
       try {
         const response = await fetch(url);
         await assertPdfResponse(response);
-        const blobUrl = window.URL.createObjectURL(await response.blob());
-        saveUrlAs(blobUrl, filename);
-        window.URL.revokeObjectURL(blobUrl);
+        saveBlobAs(await response.blob(), filename);
       } catch (error) {
         toast({
           title: "Download failed",

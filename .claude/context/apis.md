@@ -49,9 +49,10 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs, Material Test Certificates, Client Invoices, PO and WO Payment Vouchers
   - Every endpoint takes `project=` OR `vendor=` (exactly one; `_scope`). Project scope reads with `get_all`;
     vendor scope reads with `get_list` as the user, so User Permission-scoped users get only their projects
-  - Each download carries a browser-made `download_id` (never `job_id`: `frappe.enqueue` keeps that keyword) on
-    every event. An empty selection is refused, any job failure publishes `bulk_download_failed`, and
-    `cancel_bulk_download` stops a running job between documents
+  - Each download is a background operation (ADR 0047): every endpoint (POST) takes the browser-made `op_id` and
+    starts `bulk_download_op` through `services/background_ops`; the screen follows `api/background_ops.get_status`
+    and collects the PDF with `collect_result` (owner only). An empty selection is refused, a refusal fails the
+    operation in its own words, and `cancel_bulk_download(op_id)` (owner only) stops it between documents
   - Payment vouchers travel as PAYMENT names. WO (`download_selected_wo_payment_vouchers`): the uploaded
     `voucher_attachment` of Paid WO payments, read back by the job. PO (`download_selected_po_payment_vouchers`):
     PO payments have no upload, so the job GENERATES each Paid one's voucher from print format "SR Payment" (as the PO

@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useFrappeEventListener, useFrappeGetCall, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetCall, useSWRConfig } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 
 import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { CHEQUE_TRACKER_TAB, chequeTabFilters, type ChequeTrackerTab } from "@/utils/cheques/chequeTabs";
@@ -36,7 +37,7 @@ export function useChequeTabCounts() {
     const refresh = useCallback(() => {
         mutate((key) => typeof key === "string" && key.startsWith(KEY_PREFIX));
     }, [mutate]);
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, refresh);
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, refresh);
     const counts: Record<ChequeTrackerTab, number | undefined> = {
         [CHEQUE_TRACKER_TAB.ALL]: all,
         [CHEQUE_TRACKER_TAB.ISSUED]: issued,

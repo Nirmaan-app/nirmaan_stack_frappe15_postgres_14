@@ -14,16 +14,6 @@
       "count": 2
     }
   },
-  "src/pages/boq-wizard/BoqDropZone.tsx": {
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
   "src/pages/boq-wizard/rate-helper/serverPricingStep.parity.test.ts": {
     "typescript/no-explicit-any": {
       "count": 1

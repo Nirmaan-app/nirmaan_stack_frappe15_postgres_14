@@ -7,10 +7,10 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import {
   FrappeConfig,
   FrappeContext,
-  useFrappeDocTypeEventListener,
   useFrappeGetCall,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../ui/badge";
@@ -58,7 +58,7 @@ export default function ListPR() {
     [prSummaryResponse]
   );
 
-  useFrappeDocTypeEventListener("Procurement Requests", async () => {
+  useDocTypeEventListener("Procurement Requests", async () => {
     await prListMutate();
   });
 

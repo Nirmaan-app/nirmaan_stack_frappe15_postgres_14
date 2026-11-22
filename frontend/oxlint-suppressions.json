@@ -521,14 +521,6 @@
       "count": 4
     }
   },
-  "src/hooks/useBulkPdfDownload.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 3
-    }
-  },
   "src/hooks/useCEOHoldGuard.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -943,7 +935,7 @@
       "count": 1
     },
     "typescript/no-explicit-any": {
-      "count": 13
+      "count": 11
     }
   },
   "src/pages/BulkDownload/usePorterInvoices.ts": {
@@ -964,17 +956,6 @@
   "src/pages/CommissionReport/commission-report-list.tsx": {
     "typescript/no-explicit-any": {
       "count": 7
-    }
-  },
-  "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "no-restricted-properties": {
-      "count": 2
-    },
-    "typescript/no-explicit-any": {
-      "count": 2
     }
   },
   "src/pages/CommissionReport/components/BulkApprovalDialog.tsx": {
@@ -1394,22 +1375,6 @@
   "src/pages/HandoverDocuments/library/hodLibraryApi.ts": {
     "no-restricted-imports": {
       "count": 1
-    }
-  },
-  "src/pages/HandoverDocuments/useHodBinder.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/pages/HandoverDocuments/useHodTdsExport.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 5
     }
   },
   "src/pages/InternalTransferMemos/Create/CreateITMPage.tsx": {
@@ -2171,9 +2136,6 @@
     }
   },
   "src/pages/ProcurementRequests/NewPR/NewProcurementRequestPage.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
     "typescript/no-explicit-any": {
       "count": 1
     }
@@ -3141,11 +3103,6 @@
       "count": 1
     }
   },
-  "src/pages/SnagList/download/useSnagDownload.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/SnagList/hooks/useProjectSnagSummaries.ts": {
     "no-restricted-imports": {
       "count": 1
@@ -3239,9 +3196,6 @@
   "src/pages/boq-wizard/BoqHubPage.tsx": {
     "no-restricted-imports": {
       "count": 1
-    },
-    "typescript/use-unknown-in-catch-callback-variable": {
-      "count": 1
     }
   },
   "src/pages/boq-wizard/BoqMasterPanel.tsx": {
@@ -3260,11 +3214,6 @@
     }
   },
   "src/pages/boq-wizard/BoqProjectTab.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/BoqUploadScreen.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -3375,11 +3324,6 @@
     }
   },
   "src/pages/boq-wizard/TemplateCreateFlow.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
     "no-restricted-imports": {
       "count": 1
     }
@@ -3532,11 +3476,6 @@
   },
   "src/pages/boq-wizard/rate-helper/vrf4Model.test.ts": {
     "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/pages/cheque-tracker/components/ChequeTrackerTable.tsx": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -4082,11 +4021,6 @@
       "count": 2
     }
   },
-  "src/pages/projects/CriticalPOTasks/CriticalPOTasksTab.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/projects/CriticalPOTasks/NoCriticalPOTasksView.tsx": {
     "typescript/no-explicit-any": {
       "count": 1
@@ -4159,14 +4093,6 @@
   "src/pages/projects/TDSRepository/TDSRepositoryTab.tsx": {
     "typescript/no-explicit-any": {
       "count": 4
-    }
-  },
-  "src/pages/projects/TDSRepository/TDSRepositoryView.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "typescript/no-explicit-any": {
-      "count": 7
     }
   },
   "src/pages/projects/TDSRepository/components/RequestTdsItemDialog.tsx": {
@@ -4577,9 +4503,6 @@
     }
   },
   "src/pages/projects/edit-project-form.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
     "no-restricted-properties": {
       "count": 2
     },
@@ -4600,11 +4523,6 @@
       "count": 4
     },
     "typescript/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    }
-  },
-  "src/pages/projects/project-form/hooks/useProjectFormData.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -5435,16 +5353,6 @@
       "count": 2
     }
   },
-  "src/utils/bulkDownload/bulkDownloadEvents.test.ts": {
-    "typescript/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/utils/bulkDownload/bulkDownloadEvents.ts": {
-    "typescript/no-explicit-any": {
-      "count": 5
-    }
-  },
   "src/utils/downloadPrintFormatPdf.ts": {
     "no-restricted-properties": {
       "count": 2
@@ -5486,11 +5394,6 @@
   "src/utils/getLowestQuoteFilled.ts": {
     "typescript/no-explicit-any": {
       "count": 2
-    }
-  },
-  "src/utils/hodBinderResume.ts": {
-    "no-restricted-properties": {
-      "count": 1
     }
   },
   "src/utils/invoiceAmounts.test.ts": {

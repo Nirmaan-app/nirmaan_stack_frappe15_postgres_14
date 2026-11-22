@@ -42,6 +42,8 @@ interface RevisableOption {
 interface BoqMasterPanelProps {
   projectName: string;
   customer?: string | null;
+  /** The BOQs row the upload's parse made, once it is done; null before. */
+  boqDocName: string | null;
   /** W3: `BOQs.origin` as last read from the server (undefined while the doc is still loading). */
   boqOrigin?: BOQsDoc["origin"] | null;
   /** W3: `BOQs.source_boq` as last read from the server. */
@@ -73,6 +75,7 @@ interface BoqMasterPanelProps {
 export function BoqMasterPanel({
   projectName,
   customer,
+  boqDocName,
   boqOrigin,
   boqSourceBoq,
   onEntryConverted,
@@ -83,7 +86,6 @@ export function BoqMasterPanel({
     setPanelValue,
     confirmField,
     selectedProjectId,
-    boqDocName,
     revisionMode,
     sourceBoq,
     setRevisionMode,

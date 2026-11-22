@@ -37,10 +37,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import { isEnded } from "@/utils/backgroundOps/operationFollower";
 import { BoqPresence } from "./BoqPresence";
 import { DownstreamBanner } from "./DownstreamBanner";
 import type {
-  AiPassDonePayload,
   BOQsDoc,
   GetCommittedStateResponse,
   GetReviewRowsResponse,
@@ -50,6 +51,7 @@ import type {
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
+import { checkChipOf, checkSlot } from "./hubParseOperation";
 import { countSelectedLineItemsNoQty } from "./templateSelection";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 import { shouldExitFullscreenOnEsc } from "./PricingGrid";
@@ -71,10 +73,11 @@ import { changedSinceCommit } from "./hubState";
 const DRAFT_LOCK_VERSION = 0;
 const DRAFT_MARKER = "BOQ_DRAFT_LOCKED";
 
-// get_ai_pass_status response -- the cached terminal payload OR the idle shape.
-type AiStatusResponse =
-  | AiPassDonePayload
-  | { status: "idle_or_unknown"; ai_in_progress: 0 | 1 };
+/** How often the screen re-reads the BoQ while a parse rebuilds its rows. */
+const PARSE_REREAD_MS = 5_000;
+/** How often, while the server says this sheet's check runs and the page follows no check, it looks for the caller's
+ *  own check and re-reads itself (a check another user's parse started is waited out this way). */
+const CHECK_REREAD_MS = 10_000;
 
 // C-v2: format the save-anchor timestamp. edited_at is the server-local naive
 // string from frappe.utils.now() ("YYYY-MM-DD HH:MM:SS.ffffff"); parse as local.
@@ -239,8 +242,8 @@ const SheetReviewPage = () => {
   }, [expanded]);
 
   // Realtime lock updates: flip read-only / free the instant ANOTHER user acquires or releases
-  // this sheet's DRAFT lock. Mirrors the boq:ai_pass_done listener above (screen-scoped on the
-  // stable FrappeContext socket) + the pricing lock handler: read changing identity from
+  // this sheet's DRAFT lock. Screen-scoped on the stable FrappeContext socket, as
+  // the pricing lock handler: read changing identity from
   // lockCtxRef, guard on (boq, sheet_name VERBATIM, committed_version === 0, suppress own), off()
   // on cleanup, + a reconnect self-heal (re-read authoritative lock_info).
   useEffect(() => {
@@ -321,28 +324,10 @@ const SheetReviewPage = () => {
     };
   }, []);
 
-  // Status-poll endpoint (the missed-socket recovery; it also heals a dead run on every read).
-  const { call: aiStatusCall } = useFrappePostCall<{ message: AiStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.ai_assist.get_ai_pass_status",
-  );
-
-  // Poll interval id held in a ref so cleanup is reliable (a leaked interval hammering
-  // the endpoint is its own bug). stopAiPoll is idempotent.
-  const aiPollRef = useRef<number | null>(null);
-  const stopAiPoll = useCallback(() => {
-    if (aiPollRef.current !== null) {
-      clearInterval(aiPollRef.current);
-      aiPollRef.current = null;
-    }
-  }, []);
-
-  // The check ended (from EITHER the socket fast-path or the poll), whatever its outcome.
-  // Refresh the rows (so the flags, the counter and check_running resettle), the must-fix panel
-  // and the BOQs doc (so ai_in_progress clears and the chip goes). The poll is NOT stopped here:
-  // it stops itself once the refreshed data says the check is no longer running, so a refresh
-  // that lands a moment early cannot strand the chip. Idempotent: a socket+poll double-resolve
-  // just repeats harmless mutates. S4a: no text for success, failure or an unknown error code --
-  // "the check didn't finish" is S4b's banner.
+  // The check ended (whatever its outcome), or a parse of this BoQ finished. Refresh the rows (so the flags, the
+  // counter and check_running resettle), the must-fix panel and the BOQs doc (so ai_in_progress / parse_in_progress
+  // clear and the chip or banner goes). Idempotent. S4a: no text for success, failure or a lost check -- "the
+  // check didn't finish" is S4b's banner, from the server's counts.
   const resolveAiOutcome = useCallback(
     () => {
       void mutate();
@@ -354,63 +339,65 @@ const SheetReviewPage = () => {
     [],
   );
 
-  // LAYER 1 -- socket fast path. Mirror BoqHubPage's boq:parse_run_done listener:
-  // guard this (boq, sheet), resolve, plus a reconnect re-fetch self-heal.
+  // S4a (owner ruling Q-l): a parse of this BoQ runs while the page is open. Re-read the BoQ while it runs; once
+  // the sheet's parse flag clears, re-read everything: the "being parsed" banner goes, the chip appears, and the
+  // flags follow when the check ends. (#1668: the parse is followed by the hub that started it; this page has no
+  // socket message for it.)
+  const wasParsingRef = useRef(isParsing);
   useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: AiPassDonePayload) => {
-      if (payload.boq_name !== boqId || payload.sheet_name !== (sheetName ?? "")) return;
-      resolveAiOutcome();
-    };
-    // S4a (owner ruling Q-l): a parse of this BoQ finished while the page is open. The rows were
-    // rebuilt and the automatic check was queued in the same breath, so re-read everything: the
-    // "being parsed" banner goes, the chip appears, and the flags follow when the check ends.
-    // Without this the page learned none of it until the window was refocused.
-    const onParseDone = (payload: { boq_name?: string }) => {
-      if (!payload || payload.boq_name !== boqId) return;
-      void boqMutate();
-      void mutate();
-      void breaksMutate();
-    };
-    const onReconnect = () => { void boqMutate(); };
-    socket.on("boq:ai_pass_done", handler);
-    socket.on("boq:parse_run_done", onParseDone);
-    socket.on("connect", onReconnect);
-    return () => {
-      socket.off("boq:ai_pass_done", handler);
-      socket.off("boq:parse_run_done", onParseDone);
-      socket.off("connect", onReconnect);
-    };
+    if (wasParsingRef.current && !isParsing) resolveAiOutcome();
+    wasParsingRef.current = isParsing;
+    if (!isParsing) return;
+    const id = window.setInterval(() => { void boqMutate(); }, PARSE_REREAD_MS);
+    return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, boqId, sheetName, resolveAiOutcome]);
+  }, [isParsing, resolveAiOutcome]);
 
-  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever the check
-  // is running (the sheet loaded mid-check, or a re-parse just queued one), poll
-  // get_ai_pass_status every 3s. This resolves the screen within ~3s even if the socket event is
-  // missed entirely. `checkRunning` reads BOTH the sheet's flag and the run log behind
-  // check_summary, so the poll runs for as long as the finalize block would refuse.
+  // #1668: the automatic check of this sheet is its own background operation, followed through its status record
+  // with the shared hook. Its slot is the hub's for this sheet, so in this tab a check the hub was following is
+  // picked up here at once. Otherwise, while the server says the check runs, the page asks for the caller's own live
+  // check (get_check_operation, which also heals a dead run) and follows it. A check it cannot follow (another
+  // user's parse started it) is waited out by re-reading the page.
+  const checkOp = useBackgroundOperation({
+    storageKey: checkSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: resolveAiOutcome,
+    onFailed: resolveAiOutcome,
+  });
+  const { call: checkOperationCall } = useFrappePostCall<{ message: { op_id: string | null } }>(
+    "nirmaan_stack.api.boq.wizard.ai_assist.get_check_operation",
+  );
+  const checkChip = checkChipOf(checkOp.view);
   const checkRunning = isCheckRunning(aiInProgress, reviewData?.message?.check_summary);
+  const followingCheck = checkChip !== null;
+  // The id of a check this page already followed to its end: never followed again (a run record can say Running a
+  // moment longer than its operation).
+  const endedCheckId = isEnded(checkOp.view) ? checkOp.view.opId : null;
+  const { followStarted: followCheck } = checkOp;
   useEffect(() => {
-    if (!checkRunning) { stopAiPoll(); return; }
-    if (aiPollRef.current !== null) return; // already polling -- no double-registration
-    const id = window.setInterval(() => {
-      void (async () => {
-        try {
-          const res = await aiStatusCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
-          const m = res.message;
-          if (m.status === "success" || m.status === "error"
-              || (m.status === "idle_or_unknown" && m.ai_in_progress === 0)) {
-            resolveAiOutcome();
-          }
-        } catch {
-          // transient (network/CSRF blip) -- keep polling; the next tick retries.
+    if (!checkRunning || followingCheck) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await checkOperationCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
+        const opId = res.message?.op_id;
+        if (cancelled) return;
+        if (opId && opId !== endedCheckId) {
+          followCheck(opId);
+          return;
         }
-      })();
-    }, 3000);
-    aiPollRef.current = id;
-    return () => stopAiPoll();
+      } catch {
+        // transient (network/CSRF blip) -- the re-read below and the next tick carry on.
+      }
+      if (!cancelled) resolveAiOutcome();
+    };
+    void tick();
+    const id = window.setInterval(() => { void tick(); }, CHECK_REREAD_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkRunning, boqId, sheetName, resolveAiOutcome]);
+  }, [checkRunning, followingCheck, endedCheckId, boqId, sheetName]);
 
   // ── S5: revision "Looks OK" confirmations ────────────────────────────────
   // Rows that carried nothing from the original block finalize until a human confirms them. Both
@@ -798,12 +785,13 @@ const SheetReviewPage = () => {
           {sheetStatus === "Parsed" && !reviewLoading && finalizeBlock && (
             <span className="max-w-md text-xs text-amber-700 dark:text-amber-300">{finalizeBlock}</span>
           )}
-          {/* S4a (U16): the automatic check of this sheet is running. No button starts it and
-              no AI is named; the chip clears by itself when the check ends. */}
-          {checkRunning && (
+          {/* S4a (U16): the automatic check of this sheet is queued or running (#1668: queued told apart while
+              the page follows the check's own operation). No button starts it and no AI is named; the chip
+              clears by itself when the check ends. */}
+          {(checkRunning || followingCheck) && (
             <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>{CHECKING_ROWS_LABEL}</span>
+              <span>{checkChip ?? CHECKING_ROWS_LABEL}</span>
             </div>
           )}
         </div>

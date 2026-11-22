@@ -24,7 +24,7 @@ path, against the old module (DIFF: 0); these tests pin the vendor side.
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Everything here reads live rows; the only writes are the
 restricted test user (a bare `User`, its `Has Role` and `User Permission` rows), inserted with
 `db_insert` and never committed: tearDown rolls back, then deletes by the generated user name as a
-backstop. Nothing is enqueued -- `frappe.enqueue` is replaced for every test.
+backstop. Nothing is queued -- the module's start is recorded for every test.
 """
 
 from unittest.mock import patch
@@ -33,6 +33,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.pdf_helper import bulk_download as bd
+from nirmaan_stack.api.pdf_helper import test_bulk_download_job as job_tests
 
 PO_EXCLUDED_STATUSES = ("Merged", "Cancelled", "PO Amendment", "Inactive")
 
@@ -98,10 +99,7 @@ class TestBulkDownloadScope(FrappeTestCase):
         return self._need(self.voucher_vendor, "with payment vouchers in 2+ projects")
 
     def setUp(self):
-        self.enqueued = []
-        enqueue = patch.object(frappe, "enqueue", side_effect=lambda method, **kw: self.enqueued.append(kw))
-        enqueue.start()
-        self.addCleanup(enqueue.stop)
+        self.enqueued = job_tests.record_starts(self)
         self.users = []
 
     def tearDown(self):
@@ -154,7 +152,7 @@ class TestBulkDownloadScope(FrappeTestCase):
         self.assertEqual(self.enqueued, [])
 
     def test_file_is_named_after_the_vendor_and_the_job_carries_the_vendor_only(self):
-        bd.download_all_wos(vendor=self.service, with_rate=0)
+        bd.download_all_wos(vendor=self.service, with_rate=0, op_id=job_tests.new_op_id())
         job = self.enqueued[0]
         name = frappe.db.get_value("Vendors", self.service, "vendor_name")
         self.assertEqual(job["custom_filename"], f"{name}_All_WOs.pdf")
@@ -240,13 +238,11 @@ class TestBulkDownloadScope(FrappeTestCase):
         self.assertEqual(bd._wo_voucher_files("vendor", v), own)
         self.assertLess(len(own), len(everything))
 
-    def test_a_user_who_cannot_read_the_doctype_gets_a_failure_event_not_a_silent_hang(self):
-        user = self._restricted_user([], [])
-        published = []
-        with patch.object(frappe, "publish_realtime", side_effect=lambda event, data, **kw: published.append((event, data))):
-            bd.run_bulk_download_job(doc_type="PO", vendor=self.material, user=user)
-        self.assertEqual([e for e, _ in published], ["bulk_download_failed"])
-        self.assertIn("do not have access", published[0][1]["message"])
+    def test_a_user_who_cannot_read_the_doctype_gets_a_refusal_not_a_silent_hang(self):
+        # The work runs as the user who started it.
+        frappe.set_user(self._restricted_user([], []))
+        run = job_tests.run_work(doc_type="PO", vendor=self.material)
+        self.assertIn("do not have access", run.error)
 
     # --- 4. payment vouchers by payment name ----------------------------------------------------------
 
@@ -269,13 +265,11 @@ class TestBulkDownloadScope(FrappeTestCase):
 
         # Through the job: exactly the two voucher files are fetched, in payment order.
         fetched = []
-        with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)), \
-                patch.object(frappe, "publish_realtime"):
-            bd.download_selected_wo_payment_vouchers(names=frappe.as_json(names), vendor=v)
-            job = {k: val for k, val in self.enqueued[-1].items() if k not in ("queue", "timeout")}
-            bd.run_bulk_download_job(**job)
+        with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)):
+            bd.download_selected_wo_payment_vouchers(names=frappe.as_json(names), vendor=v, op_id=job_tests.new_op_id())
+            job_tests.run_work(self.enqueued[-1])
         self.assertEqual(fetched, [r[1] for r in with_voucher])
-        self.assertTrue(job["custom_filename"].endswith("_Selected_WO_Payment_Vouchers.pdf"))
+        self.assertTrue(self.enqueued[-1]["custom_filename"].endswith("_Selected_WO_Payment_Vouchers.pdf"))
 
     def test_the_file_url_endpoint_refuses_payment_vouchers_and_an_empty_selection_is_refused(self):
         with self.assertRaises(frappe.ValidationError):

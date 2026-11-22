@@ -43,6 +43,11 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Provider** — an LLM backend that produces AI suggestions. Two exist: *Claude* (Anthropic; a **corrector** — it sees the parser's verdict and returns only the rows it would change) and *Gemini* (Google; an **independent second opinion** — it never sees the parser's verdict and re-classifies every row from raw facts).
 
+- **AI check (of a parsed sheet)** — the *Claude* provider's AI pass over one sheet that a parse started (or a
+  person started by hand): one background operation per sheet, shown on the hub's sheet card and the sheet's review
+  screen as waiting, checking, then its counts. A failed or lost check never undoes the parse. *Avoid*: AI status,
+  Claude job. (Spec #1654, #1668.)
+
 - **Assignable classification** — the subset of classifications a human (or an accepted suggestion) may *set* on a row: *line item*, *preamble*, *note*, *spacer*. *Subtotal marker* and *header repeat* are **detection-only** — the parser (or a Provider) may *detect* them and they display as such, but they cannot be hand-assigned or accepted onto a row. A Provider suggestion of a detection-only class is informational, never acceptable.
 
 ## Vendor credit & adjustment application
@@ -675,8 +680,12 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 ## Background operations
 
 - **Background operation** — a unit of work the system carries out after the screen that started it already has its
-  answer back: a TDS export, a BoQ upload's parse, a sheet's classification, a rate suggestion, a daily check. It waits
-  in a queue, runs, and ends *finished*, *failed* or *lost* (the server stopped while running it). One started from a
+  answer back: a TDS export, a BoQ upload's parse, one engine's classification of a sheet (a Classify click
+  with two engines starts two), a rate suggestion, a sheet's AI check, a daily check. It waits
+  in a queue (*queued*, shown to the user as "waiting in the queue"), runs, and ends *finished*, *failed* or *lost*
+  (the server stopped while running it, dropped it from the queue, or no longer has its status record). *Lost* is
+  the server's best guess: when the operation's worker does end it after all, its finished or failed outcome replaces
+  *lost*. Nothing replaces finished or failed. One started from a
   screen belongs to the user who started it, and only that user follows it or collects its result. A **run** (such as a
   BoQ AI Run Log or a Rate Suggestion Run) is the business record; one run can span several background operations
   (suggest, then match). *Avoid*: job (a construction project), task (the Task records and Action Center tasks),
@@ -684,9 +693,35 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
   (Owner, 2026-11-08.)
 
+- **Status record** — the record of one background operation that its owner's screen reads to follow it: its state,
+  its progress, and once it ends its result or the server's words on why it failed. Only the user who started the
+  operation may read it; it expires after a day. A live message only tells the screen to read it now. *Avoid*: job
+  status, task status. ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
+  (Spec #1654.)
+
+- **Finished file** — the file a finished background operation leaves for its owner (a TDS export, the handover
+  binder, a commission or bulk PDF download, a Snag List PDF). Only that user can collect it, by the operation, for a day after it is
+  made; no link to it works for anyone else. *Avoid*: download token, temp file. (Spec #1654.)
+
+- **One at a time per user** — the rule that a user may have only one background operation of a given kind waiting
+  in the queue or running (a commission reports download, a handover binder, one handover document's download, a Snag
+  List PDF), so one user cannot hold every worker. A second start of that kind is refused with words naming the one
+  still being prepared; once that one ends, however it ends, the user may start again. Different kinds do not hold
+  each other back: a handover binder waiting in the queue never holds back one document's download. *Avoid*: lock,
+  per-user lock. (Spec #1654, follow-up on #1663 and #1664, 2026-11-19; the document's own kind, #1671.)
+
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
   (Owner, 2026-11-08.)
+
+- **Calls at once** — how many AI calls one background operation (a rate match's judge, the spec cards) may have
+  waiting on the AI provider at the same moment; set in the BoQ AI settings. *Avoid*: concurrency, parallelism.
+
+- **Site-wide AI call limit** — how many AI calls every background operation on the site, on every worker, may have
+  waiting on the AI provider together ("Calls at once, whole site" in the BoQ AI settings). An operation's own
+  *calls at once* still applies; the lower of the two holds. An operation that finds the site full waits for a free
+  place; it does not stop. A place held by a worker that died is freed after a short while. *Avoid*: quota, rate
+  limit (the provider's own limit). (#1718, 2026-11-18.)
 
 ## Pasted links
 

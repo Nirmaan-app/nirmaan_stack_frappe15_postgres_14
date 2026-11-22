@@ -6,7 +6,6 @@
 import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
 // W5: the revision-carry REPORT shapes live with the pure copy helpers that consume them
 // (revisionCarryReport.ts imports nothing from here -> one-directional, no cycle).
-import type { RevisionCarryBySheet } from "./revisionCarryReport";
 
 /**
  * Friendly display labels for all 21 parser role values.
@@ -227,38 +226,6 @@ export interface BoQGeneralSpecsSheetRow {
   preamble_text?: string;
 }
 
-/** Payload of the "boq:parse_run_done" socket event (parse_run.py _publish_parse_event). */
-export interface ParseRunDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  // success fields
-  parsed_sheets?: string[];
-  not_parsed_sheets?: string[];
-  failed_sheets?: string[];
-  // error fields
-  error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
-  /**
-   * W5: per-sheet revision review-carry counts, keyed by VERBATIM sheet_name (#152). OMITTED
-   * entirely on a non-revision parse, so the payload stays byte-identical there. Rides the
-   * get_parse_status poll too (_publish_parse_event caches the whole payload it publishes).
-   */
-  revision_carry?: RevisionCarryBySheet;
-}
-
-/**
- * Payload of the `boq:ai_pass_done` realtime event (ai_assist._publish_ai_event): the automatic
- * check of a sheet ended. User-targeted and not replayed -- a client that misses it recovers via
- * get_ai_pass_status polling. The review screen reads only WHICH sheet it is for and then reloads;
- * it shows no text for either outcome (S4a).
- */
-export interface AiPassDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  sheet_name: string;
-  count?: number;
-  error_code?: string;
-}
-
 export interface BOQsDoc {
   name: string;
   /** Human-readable title derived from the uploaded filename. */
@@ -308,14 +275,6 @@ export interface BOQsDoc {
    * template" (Admin/Estimates) which materializes it into the BoQ Template. Default 0.
    */
   is_template_source?: 0 | 1;
-}
-
-/** Payload of the "boq:template_clone_done" socket event (create_from_template._publish_and_record). */
-export interface TemplateCloneDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  /** error only: "template_changed" = a requested sheet was removed from the master mid-flight. */
-  error_code?: "internal" | "template_changed";
 }
 
 /** One sheet of the master template, from get_master_template (drives the create-time picker). */
@@ -1588,7 +1547,7 @@ export interface PreflightResponse {
 /**
  * One classification ENGINE option (from classify.list_engines). `available` gates whether the
  * engine can be selected in the ClassifySheetDialog (v1: only Electrical is available). `discipline`
- * is the value handed to start_classify / get_classify_status / get_sheet_categories.
+ * is the value handed to start_classify / get_sheet_categories.
  */
 export interface EngineOption {
   id: string;
@@ -1604,8 +1563,8 @@ export interface EngineOption {
 export type ClassifyScope = { mode: "sheet" } | { mode: "range"; start: number; end: number };
 
 /**
- * The classify-sheet completion summary (the "boq:classify_sheet_done" payload, minus the routing
- * identity fields). Drives the post-run summary readout in SheetPricingPage.
+ * The completion summary of a Classify click's run set (`classifyRunSet.summariseRunSet`, counts filled from the
+ * resolved read). Drives the post-run summary readout in SheetPricingPage.
  */
 export interface ClassifySummary {
   total_in_range: number;
@@ -1619,10 +1578,10 @@ export interface ClassifySummary {
   /** Whether the AI voter actually ran: "ran" | "disabled" | "no_key" (null when there were no
    *  eligible rows). Lets the completion message say "AI was off" instead of a silent all-review. */
   ai_status?: string | null;
-  /** The terminal outcome: "success" | "error" (present on the boq:classify_sheet_done payload). */
+  /** The run set's outcome: "error" when any engine's background operation failed or was lost, else "success". */
   status?: string;
-  /** On an error outcome: the failure code (e.g. "classify_failed"). */
-  error_code?: string;
+  /** Every engine's outcome, in launch order, with the server's words for one that failed (#1666). */
+  engine_outcomes?: Array<{ discipline: string; ok: boolean; error?: string }>;
 }
 
 /**

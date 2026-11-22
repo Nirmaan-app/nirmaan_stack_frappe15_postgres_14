@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
- "autoname": "PAI-.YYYY.-.#####",
- "creation": "2026-06-22 00:00:00.000000",
+ "autoname": "hash",
+ "creation": "2026-06-22 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -148,10 +147,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-22 00:00:00.000000",
+ "modified": "2026-11-18 21:35:01.344210",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Action Item",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {

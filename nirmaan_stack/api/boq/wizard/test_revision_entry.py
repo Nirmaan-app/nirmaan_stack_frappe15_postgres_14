@@ -287,7 +287,6 @@ class TestRevisionUploadWorker(FrappeTestCase):
                 project_id=self.__class__.project.name,
                 file_url=_FAKE_FILE_URL,
                 file_name="a_fresh_revision.xlsx",
-                user="Administrator",
                 source_boq=source_boq,
             )
 
@@ -454,7 +453,6 @@ class TestConvertRevisionEntry(FrappeTestCase):
                 project_id=self.__class__.project.name,
                 file_url=file_url,
                 file_name=file_name,
-                user="Administrator",
                 source_boq=None,
             )
         return frappe.get_all(

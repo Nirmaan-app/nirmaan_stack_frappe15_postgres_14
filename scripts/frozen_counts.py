@@ -15,18 +15,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TsParserError(RuntimeError):
-    """J1's or D1's parser could not run (no node, or no frontend/node_modules/typescript)."""
+    """J1's, D1's or L2's parser could not run (no node, or no frontend/node_modules/typescript)."""
 
 
-# Set by --hook: in a commit hook J1 and D1 warn and pass when their parser cannot run (a worktree with no
+# Set by --hook: in a commit hook J1, D1 and L2 warn and pass when their parser cannot run (a worktree with no
 # frontend/node_modules, a box with no node); CI and every other run still fail.
 NODE_MAY_SKIP = False
 
 
 def run_ts_parser(parser: str, sources: dict[str, str]):
-    """What node script ``parser`` (J1's or D1's, under frontend/scripts/) prints for ``sources``, read as JSON.
+    """What node script ``parser`` (J1's, D1's or L2's, under frontend/scripts/) prints for ``sources``, read as JSON.
 
-    Raises TsParserError when node or TypeScript is missing: neither check passes by not running.
+    Raises TsParserError when node or TypeScript is missing: no check passes by not running.
     """
     try:
         run = subprocess.run(["node", str(REPO_ROOT / parser)], input=json.dumps(sources),
@@ -62,7 +62,7 @@ def frozen_drift(found: dict[str, dict], frozen: dict[str, dict],
     """(over, under): ``describe(path, rule, now, was)`` for each file and rule counted above its frozen count, and
     for each counted below it, by path then rule.
 
-    ``found`` and ``frozen`` are in oxlint's suppressions shape ({path: {rule: {"count": n}}}). Both lists fail J1
+    ``found`` and ``frozen`` are in oxlint's suppressions shape ({path: {rule: {"count": n}}}). Both lists fail J1, D1, Q1 and L2,
     and D1, file by file: over, so a new one fails even where another file lost one; under, so the change that removes
     one also lowers its frozen count, as a stale lint suppression fails `yarn lint`. scripts/frontend_ratchet_check.py
     refuses a frozen count that rises in a pull request."""

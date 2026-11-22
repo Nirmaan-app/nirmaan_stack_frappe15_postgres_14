@@ -42,7 +42,7 @@ export const toTdsRepositoryData = (
   },
 });
 
-/** What `export_tds_report` wants: the same six roles with the logo as a stored URL (a freshly picked
+/** What `start_tds_export` wants: the same six roles with the logo as a stored URL (a freshly picked
  *  `File` has no URL yet, so it is dropped — the server reads logos off the saved record). */
 export const toExportSettingsPayload = (data: TDSRepositoryData) => {
   const role = (r: TDSRepositoryData["client"]) => ({

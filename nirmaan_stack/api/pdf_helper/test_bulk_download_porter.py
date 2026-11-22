@@ -16,7 +16,7 @@ What must hold:
 
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. The only writes are this suite's own Porter Invoice rows (and the
 scope suite's throwaway users), inserted with `db_insert`, never committed, rolled back in tearDown. Nothing
-is enqueued (`frappe.enqueue` is replaced) and no file is fetched.
+is queued (the module's start is recorded), the work runs in-process, and no file is fetched.
 """
 
 from unittest.mock import patch
@@ -26,20 +26,15 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.pdf_helper import bulk_download as bd
 from nirmaan_stack.api.pdf_helper import porter_invoices as pi
+from nirmaan_stack.api.pdf_helper import test_bulk_download_job as job_tests
 from nirmaan_stack.api.pdf_helper import test_bulk_download_scope as scope_suite
 from nirmaan_stack.services import role_profiles
 
 
 class TestBulkDownloadPorterInvoices(FrappeTestCase):
     def setUp(self):
-        self.enqueued, self.events, self.users = [], [], []
-        for target, attr, fn in (
-            (frappe, "enqueue", lambda method, **kw: self.enqueued.append(kw)),
-            (frappe, "publish_realtime", lambda event, data=None, **kw: event.startswith("bulk_download") and self.events.append((event, data))),
-        ):
-            p = patch.object(target, attr, side_effect=fn)
-            p.start()
-            self.addCleanup(p.stop)
+        self.users = []
+        self.enqueued = job_tests.record_starts(self)
         tag = frappe.generate_hash(length=6).upper()
         # name -> (status, invoice date, has PDF)
         self.spec = {
@@ -115,9 +110,8 @@ class TestBulkDownloadPorterInvoices(FrappeTestCase):
     def test_the_job_merges_each_invoice_once_end_to_end(self):
         fetched = []
         with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)):
-            bd.download_selected_porter_invoices(names=frappe.as_json([self.c, self.a, self.a, self.b]), all_scope="1", download_id="porter-job-0001")
-            job = {k: v for k, v in self.enqueued[-1].items() if k not in ("queue", "timeout")}
-            bd.run_bulk_download_job(**job)
+            bd.download_selected_porter_invoices(names=frappe.as_json([self.c, self.a, self.a, self.b]), all_scope="1", op_id=job_tests.new_op_id())
+            job_tests.run_work(self.enqueued[-1])
         self.assertEqual(fetched, [f"/private/files/{self.b}.pdf", f"/private/files/{self.a}.pdf", f"/private/files/{self.c}.pdf"])
 
     # --- 3. Report Bulk Download only, Admin / Accountant only -------------------------------------------------
@@ -151,17 +145,18 @@ class TestBulkDownloadPorterInvoices(FrappeTestCase):
         frappe.set_user(user)
         with self.assertRaises(frappe.PermissionError):
             bd.download_selected_porter_invoices(names=frappe.as_json([self.a]), all_scope=1)
-        frappe.set_user("Administrator")
+        # The work runs as the user who started it.
         with patch.object(bd, "_fetch_attachment_content") as fetch:
-            bd.run_bulk_download_job(doc_type=bd.PORTER_INVOICES, names=frappe.as_json([self.a]), all_scope=1, user=user, download_id="porter-job-0002")
+            run = job_tests.run_work(doc_type=bd.PORTER_INVOICES, names=frappe.as_json([self.a]), all_scope=1)
             fetch.assert_not_called()
-        self.assertEqual([e for e, _ in self.events], ["bulk_download_failed"])
-        self.assertIn("do not have access", self.events[0][1]["message"])
+        self.assertIn("do not have access", run.error)
 
     def test_a_project_scope_never_yields_a_porter_pdf(self):
         project = frappe.db.sql('''select project from "tabProcurement Orders" group by project order by count(*) desc limit 1''')[0][0]
         with patch.object(bd, "_fetch_attachment_content") as fetch:
-            bd.run_bulk_download_job(doc_type=bd.PORTER_INVOICES, project=project, names=frappe.as_json([self.a]), user="Administrator", download_id="porter-job-0003")
-            bd.run_bulk_download_job(doc_type=bd.PORTER_INVOICES, project=project, user="Administrator", download_id="porter-job-0004")
+            runs = [
+                job_tests.run_work(doc_type=bd.PORTER_INVOICES, project=project, names=frappe.as_json([self.a])),
+                job_tests.run_work(doc_type=bd.PORTER_INVOICES, project=project),
+            ]
             fetch.assert_not_called()  # with or without invoice numbers: a project run merges no Porter PDF
-        self.assertEqual([e for e, _ in self.events], ["bulk_download_failed", "bulk_download_failed"])
+        self.assertEqual([r.error for r in runs], ["No Porter Invoices items found."] * 2)

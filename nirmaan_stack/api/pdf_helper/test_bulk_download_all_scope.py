@@ -22,8 +22,8 @@ The tab lists every project's documents with no project or vendor picked first. 
 
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Reads live rows; the only writes are the throwaway
 restricted users (the scope suite's `_restricted_user`: bare `User`, `Has Role`, `User Permission`
-via `db_insert`, never committed), removed in tearDown. Nothing is enqueued (`frappe.enqueue` is
-replaced) and no file is fetched.
+via `db_insert`, never committed), removed in tearDown. Nothing is queued (the module's start is
+recorded), the work runs in-process, and no file is fetched.
 """
 
 from unittest.mock import patch
@@ -33,6 +33,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.material_test_certificates import mtc_api
 from nirmaan_stack.api.pdf_helper import bulk_download as bd
+from nirmaan_stack.api.pdf_helper import test_bulk_download_job as job_tests
 from nirmaan_stack.api.pdf_helper import test_bulk_download_scope as scope_suite
 from nirmaan_stack.services import role_profiles
 
@@ -80,14 +81,8 @@ class TestBulkDownloadAllScope(FrappeTestCase):
         )
 
     def setUp(self):
-        self.enqueued, self.events, self.users = [], [], []
-        for target, attr, fn in (
-            (frappe, "enqueue", lambda method, **kw: self.enqueued.append(kw)),
-            (frappe, "publish_realtime", lambda event, data=None, **kw: event.startswith("bulk_download") and self.events.append((event, data))),
-        ):
-            p = patch.object(target, attr, side_effect=fn)
-            p.start()
-            self.addCleanup(p.stop)
+        self.users = []
+        self.enqueued = job_tests.record_starts(self)
 
     # The scope suite's teardown and throwaway-user helper, shared rather than copied.
     tearDown = scope_suite.TestBulkDownloadScope.tearDown
@@ -130,7 +125,7 @@ class TestBulkDownloadAllScope(FrappeTestCase):
         job = self.enqueued[0]
         self.assertEqual(job["project"], self.project)
         self.assertNotIn("all_scope", job)
-        self.assertIsNone(job["timeout"])
+        self.assertEqual(job["timeout"], bd.DEFAULT_TIMEOUT_SECONDS)
 
     def test_no_download_all_endpoint_takes_the_all_scope(self):
         # Through `frappe.call` -- the HTTP path -- an argument the function does not take is
@@ -148,13 +143,11 @@ class TestBulkDownloadAllScope(FrappeTestCase):
 
     def test_the_job_refuses_an_all_scope_run_without_a_list(self):
         for doc_type in ("PO", "DN", bd.WO_PAYMENT_VOUCHERS, bd.PO_PAYMENT_VOUCHERS, bd.MTCS, "All Invoices"):
-            self.events.clear()
             with patch.object(bd, "_fetch_attachment_content") as fetch, patch.object(frappe, "get_print") as get_print:
-                bd.run_bulk_download_job(doc_type=doc_type, all_scope=1, user="Administrator", download_id="all-scope-0001")
+                run = job_tests.run_work(doc_type=doc_type, all_scope=1)
                 fetch.assert_not_called()
                 get_print.assert_not_called()
-            self.assertEqual([e for e, _ in self.events], ["bulk_download_failed"], doc_type)
-            self.assertIn("Select the documents", self.events[0][1]["message"])
+            self.assertIn("Select the documents", run.error, doc_type)
 
     # --- 3. the limit ----------------------------------------------------------------------------------
 
@@ -241,9 +234,8 @@ class TestBulkDownloadAllScope(FrappeTestCase):
             self.skipTest("this site has no two paid WO payments with a voucher")
         fetched = []
         with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)):
-            bd.download_selected_wo_payment_vouchers(names=frappe.as_json([r[0] for r in reversed(rows)]), all_scope="1", download_id="all-scope-0002")
-            job = {k: v for k, v in self.enqueued[-1].items() if k not in ("queue", "timeout")}
-            bd.run_bulk_download_job(**job)
+            bd.download_selected_wo_payment_vouchers(names=frappe.as_json([r[0] for r in reversed(rows)]), all_scope="1", op_id=job_tests.new_op_id())
+            job_tests.run_work(self.enqueued[-1])
         self.assertEqual(fetched, [r[1] for r in rows])  # payment order, not the order sent
 
     # --- 5. get_mtcs(all_projects=1) ----------------------------------------------------------------------
@@ -308,13 +300,12 @@ class TestBulkDownloadAllScope(FrappeTestCase):
             frappe.set_user("Administrator")
 
     def test_the_job_refuses_a_user_who_may_not_use_the_all_scope(self):
-        user = self._as_profile("Nirmaan Project Manager Profile")
-        frappe.set_user("Administrator")
+        # The work runs as the user who started it.
+        self._as_profile("Nirmaan Project Manager Profile")
         with patch.object(frappe, "get_print") as get_print:
-            bd.run_bulk_download_job(doc_type="PO", names='["PO-X"]', all_scope=1, user=user, download_id="all-scope-0003")
+            run = job_tests.run_work(doc_type="PO", names='["PO-X"]', all_scope=1)
             get_print.assert_not_called()
-        self.assertEqual([e for e, _ in self.events], ["bulk_download_failed"])
-        self.assertIn("do not have access", self.events[0][1]["message"])
+        self.assertIn("do not have access", run.error)
 
     def test_the_project_and_vendor_tabs_keep_their_own_rules(self):
         # A PM may still use the project tab: the new gate is the all scope's alone.

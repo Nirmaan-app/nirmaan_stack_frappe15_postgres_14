@@ -76,6 +76,8 @@ frappe.publish_realtime(
 
 Frontend listens via Socket.IO in `SocketInitializer.tsx`
 
+Never for a background operation's progress or result: the screen reads its status record (`CODING_STANDARDS.md` § Writing backend Python, "Queuing a background operation"; residence checks Q1, L2).
+
 ---
 
 ## Print Formats (PDF)

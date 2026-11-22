@@ -1,4 +1,4 @@
-import { useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import { useCallback, useMemo, useState } from "react";
 import {
     useProjectFormWorkPackages,
@@ -111,7 +111,7 @@ export const useProjectFormData = () => {
     const { gstOptions, isLoading: gstLoading, error: gstError } = useGstOptions();
 
     // Listen for project type changes
-    useFrappeDocTypeEventListener("Project Types", async () => {
+    useDocTypeEventListener("Project Types", async () => {
         await projectTypesMutate();
     });
 

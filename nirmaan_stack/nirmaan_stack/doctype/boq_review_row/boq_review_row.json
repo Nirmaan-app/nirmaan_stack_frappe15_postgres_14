@@ -2,7 +2,7 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 1,
- "autoname": "BOQRR-.YY.-.#####",
+ "autoname": "hash",
  "creation": "2026-06-03 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -662,10 +662,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-13 01:19:31.406521",
+ "modified": "2026-11-18 19:45:48.644132",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Review Row",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {

@@ -4,9 +4,9 @@
  * Replaces the old inline x-of-y progress strip. While the run is RUNNING it is NON-dismissable
  * (no X, Esc and backdrop-click are swallowed) so the run cannot be abandoned mid-flight; it
  * becomes dismissable ONLY once the run reaches a TERMINAL state (success OR error), where a Close
- * button + the completion/error line appear. Progress is fed from the get_classify_status poll on
- * SheetPricingPage (the realtime socket is unreliable in some deployments); this component is pure
- * presentation over that state.
+ * button + the completion/error line appear. Progress, "waiting in the queue" and each engine's
+ * outcome come from the click's run set on SheetPricingPage (one background operation per engine,
+ * #1666); this component is pure presentation over that state.
  *
  * The dismiss-gating is OWNER-LOCKED: never make the running phase dismissable, and never trap the
  * user at a terminal phase (both success and error expose Close).
@@ -23,11 +23,12 @@ import { Button } from "@/components/ui/button";
 import { skipRollupText } from "./ClassifySheetDialog";
 import type { ClassifySummary } from "./boqTypes";
 
-export type ClassifyModalPhase = "starting" | "running" | "success" | "error";
+export type ClassifyModalPhase = "queued" | "starting" | "running" | "success" | "error";
 
 /**
  * PURE: the modal's phase from the run state.
  *  - running + known progress  -> "running" (determinate bar)
+ *  - running + every engine still waiting in the queue -> "queued"
  *  - running + no progress yet  -> "starting" (indeterminate; before the first batch)
  *  - terminal + error summary   -> "error"
  *  - terminal otherwise         -> "success"
@@ -37,8 +38,10 @@ export function deriveClassifyModalPhase(
   running: boolean,
   progress: { done: number; total: number } | null,
   summary: { status?: string } | null,
+  waitingInQueue = false,
 ): ClassifyModalPhase {
-  if (running) return progress && progress.total > 0 ? "running" : "starting";
+  if (running && progress && progress.total > 0) return "running";
+  if (running) return waitingInQueue ? "queued" : "starting";
   return summary && summary.status === "error" ? "error" : "success";
 }
 
@@ -68,11 +71,22 @@ export function aiStatusWarning(
   return `AI voter was OFF for ${off.join(" and ")} - those rows are rule-only and all flagged for review. Turn AI on in Settings to auto-accept consensus rows.`;
 }
 
+/** PURE: one line per engine of the run set, naming its outcome (the server's words for one that failed). */
+export function engineOutcomeLines(summary: Pick<ClassifySummary, "engine_outcomes"> | null): string[] {
+  return (summary?.engine_outcomes ?? []).map((o) =>
+    o.ok
+      ? `${o.discipline}: classified; its categories were saved.`
+      : `${o.discipline}: failed. ${o.error || "The server gave no reason."}`,
+  );
+}
+
 interface ClassifyProgressModalProps {
   open: boolean;
   running: boolean;
   sheetName: string;
   progress: { done: number; total: number } | null;
+  /** No engine has started running yet: the operations wait in the queue. */
+  waitingInQueue?: boolean;
   summary: ClassifySummary | null;
   // HV-11: per-discipline ai_status accumulated over the run set -- drives the AI-off warning
   // (silent on the healthy path). Empty/absent => no warning.
@@ -85,11 +99,12 @@ export function ClassifyProgressModal({
   running,
   sheetName,
   progress,
+  waitingInQueue = false,
   summary,
   aiStatusByDiscipline,
   onClose,
 }: ClassifyProgressModalProps) {
-  const phase = deriveClassifyModalPhase(running, progress, summary);
+  const phase = deriveClassifyModalPhase(running, progress, summary, waitingInQueue);
   const dismissable = !running; // terminal (success | error) only
   const pct = classifyPercent(progress);
 
@@ -139,7 +154,9 @@ export function ClassifyProgressModal({
         {/* RUNNING / STARTING */}
         {running && (
           <div className="space-y-2">
-            {phase === "starting" ? (
+            {phase === "queued" ? (
+              <p className="text-sm text-muted-foreground">Waiting in the queue&hellip;</p>
+            ) : phase === "starting" ? (
               <p className="text-sm text-muted-foreground">
                 Starting&hellip; preparing rows for classification.
               </p>
@@ -184,10 +201,10 @@ export function ClassifyProgressModal({
         {!running && phase === "error" && (
           <div className="space-y-1 text-sm text-destructive">
             <p className="font-medium">Classification could not complete.</p>
-            <p className="opacity-90">
-              The run failed{summary?.error_code ? ` (${summary.error_code})` : ""} &mdash; nothing was
-              saved. Please try again; if the AI was on, check the AI settings/key.
-            </p>
+            {engineOutcomeLines(summary).map((line) => (
+              <p key={line} className="opacity-90">{line}</p>
+            ))}
+            <p className="opacity-90">Please try again; if the AI was on, check the AI settings/key.</p>
           </div>
         )}
 

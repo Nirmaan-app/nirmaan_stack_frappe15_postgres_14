@@ -198,9 +198,10 @@ A pass covers this model at these bounds, not the system. Assumed or left out:
 - Liveness (gap F: a crashed job's lines stay Pending until someone re-runs; a bill copy still owed) is not
   checked, only safety.
 - The race test forces one interleaving per scenario with a held snapshot; the model covers the rest. It
-  measured that every match insert takes the `OFM-.YY.-` naming-series row `FOR UPDATE`, so two transactions
-  that overlap and both insert a match row are serialised by accident (the later one fails with a
-  serialization failure). The model does not rely on it: every write is one atomic step, so the double
+  measured that every match insert took the `OFM-.YY.-` naming-series row `FOR UPDATE`, so two transactions
+  that overlap and both insert a match row were serialised by accident (the later one failed with a
+  serialization failure). Since #1719 match rows are named by `hash`, so that accident is gone; the race test
+  passes on the index alone. The model never relied on it: every write is one atomic step, so the double
   booking it looks for needs one write to commit before the other's transaction begins, which the naming
   series does not stop. The race test has no case for an open Collect line or a re-open; the model has.
 
