@@ -11,7 +11,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useAuditViewData } from "../hooks/useAuditViewData";
 import { useFillWindowHeight } from "../hooks/useFillWindowHeight";
 import { useReportDateStore, useSharedReportDateRange } from "../store/useReportDateStore";
-import { TabBar, TabDetails } from "./audit-view/AuditTabBar";
+import { TabBar } from "./audit-view/AuditTabBar";
 import { SummaryStrip } from "./audit-view/AuditSummaryStrip";
 import { AuditViewTable } from "./audit-view/AuditViewTable";
 import { InfoTip } from "./audit-view/InfoTip";
@@ -74,7 +74,6 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
     setAskedTab(next);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, next);
   }, []);
-  const [showDetails, setShowDetails] = useState(false);
 
   // The tab highlights at once (`tab`); the panel follows a deferred copy (`panelTab`), so React
   // renders the new tab's table in the background and keeps the old one on screen, dimmed, until it
@@ -99,7 +98,7 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
       className={cn(
         "rounded-xl border bg-card shadow-sm",
         // Steps, tabs and strip keep their height; the panel takes the rest. overflow-y-auto is only a
-        // fallback for a very short window (or Show details open), never the normal case.
+        // fallback for a very short window, never the normal case.
         fillHeight && "lg:flex lg:h-[var(--audit-fill-h)] lg:flex-col lg:overflow-y-auto",
       )}
     >
@@ -131,12 +130,7 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
         onSelect={selectTab}
         summary={summary}
         isLoading={rangeChosen && isSummaryLoading}
-        showDetails={showDetails}
-        onToggleDetails={() => setShowDetails((v) => !v)}
       />
-      {rangeChosen && showDetails && (
-        <TabDetails view={view} tab={tab} onSelect={selectTab} summary={summary} isLoading={isSummaryLoading} />
-      )}
 
       <div
         role="tabpanel"
