@@ -760,3 +760,15 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 - **Least limited login** — for one role profile, the enabled login limited to the fewest projects. It may still be
   locked out of the app. *Avoid*: best user, test user. (#1734, 2026-11-23.)
+
+- **Graduation** — after a walked PR merges, turning each of its claimed changes into a *graduated walk*, or writing
+  down why it has none. Check W1 refuses a commit or merge that brings in a walked PR with a claim not graduated.
+  *Avoid*: porting, promoting the walk. (Owner, 2026-11-23.)
+
+- **Graduated walk** — a verify walk of one feature, built from the *after* half of a PR walk: it takes the env as
+  an argument, picks its records and users by query, and writes `Last walked (<walk>): <date> UTC at <commit>,
+  passed.` into its feature file when a full run passes. It outlives the PR and is rerun on later code. *Avoid*:
+  PR walk (that one compares before and after, once). (Owner, 2026-11-23.)
+
+- **Graduation ledger** — `.claude/skills/verify/features/graduated.json`: for each merged walked PR, each claimed
+  change mapped to its graduated walk or to `skip: <reason>`. (Owner, 2026-11-23.)
