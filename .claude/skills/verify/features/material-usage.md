@@ -5,7 +5,7 @@ Transfer Memo (ITM, status Approved or later) counts like a PO: its quantity joi
 joins the PO numbers, the challans filed against it join the item's DCs and MIRs, and the PO/ITM Wise view gives it a
 row of its own.
 
-Last walked (walk_material_usage.py): 2026-11-23 UTC at 590375af0, passed.
+Last walked (walk_material_usage.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
 ## Sub-features
 

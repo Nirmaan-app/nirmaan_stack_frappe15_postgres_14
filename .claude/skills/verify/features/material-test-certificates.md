@@ -6,7 +6,7 @@ table offers View to everyone, Edit and Delete by role. Since #1731 Project Mana
 their own projects, and edit only the MTCs they uploaded; they never delete. Domain rules:
 `.claude/context/domain/material-test-certificates.md`.
 
-Last walked (walk_mtc.py): 2026-11-23 UTC at 590375af0, passed.
+Last walked (walk_mtc.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
 ## Sub-features
 
