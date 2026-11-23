@@ -27,6 +27,10 @@ const addItemDoc = (list: DeliveryDocumentInfo[], docInfo: DeliveryDocumentInfo,
 
 const ITM_DOCTYPE = "Internal Transfer Memo";
 
+/** Where an ITM's material comes from, shown as "From <source>": its source project, or "Warehouse". */
+const itmSourceName = (i: TransferSummaryITM): string =>
+  i.source_project_name || (i.source_type === "Warehouse" ? "Warehouse" : "");
+
 // An ITM has no payments: it counts as paid once Delivered, unpaid before that.
 const itmPaidStatus = (itmStatus: string): POStatus => itmStatus === "Delivered" ? "Fully Paid" : "Unpaid";
 
@@ -34,6 +38,8 @@ const itmPaidStatus = (itmStatus: string): POStatus => itmStatus === "Delivered"
 interface TransferSummaryITM {
   itm: string;
   status: string;
+  /** "Project" or "Warehouse"; a Warehouse ITM has no source project. */
+  source_type: string | null;
   source_project: string | null;
   source_project_name: string | null;
   ordered_qty: number;
@@ -300,7 +306,7 @@ export function useMaterialUsageData(projectId: string) {
         itm: i.itm,
         itmStatus: i.status,
         status: itmPaidStatus(i.status),
-        sourceName: i.source_project_name || "",
+        sourceName: itmSourceName(i),
         orderedQty: i.ordered_qty || 0,
       }));
 
@@ -524,7 +530,7 @@ export function useMaterialUsageData(projectId: string) {
         if (!poGroupMap.has(itmLine.itm)) {
           poGroupMap.set(itmLine.itm, {
             type: "ITM",
-            sourceName: itmLine.source_project_name || "",
+            sourceName: itmSourceName(itmLine),
             categories: new Set(),
             childItemMap: new Map(),
             totalOrderedQty: 0, totalDeliveryNoteQty: 0,

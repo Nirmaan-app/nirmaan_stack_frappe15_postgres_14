@@ -57,7 +57,7 @@ export interface ItemITMEntry {
   itm: string;
   itmStatus: string;            // ITM document status: Approved / Dispatched / Partially Delivered / Delivered
   status: POStatus;
-  sourceName: string;           // source project name ("" when the ITM has none, e.g. from a warehouse)
+  sourceName: string;           // source project name, or "Warehouse" for a Warehouse ITM
   orderedQty: number;
 }
 

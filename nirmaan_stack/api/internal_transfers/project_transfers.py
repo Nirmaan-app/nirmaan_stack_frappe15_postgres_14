@@ -110,7 +110,8 @@ def get_transfer_summary(project_id: str) -> dict:
         target_project = project_id, ITM status Approved or later (the ITM
         counterpart of a PO's ordered quantity: a PO counts once it is approved).
       - itms: one entry per incoming ITM (Approved or later) carrying this item:
-        {itm, status, source_project, source_project_name, ordered_qty, received_qty}.
+        {itm, status, source_type, source_project, source_project_name, ordered_qty, received_qty}.
+        `source_type` is "Project" or "Warehouse"; a Warehouse ITM has no source project.
     All ITM items are approved by definition (created from ITR approval).
     """
 
@@ -161,6 +162,7 @@ def get_transfer_summary(project_id: str) -> dict:
         SELECT
             itm.name AS itm,
             itm.status,
+            itm.source_type,
             itm.source_project,
             src.project_name AS source_project_name,
             itmi.item_id,
@@ -174,7 +176,7 @@ def get_transfer_summary(project_id: str) -> dict:
         LEFT JOIN "tabProjects" src ON src.name = itm.source_project
         WHERE itm.target_project = %(project_id)s
           AND itm.status IN %(statuses)s
-        GROUP BY itm.name, itm.status, itm.source_project, src.project_name, itmi.item_id
+        GROUP BY itm.name, itm.status, itm.source_type, itm.source_project, src.project_name, itmi.item_id
         ORDER BY itm.name
         """,
         {"project_id": project_id, "statuses": approved_statuses},
@@ -212,6 +214,7 @@ def get_transfer_summary(project_id: str) -> dict:
         entry["itms"].append({
             "itm": row.itm,
             "status": row.status,
+            "source_type": row.source_type,
             "source_project": row.source_project,
             "source_project_name": row.source_project_name,
             "ordered_qty": row.ordered_qty or 0,
