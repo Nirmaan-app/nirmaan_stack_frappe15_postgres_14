@@ -80,6 +80,7 @@ start() { : > "$SSH_LOG"; run /bin/bash "$L/scripts/devenv/task.sh" start "$@"; 
 made_nothing() {
   ! git -C "$L" rev-parse -q --verify "refs/heads/box/$1" >/dev/null || fail "$2: no laptop branch box/$1"
   [ -z "$(git -C "$L" config "devbox-task.$1.box" || true)" ] || fail "$2: no task record"
+  [ -z "$(git -C "$L" config --get-regexp "^devbox-task\.$1\.(from|base)$" || true)" ] || fail "$2: no .from or .base record"
   ! git -C "$BOX" rev-parse -q --verify "refs/heads/box/$1" >/dev/null || fail "$2: no box branch box/$1"
   [ -z "$(git -C "$BOX" for-each-ref refs/handoff)" ] || fail "$2: no refs/handoff left on the box"
   [ ! -d "$(wt "$1")" ] || fail "$2: no env on the box"
@@ -97,11 +98,13 @@ start t-ahead --box box --no-agent
 rc_is 0 "ahead: start goes ahead"
 has "holds develop (${BASE:0:9} on GitHub) and 1 commits of its own, which go too" "ahead: names the commits that go too"
 same "$(git -C "$BOX" rev-parse box/t-ahead)" "$A1" "ahead: the box got the developer's own commit"
+same "$(git -C "$L" config devbox-task.t-ahead.from) $(git -C "$L" config devbox-task.t-ahead.base)" "master $A1" "without --from, start records the branch HEAD was on and the commit it cut from"
 
 start t-from --box box --no-agent --from "$BASE"
 rc_is 0 "--from picks the start point"
 has "start point, --from $BASE:" "--from is named as the start point"
 same "$(git -C "$L" rev-parse box/t-from)" "$BASE" "--from: the branch is made from it, not from HEAD"
+same "$(git -C "$L" config devbox-task.t-from.from) $(git -C "$L" config devbox-task.t-from.base)" "$BASE $BASE" "--from: start records that ref and the commit it cut from"
 
 gh_advance d2; D2="$(git -C "$GH" rev-parse develop)"
 start t-unf --box box --no-agent --from "$BASE"
