@@ -52,12 +52,15 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
   useEffect(() => urlStateManager.subscribe(AUDIT_TAB_PARAM, (_, v) => setAskedTab(v)), []);
   const tab: AuditTab | null =
     rangeChosen && AUDIT_TABS.some((t) => t === askedTab) ? resolveAuditTab(view, askedTab) : null;
-  // Switching Report Type (All Project <-> Non Project) clears the open tab: the user picks again, so
-  // a tab from the other view is never carried over pre-selected. Skips the first render (URL restore).
+  // Switching Report Type (All Project <-> Non Project) starts over from step 1: the date box goes back to
+  // "Pick a date range" and the open tab is cleared, so neither the range nor a tab from the other view is
+  // carried over pre-selected. The shared report date itself is left alone (other reports use it); the next
+  // pick here sets it. Skips the first render (URL restore).
   const lastView = useRef(view);
   useEffect(() => {
     if (lastView.current === view) return;
     lastView.current = view;
+    setRangeChosen(false);
     setAskedTab(null);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, null);
   }, [view]);
