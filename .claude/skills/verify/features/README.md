@@ -46,9 +46,10 @@ A merged PR's walk (`.claude/skills/pr-walk/bin/walk_pr_<n>.py`) graduates into 
 to `skip: <reason>`. Each such walk ends with `w.finish(<feature file>)`, which writes `Last walked (<script>): <date>
 UTC at <commit>, passed.` (or `failed.`) into its feature file before the first `##` section. Residence check W1
 refuses a commit or merge that brings in a merged walk with a claim left out, or a named walk with no passing stamp.
-`BIN/feature_walk.py` holds what such walks share: `<env> <out dir> [function ...]` arguments, records and expected
-figures read from the env DB at the start, an unlocked user per role with a password set on the env only, the ways
-into a project and a PO, and a `finish` that stamps only a run of every function.
+`BIN/feature_walk.py` holds what such walks share, so a new graduated walk imports it rather than copying it:
+`<env> <out dir> [function ...]` arguments, records and expected figures read from the env DB at the start, an
+unlocked user per role with a password set on the env only, the ways into a project, a PO and a vendor, a table
+footer's row total, a downloaded PDF shown as an image, and a `finish` that stamps only a run of every function.
 
 ## Features
 

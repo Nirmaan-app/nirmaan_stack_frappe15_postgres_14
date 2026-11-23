@@ -3,7 +3,7 @@ count and total held to the env DB under the same user's filter, as Admin, Accou
 
     python3 -I .claude/skills/verify/bin/walk_vendor_payments.py <env> <out dir> [function ...]
 
-The vendor is the one whose payments fill all three sub-tabs, read from the env DB at the start (db/facts.txt).
+The vendor is the one whose payments fill all three sub-tabs, read from the env DB at the start (db/).
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vendor_walk import PW, VendorWalk, num, session, settle, table_total  # noqa: E402
+from feature_walk import FeatureWalk, num, pin, settle, table_total  # noqa: E402
 
-from record import inr, pin  # noqa: E402
+from record import inr  # noqa: E402
 
 ROLES = ["Admin", "Accountant", "Procurement Lead", "PMO"]
 GROUPS = {"paid": "Paid", "cheque": "Cheque Pending", "others": "Other Pending Payments"}
@@ -54,17 +54,17 @@ def groups(user):
         g[key]["amount"] += 0 if r["status"] == "Rejected" else amt
     return g
 
-print("JSON " + json.dumps({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
-                            "by_user": {u: groups(u) for u in users}}))
+emit({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
+      "by_user": {u: groups(u) for u in users}})
 '''
 
-vw = VendorWalk("Vendor › Payments sub-tabs")
-w = vw.w
+fw = FeatureWalk("Vendor › Payments sub-tabs", "vendors.md")
+w = fw.w
 w.change("payments", "Vendor › Payments sub-tabs",
          "One mixed table becomes three sub-tabs: Paid, Cheque Pending, Other Pending Payments. Each tab's count and "
          "₹ total cover all of the vendor's payments the user may see.")
-users = vw.pick_users(ROLES)
-facts = vw.db_json("facts", FACTS_SQL, json.dumps(list(users.values())))
+users = fw.pick(ROLES)
+facts = fw.db("facts", FACTS_SQL, json.dumps(list(users.values())))
 VENDOR, VENDOR_NAME = facts["vendor"], facts["vendor_name"]
 
 
@@ -122,8 +122,8 @@ def open_group(page, role: str, key: str, caption: str, first: bool = False) -> 
 
 def payments_admin() -> None:
     role = "Admin"
-    with session(vw.env, users[role], PW) as (page, _):
-        vw.open_vendor(page, "payments", role, VENDOR, VENDOR_NAME)
+    with fw.session(users[role]) as page:
+        fw.open_vendor(page, "payments", role, VENDOR, VENDOR_NAME)
         w.step(page, "payments", "after", role, users[role], f"{VENDOR_NAME}: open its Payments tab.",
                click=page.get_by_role("button", name="Payments", exact=True))
         settle(page, 2500)
@@ -136,8 +136,8 @@ def payments_admin() -> None:
 
 def payments_roles() -> None:
     for role in ROLES[1:]:
-        with session(vw.env, users[role], PW) as (page, _):
-            vw.open_vendor(page, "payments", role, VENDOR, VENDOR_NAME, record=False)
+        with fw.session(users[role]) as page:
+            fw.open_vendor(page, "payments", role, VENDOR, VENDOR_NAME, record=False)
             page.get_by_role("button", name="Payments", exact=True).first.click()
             settle(page, 2500)
             check_counts(page, role)
@@ -145,5 +145,5 @@ def payments_roles() -> None:
                    f"Payments as {role}: " + " / ".join(f"{k} {v}" for k, v in tab_counts(page).items()) + ".")
 
 
-vw.run([("payments", payments_admin), ("payments", payments_roles)])
-vw.finish()
+fw.run([("payments", payments_admin), ("payments", payments_roles)])
+fw.finish()

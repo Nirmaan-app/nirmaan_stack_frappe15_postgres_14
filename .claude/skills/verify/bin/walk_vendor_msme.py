@@ -4,7 +4,7 @@ the certificate. Uploading the certificate also asks Document AI to read it and 
 
     python3 -I .claude/skills/verify/bin/walk_vendor_msme.py <env> <out dir> [function ...]
 
-It writes: each run gives one vendor that has no MSME ID and no certificate yet (picked from the env DB, db/facts.txt)
+It writes: each run gives one vendor that has no MSME ID and no certificate yet (picked from the env DB, db/)
 a made-up certificate image and a made-up Udyam number, both made at run time under files/. The read is a real model
 call when the env's Document AI key works; when the read fails on the env, that claim is reported not walked with the
 error the screen showed.
@@ -19,9 +19,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vendor_walk import PW, VendorWalk, session, settle  # noqa: E402
+from feature_walk import FeatureWalk, pin, settle  # noqa: E402
 
-from record import pin  # noqa: E402
 
 ROLE = "Admin"
 NEEDS_CERTIFICATE = "Upload the MSME certificate for this MSME ID."
@@ -32,26 +31,25 @@ v = frappe.db.sql("""
     SELECT name, vendor_name FROM "tabVendors"
     WHERE COALESCE(msme_id, '') = '' AND COALESCE(msme_attachment, '') = ''
     ORDER BY creation DESC, name LIMIT 1""", as_dict=True)[0]
-print("JSON " + json.dumps(v))
+emit(v)
 '''
 
 SAVED_SQL = r'''
-print("JSON " + json.dumps(frappe.db.get_value("Vendors", sys.argv[1], ["msme_id", "msme_attachment"], as_dict=True)))
+emit(frappe.db.get_value("Vendors", sys.argv[1], ["msme_id", "msme_attachment"], as_dict=True))
 '''
 
-vw = VendorWalk("Vendors › MSME details")
-w = vw.w
+fw = FeatureWalk("Vendors › MSME details", "vendors.md")
+w = fw.w
 w.change("msme", "Vendors › MSME ID and certificate",
          "New / Edit Vendor get MSME Details: an Udyam certificate upload and an MSME ID. ID and certificate go "
          "together or not at all. Vendor Overview shows the MSME ID, which opens the certificate.")
 w.change("msme_read", "Vendors › Document AI reads the MSME certificate",
          "Uploading the certificate sends it to Gemini, which reads it and fills the MSME ID.")
-users = vw.pick_users([ROLE])
-USER = users[ROLE]
-facts = vw.db_json("facts", FACTS_SQL)
+USER = fw.pick([ROLE])[ROLE]
+facts = fw.db("facts", FACTS_SQL)
 VENDOR, VENDOR_NAME = facts["name"], facts["vendor_name"]
 MSME_ID = f"UDYAM-KR-03-{int(hashlib.sha1(VENDOR.encode()).hexdigest(), 16) % 10_000_000:07d}"
-CERT = vw.out / "files" / "udyam-certificate.png"
+CERT = fw.out / "files" / "udyam-certificate.png"
 
 
 def server_message(response) -> str:
@@ -86,8 +84,8 @@ def make_certificate() -> None:
 
 def msme() -> None:
     make_certificate()
-    with session(vw.env, USER, PW) as (page, _):
-        vw.open_vendor(page, "msme", ROLE, VENDOR, VENDOR_NAME)
+    with fw.session(USER) as page:
+        fw.open_vendor(page, "msme", ROLE, VENDOR, VENDOR_NAME)
         item = page.get_by_text("MSME ID", exact=True).first.locator("..")
         shown = item.inner_text().split("\n")[-1].strip() if item.count() else "no MSME ID row"
         w.check("msme", ROLE, "Overview shows an MSME ID row, empty (--) before any is saved", shown, shown == "--")
@@ -150,7 +148,7 @@ def msme() -> None:
         w.step(page, "msme", "after", ROLE, USER, "Type the ID and Update.",
                click=sheet.get_by_role("button", name="Update"))
         settle(page, 3000)
-        saved = vw.db_json("msme_saved", SAVED_SQL, VENDOR)
+        saved = fw.db("msme_saved", SAVED_SQL, VENDOR)
         w.check("msme", ROLE, f"DB: MSME ID {MSME_ID} and a certificate saved together", json.dumps(saved),
                 saved.get("msme_id") == MSME_ID and bool(saved.get("msme_attachment")))
         if page.get_by_role("dialog").count():
@@ -165,5 +163,5 @@ def msme() -> None:
                pins=[pin(link, "Opens the certificate in a new tab.", "info")] if link.count() else [])
 
 
-vw.run([("msme", msme)])
-vw.finish()
+fw.run([("msme", msme)])
+fw.finish()

@@ -48,7 +48,7 @@ Order list is sidebar `Work Orders` -> `All WO <n>`.
 ## Driving it with drive.py
 
 Each walk takes the env and an evidence folder, picks its users and records from the env DB at the start, sets the
-walk password `WalkPw-vendors` on the env only, and exits 0 only when every claim it walked passed:
+walk password on the env only, and exits 0 only when every claim it walked passed:
 
 ```bash
 python3 -I BIN/walk_vendor_work_orders.py <env> <out>   # wo_pdf, wo_links (Admin)
@@ -58,10 +58,11 @@ python3 -I BIN/walk_vendor_cheques.py <env> <out>       # cheques, pmo (Admin, A
 ```
 
 Name functions after `<out>` to run only those (`wo_pdf wo_links`, `msme`, `payments_admin payments_roles`,
-`cheques_admin cheques_roles pmo_view`); such a run leaves the stamps below alone. `BIN/vendor_walk.py` holds what they
-share: the env DB read (`db/` under the out folder), one unlocked user per role (`users.json`), the sidebar way to a
-vendor, and the PDF renderer. Every expected number (sub-tab counts and totals, cheque badges and strip, WO ids) is
-read from the env DB for the walking user.
+`cheques_admin cheques_roles pmo_view`); such a run leaves the stamps below alone. They build on
+`BIN/feature_walk.py`, the helper every graduated walk shares: the env DB read (`db/` under the out folder), one
+unlocked user per role (`users.json`), the sidebar way to a vendor (`open_vendor`), and the PDF renderer. Every
+expected number (sub-tab counts and totals, cheque badges and strip, WO ids) is read from the env DB for the walking
+user.
 
 ## Gotchas
 

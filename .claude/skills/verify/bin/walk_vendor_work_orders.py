@@ -5,20 +5,18 @@ Vendor one hidden on the vendor's own page). As Admin.
     python3 -I .claude/skills/verify/bin/walk_vendor_work_orders.py <env> <out dir> [function ...]
 
 The vendor is the service vendor with the most approved Work Orders, up to 30 so the PDF stays short, read from the
-env DB at the start (db/facts.txt). Each PDF is saved under files/ with page 1 rendered as an image.
+env DB at the start (db/). Each PDF is saved under files/ with page 1 rendered as an image.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vendor_walk import PW, VendorWalk, num, session, settle, show_pdf, table_total  # noqa: E402
+from feature_walk import FeatureWalk, num, pin, settle, show_pdf, table_total  # noqa: E402
 
-from record import pin  # noqa: E402
 
 ROLE = "Admin"
 
@@ -35,33 +33,32 @@ frappe.set_user(user)
 wos = frappe.get_list("Service Requests", filters={"status": "Approved", "vendor": vendor},
                       fields=["name", "is_finalized"], limit_page_length=0)
 frappe.set_user("Administrator")
-print("JSON " + json.dumps({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
-                            "wos": sorted(r.name for r in wos),
-                            "approved": sum(not r.is_finalized for r in wos),
-                            "finalized": sum(bool(r.is_finalized) for r in wos)}))
+emit({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
+      "wos": sorted(r.name for r in wos),
+      "approved": sum(not r.is_finalized for r in wos),
+      "finalized": sum(bool(r.is_finalized) for r in wos)})
 '''
 
 WO_SQL = r'''
-print("JSON " + json.dumps(frappe.db.get_value("Service Requests", sys.argv[1], ["project", "vendor"], as_dict=True)))
+emit(frappe.db.get_value("Service Requests", sys.argv[1], ["project", "vendor"], as_dict=True))
 '''
 
-vw = VendorWalk("Vendor › Work Orders")
-w = vw.w
+fw = FeatureWalk("Vendor › Work Orders", "vendors.md")
+w = fw.w
 w.change("wo_pdf", "Vendor › Work Orders › Download PDF",
          "The vendor's Work Orders tab gets Download PDF: the \"Vendor Work Orders\" print format of what the table "
          "shows (All / Approved / Finalized).")
 w.change("wo_links", "Work Order lists › Project and Vendor links",
          "Project and Vendor cells get an ⓘ link: Project to /projects/<id>?page=overview, Vendor to /vendors/<id>. "
          "The Vendor link is hidden on the Vendor page.")
-users = vw.pick_users([ROLE])
-USER = users[ROLE]
-facts = vw.db_json("facts", FACTS_SQL, USER)
+USER = fw.pick([ROLE])[ROLE]
+facts = fw.db("facts", FACTS_SQL, USER)
 VENDOR, VENDOR_NAME, WOS = facts["vendor"], facts["vendor_name"], facts["wos"]
 
 
 def wo_pdf() -> None:
-    with session(vw.env, USER, PW) as (page, _):
-        vw.open_vendor(page, "wo_pdf", ROLE, VENDOR, VENDOR_NAME)
+    with fw.session(USER) as page:
+        fw.open_vendor(page, "wo_pdf", ROLE, VENDOR, VENDOR_NAME)
         w.step(page, "wo_pdf", "after", ROLE, USER, f"{VENDOR_NAME}: open its Work Orders tab.",
                click=page.get_by_role("button", name="Work Orders", exact=True).last)
         settle(page, 2500)
@@ -93,7 +90,7 @@ def wo_pdf() -> None:
                    pins=[pin(first.locator("a[aria-label='View Project']"),
                              "The Project ⓘ; the Vendor cell has none on the vendor's page.", "info")])
         name = d.value.suggested_filename
-        pdf = vw.out / "files" / "vendor-work-orders.pdf"
+        pdf = fw.out / "files" / "vendor-work-orders.pdf"
         pdf.parent.mkdir(exist_ok=True)
         d.value.save_as(str(pdf))
         w.check("wo_pdf", ROLE, f"the file is named {VENDOR_NAME}_All_WO_<date>.pdf", name,
@@ -116,7 +113,7 @@ def wo_pdf() -> None:
 
 
 def wo_links() -> None:
-    with session(vw.env, USER, PW) as (page, _):
+    with fw.session(USER) as page:
         settle(page, 1000)
         w.step(page, "wo_links", "after", ROLE, USER, "Open Work Orders from the sidebar.",
                click=page.locator('[data-sidebar="menu-button"]').get_by_text("Work Orders", exact=True))
@@ -127,7 +124,7 @@ def wo_links() -> None:
         row = page.locator("tbody tr").filter(has=page.locator("a[aria-label='View Project']")).first
         wo = re.search(r"/service-requests/(SR-[\w-]+)", row.locator("a[href*='/service-requests/']").first
                        .get_attribute("href") or "").group(1)
-        db = vw.db_json("wo_links_row", WO_SQL, wo)
+        db = fw.db("wo_links_row", WO_SQL, wo)
         proj, ven = row.locator("a[aria-label='View Project']"), row.locator("a[aria-label='View Vendor']")
         p_href, v_href = proj.get_attribute("href") or "", (ven.get_attribute("href") if ven.count() else "") or ""
         w.check("wo_links", ROLE, f"{wo}'s Project ⓘ goes to /projects/{db['project']}?page=overview (DB)", p_href,
@@ -152,5 +149,5 @@ def wo_links() -> None:
         w.step(page, "wo_links", "after", ROLE, USER, "The ⓘ opened the vendor's page.")
 
 
-vw.run([("wo_pdf", wo_pdf), ("wo_links", wo_links)])
-vw.finish()
+fw.run([("wo_pdf", wo_pdf), ("wo_links", wo_links)])
+fw.finish()

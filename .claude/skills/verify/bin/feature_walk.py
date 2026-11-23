@@ -3,8 +3,9 @@
     python3 -I .claude/skills/verify/bin/walk_<feature>.py <env> <out dir> [function ...]   # from the checkout root
 
 A walk builds a `FeatureWalk`, reads its records and expected numbers with `fw.db(...)` at the start, picks each
-role's user with `fw.user(...)`, runs its functions with `fw.run(plan)`, and ends with `fw.finish()`, which stamps
-its feature file only when every function ran. Each `db` script and its output are saved under `<out dir>/db/`.
+role's user with `fw.user(role, candidates)` (or `fw.pick(roles)` for the roles of `PROFILES`), runs its functions
+with `fw.run(plan)`, and ends with `fw.finish()`, which stamps its feature file only when every function ran. Each
+`db` script and its output are saved under `<out dir>/db/`.
 """
 
 from __future__ import annotations
@@ -30,6 +31,13 @@ DEVENV = "scripts/devenv/devenv.sh"
 FEATURES = BIN.parent / "features"
 PW = "FeatureWalk-1"
 LOCKED = "Finish these to continue"
+PROFILES = {
+    "Admin": "Nirmaan Admin Profile",
+    "Accountant": "Nirmaan Accountant Profile",
+    "Accountant Lead": "Nirmaan Accountant Lead Profile",
+    "Procurement Lead": "Nirmaan Procurement Lead Profile",
+    "PMO": "Nirmaan PMO Executive Profile",
+}
 
 # Prepended to every `db` script. `candidates` lists a profile's enabled users, those holding no asset first (they
 # cannot be locked by an asset task); a project-scoped profile only with a User Permission on one of `projects`.
@@ -99,6 +107,12 @@ class FeatureWalk:
             return email
         sys.exit(f"no {role} user on env {self.env} can use the app: every candidate is locked ({candidates})")
 
+    def pick(self, roles: list[str]) -> dict[str, str]:
+        """`user` for each role, its candidates read in one `db` call."""
+        found = self.db("users", "emit({r: candidates(p) for r, p in json.loads(sys.argv[1]).items()})",
+                        json.dumps({r: PROFILES[r] for r in roles}))
+        return {r: self.user(r, found[r]) for r in roles}
+
     def set_password(self, email: str) -> None:
         # Two walks on one env can run `devenv run` at once, and the second may fail while the first holds the bench.
         for attempt in (1, 2, 3):
@@ -135,10 +149,52 @@ class FeatureWalk:
     def finish(self) -> NoReturn:
         self.w.finish(self.feature_md, stamp=not self.only)
 
+    def open_vendor(self, page, cid: str, role: str, vendor_id: str, vendor_name: str, record: bool = True) -> None:
+        """Sidebar Vendors (Admin and PMO: under Admin Options), search the vendor by name, open its row's link.
+        record=False walks the same way without a screenshot per click (the role loops)."""
+        user = self.users[role]
+
+        def click(caption: str, target) -> None:
+            if record:
+                self.w.step(page, cid, "after", role, user, caption, click=target)
+            else:
+                target.first.click()
+                page.wait_for_load_state("networkidle")
+
+        sidebar_ready(page)
+        menu = page.locator('[data-sidebar="menu-button"]')
+        top = menu.get_by_text("Vendors", exact=True)
+        sub = page.locator('[data-sidebar="menu-sub-button"]').get_by_text("Vendors", exact=True)
+        if top.count():
+            click("Open Vendors from the sidebar.", top)
+        else:
+            if not sub.first.is_visible():
+                click("Open Admin Options in the sidebar.", menu.get_by_text("Admin Options", exact=True))
+                settle(page, 600)
+            click("Open Vendors under Admin Options in the sidebar.", sub)
+        settle(page)
+        page.get_by_placeholder("Search by name...").first.fill(vendor_name)
+        settle(page, 2000)
+        # Two vendors can share a name, so the row is opened by its link.
+        click(f"Find {vendor_name} by name and open it.", page.locator(f'tbody a[href$="/vendors/{vendor_id}"]'))
+        page.wait_for_url(re.compile(rf"/vendors/{re.escape(vendor_id)}"), timeout=30_000)
+        page.get_by_role("button", name="Overview", exact=True).first.wait_for(timeout=30_000)
+        settle(page)
+
 
 def settle(page, ms: int = 1500) -> None:
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(ms)
+
+
+def num(s: str) -> float:
+    return float(s.replace(",", "").replace("₹", "").strip())
+
+
+def table_total(page) -> int | None:
+    """The row total a data table's footer states ("Page 1 of 1 (1-23 of 23)"), or None when it shows none."""
+    m = re.search(r"Page \d+ of \d+ \(\d+-\d+ of (\d+)\)", page.locator("body").inner_text())
+    return int(m.group(1)) if m else None
 
 
 def sidebar_ready(page) -> None:

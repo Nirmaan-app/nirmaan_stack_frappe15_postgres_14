@@ -4,20 +4,19 @@ Procurement edits only its own open cheques; PMO only views), and PMO reading ch
 
     python3 -I .claude/skills/verify/bin/walk_vendor_cheques.py <env> <out dir> [function ...]
 
-The vendor is the one with the most cheques that still have a Cancel to offer, read from the env DB (db/facts.txt).
+The vendor is the one with the most cheques that still have a Cancel to offer, read from the env DB (db/).
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vendor_walk import PW, VendorWalk, num, session, settle, table_total  # noqa: E402
+from feature_walk import FeatureWalk, num, pin, settle, table_total  # noqa: E402
 
-from record import inr, pin  # noqa: E402
+from record import inr  # noqa: E402
 
 ROLES = ["Admin", "Accountant", "Accountant Lead", "Procurement Lead", "PMO"]
 STATUSES = ["Approval Pending", "Issued", "Cleared", "Cancelled"]
@@ -30,20 +29,20 @@ vendor = frappe.db.sql(f"""
     ORDER BY MAX({open_}::int) DESC, COUNT(*) DESC, vendor LIMIT 1""")[0][0]
 rows = frappe.db.sql("""SELECT name, cheque_no, status, cheque_type, owner, amount FROM "tabCheques" WHERE vendor = %s""",
                      vendor, as_dict=True)
-print("JSON " + json.dumps({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
-                            "rows": [dict(r, amount=float(r.amount or 0)) for r in rows]}))
+emit({"vendor": vendor, "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
+      "rows": [dict(r, amount=float(r.amount or 0)) for r in rows]})
 '''
 
-vw = VendorWalk("Vendor › Cheques tab")
-w = vw.w
+fw = FeatureWalk("Vendor › Cheques tab", "vendors.md")
+w = fw.w
 w.change("cheques", "Vendor › Cheques tab",
          "A Cheques tab on the vendor page: the Cheque Tracker narrowed to this vendor. Accountants can Edit and "
          "Cancel; Procurement and PMO can only view.")
 w.change("pmo", "PMO may view cheques",
          "The cheque read endpoints let PMO in (view only). PMO gets no Cheque Tracker in the sidebar, and saving and "
          "cancelling stay closed to it.")
-users = vw.pick_users(ROLES)
-facts = vw.db_json("facts", FACTS_SQL)
+users = fw.pick(ROLES)
+facts = fw.db("facts", FACTS_SQL)
 VENDOR, VENDOR_NAME, ROWS = facts["vendor"], facts["vendor_name"], facts["rows"]
 ACCOUNTS = {"Admin", "Accountant", "Accountant Lead"}
 ACCESS = ACCOUNTS | {"Procurement Lead"}
@@ -125,8 +124,8 @@ def open_cheques_tab(page, cid: str, role: str, caption: str):
 
 def cheques_admin() -> None:
     role = "Admin"
-    with session(vw.env, users[role], PW) as (page, _):
-        vw.open_vendor(page, "cheques", role, VENDOR, VENDOR_NAME)
+    with fw.session(users[role]) as page:
+        fw.open_vendor(page, "cheques", role, VENDOR, VENDOR_NAME)
         if not open_cheques_tab(page, "cheques", role, f"{VENDOR_NAME}: open its Cheques tab."):
             return
         check_list(page, "cheques", role)
@@ -155,8 +154,8 @@ def cheques_admin() -> None:
 
 def cheques_roles() -> None:
     for role in ("Accountant", "Accountant Lead", "Procurement Lead"):
-        with session(vw.env, users[role], PW) as (page, _):
-            vw.open_vendor(page, "cheques", role, VENDOR, VENDOR_NAME, record=False)
+        with fw.session(users[role]) as page:
+            fw.open_vendor(page, "cheques", role, VENDOR, VENDOR_NAME, record=False)
             if not open_cheques_tab(page, "cheques", role, f"Vendor page as {role}: open the Cheques tab."):
                 continue
             check_list(page, "cheques", role)
@@ -167,13 +166,13 @@ def cheques_roles() -> None:
 
 def pmo_view() -> None:
     role = "PMO"
-    with session(vw.env, users[role], PW) as (page, _):
+    with fw.session(users[role]) as page:
         settle(page, 1500)
         in_sidebar = page.locator('[data-sidebar="menu-button"], [data-sidebar="menu-sub-button"]').get_by_text(
             "Cheque Tracker", exact=True).count() > 0
         w.check("pmo", role, "no Cheque Tracker in the sidebar", "in the sidebar" if in_sidebar else "not there",
                 not in_sidebar)
-        vw.open_vendor(page, "pmo", role, VENDOR, VENDOR_NAME)
+        fw.open_vendor(page, "pmo", role, VENDOR, VENDOR_NAME)
         if not open_cheques_tab(page, "pmo", role, f"{VENDOR_NAME}: PMO opens its Cheques tab."):
             return
         check_list(page, "pmo", role)
@@ -192,5 +191,5 @@ def pmo_view() -> None:
         w.step(page, "pmo", "after", role, users[role], f"Cheque {first}'s details, read-only for PMO.")
 
 
-vw.run([("cheques", cheques_admin), ("cheques", cheques_roles), ("pmo", pmo_view)])
-vw.finish()
+fw.run([("cheques", cheques_admin), ("cheques", cheques_roles), ("pmo", pmo_view)])
+fw.finish()
