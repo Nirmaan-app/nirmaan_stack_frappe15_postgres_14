@@ -6,6 +6,14 @@ the Work Order lists link each Project and Vendor cell to its page, and New / Ed
 (Udyam) ID and certificate. Since PR #1732 its Payments tab splits the vendor's payments into three sub-tabs, and a
 Cheques tab shows the Cheque Tracker narrowed to this vendor, read-only for PMO.
 
+Last walked (walk_vendor_payments.py): 2026-11-23 UTC at 7703b6b55, passed.
+
+Last walked (walk_vendor_cheques.py): 2026-11-23 UTC at 7703b6b55, passed.
+
+Last walked (walk_vendor_work_orders.py): 2026-11-23 UTC at 7703b6b55, passed.
+
+Last walked (walk_vendor_msme.py): 2026-11-23 UTC at 7703b6b55, passed.
+
 ## Sub-features
 
 - `wo_pdf` Vendor › Work Orders: sub-tabs All WO / Approved WO / Finalized WO with counts (Approved Service
