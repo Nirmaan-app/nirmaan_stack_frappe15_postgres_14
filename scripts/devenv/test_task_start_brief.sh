@@ -38,10 +38,12 @@ echo "{\"plugins\": {\"tools@market\": [{\"installPath\": \"$T/cache/tools/1.0\"
 export DEVBOX_CLAUDE_HOME="$CH"
 
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/landed.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
 git -C "$L" init -q -b master
 git -C "$L" add -A
 git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
+git init -q --bare "$T/github.git"; git -C "$T/github.git" fetch -q "$L" master:develop   # the org repo's develop
+git -C "$L" config devbox.org-repo "$T/github.git"
 start() { : > "$SSH_LOG"; run /bin/bash "$L/scripts/devenv/task.sh" start "$@"; }
 
 untitled() {

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
-T="$(mktemp -d "${TMPDIR:-/tmp}/test_box_enroll.XXXXXX")"
+T="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test_box_enroll.XXXXXX")" && pwd -P)"   # physical: git gives the laptop dev root as /private/var/...
 echo "scratch: $T"
 OUT="" RC=0 N=0
 GH_SECRET="ghs_SENTINEL_gh_7Hq2"        # contabo's read-only GitHub token
@@ -204,7 +204,7 @@ world() {
   git config -f "$R" box.air.ssh me@air-test; git config -f "$R" box.air.checkout work/y/variants/master
   git config -f "$R" box.air.agents 3
   LAP="$W/dev/variants/master"; mkdir -p "$LAP/scripts/devenv"
-  cp "$HERE/box.sh" "$HERE/boxes.sh" "$HERE/handoff.sh" "$T/bootstrap.sh" "$LAP/scripts/devenv/"
+  cp "$HERE/box.sh" "$HERE/boxes.sh" "$HERE/handoff.sh" "$HERE/develop.sh" "$T/bootstrap.sh" "$LAP/scripts/devenv/"
   git -C "$LAP" init -q -b master; git -C "$LAP" add -A
   git -C "$LAP" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
   printf '# Laptop overrides\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n**After the table.**\n' > "$W/dev/CLAUDE.md"

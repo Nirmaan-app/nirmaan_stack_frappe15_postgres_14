@@ -66,7 +66,7 @@ git config -f "$R" box.contabo.checkout work/x/variants/master
 git config -f "$R" box.contabo.orca env:test-orca
 
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
 cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
 #!/bin/bash
 # Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
@@ -80,6 +80,8 @@ git -C "$L" init -q -b master
 git -C "$L" add -A
 git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
 git clone -q "$L" "$T/boxes/t@contabo-test/work/x/variants/master"
+git init -q --bare "$T/github.git"; git -C "$T/github.git" fetch -q "$L" master:develop   # the org repo's develop
+for co in "$L" "$T/boxes/t@contabo-test/work/x/variants/master"; do git -C "$co" config devbox.org-repo "$T/github.git"; done
 echo "# Task: experiment: the brief" > "$T/brief.md"
 start() { : > "$STUB_LOG"; run env ${TASK_ENV:-} /bin/bash "$L/scripts/devenv/task.sh" start "$@" --brief "$T/brief.md"; }
 wt() { echo "$(cd "$T/boxes/t@contabo-test/work/x" && pwd -P)/benches/$1/apps/nirmaan_stack"; }
