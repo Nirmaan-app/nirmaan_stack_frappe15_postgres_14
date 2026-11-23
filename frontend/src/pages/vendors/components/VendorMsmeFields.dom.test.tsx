@@ -36,11 +36,11 @@ let form: UseFormReturn<Values>;
 // The vendor forms' MSME rules, as New / Edit Vendor wire them.
 const schema = z.object(vendorMsmeSchemas).superRefine(refineMsmePair);
 
-const Harness = ({ defaults }: { defaults: Values }) => {
+const Harness = ({ defaults, vendorId }: { defaults: Values; vendorId?: string }) => {
   form = useForm<Values>({ defaultValues: defaults, resolver: zodResolver(schema) });
   return (
     <FormProvider {...form}>
-      <VendorMsmeFields />
+      <VendorMsmeFields vendorId={vendorId} />
     </FormProvider>
   );
 };
@@ -182,6 +182,19 @@ describe("VendorMsmeFields", () => {
     expect(form.getValues("msme_id")).toBe("");
     expect(form.getValues("autofill_all_entities_json")).toBeNull();
     expect(container.textContent).toContain("Type the MSME ID yourself");
+  });
+
+  it("Edit Vendor uploads the certificate unattached: only Update ties it to the vendor, so Cancel leaves none", async () => {
+    const saved = { ...EMPTY, msme_id: "UDYAM-KR-03-0098765", msme_attachment: "/private/files/old.pdf" };
+    upload.mockResolvedValue({ file_url: "/private/files/new.pdf" });
+    readCertificate.mockResolvedValue(goodRead("UDYAM-KR-03-0097422"));
+    act(() => root.render(<Harness defaults={saved} vendorId="VEN-Material-0001" />));
+
+    await pickFile(new File(["%PDF"], "new.pdf", { type: "application/pdf" }));
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload.mock.calls[0][1]).toEqual({ isPrivate: true });
+    // The read still knows the vendor: the duplicate-ID check leaves the vendor itself out.
+    expect(readCertificate).toHaveBeenCalledWith(expect.objectContaining({ vendor_id: "VEN-Material-0001" }));
   });
 
   it("a failed upload on Replace keeps the old certificate and ID", async () => {
