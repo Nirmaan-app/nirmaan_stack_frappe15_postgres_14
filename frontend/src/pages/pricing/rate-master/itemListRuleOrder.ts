@@ -1660,7 +1660,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   if (ex5 && ex5.scope) {
     add("Supply only / installation only, from the BoQ",
-        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note; a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
+        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note; a line with no install rate refuses; the 'Scope of this rate' box does the same");
   }
   // ── 13h. VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- ADDED LAST, each only where its key is
   // in the config (v61 and older add nothing)
@@ -1743,7 +1743,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           [`the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it`,
            "supply only -> install 0 on every line",
            `installation only: ${iLine}; ${iiLine}; otherwise -> supply + installation, with the note 'BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end)'`,
-           `the calculator's 'BoQ scope' choice prices as picked${ionN ? `, and also offers '${ionN}' (the normal installation rate)` : ""}`].join("; "), "scope");
+           `the 'Scope of this rate' box prices as picked${ionN ? `, and also offers '${ionN}' (the normal installation rate)` : ""}`].join("; "), "scope");
       const pairNote = typeof ps1.supply_row?.pair_note === "string" && ps1.supply_row.pair_note.trim() ? String(ps1.supply_row.pair_note) : null;
       add("A 'Supply of' row whose installation is quoted on its own row of the sheet is priced supply only",
           pairNote
@@ -1752,7 +1752,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           "scope_pair");
     } else
     add("The BoQ scope: supply + installation unless the row says otherwise",
-        `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the calculator's 'BoQ scope' choice does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);
+        `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the 'Scope of this rate' box does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);
   }
   // VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02 "yes for both"): the lines of the row follow its scope
   const lf = ((ex5?.scope ?? ps1) as { lines_follow?: { word?: unknown } } | null | undefined)?.lines_follow;
@@ -1976,11 +1976,17 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};
+    // VAV-2c2 (R3 e, owner 2026-11-24 00:18 "ok to remove", replacing ADP-4a D1 for these lines): on an HVAC page a line with no ruling
+    // shows no "-- why:" clause at all; its reason stays "reason not recorded" for the coverage guard
+    const hvac = String(pr.kind ?? "").startsWith("hvac_");
     out.forEach((l, i) => {
       const k = keys[i];
       const why = (k && rulings[k]) || NOT_RECORDED;
       l.reason = why;
-      l.detail = l.detail ? `${l.detail} -- why: ${why}` : `why: ${why}`;
+      // a merged line's reason names each fact's ruling: the facts with none ("diameter, torque -- reason not recorded") come off too
+      const shown = hvac ? why.replace(/(?:^|;\s*)[^;]*?\s--\s*reason not recorded(?=\s*;|\s*$)/g, "").replace(/^;\s*/, "").trim() : why;
+      if (hvac && (why === NOT_RECORDED || shown === "")) return;
+      l.detail = l.detail ? `${l.detail} -- why: ${shown}` : `why: ${shown}`;
     });
   } else if (Array.isArray(pr.derivation_reasons) && pr.derivation_reasons.length) {
     // DU-1 (owner 2026-11-15 14:33 "2 ok": Derivation "why" reasons on every Ducting line, ADP's pattern, owner + date per ruling):

@@ -116,7 +116,10 @@ export interface SheetSharesSpec {
     /** VAV-2b2 (R15, owner 2026-11-21 12:36 "a"): the word in place of "BCS" in the DDC share's working lines ("cost"). ABSENT => "BCS" */
     cost_word?: string;
     /** VAV-2b2 (R15): the VAVs box's label IN THE CALCULATOR ("Number of VAVs"; on a BoQ row it IS the sheet's count). ABSENT => `vavs` */
-    vavs_calculator?: string };
+    vavs_calculator?: string;
+    /** VAV-2c2 (R3 h): `need_vavs` / `need_vavs_whole` IN THE CALCULATOR, where there is no sheet ("Type the number of VAVs to price this
+     *  item."). ABSENT => the BoQ-row wording */
+    need_vavs_calculator?: string; need_vavs_whole_calculator?: string };
   /** VAV-2b2 (R10): the "Possible double counting" block. ABSENT => none (the small lines stay as they are) */
   /** VAV-2b2 (owner 2026-11-21 15:56 "2a"): the 'not added' sentence by the separate-row test that caught the row (else lines.not_added) */
   not_added_by?: NotAddedBy[];
@@ -405,7 +408,9 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
       perLabel: whole.w.per_unit, typedLabel: `${L.typed.replace(/\s*\([^)]*\)\s*$/, "")} (${whole.w.per_unit.trim()})` }
     : { id: s.id, heading: s.heading, label: s.label, origin, tag: origin === "helper" ? L.tag_helper : L.tag_user, fields, notes,
       amount, ...(s.replaces_line ? { replacesLine: s.replaces_line } : {}) };
-  const calc = shareSum(s, parts, vavs, L, whole ? { w: whole.w, prefillLine } : undefined);
+  // VAV-2c2 (R3 h): the Calculator has no sheet -- its "type the number of VAVs" line does not say "on the sheet"
+  const Lsum = onCalculator ? { ...L, need_vavs: L.need_vavs_calculator ?? L.need_vavs, need_vavs_whole: L.need_vavs_whole_calculator ?? L.need_vavs_whole } : L;
+  const calc = shareSum(s, parts, vavs, Lsum, whole ? { w: whole.w, prefillLine } : undefined);
   // a typed final amount (per box) replaces the sum line (18:44 "yes to all"); a side left blank keeps the worked-out figure
   const ts = num(e.amount?.supply), ti = num(e.amount?.install);
   if (ts !== null || ti !== null) {

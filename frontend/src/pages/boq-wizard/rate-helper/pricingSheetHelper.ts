@@ -5545,7 +5545,9 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     }
   }
   const picker = calculator ? { title: sc.title, options: sc.options, value: sc.options.includes(value) ? value : sc.options[0] } : undefined;
-  const L = sc.lines;
+  // VAV-2c2 (R3 a, owner 2026-11-23 13:46): a scope the user picked on the panel, or the Calculator's, is not what the BoQ says -- its notes
+  // come from `chosen_lines` (a key it lacks keeps the BoQ wording)
+  const L = (calculator || forced !== undefined) && sc.chosen_lines ? { ...sc.lines, ...sc.chosen_lines } : sc.lines;
   // VRF-6 (owner Q5, Divyansh 11:38-11:55; INSTALLATION-ONLY 11:50 / 11:55): on a BoQ row, the same sheet's rows of the SAME kind
   // of item (item-1 family) and their scope answers decide -- a supply-only row under a note that includes installation, and an
   // installation-only row, each carry a note naming the rows that decided
@@ -5808,7 +5810,10 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
   // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
-  const note0 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note.replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
+  const note00 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
+  // VAV-2c2 (R3 b): a note written to introduce the per-line working ends with a colon; with no working line after it (0% uplift) the
+  // sentence ends where the text ends
+  const note0 = note00 !== undefined && !points.length ? note00.replace(/:\s*$/, ".") : note00;
   const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
   const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };

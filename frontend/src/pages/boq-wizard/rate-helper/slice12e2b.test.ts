@@ -466,7 +466,9 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     // authority. BEFORE: ADP's detail `toBe("a kind priced per metre and per square metre has a rule for each")` as
     // Insulation's. The negative half is kept: Insulation's line is byte-identical.
     expect(lines(INS).find((x) => x.title === "That kind's rule for that unit")!.detail).toBe("a kind priced per metre and per square metre has a rule for each");
-    expect(lines(ADP).find((x) => x.title === "That kind's rule for that unit")!.detail).toBe("a kind priced per number, per sq.m or per metre has a rule for each -- why: reason not recorded");
+    expect(lines(ADP).find((x) => x.title === "That kind's rule for that unit")!.detail).toBe("a kind priced per number, per sq.m or per metre has a rule for each");
+    // INVERTED at VAV-2c2 (R3 e, PIN 2): BEFORE the same detail ending " -- why: reason not recorded"; Insulation's half above unchanged
+    expect(lines(ADP).find((x) => x.title === "That kind's rule for that unit")!.detail).not.toContain("reason not recorded");
     // INVERTED at 12e-4b (owner F-3): Piping's tab gains the no-unit line. BEFORE: `toEqual([24, 18, 14])`.
     // The negative half is kept: Insulation and ADP are still 24 and 18.
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `toEqual([24, 18, 15])` and Insulation

@@ -86,7 +86,10 @@ describe("AC1 -- ADP's Derivation tab: each rule once, in plain English, with it
     expect(lines).toHaveLength(38);
     for (const l of lines) {
       expect({ n: l.n, reason: typeof l.reason === "string" && l.reason.length > 0 }).toEqual({ n: l.n, reason: true });
-      expect({ n: l.n, tail: l.detail!.endsWith(`why: ${l.reason}`) }).toEqual({ n: l.n, tail: true });
+      // INVERTED at VAV-2c2 (R3 e; owner 2026-11-24 00:18 "ok to remove"; PIN 2 accepted, ANSWER 13): BEFORE every line's detail ended
+      // `why: ${l.reason}`. Now a line with no ruling shows no clause; a line with one ends with its ruling (a merged line: the ruled facts)
+      expect({ n: l.n, tail: l.reason === "reason not recorded" ? !/why:/.test(l.detail ?? "") : /why: \S.*\(owner[^)]*\)$|why: \S/.test(l.detail ?? "") }).toEqual({ n: l.n, tail: true });
+      expect({ n: l.n, shown: /reason not recorded/.test(l.detail ?? "") }).toEqual({ n: l.n, shown: false });
       expect({ n: l.n, dated: l.reason === "reason not recorded" || /\(owner, (20\d\d-\d\d-\d\d|standing ADP ruling)\)|\(owner ruling on row links\)|reason not recorded/.test(l.reason!) }).toEqual({ n: l.n, dated: true });
     }
     // 20 of 38 lines carry a ruling (the D1 mapping table in the ADP-4a report); 18 say so where none exists
