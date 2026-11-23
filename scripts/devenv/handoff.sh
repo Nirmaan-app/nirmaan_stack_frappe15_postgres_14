@@ -6,13 +6,15 @@
 #   handoff.sh to <box> <branch> [--contains-develop]
 #                                      give the box the laptop's commits on <branch>. With --contains-develop (task.sh
 #                                      start passes it) the box reads GitHub's develop itself and refuses a tip that
-#                                      lacks it (develop.sh): exit 4, and the box's branch stays as it was. It checks
+#                                      lacks it (develop.sh): exit 5, and the box's branch stays as it was. It checks
 #                                      even when the box already has the branch at the laptop's tip
 #   handoff.sh from <box> <branch>     bring the box's commits on <branch> back to the laptop
 #
 # <box> is a box name from the registry (scripts/devenv/boxes.sh), which holds its SSH target and checkout.
 # Exit 3: the box did not answer; run the same command again once it is awake.
-# Exit 4: the box refused the branch (--contains-develop); its branches stay as they were.
+# Exit 4: the box could not check the branch against develop (--contains-develop); its branches stay as they were.
+# Exit 5: the box refused the branch: it lacks develop (--contains-develop); its branches stay as they were. The
+#         message names no commands: pull develop on the laptop from its own org remote (develop.sh develop_fix).
 #
 # Rules (the same as env_sync.sh's laptop/desktop loop):
 # - Fast-forward only. A side whose branch has commits the other lacks is never overwritten: status says DIVERGED,
@@ -64,10 +66,12 @@ if [ "${1:-}" = _box ]; then
         git fetch -q "$f" "refs/heads/$2:refs/handoff/$2" --force; rm -f "$f"
       fi
       if [ "$1" = receive-develop ]; then
-        # Before the branch moves, so a refusal leaves the box's branches as they were.
-        why="$( { d="$(develop_tip)" && start_point_verdict "$(start_vs_develop "$4" "$d")" "$4" "$d"; } 2>&1)" || {
+        # Before the branch moves, so a refusal leaves the box's branches as they were. A tip that lacks develop exits 5
+        # with no commands in the message: the box's remote names are not the laptop's, so the laptop adds its own.
+        rc=4; why="$( { d="$(develop_tip)" && { start_point_verdict "$(start_vs_develop "$4" "$d")" "$4" "$d" --no-fix || exit 5; }; } 2>&1)" || {
+          rc=$?; [ "$rc" = 5 ] || rc=4
           git update-ref -d "refs/handoff/$2" 2>/dev/null || true
-          echo "STOP  the box refuses $2: ${why#STOP  }" >&2; exit 4; }
+          echo "STOP  the box refuses $2: ${why#STOP  }" >&2; exit "$rc"; }
       fi
       [ "$(git rev-parse -q --verify "refs/heads/$2" || true)" = "${5:-}" ] || die "$2 moved on the box since the check; run status again"
       [ "$4" = "${5:-}" ] || ff_branch "$2" "$4" "${5:-}"; git update-ref -d "refs/handoff/$2" 2>/dev/null || true
@@ -86,7 +90,7 @@ SELF="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
 cd "$(dirname "$SELF")"; cd "$(git rev-parse --show-toplevel)"
 . "$(dirname "$SELF")/boxes.sh"
 CMD="${1:-}"; BR="${3:-}"; OPT="${4:-}"
-case "$CMD" in status|to|from) ;; *) sed -n '2,24p' "$SELF"; exit 1 ;; esac
+case "$CMD" in status|to|from) ;; *) sed -n '2,26p' "$SELF"; exit 1 ;; esac
 [ -n "${2:-}" ] && [ -n "$BR" ] || die "usage: handoff.sh $CMD <box> <branch>"
 case "$CMD:$OPT:${5:-}" in *::|to:--contains-develop:) ;; *) die "usage: handoff.sh $CMD <box> <branch>$([ "$CMD" != to ] || echo ' [--contains-develop]')" ;; esac
 git check-ref-format --branch "$BR" >/dev/null || die "not a branch name: $BR"

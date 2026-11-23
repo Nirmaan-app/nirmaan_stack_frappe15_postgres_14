@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
-T="$(mktemp -d "${TMPDIR:-/tmp}/test_box_enroll.XXXXXX")"
+T="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test_box_enroll.XXXXXX")" && pwd -P)"   # physical: git gives the laptop dev root as /private/var/...
 echo "scratch: $T"
 OUT="" RC=0 N=0
 GH_SECRET="ghs_SENTINEL_gh_7Hq2"        # contabo's read-only GitHub token

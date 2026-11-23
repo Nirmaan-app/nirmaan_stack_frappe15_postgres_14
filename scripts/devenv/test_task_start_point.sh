@@ -164,6 +164,10 @@ rc_is 1 "box: a tip lacking the develop the box reads is refused"
 has "STOP  the box refuses box/t-race:" "box: the refusal is the box's"
 has "lacks develop's newest commits (develop is $(git -C "$OTHER" rev-parse --short=9 develop) on GitHub)" "box: names the develop it read"
 has "this start took back box/t-race and its record" "box refusal: start says it took back what it made"
+has "Pull develop into the start point (HEAD of $L) here: git fetch upstream develop, then git merge FETCH_HEAD" \
+  "box refusal: the commands to pull develop name the laptop's org remote"
+case "$OUT" in *"git fetch origin"*) fail "box refusal: no command names the box's remote (origin is the laptop's fork)" ;; esac
+pass "box refusal: no command names the box's remote (origin is the laptop's fork)"
 made_nothing t-race "box refusal"
 git -C "$L" branch box/t-keep; git -C "$L" config devbox-task.t-keep.box box   # left by a start that lost the box
 start t-keep --box box --no-agent

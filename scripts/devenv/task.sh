@@ -586,14 +586,16 @@ case "$CMD" in
 
     step "2. hand it to box $BOX_NAME"
     RC=0; "$SELF_DIR/handoff.sh" to "$BOX_NAME" "$BRANCH" --contains-develop | tail -1 || RC=$?
-    if [ "$RC" = 4 ]; then
+    if [ "$RC" = 4 ] || [ "$RC" = 5 ]; then
       # The box refused before its branch moved. Take back what this run made here, so the rerun branches afresh.
       [ "$MADE" = 0 ] || git update-ref -d "refs/heads/$BRANCH" "$START"
       [ -n "$REC" ] || git config --unset "$RECORD"
       [ "$MADE" = 0 ] || { git config --unset "devbox-task.$NAME.from" || true; git config --unset "devbox-task.$NAME.base" || true; }
       TOOK=""; [ "$MADE" = 0 ] || TOOK="$BRANCH"; [ -n "$REC" ] || TOOK="${TOOK:+$TOOK and }its record"
       [ -n "$TOOK" ] && V="this start took back $TOOK" || V="$BRANCH and its record were there before this start, so they stay"
-      die "box $BOX_NAME refused $BRANCH (above); $V. Fix what it names, then start again."
+      # 5: the tip lacks develop. The box's message names no commands (its remotes are not this laptop's): give ours.
+      FIX="Fix what it names"; [ "$RC" != 5 ] || FIX="Pull develop into the start point ($START_IS) here: $(develop_fix)"
+      die "box $BOX_NAME refused $BRANCH (above); $V. $FIX, then start again."
     fi
     [ "$RC" = 0 ] || exit "$RC"
 

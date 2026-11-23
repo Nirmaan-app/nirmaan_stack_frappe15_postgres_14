@@ -42,16 +42,23 @@ start_vs_develop() {
   else echo diverged; fi
 }
 
-# start_point_verdict <class> <start commit> <develop commit>: print what start does; return 1 when it refuses.
+# develop_fix: the commands that pull develop into the branch here, from this repo's own org remote (never a fork).
+develop_fix() {
+  org_repo || ORG_REPO="<the org remote>"
+  echo "git fetch $ORG_REPO develop, then git merge FETCH_HEAD (or git rebase FETCH_HEAD)"
+}
+
+# start_point_verdict <class> <start commit> <develop commit> [--no-fix]: print what start does; return 1 when it
+# refuses. A refusal ends with develop_fix's commands; with --no-fix (the box: its remotes are not the laptop's, so
+# the laptop adds its own) it ends at the sentence.
 start_point_verdict() {
   local fix
-  org_repo || ORG_REPO="<the org remote>"
-  fix="git fetch $ORG_REPO develop, then git merge FETCH_HEAD (or git rebase FETCH_HEAD)"
+  if [ "${4:-}" = --no-fix ]; then fix="."; else fix=": $(develop_fix)"; fi
   case "$1" in
     equal) echo "${2:0:9} is develop's tip on GitHub" ;;
     ahead) echo "${2:0:9} holds develop (${3:0:9} on GitHub) and $(git rev-list --count "$3..$2") commits of its own, which go too" ;;
-    behind) echo "${2:0:9} lacks develop's newest commits (develop is ${3:0:9} on GitHub). Pull develop and update the branch first: $fix"; return 1 ;;
-    diverged) echo "${2:0:9} has commits of its own but lacks develop's newest (develop is ${3:0:9} on GitHub). Merge or rebase it onto develop first: $fix"; return 1 ;;
+    behind) echo "${2:0:9} lacks develop's newest commits (develop is ${3:0:9} on GitHub). Pull develop and update the branch first$fix"; return 1 ;;
+    diverged) echo "${2:0:9} has commits of its own but lacks develop's newest (develop is ${3:0:9} on GitHub). Merge or rebase it onto develop first$fix"; return 1 ;;
     *) echo "unknown start point class '$1'"; return 1 ;;
   esac
 }
