@@ -38,6 +38,8 @@ export interface AuditInvoiceRow {
   vendor: string | null;
   vendor_name: string | null;
   expense_type: string | null;
+  /** An expense's description, shown in the Against column; null on a PO / WO invoice. */
+  description: string | null;
   date: string | null;
   invoice_amount: number | null;
   /** The PO / WO's created date; null for an expense. */
@@ -55,6 +57,8 @@ export interface AuditPaymentRow {
   vendor: string | null;
   vendor_name: string | null;
   expense_type: string | null;
+  /** An expense's description, shown in the Against column; null on a PO / WO payment. */
+  description: string | null;
   date: string | null;
   utr: string | null;
   amount_paid: number | null;
@@ -147,21 +151,22 @@ export interface AuditColumnSpec {
 }
 
 /**
- * The columns of one table, in order. No status column anywhere. Non Project View swaps Project and
- * Vendor for Expense type, and UTR reads "Payment ref". All Project View's UTR column reads "UTR / Ref": a PO /
+ * The columns of one table, in order. No status column anywhere. Type and Against come first, as on the
+ * Payments page. Non Project View has no Project or Vendor column (the expense type sits under the Type
+ * pill), and UTR reads "Payment ref". All Project View's UTR column reads "UTR / Ref": a PO /
  * WO payment's UTR, a project expense's payment ref. Orders in Non Project View has no table: [].
  */
 export const auditColumnSpecs = (view: AuditView, tab: AuditTab): AuditColumnSpec[] => {
   if (isAuditTabDisabled(view, tab)) return [];
   const project = view === "project";
-  const against: AuditColumnSpec = { key: "against", label: "Against" };
-  const id: AuditColumnSpec = {
-    key: "id",
-    label: !project ? "Expense ID" : tab === "orders" ? "PO / WO ID" : "PO / WO / Expense ID",
-  };
+  // As on the Payments page: Type = the PO / WO / Expense pill with the expense type under it; Against = the
+  // PO / WO number, or the expense's description. The keys stay `against` / `id` (URL-synced filters).
+  const against: AuditColumnSpec = { key: "against", label: "Type" };
+  const id: AuditColumnSpec = { key: "id", label: "Against" };
+  // Non Project View has no column of its own for the expense type: it sits under the Type pill.
   const who: AuditColumnSpec[] = project
     ? [{ key: "project", label: "Project" }, { key: "vendor", label: "Vendor" }]
-    : [{ key: "expense_type", label: "Expense type" }];
+    : [];
 
   if (tab === "orders") {
     return [

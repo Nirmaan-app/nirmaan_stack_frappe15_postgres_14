@@ -31,43 +31,43 @@ const order = (over: Partial<AuditOrderRow> = {}): AuditOrderRow => ({
 
 const invoice = (over: Partial<AuditInvoiceRow> = {}): AuditInvoiceRow => ({
   against: "PO", id: "PO/001", invoice_no: "INV-1", project: "P1", project_name: "Alpha", vendor: "V1",
-  vendor_name: "Acme", expense_type: null, date: "2026-04-12", invoice_amount: 500, order_date: "2026-04-10", invoice_url: null, ...over,
+  vendor_name: "Acme", expense_type: null, description: null, date: "2026-04-12", invoice_amount: 500, order_date: "2026-04-10", invoice_url: null, ...over,
 });
 
 const payment = (over: Partial<AuditPaymentRow> = {}): AuditPaymentRow => ({
   against: "WO", id: "WO/001", project: "P1", project_name: "Alpha", vendor: "V1", vendor_name: "Acme",
-  expense_type: null, date: "2026-04-15", utr: "UTR1", amount_paid: 900, tds: 100, net_paid: 1000,
+  expense_type: null, description: null, date: "2026-04-15", utr: "UTR1", amount_paid: 900, tds: 100, net_paid: 1000,
   is_gst_payment: false, order_date: "2026-03-01", ...over,
 });
 
 describe("column sets per view and tab (exact order and labels, no status column)", () => {
   it("Orders, project view", () => {
     expect(labels("project", "orders")).toEqual([
-      "Against", "PO / WO ID", "Project", "Vendor", "Created date", "Excl. GST", "GST", "Incl. GST", "Total Invoiced",
+      "Type", "Against", "Project", "Vendor", "Created date", "Excl. GST", "GST", "Incl. GST", "Total Invoiced",
     ]);
   });
 
   it("Invoices, project view", () => {
     expect(labels("project", "invoices")).toEqual([
-      "Against", "PO / WO / Expense ID", "Invoice No.", "Project", "Vendor", "Invoice date", "Invoice Amount",
+      "Type", "Against", "Invoice No.", "Project", "Vendor", "Invoice date", "Invoice Amount",
     ]);
   });
 
-  it("Invoices, non-project view swaps Project + Vendor for Expense type", () => {
+  it("Invoices, non-project view has no Project / Vendor (the expense type sits under the Type pill)", () => {
     expect(labels("nonproject", "invoices")).toEqual([
-      "Against", "Expense ID", "Invoice No.", "Expense type", "Invoice date", "Invoice Amount",
+      "Type", "Against", "Invoice No.", "Invoice date", "Invoice Amount",
     ]);
   });
 
   it("Payments, project view", () => {
     expect(labels("project", "payments")).toEqual([
-      "Against", "PO / WO / Expense ID", "Project", "Vendor", "Payment date", "UTR / Ref", "Amount Paid", "TDS", "Net Paid",
+      "Type", "Against", "Project", "Vendor", "Payment date", "UTR / Ref", "Amount Paid", "TDS", "Net Paid",
     ]);
   });
 
   it("Payments, non-project view: UTR reads Payment ref", () => {
     expect(labels("nonproject", "payments")).toEqual([
-      "Against", "Expense ID", "Expense type", "Payment date", "Payment ref", "Amount Paid", "TDS", "Net Paid",
+      "Type", "Against", "Payment date", "Payment ref", "Amount Paid", "TDS", "Net Paid",
     ]);
   });
 
@@ -85,7 +85,7 @@ describe("column sets per view and tab (exact order and labels, no status column
     }
   });
 
-  it("there is no type-switch column: Against is always first, so the facet replaces the toggle", () => {
+  it("there is no type-switch column: Type is always first, so its facet replaces the toggle", () => {
     expect(auditColumnSpecs("project", "payments")[0].key).toBe("against");
     expect(auditColumnSpecs("nonproject", "invoices")[0].key).toBe("against");
   });

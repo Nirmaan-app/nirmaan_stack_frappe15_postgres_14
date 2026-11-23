@@ -9,10 +9,12 @@
         -> orders:   [{against: "PO"|"WO", id, project, project_name, vendor, vendor_name, date,
                        excl_gst, gst, incl_gst, total_invoiced}, ...]           ([] for view="nonproject")
         -> invoices: [{against: "PO"|"WO"|"Project Expense"|"Non-Project Expense", id, invoice_no,
-                       project, project_name, vendor, vendor_name, expense_type, date, invoice_amount,
-                       order_date}, ...]
-        -> payments: [{against, id, project, project_name, vendor, vendor_name, expense_type, date, utr,
-                       amount_paid, tds, net_paid, is_gst_payment, order_date}, ...]
+                       project, project_name, vendor, vendor_name, expense_type, description, date,
+                       invoice_amount, order_date}, ...]
+        -> payments: [{against, id, project, project_name, vendor, vendor_name, expense_type, description,
+                       date, utr, amount_paid, tds, net_paid, is_gst_payment, order_date}, ...]
+        `description` is an expense's own description (None on a PO / WO row): the table's Against column
+        shows it in place of the expense's record name, as the Payments page does.
         sorted by date (blank last), then id. Every row carries every key of its tab, None where it does
         not apply; money is float, dates are "YYYY-MM-DD".
 
@@ -65,9 +67,9 @@ CHILD_BATCH = 2000
 ORDER_KEYS = ("against", "id", "project", "project_name", "vendor", "vendor_name", "date",
               "excl_gst", "gst", "incl_gst", "total_invoiced")
 INVOICE_KEYS = ("against", "id", "invoice_no", "project", "project_name", "vendor", "vendor_name",
-                "expense_type", "date", "invoice_amount", "order_date", "invoice_url")
+                "expense_type", "description", "date", "invoice_amount", "order_date", "invoice_url")
 PAYMENT_KEYS = ("against", "id", "project", "project_name", "vendor", "vendor_name", "expense_type",
-                "date", "utr", "amount_paid", "tds", "net_paid", "is_gst_payment", "order_date")
+                "description", "date", "utr", "amount_paid", "tds", "net_paid", "is_gst_payment", "order_date")
 
 
 @frappe.whitelist(methods=["GET"])
@@ -188,11 +190,13 @@ def _expense_invoices(doctype, against, start, end):
     expenses = frappe.get_all(
         doctype,
         filters=[["status", "=", "Paid"], *_date_between("invoice_date", start, end)],
-        fields=["name", "type", "invoice_date", "invoice_ref", "amount", "invoice_attachment", *project_fields],
+        fields=["name", "type", "description", "invoice_date", "invoice_ref", "amount", "invoice_attachment",
+                *project_fields],
     )
     return [
         {"against": against, "id": e.name, "invoice_no": e.invoice_ref.strip(), "project": e.get("projects"),
-         "vendor": e.get("vendor"), "expense_type": e.type, "date": _day(e.invoice_date),
+         "vendor": e.get("vendor"), "expense_type": e.type, "description": _text(e.description),
+         "date": _day(e.invoice_date),
          "invoice_amount": flt(e.amount), "invoice_url": e.invoice_attachment or None}
         for e in expenses
         if e.invoice_date and (e.invoice_ref or "").strip()  # `"is", "set"` on a Date breaks on Postgres
@@ -253,11 +257,12 @@ def _expense_payments(doctype, against, start, end):
     expenses = frappe.get_all(
         doctype,
         filters=[["status", "=", "Paid"], *_date_between("payment_date", start, end)],
-        fields=["name", "type", "payment_date", "payment_ref", "amount", *project_fields],
+        fields=["name", "type", "description", "payment_date", "payment_ref", "amount", *project_fields],
     )
     return [
         {"against": against, "id": e.name, "project": e.get("projects"), "vendor": e.get("vendor"),
-         "expense_type": e.type, "date": _day(e.payment_date), "utr": e.payment_ref,
+         "expense_type": e.type, "description": _text(e.description), "date": _day(e.payment_date),
+         "utr": e.payment_ref,
          "amount_paid": flt(e.amount), "tds": None, "net_paid": flt(e.amount), "is_gst_payment": False}
         for e in expenses
     ]
@@ -327,6 +332,11 @@ def _creation_between(start, end):
     return _date_between(
         "creation", start and f"{start} 00:00:00", end and f"{end} 23:59:59.999999"
     )
+
+
+def _text(value):
+    """A trimmed text value, or None when blank."""
+    return (value or "").strip() or None
 
 
 def _day(value):
