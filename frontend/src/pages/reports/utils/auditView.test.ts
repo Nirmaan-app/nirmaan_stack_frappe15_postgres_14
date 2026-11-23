@@ -50,13 +50,13 @@ describe("column sets per view and tab (exact order and labels, no status column
 
   it("Invoices, project view", () => {
     expect(labels("project", "invoices")).toEqual([
-      "Type", "Against", "Invoice No.", "Project", "Vendor", "Invoice date", "Invoice Amount",
+      "Type", "Invoice No.", "Against", "Project", "Vendor", "Invoice date", "Invoice Amount",
     ]);
   });
 
   it("Invoices, non-project view has no Project / Vendor (the expense type sits under the Type pill)", () => {
     expect(labels("nonproject", "invoices")).toEqual([
-      "Type", "Against", "Invoice No.", "Invoice date", "Invoice Amount",
+      "Type", "Invoice No.", "Against", "Invoice date", "Invoice Amount",
     ]);
   });
 

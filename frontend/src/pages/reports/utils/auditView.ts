@@ -8,7 +8,7 @@ import { formatToCompactRupee } from "@/utils/FormatPrice";
  * `api/reports/audit_view.get_audit_view_rows`; every key is always present, null where n/a.
  */
 
-/** The Report Type select: "All Project View" → project, "Non Project View" → nonproject. */
+/** The Report Type select: "Projects Data" (value "All Project View") → project, "Non Projects Data" ("Non Project View") → nonproject. */
 export type AuditView = "project" | "nonproject";
 export type AuditTab = "orders" | "invoices" | "payments";
 export type AuditAgainst = "PO" | "WO" | "Project Expense" | "Non-Project Expense";
@@ -191,9 +191,9 @@ export const auditColumnSpecs = (view: AuditView, tab: AuditTab): AuditColumnSpe
   }
   if (tab === "invoices") {
     return [
-      against, id,
+      against,
       { key: "invoice_no", label: "Invoice No." },
-      ...who,
+      id, ...who,
       { key: "date", label: "Invoice date" },
       { key: "invoice_amount", label: "Invoice Amount" },
     ];
