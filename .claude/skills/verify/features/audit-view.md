@@ -23,7 +23,7 @@ Last walked (walk_audit_view.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 - **Whole walk.** `python3 -I BIN/walk_audit_view.py <env> <out dir>`. It reads the FY 26-27 summary from the env
   DB first (`<out dir>/db/`), walks the report as an unlocked Admin, then opens Reports as an Accountant, an Accountant
   Lead, a Procurement Lead and a PMO. Parts: `audit_admin`, `audit_roles`; a part run leaves the stamp alone.
-- **Tab counts.** `get_by_role("tab")`; each reads `Orders 1,702` at desktop width (a phone shows `1.7K`).
+- **Tab counts.** `get_by_role("tab")`; each reads `Orders 1,234` at desktop width (a phone shows `1.2K`).
 - **Payments figures.** The page text holds `AMOUNT PAID ₹… + TDS ₹… = NET PAID ₹…`.
 
 ## Gotchas
@@ -31,5 +31,5 @@ Last walked (walk_audit_view.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 - The date box says `ALL` before a range is picked, yet the tabs stay locked until one is: pick a preset.
 - The date picker's Apply stays disabled after a preset: press Escape.
 - The screen rounds Amount Paid, TDS and Net Paid each to the rupee, so the shown sum can be ₹1 off the shown
-  Net Paid (on the 2026-11-17 backup: ₹11,58,07,752 + ₹1,88,030 shown against ₹11,59,95,783). The walk holds the
+  Net Paid (for example ₹100.40 + ₹0.40 shows as ₹100 + ₹0 against ₹101). The walk holds the
   formula to the server's figures in paise.
