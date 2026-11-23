@@ -17,6 +17,9 @@ import { AuditViewTable } from "./audit-view/AuditViewTable";
 import { InfoTip } from "./audit-view/InfoTip";
 import { AUDIT_TAB_META, AUDIT_TAB_PARAM, AUDIT_TABS, AuditTab, AuditView, auditRangeLabel, auditTabSources, isAuditTabDisabled, resolveAuditTab, toAuditApiDate } from "../utils/auditView";
 
+/** Step 1 before any pick: an empty range, which the shared filter shows as "Pick a date range". */
+const NO_RANGE_PICKED: DateRange = { from: undefined };
+
 interface AuditViewReportProps {
   view: AuditView;
 }
@@ -97,7 +100,15 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
         {/* The shared filter prints its own "Selected Date Range:" label (its root's first child); the step
             title already says it, so it is hidden here. components/ui is not hand-edited. */}
         <div className={cn("w-fit rounded-md [&>div>div:first-child]:hidden", !rangeChosen && "ring-2 ring-red-500/40 ring-offset-2")}>
-          <StandaloneDateFilter value={dateRange} onChange={handleDateChange} onClear={handleDateClear} />
+          {/* Until a range is picked here, the box shows "Pick a date range", not the shared default ALL:
+              an empty value reads as ALL in the shared filter, and ALL would look picked while the tabs stay
+              locked. Picking ALL (or Reset) marks the range chosen, and the box then shows ALL. */}
+          <StandaloneDateFilter
+            value={rangeChosen ? dateRange : NO_RANGE_PICKED}
+            onChange={handleDateChange}
+            onClear={handleDateClear}
+            className={cn(!rangeChosen && "text-muted-foreground")}
+          />
         </div>
       </Step>
       {/* Step 2 is its own line; its tabs sit directly below it. */}
