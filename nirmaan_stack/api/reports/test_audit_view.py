@@ -132,9 +132,9 @@ class AuditViewFixture(FrappeTestCase):
 
     @classmethod
     def _expense(cls, doctype, amount, status="Paid", invoice_date=IN, invoice_ref="INV-1", payment_date=IN,
-                 **values):
+                 untyped=False, **values):
         project = {"projects": cls.project, "vendor": cls.vendor} if doctype == PE else {}
-        expense_type = cls.project_type if doctype == PE else cls.non_project_type
+        expense_type = None if untyped else cls.project_type if doctype == PE else cls.non_project_type
         return cls._insert(doctype, status=status, type=expense_type, amount=amount, invoice_date=invoice_date,
                            invoice_ref=invoice_ref, payment_date=payment_date,
                            payment_ref=f"{PREFIX}-REF-{amount}", **project, **values)
@@ -193,6 +193,11 @@ class AuditViewFixture(FrappeTestCase):
         c.npe_blank_ref = c._expense(NPE, 851, invoice_ref=" ")
         c.npe_no_date = c._expense(NPE, 852, invoice_date=None)
         c.npe_pending = c._expense(NPE, 853, status="Reconciliation Pending")
+        # Made from an approved reimbursement claim: no expense type, a link to the claim.
+        c.npe_reimbursement = c._expense(NPE, 870, invoice_ref="REIMB-INV-1", untyped=True,
+                                         reimbursement=f"{PREFIX}-REIMB-1",
+                                         description="Travel · Site visit · Claimant: Test User · [REIMB-1]")
+        c.npe_untyped = c._expense(NPE, 871, invoice_ref="NPE-INV-UNTYPED", untyped=True)
 
     # ── reading ─────────────────────────────────────────────────────────────
 
@@ -459,6 +464,28 @@ class Summary(AuditViewFixture):
         mine = self._by("utr", "project", "payments")
         self.assertGreaterEqual(summary["payments"]["count"], len(mine))
         self.assertGreaterEqual(summary["payments"]["tds"], 766.5)
+
+
+class ReimbursementType(AuditViewFixture):
+    def test_a_reimbursement_expense_reads_reimbursement_as_its_type_on_both_tabs(self):
+        for tab in ("invoices", "payments"):
+            with self.subTest(tab):
+                rows = {r["id"]: r for r in get_audit_view_rows("nonproject", tab, FROM, TO)}
+                self.assertEqual(rows[self.npe_reimbursement]["expense_type"], "Reimbursement")
+                self.assertEqual(rows[self.npe_reimbursement]["description"],
+                                 "Travel · Site visit · Claimant: Test User · [REIMB-1]")
+
+    def test_only_a_missing_type_with_a_claim_is_labelled(self):
+        for tab in ("invoices", "payments"):
+            with self.subTest(tab):
+                rows = {r["id"]: r for r in get_audit_view_rows("nonproject", tab, FROM, TO)}
+                # No type and no claim stays blank; an expense with its own type keeps it.
+                self.assertIsNone(rows[self.npe_untyped]["expense_type"])
+                self.assertEqual(rows[self.npe_ok]["expense_type"], self.non_project_type)
+
+    def test_nothing_is_stored(self):
+        get_audit_view_rows("nonproject", "payments", FROM, TO)
+        self.assertIsNone(frappe.db.get_value(NPE, self.npe_reimbursement, "type"))
 
 
 class Refusals(AuditViewFixture):
