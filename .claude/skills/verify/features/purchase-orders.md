@@ -11,7 +11,7 @@ Upload Test Certificate, Preview).
 - `po-open` a PO id link opens its page: PO Details, AMOUNTS, TIMELINE, the action buttons, Order Details.
 - `po-figures` the page's status and Total Amount Paid match the database.
 - `po_date` a PO with an Approved PO Revision shows `Revised PO Date: <latest approval date>` in its Preview and in
-  the downloaded PDF; a PO never revised shows `PO Date: <creation date>` (#1731).
+  both downloaded PDFs; a PO never revised shows `PO Date: <creation date>` (#1731).
 
 ## How to get to it (user POV)
 
@@ -37,7 +37,7 @@ Preconditions:
 - **Revised PO Date.** Run `python3 -I BIN/walk_revised_po_date.py <env> <out dir>`. It picks the latest PO revised
   on a later day than it was made and the latest Delivered PO never revised, reads both dates from the env DB, and
   as an unlocked Admin opens each from `All POs` (search by `PO ID`), then `Preview`; it downloads the revised PO's
-  PDF with `Download`, renders page 1 as a step and finds the date in its text.
+  PDFs with `Download` and `Download Without Rate`, renders page 1 of each as a step and finds the date in its text.
 - **Check the figures.** Run `DEVENV script <task> BIN/po_db.py <po id> > "<evidence>/db.txt"`. Its `status` equals
   the page's STATUS, and its `amount_paid`, rounded to the rupee, equals Total Amount Paid.
 

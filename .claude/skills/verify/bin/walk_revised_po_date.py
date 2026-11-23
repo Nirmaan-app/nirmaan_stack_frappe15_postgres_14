@@ -20,7 +20,7 @@ fw = FeatureWalk("Revised PO Date", "purchase-orders.md")
 w = fw.w
 w.change("po_date", "PO preview and PDFs › Revised PO Date",
          "A PO with an Approved PO Revision shows \"Revised PO Date\" = the latest approval date in its preview and "
-         "PDF; a never-revised PO still shows \"PO Date\" = its creation date.")
+         "PDFs (with and without rates); a never-revised PO still shows \"PO Date\" = its creation date.")
 
 facts = fw.db("facts", r'''
 LIVE = ("Merged", "Cancelled", "Inactive", "PO Amendment")
@@ -64,19 +64,22 @@ def po_date() -> None:
         shown = header_date(page)
         want = f"Revised PO Date: {facts['rev_date']}"
         w.check("po_date", role, f"preview shows \"{want}\" (DB: latest approved revision)", shown, shown == want)
-        with page.expect_download(timeout=180_000) as d:
-            w.step(page, "po_date", "after", role, user, f"The preview's header: \"{shown}\". Download the PDF.",
-                   click=page.get_by_role("button", name="Download", exact=True).first,
-                   pins=[pin(page.get_by_text(re.compile(r"PO Date:")).first.locator(".."), "Revised PO Date", "info")])
-        pdf = fw.out / "files" / "po-orders.pdf"
-        pdf.parent.mkdir(parents=True, exist_ok=True)
-        d.value.save_as(str(pdf))
-        view, box, text, pages = show_pdf(page, pdf, "Revised PO Date")
-        found = want in text.replace("\r", "")
-        w.check("po_date", role, f"the downloaded PDF says \"{want}\"", "found" if found else "not found", found)
-        w.step(view, "po_date", "after", role, user, f"Page 1 of the downloaded PDF ({pages} pages), rendered as an image.",
-               pins=[pin(box, want, "info")] if box else [])
-        view.close()
+        for button, file in (("Download", "po-orders.pdf"), ("Download Without Rate", "po-orders-without-rate.pdf")):
+            with page.expect_download(timeout=180_000) as d:
+                w.step(page, "po_date", "after", role, user, f"The preview's header: \"{shown}\". Click {button}.",
+                       click=page.get_by_role("button", name=button, exact=True).first,
+                       pins=[pin(page.get_by_text(re.compile(r"PO Date:")).first.locator(".."), "Revised PO Date",
+                                 "info")])
+            pdf = fw.out / "files" / file
+            pdf.parent.mkdir(parents=True, exist_ok=True)
+            d.value.save_as(str(pdf))
+            view, box, text, pages = show_pdf(page, pdf, "Revised PO Date")
+            found = want in text.replace("\r", "")
+            w.check("po_date", role, f"the {button} PDF says \"{want}\"", "found" if found else "not found", found)
+            w.step(view, "po_date", "after", role, user,
+                   f"Page 1 of the {button} PDF ({pages} pages), rendered as an image.",
+                   pins=[pin(box, want, "info")] if box else [])
+            view.close()
 
         po = facts["plain_po"]
         open_po(page, po, facts["plain_project"])
