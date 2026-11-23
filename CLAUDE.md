@@ -28,11 +28,6 @@ Three standards fail silently when broken, so they are summarised here too (full
 
 ## Session workflow
 
-- **Before implementing anything, ask the owner where it runs: laptop or desktop.** Then run
-  `bash scripts/env_sync/env_sync.sh status` and act on its verdict. **Desktop chosen:** delegate. Write the brief,
-  run `session-start`, then `session-wait --pull-back` in the background; relay any `BLOCKED` question to the owner and
-  answer it with `session-send`. On the desktop (hostname `DESKTOP-4RMALAH`), skip the question: the laptop has already
-  handed over. The loop, the delegation protocol and recovery: `docs/agents/environments.md`.
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
   (`--comments` alone prints only the comments, never the body).
@@ -43,8 +38,8 @@ Three standards fail silently when broken, so they are summarised here too (full
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
   `python3 scripts/residence_check.py --hook` before each commit.
-- **Never push to GitHub, and never close issues.** The user does both, by hand, from the laptop. Moving commits
-  between the laptop and the desktop with `env_sync.sh` is not a push. The desktop never pushes anywhere.
+- **Never push to GitHub, and never close issues.** The user does both, by hand, from the laptop. The desktop never
+  pushes anywhere.
 - **Per ticket, run the affected test modules, not the whole app.** This overrides `/implement`'s "full test suite
   once at the end". Affected means: the test modules of the package you changed, every test module that imports
   a module you changed (`grep -rln "<dotted.package.path>" nirmaan_stack --include='test_*.py'`; grep the
@@ -160,7 +155,7 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
-- **Environments:** the laptop / desktop loop and `scripts/env_sync/env_sync.sh`. See `docs/agents/environments.md`.
+- **Environments:** the owner's two-machine tools (the laptop / desktop loop, `env_sync.sh`) live outside this repository, in `C:\nirmaan_tools` on the owner's two machines; dev2's own facts: `docs/agents/environments.md`.
 - **Verification:** `.claude/skills/verify/` drives this checkout's own dev env (`scripts/devenv/devenv.sh`) as a role
   user and saves evidence. Its feature map (`features/`) is updated in the same commit as a change that alters how a
   mapped feature is reached or proven. When `verify`'s `bin/doctor.sh` warns that the map is over 30 days old, ask
