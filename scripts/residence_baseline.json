@@ -70,7 +70,7 @@
     "rule": "T2"
   },
   "w1_walks_not_graduated": {
-    "count": 14,
+    "count": 0,
     "description": "Gaps in the graduation of merged PR walks (.claude/skills/pr-walk/bin/walk_pr_<n>.py): a claimed change with no walk or skip reason in .claude/skills/verify/features/graduated.json, or a named walk that is missing, unlisted in the features README, bound to a PR env, or without a passing Last walked stamp in its feature file.",
     "rule": "W1"
   }

@@ -1,1 +1,20 @@
-{}
+{
+ "1731": {
+  "mu_ordered": "walk_material_usage.py",
+  "mu_numbers": "walk_material_usage.py",
+  "mu_docs": "walk_material_usage.py",
+  "mu_powise": "walk_material_usage.py",
+  "wo_pdf": "walk_vendor_work_orders.py",
+  "wo_links": "walk_vendor_work_orders.py",
+  "mtc": "walk_mtc.py",
+  "po_date": "walk_revised_po_date.py",
+  "msme": "walk_vendor_msme.py",
+  "msme_read": "skip: an env cannot read the certificate: its Document AI key, copied from production, is refused by Google (401 API key not valid), and no one adds a key to an env; walk_vendor_msme.py still tries the read each run and reports it not walked with the server's answer"
+ },
+ "1732": {
+  "audit": "walk_audit_view.py",
+  "payments": "walk_vendor_payments.py",
+  "cheques": "walk_vendor_cheques.py",
+  "pmo": "walk_vendor_cheques.py"
+ }
+}
