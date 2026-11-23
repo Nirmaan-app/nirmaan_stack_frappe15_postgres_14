@@ -153,8 +153,10 @@ export interface DCMIRWiseDisplayItem {
   documentName: string;
   referenceNumber: string;
   dcReference?: string;
-  poNumber: string;
-  vendorName: string;
+  /** What the DC / MIR is filed against: a Procurement Order or an incoming Internal Transfer Memo. */
+  type: OrderSourceType;
+  poNumber: string;             // the PO or ITM id
+  vendorName: string;           // the PO's vendor, or "From <source project>" / "From Warehouse" for an ITM
   dcDate?: string;
   creation?: string;   // system upload timestamp (when the DC/MIR row was keyed in)
   billingCategory: string;

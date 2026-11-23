@@ -5,7 +5,7 @@ import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
 import { orderPaymentStatus } from '@/utils/projects/projectPaid';
 import { DCMIRItemDisplay, DCMIRWiseDisplayItem, DeliveryDocumentInfo, DeliveryStatus, ItemITMEntry, MaterialUsageDisplayItem, OrderSourceType, OverallItemPOStatus, POStatus, POWiseChildItem, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
-import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
+import { determineDeliveryStatus, determineOverallItemPOStatus, itmDeliveryLookups, itmSourceName } from '../config/materialUsageHelpers';
 import { PODeliveryDocuments } from '@/types/NirmaanStack/PODeliveryDocuments';
 import formatToIndianRupee from "@/utils/FormatPrice";
 const safeParseFloat = (value: string | number | undefined | null, defaultValue = 0): number => {
@@ -26,10 +26,6 @@ const addItemDoc = (list: DeliveryDocumentInfo[], docInfo: DeliveryDocumentInfo,
 };
 
 const ITM_DOCTYPE = "Internal Transfer Memo";
-
-/** Where an ITM's material comes from, shown as "From <source>": its source project, or "Warehouse". */
-const itmSourceName = (i: TransferSummaryITM): string =>
-  i.source_project_name || (i.source_type === "Warehouse" ? "Warehouse" : "");
 
 // An ITM has no payments: it counts as paid once Delivered, unpaid before that.
 const itmPaidStatus = (itmStatus: string): POStatus => itmStatus === "Delivered" ? "Fully Paid" : "Unpaid";
@@ -685,9 +681,12 @@ export function useMaterialUsageData(projectId: string) {
       if (item.billing_status) poItemBillingMap.set(key, item.billing_status);
     });
 
+    // ITM-filed DCs / MIRs are listed too, beside the PO ones. An ITM's "DN Qty" is its received quantity
+    // per item, and its vendor is where the material came from, from the transfer summary.
+    const itmLookups = itmDeliveryLookups(transferData?.message?.data || {});
+
     for (const doc of docs) {
-      // DC Wise / MIR Wise stay PO-only (ITM-filed docs are loaded for the Item-wise and PO-wise views).
-      if (doc.parent_doctype === ITM_DOCTYPE) continue;
+      const isITM = doc.parent_doctype === ITM_DOCTYPE;
       const isStub = doc.is_stub === 1;
       const poId = doc.parent_docname || doc.procurement_order || "";
 
@@ -698,7 +697,9 @@ export function useMaterialUsageData(projectId: string) {
           itemName: item.item_name,
           category: item.category || "",
           unit: item.unit,
-          receivedQuantity: poItemReceivedMap.get(recvKey) || 0,
+          receivedQuantity: isITM
+            ? itmLookups.receivedQty.get(`${poId}_${item.item_id}`) || 0
+            : poItemReceivedMap.get(recvKey) || 0,
           quantity: item.quantity || 0,
           make: item.make,
           billingCategory: resolveBillingCategory(item.item_id, item.category || "", poItemBillingMap.get(recvKey)),
@@ -715,8 +716,9 @@ export function useMaterialUsageData(projectId: string) {
         documentName: doc.name,
         referenceNumber: doc.reference_number || doc.name,
         dcReference: doc.dc_reference,
+        type: isITM ? "ITM" : "PO",
         poNumber: poId,
-        vendorName: vendorByPO.get(poId) || "",
+        vendorName: isITM ? itmLookups.fromLabel.get(poId) || "" : vendorByPO.get(poId) || "",
         dcDate: doc.dc_date,
         creation: doc.creation,
         billingCategory: isStub ? "N/A" : docBillingCategory,
@@ -737,7 +739,7 @@ export function useMaterialUsageData(projectId: string) {
     }
 
     return { dcWiseItems: dcItems, mirWiseItems: mirItems };
-  }, [poDeliveryDocsData, billingCategoryMap, vendorByPO, allPoItems]);
+  }, [poDeliveryDocsData, billingCategoryMap, vendorByPO, allPoItems, transferData]);
 
   // --- Generate Filter Options ---
   const categoryOptions = useMemo(() => {
