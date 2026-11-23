@@ -693,6 +693,406 @@
    "from": null,
    "to": "Type the number of VAVs to price this item.",
    "why": "R3 h: the Calculator has no sheet"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "rule"
+   ],
+   "from": null,
+   "to": {
+    "item_words": "\\bvav\\w*|\\bcav\\b|variable\\s+air\\s+volume|constant\\s+air\\s+volume",
+    "install_start": "^\\s*(?:install\\w*|instal\\w*|i\\.?\\s*t\\.?\\s*c\\b|fixing|erection|mounting)\\b",
+    "supply_start": "^\\s*(?:supply|supplying|suplly|suppy|providing|procur\\w*|sitc\\b|s\\.i\\.t\\.c)",
+    "supply_of": "^\\s*(?:supply|supplying|suplly)\\b(?![^.;|\\n]*?\\b(?:install\\w*|instal\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
+    "existing_words": "\\bexist\\w*|\\bexisiting\\b|\\bre-?fix\\w*|\\bre[\\s-]?install\\w*|\\bdismantl\\w*",
+    "by_others": "\\b(?:3rd|third)\\s+party\\s+suppl\\w*|\\bsuppl\\w*\\s+by\\s+(?:others|the\\s+client|client|the\\s+owner|owner|third\\s+party|3rd\\s+party)|\\bfree\\s+issue|\\b(?:client|owner)[-\\s]suppl\\w*",
+    "install_only_words": "\\binstall\\w*\\s+only\\b|\\bi\\.?\\s*t\\.?\\s*c\\.?\\s+only\\b|\\bonly\\s+install\\w*",
+    "supply_only_words": "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b",
+    "box_families": [
+     "VAV box"
+    ],
+    "install_family": "VAV installation - any size",
+    "threshold_input": "vav_own_row_threshold",
+    "needs_installing": {
+     "attr": "needs_installing",
+     "no": "No",
+     "reason_attr": "no_install_reason"
+    },
+    "notes": {
+     "A": "Priced as Supply + installation. The BoQ says 'supply of', but no separate installation row for this item was found on this sheet. Change the scope if installation is not required.",
+     "B": "Priced as Supply + installation. The BoQ says installation, but no supply row for this item was found, and it does not say the material is existing or supplied by others. Change the scope if supply is not required.",
+     "C": "Priced as Supply + installation. Row {n} looks like an installation row for this item, but it is not certain that it covers it. Check, and change the scope to Supply only if it does.",
+     "C_qty": "Priced as Supply + installation. The BoQ lists this row for supply, and installation of the VAV units is priced separately on row {n}. But row {n} is for {q_inst} units, while this sheet's VAV box rows add up to {q_box}, so installation is kept on this row. Change the scope to Supply only if required.",
+     "D": "Supply only: installation of this item is priced on row {n}. Change the scope if that row does not cover it.",
+     "E": "Installation only: supply of this item is priced on {rows}. Change the scope if those rows do not cover it.",
+     "E_qty": "Installation only: this row prices installation of {q_inst} VAV units. The VAV supply rows ({row_list}) have {q_box} units, more than this row covers, so installation is also included on those rows. Installation may be counted twice. Check, and remove it from one place if required.",
+     "F": "Installation only: the BoQ says {said}, so supply is not priced. Check before using.",
+     "F_said": {
+      "existing": "the material is existing",
+      "refix": "the work is removal and refixing",
+      "by_others": "supply is by others",
+      "install_only": "installation only"
+     },
+     "G": "Supply only: this item does not need installing ({reason}). Change the scope if installation is required.",
+     "words_supply_only": "Priced as Supply + installation. The BoQ says 'supply only', but this item needs installing and no separate installation row was found on this sheet. Change the scope if installation is not required."
+    }
+   },
+   "why": "R1 / R2: the scope rule for VAV Box and a note for every case (owner 2026-11-23 13:52 - 13:57; QR-SURE / QR-WORDS 2026-11-24 00:18 - 00:55; the DOUBT notes 00:31 - 00:32)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "panel_pick",
+    "note"
+   ],
+   "from": "Scope changed by you. The helper had chosen {helper}{because}.",
+   "to": "Scope changed by you. The helper had chosen {helper}.",
+   "why": "R2 H: 'Scope changed by you. The helper had chosen {scope}.' then what the chosen scope does (no 'BoQ says', R3 a)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions"
+   ],
+   "from": [
+    {
+     "id": "vav_item",
+     "label": "VAV item",
+     "type": "choice",
+     "values": [
+      "VAV box",
+      "VAV Integrator",
+      "BACnet over IP controller",
+      "Duct connection",
+      "Conical piece",
+      "Integrator cabling",
+      "VAV installation - any size",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item."
+    },
+    {
+     "id": "vav_item_as_written",
+     "label": "VAV item as written",
+     "type": "text",
+     "note": "The item in the BoQ's own words. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "shape",
+     "label": "Shape",
+     "type": "choice",
+     "values": [
+      "Rectangular",
+      "Oval"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Rectangular or Oval, as the BoQ states."
+    },
+    {
+     "id": "vav_type",
+     "label": "Type",
+     "type": "choice",
+     "values": [
+      "Nothing specific mentioned",
+      "AHRI Certified",
+      "AHRI Certified Imported",
+      "Imported"
+     ],
+     "allow_none": true,
+     "values_by_family": {
+      "VAV box": [
+       "Nothing specific mentioned",
+       "AHRI Certified",
+       "AHRI Certified Imported"
+      ],
+      "VAV Integrator": [
+       "Nothing specific mentioned",
+       "Imported"
+      ]
+     },
+     "note": "VAV box: Nothing specific mentioned, AHRI Certified, or AHRI Certified Imported. VAV Integrator: Nothing specific mentioned or Imported. As the BoQ states."
+    },
+    {
+     "id": "integrator_included",
+     "label": "Integrator included in this rate",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not."
+    },
+    {
+     "id": "airflow_cfm",
+     "label": "Airflow (CFM)",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow as the BoQ writes it, in CFM, e.g. '650 CFM', 'Up to 650 CFM', '500-650 CFM'; a range as written (the maximum is used). Answer 'None' if no airflow is stated. A lower limit only ('Above 3200 CFM', '3700 CFM above'): copy it with its word, e.g. 'Above 3200 CFM'."
+    },
+    {
+     "id": "inlet_size",
+     "label": "Inlet size",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the round inlet size as the BoQ writes it, in inches or mm, e.g. '8 inch', '200 mm dia'. Not a tag or item number. Answer 'None' if no inlet size is stated."
+    },
+    {
+     "id": "cfm_range",
+     "label": "Airflow band (CFM)",
+     "type": "choice",
+     "values": [
+      "0-450",
+      "450-800",
+      "800-1350",
+      "1350-2100",
+      "2100-3200",
+      "3200-4000",
+      "4000-8000"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow band of the box on the VAV Box sheet, in CFM."
+    },
+    {
+     "id": "qty_per_box",
+     "label": "Qty per box",
+     "type": "number",
+     "allow_none": true,
+     "note": "How many of this item go with one row unit (one box); for integrator cabling, the metres per box. Two of an item when the row asks for two ('two thermostats'; a piece 'on either side' = 2)."
+    },
+    {
+     "id": "scope",
+     "label": "Scope",
+     "type": "choice",
+     "values": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only"
+     ],
+     "allow_none": true,
+     "note": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said."
+    },
+    {
+     "id": "controller_mention",
+     "label": "Controller for the VAVs",
+     "type": "choice",
+     "values": [
+      "ddc_inclusive",
+      "ddc",
+      "bacnet",
+      "controller",
+      "none"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only. Read THIS row's whole payload (its description, its own notes and the notes of the headings above it): is a controller FOR CONTROLLING THE VAVs mentioned? Only a controller that is for controlling the VAVs counts. 'ddc_inclusive' = a DDC controller or DDC panel (the two are the same thing) is part of the VAV box or its controller and the text makes it part of the price (e.g. 'Independent DDC VAV Controller with inbuilt pressure sensor', a box 'consisting of' / 'complete with' ... a DDC controller, 'inclusive of DDC controller'). 'ddc' = a DDC controller or DDC panel is part of the VAV box or its controller but the text does not say it is included. 'bacnet' = BACnet in any form (BACnet over IP, BACnet MS/TP, BACnet alone) for the VAV box, its controller or the VAV network. 'controller' = a controller for the VAVs with neither a DDC nor a BACnet word (e.g. 'controller for receiving Temp. & DP Signal', 'required controllers for controlling all the VAVs', the VAVs 'shall communicate through a network controller'). 'none' = no controller for the VAVs. NOT counted (answer as if those words were absent): a DDC or BACnet controller of OTHER equipment (an AHU's 'BACNET/IP DDC', a 'centralised controller for VFD operation'); a line about makes ('All VAV controllers, DDC controllers ... shall be of single OEM' names no DDC for the VAVs - its BACnet controllers still count as 'bacnet' when BACnet is named for the VAVs). When more than one applies, answer the first of: ddc_inclusive, ddc, bacnet, controller."
+    },
+    {
+     "id": "controller_by_others",
+     "label": "Controller by others",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when the text says the VAV controller is supplied or installed by the BMS vendor or by others (e.g. '(VAV controllers and thermostats will be installed by the BMS vendor at site)'); otherwise 'No'."
+    },
+    {
+     "id": "dp_sensor_mention",
+     "label": "DP sensor mentioned",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when THIS row's payload mentions a DP sensor for the VAVs in any form - a differential pressure sensor, switch or transmitter, a 'DP sensor' / 'DPS', a duct static pressure sensor; every DP sensor mention counts. 'No' otherwise. A 'DP signal' alone, a pressure gauge, an air-flow monitoring station or the box's own velocity sensor is not a DP sensor."
+    }
+   ],
+   "to": [
+    {
+     "id": "vav_item",
+     "label": "VAV item",
+     "type": "choice",
+     "values": [
+      "VAV box",
+      "VAV Integrator",
+      "BACnet over IP controller",
+      "Duct connection",
+      "Conical piece",
+      "Integrator cabling",
+      "VAV installation - any size",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item."
+    },
+    {
+     "id": "vav_item_as_written",
+     "label": "VAV item as written",
+     "type": "text",
+     "note": "The item in the BoQ's own words. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "shape",
+     "label": "Shape",
+     "type": "choice",
+     "values": [
+      "Rectangular",
+      "Oval"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Rectangular or Oval, as the BoQ states."
+    },
+    {
+     "id": "vav_type",
+     "label": "Type",
+     "type": "choice",
+     "values": [
+      "Nothing specific mentioned",
+      "AHRI Certified",
+      "AHRI Certified Imported",
+      "Imported"
+     ],
+     "allow_none": true,
+     "values_by_family": {
+      "VAV box": [
+       "Nothing specific mentioned",
+       "AHRI Certified",
+       "AHRI Certified Imported"
+      ],
+      "VAV Integrator": [
+       "Nothing specific mentioned",
+       "Imported"
+      ]
+     },
+     "note": "VAV box: Nothing specific mentioned, AHRI Certified, or AHRI Certified Imported. VAV Integrator: Nothing specific mentioned or Imported. As the BoQ states."
+    },
+    {
+     "id": "integrator_included",
+     "label": "Integrator included in this rate",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not."
+    },
+    {
+     "id": "airflow_cfm",
+     "label": "Airflow (CFM)",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow as the BoQ writes it, in CFM, e.g. '650 CFM', 'Up to 650 CFM', '500-650 CFM'; a range as written (the maximum is used). Answer 'None' if no airflow is stated. A lower limit only ('Above 3200 CFM', '3700 CFM above'): copy it with its word, e.g. 'Above 3200 CFM'."
+    },
+    {
+     "id": "inlet_size",
+     "label": "Inlet size",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the round inlet size as the BoQ writes it, in inches or mm, e.g. '8 inch', '200 mm dia'. Not a tag or item number. Answer 'None' if no inlet size is stated."
+    },
+    {
+     "id": "cfm_range",
+     "label": "Airflow band (CFM)",
+     "type": "choice",
+     "values": [
+      "0-450",
+      "450-800",
+      "800-1350",
+      "1350-2100",
+      "2100-3200",
+      "3200-4000",
+      "4000-8000"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow band of the box on the VAV Box sheet, in CFM."
+    },
+    {
+     "id": "qty_per_box",
+     "label": "Qty per box",
+     "type": "number",
+     "allow_none": true,
+     "note": "How many of this item go with one row unit (one box); for integrator cabling, the metres per box. Two of an item when the row asks for two ('two thermostats'; a piece 'on either side' = 2)."
+    },
+    {
+     "id": "scope",
+     "label": "Scope",
+     "type": "choice",
+     "values": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only"
+     ],
+     "allow_none": true,
+     "note": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said."
+    },
+    {
+     "id": "controller_mention",
+     "label": "Controller for the VAVs",
+     "type": "choice",
+     "values": [
+      "ddc_inclusive",
+      "ddc",
+      "bacnet",
+      "controller",
+      "none"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only. Read THIS row's whole payload (its description, its own notes and the notes of the headings above it): is a controller FOR CONTROLLING THE VAVs mentioned? Only a controller that is for controlling the VAVs counts. 'ddc_inclusive' = a DDC controller or DDC panel (the two are the same thing) is part of the VAV box or its controller and the text makes it part of the price (e.g. 'Independent DDC VAV Controller with inbuilt pressure sensor', a box 'consisting of' / 'complete with' ... a DDC controller, 'inclusive of DDC controller'). 'ddc' = a DDC controller or DDC panel is part of the VAV box or its controller but the text does not say it is included. 'bacnet' = BACnet in any form (BACnet over IP, BACnet MS/TP, BACnet alone) for the VAV box, its controller or the VAV network. 'controller' = a controller for the VAVs with neither a DDC nor a BACnet word (e.g. 'controller for receiving Temp. & DP Signal', 'required controllers for controlling all the VAVs', the VAVs 'shall communicate through a network controller'). 'none' = no controller for the VAVs. NOT counted (answer as if those words were absent): a DDC or BACnet controller of OTHER equipment (an AHU's 'BACNET/IP DDC', a 'centralised controller for VFD operation'); a line about makes ('All VAV controllers, DDC controllers ... shall be of single OEM' names no DDC for the VAVs - its BACnet controllers still count as 'bacnet' when BACnet is named for the VAVs). When more than one applies, answer the first of: ddc_inclusive, ddc, bacnet, controller."
+    },
+    {
+     "id": "controller_by_others",
+     "label": "Controller by others",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when the text says the VAV controller is supplied or installed by the BMS vendor or by others (e.g. '(VAV controllers and thermostats will be installed by the BMS vendor at site)'); otherwise 'No'."
+    },
+    {
+     "id": "dp_sensor_mention",
+     "label": "DP sensor mentioned",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when THIS row's payload mentions a DP sensor for the VAVs in any form - a differential pressure sensor, switch or transmitter, a 'DP sensor' / 'DPS', a duct static pressure sensor; every DP sensor mention counts. 'No' otherwise. A 'DP signal' alone, a pressure gauge, an air-flow monitoring station or the box's own velocity sensor is not a DP sensor."
+    },
+    {
+     "id": "needs_installing",
+     "label": "Needs installing",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV rows only: 'No' only when the item this row pays for does not need installing at site (e.g. attic stock the BoQ names explicitly, a spare part, a loose accessory or a software licence that is only handed over), with the reason in 'Why no installing'; otherwise 'Yes'. A row that only says 'Supply of ...' is 'Yes'."
+    },
+    {
+     "id": "no_install_reason",
+     "label": "Why no installing",
+     "type": "text",
+     "allow_none": true,
+     "note": "When 'Needs installing' is 'No': a few words from the row saying why the item needs no installing (e.g. 'attic stock'). Otherwise 'None'."
+    }
+   ],
+   "why": "QR-ASK (a) + attic stock (owner 2026-11-24 00:25): point 4's question and its reason appended, first sent in VAV-2c3"
   }
  ],
  "pricing_inputs": {}

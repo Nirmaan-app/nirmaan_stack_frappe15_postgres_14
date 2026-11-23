@@ -158,6 +158,7 @@ import { SHARES_OVERRIDE_KEY, countWords, decideSheetShares, decodeShareEdits, s
 import { stubRunLineOf } from "./stubRunMark";
 import { claimNotesOf, claimedConfigOf, claimedItemsOf, matchedByHelper, type RowClaim } from "./vavClaims";
 import { scopedWarning, withScopeLines, type NotInScope } from "./scopeLines";
+import { installRowItems, scopeRuleForRow } from "./scopeRule";
 import { panelPickLead, percentOf, rateShareWords, rowsStart } from "./helperWording";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
@@ -252,6 +253,9 @@ export type RowContextWithUnit = RateHelperRowContext & {
   sheetSharesNotBox?: true;
   /** VAV-2b1 v80: on a BoQ row of a `sheet_shares` config, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
   sheetWholeRow?: { sheetVavs: number | null; qty: number | null; helperWhole?: string };
+  /** VAV-2c2 (R1 / R2): the scope rule's decision on this BoQ row (`scopeRule.ts`), set by `compute` for a config declaring
+   *  `pricing.scope.rule`; the scope step reads it in place of the model's answer. Absent everywhere else. */
+  scopeRule?: { value: string; note?: string };
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -1629,12 +1633,27 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
       // VAV-2b1 (B1 / B2): the sheet's shared items -- only a config declaring `sheet_shares`, only on a BoQ box row
       const sheetOf = !paint && !two ? vavSheetOf(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, category.category_id) : null;
-      const shareDec = !vavSheet?.existing ? sheetOf?.decision ?? null : null;
+      // VAV-2c2 (R1 / R2): the scope rule decides the row's scope and its note from the sheet (a config declaring `pricing.scope.rule`, a BoQ
+      // row); an installation row prices the installation item in place of the box (QR-SURE (d), owner 2026-11-24 00:18 "ok")
+      const extR0 = (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined;
+      const ruled = !paint && !two ? scopeRuleForRow(listSpec as never, withIns, extR0?.items as never, rowCats, items, category.category_id) : null;
+      // owner 2026-11-24 01:22 / 01:23 ("all components price move together"; "yes to both"): an installation row carries EVERY per-unit
+      // component of the box rows it covers -- the box item as the installation item, the box row's extras, its shared items at the sheet's
+      // own per-box figures (the VAVs counted as before) -- read from the first covered box row the run read
+      const boxRow = ruled?.installRow ? (ruled.boxRows ?? []).find((r) => ((extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items ?? []).length > 0) : undefined;
+      const boxExt = boxRow !== undefined ? extractionByRow.get(boxRow) as ExtractionRowWithItems : undefined;
+      const boxDec = boxRow !== undefined ? (() => {
+        const l = (withIns.sheetLines ?? []).find((x) => x.row === boxRow && x.sheet === undefined);
+        return vavSheetOf(listSpec, { ...withIns, excelRow: boxRow, description: l?.text ?? "", ownNotes: [] }, boxExt, extractionByRow, rowCats, category.category_id)?.decision ?? null;
+      })() : null;
+      const shareDec = !vavSheet?.existing ? boxDec ?? sheetOf?.decision ?? null : null;
       const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
       const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null,
         ...(claimed?.helperWhole ? { helperWhole: claimed.helperWhole } : {}) } } : {};
-      const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}) };
-      const out1v = computeItemList(category, listSpec, items, withShares, (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      const extR = ruled?.installRow && (boxExt?.items ?? extR0?.items) ? { ...(extR0 ?? {}), items: installRowItems(listSpec as never, (boxExt?.items ?? extR0!.items) as never) } as ExtractionRowWithItems : extR0;
+      const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}),
+        ...(ruled ? { scopeRule: { value: ruled.value, ...(ruled.note ? { note: ruled.note } : {}) } } : {}) };
+      const out1v = computeItemList(category, listSpec, items, withShares, extR, inRun, overrides, configOf, cableRate);
       const out1x = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
       // VAV-2c1 (R4, owner 2026-11-22 10:51 "all a", 4.1): on a claimed row the helper's rule chose the item, not the model
       const v1x = claimed ? (out1x as ItemListSuggestion).itemList : undefined;
@@ -5537,6 +5556,8 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   let value = "";
   if (forced !== undefined) value = forced;
   else if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  // VAV-2c2 (R1 / R2): the scope rule decided this BoQ row (`compute` -> `scopeRuleForRow`) -- its value, and its note in place of the BoQ one
+  else if (ctx.scopeRule) value = ctx.scopeRule.value;
   else {
     const id = spec.extras?.from_model?.scope ?? (spec.extras ? undefined : spec.scope?.model_attr);
     for (const it of id ? (ext?.items ?? []) : []) {
@@ -5714,7 +5735,10 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
   const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
+  // VAV-2c2 (R2): the rule's note on a BoQ row it decided (a scope the user picked, or the Calculator's, never carries it)
+  const ruleNote = forced === undefined && !calculator ? ctx.scopeRule?.note : undefined;
   if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
+    if (ruleNote) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ruleNote } } };
     return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
   }
   const supplyOnly = value === sc.supply_only;
@@ -5810,7 +5834,7 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
   // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
-  const note00 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
+  const note00 = ruleNote !== undefined ? ruleNote : pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
   // VAV-2c2 (R3 b): a note written to introduce the per-line working ends with a colon; with no working line after it (0% uplift) the
   // sentence ends where the text ends
   const note0 = note00 !== undefined && !points.length ? note00.replace(/:\s*$/, ".") : note00;

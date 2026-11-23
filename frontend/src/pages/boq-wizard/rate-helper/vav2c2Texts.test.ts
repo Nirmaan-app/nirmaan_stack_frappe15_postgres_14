@@ -61,8 +61,9 @@ describe("R3 a: 'BoQ says' only where the helper read the scope from the BoQ", (
     expect(n).toBe("Scope changed by you. The helper had chosen Supply + installation. Supply only: install 0 on every line of this row.");
     expect(row(V82.byId.get(VAV)!, "Supply + installation", "Supply only").scope?.note).toContain("BoQ says supply only");   // v82: the fault
   });
-  it("NEGATIVE: a BoQ row the BoQ reads as Supply only keeps 'BoQ says supply only' (the helper read it from the BoQ)", () => {
-    expect(row(cfg83(VAV), "Supply only").scope?.note).toBe("BoQ says supply only - no installation: install 0 on every line of this row.");
+  it("NEGATIVE: a BoQ row the BoQ reads as Supply only keeps 'BoQ says supply only' (the helper read it from the BoQ; VAV Box with its scope rule left out)", () => {
+    // VAV Box's own BoQ rows are decided by the scope rule from v83 on (vav2c2Rule.test.ts); the 'BoQ says' path is the one without it
+    expect(row(cfg83(VAV, (e) => e.p.includes("rule")), "Supply only").scope?.note).toBe("BoQ says supply only - no installation: install 0 on every line of this row.");
   });
 });
 
@@ -178,15 +179,20 @@ describe("R3 c / d / f: the rendered HVAC rules pages and the notes", () => {
 });
 
 describe("the v83 edits file (part 1, R3)", () => {
-  it("every edit's 'from' is what v82 holds (the harness refuses otherwise); 52 edits, each with its why", () => {
-    expect(EDITS83.configs.length).toBe(52);
-    for (const e of EDITS83.configs) expect(e.why, `${e.c} ${e.p.join("/")}`).toMatch(/^R3 /);
+  it("every edit's 'from' is what v82 holds (the harness refuses otherwise); 52 R3 edits + 3 of the scope rule, each with its why", () => {
+    expect(EDITS83.configs.filter((e) => /^R3 /.test(e.why)).length).toBe(52);
+    expect(EDITS83.configs.filter((e) => /^(R1 \/ R2|R2 H|QR-ASK)/.test(e.why)).length).toBe(3);
+    expect(EDITS83.configs.length).toBe(55);
     for (const c of new Set(EDITS83.configs.map((e) => e.c))) expect(() => cfg83(c)).not.toThrow();
   });
   it("no rate, markup or item is touched: only config texts and the declared new keys (chosen_lines, the two Calculator labels)", () => {
     const keys = EDITS83.configs.filter((e) => e.from === null).map((e) => `${e.c}:${e.p[e.p.length - 1]}`).sort();
-    expect(keys).toEqual(["hvac_ducting:chosen_lines", "hvac_valve_package:chosen_lines", "hvac_vav_box:chosen_lines", "hvac_vav_box:need_vavs_calculator", "hvac_vav_box:need_vavs_whole_calculator", "hvac_vrf:chosen_lines"]);
-    for (const e of EDITS83.configs.filter((x) => x.from !== null)) {
+    expect(keys).toEqual(["hvac_ducting:chosen_lines", "hvac_valve_package:chosen_lines", "hvac_vav_box:chosen_lines", "hvac_vav_box:need_vavs_calculator", "hvac_vav_box:need_vavs_whole_calculator", "hvac_vav_box:rule", "hvac_vrf:chosen_lines"]);
+    // the one list edit: VAV Box's reading fields, v82's list with the two point-4 fields appended (every other field byte-identical)
+    const ad = EDITS83.configs.find((e) => e.p.join("/") === "list_spec/attribute_definitions")!;
+    expect((ad.to as unknown[]).slice(0, (ad.from as unknown[]).length)).toEqual(ad.from);
+    expect((ad.to as Array<{ id: string }>).slice((ad.from as unknown[]).length).map((d) => d.id)).toEqual(["needs_installing", "no_install_reason"]);
+    for (const e of EDITS83.configs.filter((x) => x.from !== null && x !== ad)) {
       expect(typeof e.from, `${e.c} ${e.p.join("/")}`).toBe("string");
       expect(typeof e.to).toBe("string");
     }
