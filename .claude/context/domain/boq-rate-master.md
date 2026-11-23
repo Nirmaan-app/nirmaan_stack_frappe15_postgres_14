@@ -6006,3 +6006,51 @@ Every category's model request is byte-identical v81 -> v82 (test_vav2c1_keys te
   test_13: no product module imports the undo support.
 - A test harness never holds an AI key (scripts/_instruments/no_key.py; R13): `no_key()` makes every copy of get_boq_ai_api_key raise.
 - Tests: vav2c1Scope / vav2c1Texts / vav2c1Derivation / vav2c1V82 / vav2c1CodeLabels / vav2c1ScopeBox.dom, test_vav2c1_keys.
+
+## HVAC v83 - VAV-2c2 (2026-11-24) - the scope rule for VAV Box, a note for every case, the wording clean-ups
+
+v83 = v82 + ONLY the edits of ONE file, frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c2Edits.json (read by
+mint_hvac_v83_vav2c2.py, vav2c2.harness.ts and test_vav2c2_keys): PART 1 = R3 texts (52), PART 2 = VAV Box's `scope.rule`, note H, and the two
+point-4 reading fields (3). No item changes (853 byte-identical). Every category's model request is byte-identical v82 -> v83 EXCEPT
+hvac_vav_box, which moves ONLY by its two reading fields (test_vav2c2_keys test_03; the mint's own proof).
+
+### Load-bearing rules (each with the owner's words)
+- THE SCOPE RULE, RULED FOR EVERY CATEGORY, BUILT FOR VAV BOX (owner 2026-11-23 13:52: "all rows are by default supply + installation. if there
+  are matching pairs for supply and install , or one install row covering several supply only rows, thenthey canbe separate. also install
+  only is evene rarer mostly occuring only when the boq clearly mentions installing existing material, or removal and refixing kind or
+  clearly mentions supply is insomeone else's scope ... supply without installtion can occur for things whic hdont really need installtion";
+  13:56 "in vcase of doubt supply + install is the default"; 2026-11-22 20:08 "default is always supply + install and supply only and install
+  only are based on positive identification"). A category takes it by declaring `pricing.scope.rule` (frontend scopeRule.ts, PURE; wired in
+  pricingSheetHelper `compute` -> `scopeRuleForRow`; `withScopeCore` reads `ctx.scopeRule` in place of the model's scope answer, on a BoQ row
+  with its sheet only - never the Calculator, never a scope the user picked). Order: (1) work on an existing box (the existing-box rule's own
+  kinds) / supply by others / the row's own "installation only" -> Installation only, note F; (2) THE SPLIT: an installation row (any category)
+  whose own words START with installation work, name VAV / CAV (or its nearest heading does), start with no supply word and are not work on an
+  existing item, on the SAME sheet as the box rows (VAV Box rows that are not installation / existing rows) -> SURE when its quantity >= the
+  own-row threshold (Pricing Input `vav_own_row_threshold`, 0.9) x the box rows' quantity: box rows Supply only (D), the installation row
+  Installation only (E); IN DOUBT (below it, or a blank / 0 quantity): box rows Supply + installation (the owner's doubt note, or C), the
+  installation row Installation only (the owner's in-doubt note, or E) - owner 2026-11-24 00:18 "keep the VAV box row supply + install and the
+  the intsall row install only", 00:20 "a" (all four doubt sheets); (3) the model says the item needs no installing, with a reason -> Supply
+  only, G (QR-ASK (a), 00:25: "supply only can also be for attic ctock mentoipned explicitly"); (4) the row's own "supply only" is NOT read from
+  words -> Supply + installation with its note (QR-WORDS (a), 00:23 "a with appropriate notes in both cases"); (5) the default Supply +
+  installation, note A where the row's own words say "supply of", B where they start with installation, none on a plain row (13:57 "give
+  appropriate notes and disclaimrs for each case"). "Removal" counts only beside "existing" or "refix" (owner (g) 00:55).
+- THE INSTALLATION ROW CARRIES EVERY COMPONENT THE BOX ROWS GIVE UP (owner 2026-11-24 01:22 "the installation row should have also got the
+  bacnet share. all components price move together for 239"; 01:23 "yes to both"): it prices the box item as `install_family` ("VAV
+  installation - any size"), the covered box row's extras, and its shared items at the sheet's own per-box figures (the VAVs counted as
+  before), all under Installation only - on a SURE sheet the sheet total does not move (BOQ-26-00239: 14 box rows -52,496, r193 +52,496); on a
+  DOUBT sheet the installation row is priced with the same per-unit components and the box rows keep theirs (the double-count note says so).
+  Every component follows the row's scope, shares included (00:37 "b. every component for a row behaves similarly in scope").
+- THE NOTES ARE CONFIG TEXTS (`rule.notes`: A, B, C, C_qty, D, E, E_qty, F + F_said, G, words_supply_only), every number live from the sheet;
+  C_qty and E_qty are the owner's exact words (00:31 - 00:32). Note H is the scope's `panel_pick.note` without "{because}": "Scope changed by
+  you. The helper had chosen {helper}." then what the chosen scope does.
+- "BoQ SAYS" ONLY WHERE THE HELPER READ THE BoQ (R3 a, owner 2026-11-23 13:46 "a"): a scope the user picked, or the Calculator's, takes the
+  scope's `chosen_lines` texts (VAV Box, Ducting, Valve Package, VRF). Validator: config_validation `chosen_lines` / `rule`, each refused by name.
+- THE WORDING CLEAN-UPS (R3; the list chat-Claude accepted under the owner's 13:46 word, VAV-2c2_Cleanups.tsv): no mockup screen number,
+  feature-standard number or option letter quoted as the owner's words on an HVAC rules page (his words and dates stay); bare times dated from
+  the record (Ducting r1 / r7 / r10 / r55) or dropped (VRF's two supply-row notes); no colon left dangling when no working line follows; a
+  working line says its side once ("supply: supply:" was on 2,143 stored rows); the Calculator's VAV count line without "on the sheet";
+  "the 'Scope of this rate' box" on the rules pages; on an HVAC rules page a line with no ruling shows no "-- why: reason not recorded"
+  clause (owner 2026-11-24 00:18 "ok to remove", replacing ADP-4a D1 for these lines; the reason field keeps it for the coverage guard).
+- THE REPLAY HAS NO SHEET (found 2026-11-24): scripts/_instruments/ac7v2_harness.ts passes no sheetLines / rowQuantities / sheetCategories,
+  so no sheet rule (existing boxes, own rows, shares, the split) is in it. A sheet-aware replay of the stored VAV sheets (the page's own
+  buildRowContext, the run id) is what proves a sheet rule (VAV-2c2 scratch: vav_sheet_replay.ts).

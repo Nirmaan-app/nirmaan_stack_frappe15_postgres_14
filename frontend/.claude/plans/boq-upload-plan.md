@@ -52319,3 +52319,24 @@ As built (figures and counts: the report `BoQ main lane\VAV-2c1\<date>_VAV-2c1_R
   pins K2-A, K2-B, K2-C (C1, C2), K2-E, K2-F, the served-prices fixture K2-D.
 - The cert C1 - C13 (panel and Calculator, three scopes, four categories) PASS; open findings for the owner: the "Installation only" note's
   trailing colon when the uplift is 0%; a VRF note carrying "(owner 11:50 / 11:55)"; the rules page calling the box "the BoQ scope".
+
+## Slice VAV-2c2 (desktop) - the scope rule for VAV Box with a note for every case, the wording clean-ups, the "Use this value" test + HVAC v83 - 2026-11-24
+
+No model call. The owner's scope rule (2026-11-23 13:52 - 13:57) built for VAV Box, with his answers of 2026-11-24 00:18 - 01:25 (QR-SURE, QR-WORDS,
+QR-ASK, QR-S, (d) - (g), the DOUBT-sheet notes, "every component under the scope", "the installation row carries every component"); R3
+wording clean-ups (chat-Claude's list under his 13:46 word, VAV-2c2_Cleanups.tsv; the ADP clause by his own 00:18 "ok to remove").
+
+As built (figures and counts: the report `BoQ main lane\VAV-2c2\<date>_VAV-2c2_Report.md`):
+- K1a 5eb90318a - the R3 code: the scope note of a user's / the Calculator's scope (`scope.chosen_lines`), the 0% colon, the doubled side prefix
+  on working lines, the Calculator's VAV count line, ADP's "reason not recorded" clause off, "the 'Scope of this rate' box"; R4 / T6 the
+  "Use this value" DOM test; vav2c2Texts; the edits file part 1.
+- K1b b1e5d4bc6 - scopeRule.ts (shared, wired by `pricing.scope.rule`, VAV Box only) and its wiring in pricingSheetHelper (the installation row prices
+  the installation item + the covered box row's extras and shared items); vav2c2Rule (T1 - T3, to the rupee); the edits file part 2.
+- K2 fe21d88f2 - HVAC v83 (sha256 bafd6d26; no item changed), mint_hvac_v83_vav2c2.py, the validators, parityMaster.json, the version pins
+  (PIN K2-A, 78 lines), the undo chain for older comparisons (vav2c2_undo_support.py / vav2c2Edits.harness.ts), test_vav2c2_keys, vav2c2V83.
+- K3 - docs (this entry; boq-rate-master.md "HVAC v83").
+- v83 loaded on the desktop 2026-11-24 02:13 (batch rmbulk-5c7c5a28d29a, verify 0 / 0 / 0) after a proved backup
+  (vav2c2_pre_v83_20261124_021118.dump). Capture log unchanged; the 11 stub runs and the amber line as before.
+- PF1: the standard replay (33,556 rows x 2) moves 0 figures (it has no sheet); the sheet-aware replay of the 11 stored sheets moves 17
+  figures = the ruled list: BOQ-26-00239 box rows Supply only (-52,496) and r193 0 / 3,088 (+52,496, sheet net 0); BOQ-26-00313 r183 0 / 2,900
+  (+95,700, DOUBT); BOQ-26-00218 HVAC-2F r162 0 / 3,000 (+9,600, DOUBT).
