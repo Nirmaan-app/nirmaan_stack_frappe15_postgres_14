@@ -46,12 +46,23 @@ A merged PR's walk (`.claude/skills/pr-walk/bin/walk_pr_<n>.py`) graduates into 
 to `skip: <reason>`. Each such walk ends with `w.finish(<feature file>)`, which writes `Last walked (<script>): <date>
 UTC at <commit>, passed.` (or `failed.`) into its feature file before the first `##` section. Residence check W1
 refuses a commit or merge that brings in a merged walk with a claim left out, or a named walk with no passing stamp.
+`BIN/feature_walk.py` holds what such walks share: `<env> <out dir> [function ...]` arguments, records and expected
+figures read from the env DB at the start, an unlocked user per role with a password set on the env only, the ways
+into a project and a PO, and a `finish` that stamps only a run of every function.
 
 ## Features
 
 - [Login and the app access gate](./login-and-access-gate.md): signing in, the role landing page, the lock card.
 - [Purchase Orders](./purchase-orders.md): the PO list tabs, a PO's page, its figures against the DB. Walked
   end to end by `BIN/walk_purchase_orders.py`.
+  The Revised PO Date in a PO's preview and PDF (#1731): `BIN/walk_revised_po_date.py`.
+- [Material Usage](./material-usage.md): a project's Material Usage tab with incoming Internal Transfer Memos counted
+  in Ordered Qty, the PO / ITM numbers, the DCs and the PO/ITM Wise view (#1731). Walked by
+  `BIN/walk_material_usage.py`.
+- [Material Test Certificates](./material-test-certificates.md): Upload, Edit and Delete of a PO's MTCs by role, a
+  Project Manager uploading on their own project and editing only their own (#1731). Walked by `BIN/walk_mtc.py`.
+- [Audit View](./audit-view.md): Reports -> Audit View for Admin and the Accountants only, its tab counts and Net Paid
+  = Amount Paid + TDS held to the server's summary (#1732). Walked by `BIN/walk_audit_view.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
 - [Pasted link fields](./link_fields.md): a project's Drive links, a Customer PO link, a Design Tracker task's file
   link, a Commission Report task's report link (shown only in a handover document's Sources) and a bill's document
