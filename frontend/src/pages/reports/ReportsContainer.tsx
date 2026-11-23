@@ -88,8 +88,8 @@ const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] 
 ];
 
 const auditViewReportOptions: { label: string; value: AuditViewReportType }[] = [
-    { label: 'All Project View', value: 'All Project View' },
-    { label: 'Non Project View', value: 'Non Project View' },
+    { label: 'Projects Data', value: 'All Project View' },
+    { label: 'Non Projects Data', value: 'Non Project View' },
 ];
 
 export default function ReportsContainer() {

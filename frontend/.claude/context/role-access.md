@@ -436,7 +436,7 @@ too: every all-scope call checks `services/role_profiles.REPORTS_BULK_DOWNLOAD_P
 `?tab=bulk_download` from anyone else shows and fetches nothing.
 
 ‡Audit View (`AUDIT_VIEW_PROFILES` in `constants/roles.ts`, Accountant Lead too) lists every order, approved invoice
-and paid payment in one date range, Report Type All Project View / Non Project View (no Orders tab there).
+and paid payment in one date range, Report Type Projects Data / Non Projects Data (no Orders tab there).
 Server-enforced: both `api/reports/audit_view` endpoints check `services/role_profiles.AUDIT_VIEW_PROFILES`;
 `services/test_role_mirrors` pins the two lists together.
 
