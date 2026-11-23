@@ -63,10 +63,31 @@ class History:
 
     def holds(self, commit: str) -> bool | None:
         """True when commit is in a tip's history, False when not, None when a shallow clone cannot tell.
-        A full clone holds every commit of its tips' history, so a commit it does not know is not in it."""
+        A full clone holds every commit of its tips' history, so a commit it does not know is not in it. A shallow
+        clone can tell too when it holds the commit and the commit is newer than every shallow cut: only a commit
+        older than a cut can hide in the history below it."""
         if any(self.git("merge-base", "--is-ancestor", commit, tip)[0] == 0 for tip in self.tips):
             return True
-        return None if self.shallow else False
+        if not self.shallow:
+            return False
+        rc, out = self.git("log", "-1", "--format=%ct", f"{commit}^{{commit}}", "--")
+        if rc != 0 or not out.strip():
+            return None
+        cut = self._newest_cut()
+        return False if cut is not None and int(out.strip()) > cut else None
+
+    def _newest_cut(self) -> int | None:
+        """The committer time of the newest shallow cut commit, or None when the cut cannot be read."""
+        rc, out = self.git("rev-parse", "--path-format=absolute", "--git-path", "shallow")
+        path = Path(out.strip())
+        if rc != 0 or not path.is_file():
+            return None
+        cuts = path.read_text(encoding="utf-8").split()
+        if not cuts:
+            return None
+        rc, out = self.git("log", "--no-walk", "--format=%ct", *cuts, "--")
+        times = [int(t) for t in out.split()]
+        return max(times) if rc == 0 and len(times) == len(cuts) else None
 
     def has_merge_of(self, pr: str) -> bool:
         """A merge commit of the PR in a tip's history: GitHub's "Merge pull request #<n>" or "Merge PR #<n>"."""

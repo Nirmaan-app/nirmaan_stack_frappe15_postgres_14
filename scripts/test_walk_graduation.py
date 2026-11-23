@@ -7,11 +7,13 @@ Stdlib and git only, each test in a made-up git repo of its own:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
@@ -177,6 +179,18 @@ class WhenAWalkCounts(W1Case):
         self.assertEqual(len(gaps), 1, gaps)
         self.assertIn("cannot tell", gaps[0])
         self.assertIn("--unshallow", gaps[0])
+
+    def test_a_shallow_clone_holding_an_unmerged_head_newer_than_its_cut_ignores_the_walk(self):
+        shallow = self.repo.root.parent / "shallow"
+        subprocess.run(["git", "clone", "-q", "--depth=1", f"file://{self.repo.root}", str(shallow)], check=True)
+        with mock.patch.dict(os.environ, GIT_COMMITTER_DATE="2099-01-01T00:00:00 +0000"):
+            head = self.repo.side_commit("pr-42")
+            self.repo.commit("walk PR 42", PR_WALK, pr_walk(head))
+        subprocess.run(["git", "-C", str(shallow), "fetch", "-q", "origin", "main", "pr-42:pr-42"], check=True)
+        subprocess.run(["git", "-C", str(shallow), "merge", "-q", "--ff-only", "origin/main"], check=True)
+        self.assertEqual(subprocess.run(["git", "-C", str(shallow), "rev-parse", "--is-shallow-repository"],
+                                        capture_output=True, text=True).stdout.strip(), "true")
+        self.assertEqual(graduation_gaps(shallow), [])
 
 
 class TheLedger(W1Case):
