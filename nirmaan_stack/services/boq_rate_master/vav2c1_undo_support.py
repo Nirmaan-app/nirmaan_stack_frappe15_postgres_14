@@ -9,6 +9,8 @@ import copy
 import json
 import os
 
+from nirmaan_stack.services.boq_rate_master.vav2c2_undo_support import as_v82 as _as_v82
+
 _FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "frontend", "src", "pages", "boq-wizard", "rate-helper", "__fixtures__",
                     "vav2c1Edits.json")
 
@@ -33,6 +35,7 @@ def _at(cfg, path):
 def as_v81(cfg, category_id=None):
     """`cfg` (one live category config) with v82's text edits undone; v81's and older shapes come back as they are. Raises otherwise."""
     cid = category_id or cfg["category_id"]
+    cfg = _as_v82(cfg, cid)  # VAV-2c2 K2 (PIN K2-B, ANSWER 24): v83's edits undone first, so a v83 config reads as v81 too
     mine = [e for e in edits()["configs"] if e["c"] == cid]
     if not mine:
         return cfg

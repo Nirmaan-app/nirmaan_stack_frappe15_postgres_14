@@ -6,6 +6,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import type { RateCategoryConfig } from "../../pricing/rate-master/rateMasterTypes";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { undoVav2c2 } from "./vav2c2Edits.harness";
 
 export type ConfigEdit = { c: string; p: Array<string | number>; from: unknown; to: unknown; why: string };
 export type InputText = { item: string; unit?: [string, string]; remarks?: [string, string]; name?: [string, string] };
@@ -27,7 +28,9 @@ export function applyConfig(cfg: RateCategoryConfig, edits: readonly ConfigEdit[
 /** PURE. A category's config from the newest file with this slice's edits undone = what v81 held there (a test that compares an older file
  *  with the newest one reads through this). A config that does not hold v82's own texts (v81 or older) is returned as it is; a text of v82
  *  that is in the file is reversed edit by edit, and an edit whose new text is absent is refused -- nothing else can hide in the undo. */
-export function undoVav2c1(cfg: RateCategoryConfig): RateCategoryConfig {
+export function undoVav2c1(cfg0: RateCategoryConfig): RateCategoryConfig {
+  // VAV-2c2 K2 (PIN K2-B, ANSWER 24): v83's edits undone first, so a v83 config reads as v81 too
+  const cfg = undoVav2c2(cfg0);
   const mine = EDITS.configs.filter((e) => e.c === (cfg as unknown as { category_id: string }).category_id);
   const holds = (e: ConfigEdit): unknown => e.p.reduce<unknown>((n, p) => (n as Record<string | number, unknown> | undefined)?.[p], cfg);
   const isV82 = mine.length > 0 && mine.every((e) => JSON.stringify(holds(e) ?? null) === JSON.stringify(e.to));

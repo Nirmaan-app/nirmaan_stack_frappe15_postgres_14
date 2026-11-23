@@ -66,7 +66,10 @@ describe("VAV-2a2 R7 - 'Thermowell with Valve' is priced as the thermowell (QR-V
     const e13 = lines.find((l) => /Thermowell with valve. is priced as the thermowell/i.test(l.title));
     expect(e13).toBeTruthy();
     // its reason, on the line (chat-Claude's review 2026-11-20 00:30 point 4)
-    expect(e13!.detail).toContain("why: price as thermowell - owner 2026-11-15 11:46; build ruled 2026-11-20 00:10 '1a'");
+    // INVERTED at VAV-2c2 K2 (R3 c, the accepted Cleanups row: an option letter quoted as the owner's words goes; PIN K2-B addendum):
+    // BEFORE toContain("... build ruled 2026-11-20 00:10 '1a'")
+    expect(e13!.detail).toContain("why: price as thermowell - owner 2026-11-15 11:46; build ruled 2026-11-20 00:10");
+    expect(e13!.detail).not.toContain("'1a'");
     const r = derivationCoverage(cfg, ITEMS, { hvac_misc: BY_ID.get("hvac_misc")! });
     expect(r.missing).toEqual([]);
     // the code rule E13 is registered (CODE_RULES) WITH the asset that declares its line (K2, HVAC v78) -- before that, the line is the one

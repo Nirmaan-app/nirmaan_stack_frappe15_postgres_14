@@ -43,7 +43,9 @@ describe("VAV-2a2 B5 - lines 9 and 11 carry the owner's quantity rulings", () =>
       const l = lines.find((x) => x.title === QTY_TITLE(sec))!;
       expect(l, sec).toBeTruthy();
       expect(l.reason).toContain(B7_WHY);
-      expect(l.reason).toContain("a piece \"on either side\" -> 2 (22:38 \"option A\")");
+      // INVERTED at VAV-2c2 K2 (R3 c, the accepted Cleanups row; PIN K2-B addendum): BEFORE toContain('a piece "on either side" -> 2 (22:38 "option A")')
+      expect(l.reason).toContain("a piece \"on either side\" -> 2 (22:38)");
+      expect(l.reason).not.toContain("option A");
       expect(l.reason).not.toMatch(/^borrowed, never copied/);
       expect(l.reason).not.toMatch(/^the CO2 sensor and the differential pressure switch are borrowed/);
     });

@@ -2170,6 +2170,17 @@ _PREPARE_KEYS = _PREPARE_KEYS | {"family_refusals", "not_includes", "tfa_capacit
 _SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"always_note", "any_level", "always_both", "panel_pick", "lines_follow"}
 # VP-1 (N1): a PRICING-LEVEL scope names the question carrying the row's scope answer (VRF's lives in extras.from_model.scope)
 _SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"model_attr"}
+# VAV-2c2 (R3 a, owner 2026-11-23 13:46): `chosen_lines` -- the scope notes for a scope the user or the Calculator chose (no "BoQ says");
+# (R1 / R2, owner 2026-11-23 13:52 - 13:57, 2026-11-24 00:18 - 01:25): `rule` -- the scope rule (frontend scopeRule.ts). Both OPTIONAL.
+_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"chosen_lines", "rule"}
+_SCOPE_RULE_KEYS = {"item_words", "install_start", "supply_start", "supply_of", "existing_words", "by_others", "install_only_words",
+                    "supply_only_words", "box_families", "install_family", "threshold_input", "notes"}
+_SCOPE_RULE_OPTIONAL = {"needs_installing"}
+_SCOPE_RULE_NOTES = {"A": (), "B": (), "C": ("{n}",), "C_qty": ("{n}", "{q_inst}", "{q_box}"), "D": ("{n}",), "E": ("{rows}",),
+                     "E_qty": ("{q_inst}", "{q_box}", "{row_list}"), "F": ("{said}",), "G": ("{reason}",), "words_supply_only": ()}
+_SCOPE_RULE_SAID = {"existing", "refix", "by_others", "install_only"}
+# VAV-2c2 (R3 h): the Calculator's own "type the number of VAVs" lines (no sheet there)
+_SHEET_SHARES_LABELS_OPTIONAL = _SHEET_SHARES_LABELS_OPTIONAL | {"need_vavs_calculator", "need_vavs_whole_calculator"}
 _SAFEGUARD_OPTIONAL_KEYS = _SAFEGUARD_OPTIONAL_KEYS | {"exact_quotes"}
 _LOT_OPTIONAL_KEYS = _LOT_OPTIONAL_KEYS | {"calculator_refuses"}
 
@@ -2859,6 +2870,32 @@ def _validate_sheet_heading_notes(notes, loc):
             _vthrow(f"{w}.cap must be a positive whole number.")
 
 
+def _validate_scope_rule(r, w):
+    """VAV-2c2 (R1 / R2) -- `scope.rule`: the words it reads (each a pattern), the box families, the installation item, the threshold
+    input, the optional point-4 answer, and a note for every case with its placeholders."""
+    if not isinstance(r, dict) or not (_SCOPE_RULE_KEYS <= set(r) <= _SCOPE_RULE_KEYS | _SCOPE_RULE_OPTIONAL):
+        _vthrow(f"{w} needs exactly {', '.join(sorted(_SCOPE_RULE_KEYS))} (and optionally {', '.join(sorted(_SCOPE_RULE_OPTIONAL))}).")
+    for k in ("item_words", "install_start", "supply_start", "supply_of", "existing_words", "by_others", "install_only_words", "supply_only_words"):
+        _pattern(r[k], f"{w}.{k}")
+    if not isinstance(r["box_families"], list) or not r["box_families"] or not all(_nonempty_str(x) for x in r["box_families"]):
+        _vthrow(f"{w}.box_families must be a non-empty list of family names.")
+    for k in ("install_family", "threshold_input"):
+        if not _nonempty_str(r[k]):
+            _vthrow(f"{w}.{k} must be a non-empty string.")
+    if "needs_installing" in r:
+        ni = r["needs_installing"]
+        if not isinstance(ni, dict) or set(ni) != {"attr", "no", "reason_attr"} or not all(_nonempty_str(ni[k]) for k in ni):
+            _vthrow(f"{w}.needs_installing needs exactly attr, no and reason_attr (non-empty strings).")
+    n = r["notes"]
+    if not isinstance(n, dict) or set(n) != set(_SCOPE_RULE_NOTES) | {"F_said"}:
+        _vthrow(f"{w}.notes needs exactly {', '.join(sorted(set(_SCOPE_RULE_NOTES) | {'F_said'}))}.")
+    for k, ph in _SCOPE_RULE_NOTES.items():
+        _sentence(n, k, f"{w}.notes", ph)
+    fs = n["F_said"]
+    if not isinstance(fs, dict) or set(fs) != _SCOPE_RULE_SAID or not all(_nonempty_str(v) for v in fs.values()):
+        _vthrow(f"{w}.notes.F_said needs exactly {', '.join(sorted(_SCOPE_RULE_SAID))} (non-empty strings).")
+
+
 def _validate_scope(sc, loc):
     """VRF-5 (owner R4-R8) -- `extras.scope`: the choice values (the first = supply + installation), the two that change the
     row, the uplift input, the calculator's title and the lines."""
@@ -2918,6 +2955,17 @@ def _validate_scope(sc, loc):
                 or not all(_nonempty_str(f) for f in ab["families"]):
             _vthrow(f"{w} needs exactly families (a non-empty list) and note.")
         _sentence(ab, "note", w)
+    # VAV-2c2 (R3 a): the notes of a scope the user or the Calculator chose -- each key one of `lines` (or the supply row's normal_note)
+    if "chosen_lines" in sc:
+        cl, w = sc["chosen_lines"], f"{loc}.chosen_lines"
+        allowed = set(sc.get("lines") or {}) | ({"normal_note"} if "supply_row" in sc else set())
+        if not isinstance(cl, dict) or not cl or not set(cl) <= allowed:
+            _vthrow(f"{w} needs one or more of the scope's lines ({', '.join(sorted(allowed))}).")
+        for k in cl:
+            _sentence(cl, k, w)
+    # VAV-2c2 (R1 / R2): the scope rule
+    if "rule" in sc:
+        _validate_scope_rule(sc["rule"], f"{loc}.rule")
     if "supply_row" in sc:
         sr = sc["supply_row"]
         # DU-1 (G-4): an optional `uplift: true` -- the supply-on-its-own-row case charges install x (1 + the uplift input)
