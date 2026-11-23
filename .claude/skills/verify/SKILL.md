@@ -95,7 +95,8 @@ local disk.
 ## PR walk page
 
 A review page for one PR, built from walks driven with this skill's `drive.py`: see the `pr-walk` skill
-(`.claude/skills/pr-walk/SKILL.md`).
+(`.claude/skills/pr-walk/SKILL.md`). Once the PR merges, its walk graduates into this skill's feature walks
+(that skill's step 9).
 
 ## Cleanup
 

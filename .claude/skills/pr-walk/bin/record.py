@@ -16,7 +16,11 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
+import subprocess
+import sys
 from pathlib import Path
+from typing import NoReturn
 
 from playwright.sync_api import Locator, Page
 
@@ -123,3 +127,39 @@ class Walk:
         path = self.out / "walk.json"
         path.write_text(json.dumps(self.data, indent=1))
         return path
+
+    def finish(self, feature_md: Path, stamp: bool = True) -> NoReturn:
+        """End a graduated feature walk: roll each change up from its checks and pins, save, stamp feature_md with
+        `Last walked (<script>): <date> UTC at <commit>, passed.` (or failed.), and exit 0 only when it passed.
+        A run of part of the walk passes stamp=False, so it cannot stamp the whole walk."""
+        for c in self.data["changes"]:
+            if c["status"] == "failed" or (c["status"] == "not_walked" and c["reason"]):
+                continue
+            if not any(x["change"] == c["id"] for x in self.data["steps"] + self.data["checks"]):
+                continue
+            bad = [k for k in self.data["checks"] if k["change"] == c["id"] and not k["ok"] and k["kind"] == "must"]
+            musts = [p for s in self.data["steps"] if s["change"] == c["id"] for p in s["pins"] if p["kind"] == "must"]
+            self.status(c["id"], "failed" if bad or musts else "seen",
+                        "; ".join(f"{k['role']}: expected {k['expect']}, saw {k['seen']}" for k in bad))
+        path = self.save()
+        statuses = [c["status"] for c in self.data["changes"]]
+        passed = "failed" not in statuses and "seen" in statuses
+        if stamp:
+            commit = subprocess.run(["git", "-C", str(feature_md.resolve().parent), "rev-parse", "--short=9", "HEAD"],
+                                    capture_output=True, text=True, check=True).stdout.strip()
+            script = Path(sys.argv[0]).name
+            day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+            line = f"Last walked ({script}): {day} UTC at {commit}, {'passed' if passed else 'failed'}."
+            text = feature_md.read_text(encoding="utf-8")
+            old = re.compile(rf"^Last walked \({re.escape(script)}\): .*$", re.MULTILINE)
+            if old.search(text):
+                text = old.sub(lambda _: line, text, count=1)
+            elif (h2 := re.search(r"^## ", text, re.MULTILINE)) is not None:
+                text = f"{text[:h2.start()].rstrip()}\n\n{line}\n\n{text[h2.start():]}"
+            else:
+                text = f"{text.rstrip()}\n\n{line}\n"
+            feature_md.write_text(text, encoding="utf-8")
+        print(path)
+        print(("PASSED: " if passed else "FAILED: ")
+              + ", ".join(f"{c['id']} {c['status']}" for c in self.data["changes"]))
+        sys.exit(0 if passed else 1)

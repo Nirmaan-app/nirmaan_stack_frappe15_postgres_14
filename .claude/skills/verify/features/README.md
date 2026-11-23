@@ -39,11 +39,31 @@ moves the date.
 Each feature file starts with an H1 and one paragraph on the user-visible behaviour, then four H2 sections in this
 order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`, `Gotchas`.
 
+## Graduated PR walks
+
+A merged PR's walk (`.claude/skills/pr-walk/bin/walk_pr_<n>.py`) graduates into feature walks here (pr-walk
+`SKILL.md` step 9). `graduated.json` maps each of its claim ids to the `BIN/walk_<feature>.py` that walks it again, or
+to `skip: <reason>`. Each such walk ends with `w.finish(<feature file>)`, which writes `Last walked (<script>): <date>
+UTC at <commit>, passed.` (or `failed.`) into its feature file before the first `##` section. Residence check W1
+refuses a commit or merge that brings in a merged walk with a claim left out, or a named walk with no passing stamp.
+`BIN/feature_walk.py` holds what such walks share, so a new graduated walk imports it rather than copying it:
+`<env> <out dir> [function ...]` arguments, records and expected figures read from the env DB at the start, an
+unlocked user per role with a password set on the env only, the ways into a project, a PO and a vendor, a table
+footer's row total, a downloaded PDF shown as an image, and a `finish` that stamps only a run of every function.
+
 ## Features
 
 - [Login and the app access gate](./login-and-access-gate.md): signing in, the role landing page, the lock card.
 - [Purchase Orders](./purchase-orders.md): the PO list tabs, a PO's page, its figures against the DB. Walked
   end to end by `BIN/walk_purchase_orders.py`.
+  The Revised PO Date in a PO's preview and PDF (#1731): `BIN/walk_revised_po_date.py`.
+- [Material Usage](./material-usage.md): a project's Material Usage tab with incoming Internal Transfer Memos counted
+  in Ordered Qty, the PO / ITM numbers, the DCs and the PO/ITM Wise view (#1731). Walked by
+  `BIN/walk_material_usage.py`.
+- [Material Test Certificates](./material-test-certificates.md): Upload, Edit and Delete of a PO's MTCs by role, a
+  Project Manager uploading on their own project and editing only their own (#1731). Walked by `BIN/walk_mtc.py`.
+- [Audit View](./audit-view.md): Reports -> Audit View for Admin and the Accountants only, its tab counts and Net Paid
+  = Amount Paid + TDS held to the server's summary (#1732). Walked by `BIN/walk_audit_view.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
 - [Pasted link fields](./link_fields.md): a project's Drive links, a Customer PO link, a Design Tracker task's file
   link, a Commission Report task's report link (shown only in a handover document's Sources) and a bill's document
@@ -77,6 +97,10 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   fake provider that answers 429 above K in flight never halt (#1718; `BIN/fake_ai_provider.py`). The N-worker check,
   `BIN/walk_background_operations.py --workers N`.
 - [Projects](./projects.md): the project list and a project's page.
+- [Vendors](./vendors.md): a vendor's Work Orders tab and its PDF, the Work Order lists' Project and Vendor ⓘ links,
+  and Edit Vendor's MSME ID and certificate (#1731), walked by `BIN/walk_vendor_work_orders.py` and
+  `BIN/walk_vendor_msme.py`; its Payments sub-tabs and its Cheques tab, read-only for PMO (#1732), walked by
+  `BIN/walk_vendor_payments.py` and `BIN/walk_vendor_cheques.py`.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps). Live refresh of the list (#1670): `BIN/walk_live_refresh.py`
