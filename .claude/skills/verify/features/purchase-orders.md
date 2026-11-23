@@ -4,6 +4,8 @@ A procurement user lists the purchase orders of their projects by status, opens 
 amounts, timeline and items. The page also offers the PO's actions (Revise PO, Upload DC, Upload MIR, Add Invoice,
 Upload Test Certificate, Preview).
 
+Last walked (walk_revised_po_date.py): 2026-11-23 UTC at 590375af0, passed.
+
 ## Sub-features
 
 - `po-list` the list opens on the `Approved PO` tab, with one tab per status, each showing a count.

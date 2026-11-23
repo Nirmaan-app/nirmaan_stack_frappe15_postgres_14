@@ -5,6 +5,8 @@ Accountant and Accountant Lead only. The user picks a range first; then the Orde
 carry a count, and Payments shows Amount Paid + TDS = Net Paid. The server's `get_audit_view_rows` and
 `get_audit_view_summary` (`nirmaan_stack/api/reports/audit_view.py`) select the rows and enforce the roles.
 
+Last walked (walk_audit_view.py): 2026-11-23 UTC at 590375af0, passed.
+
 ## Sub-features
 
 - `audit` the Audit View tab shows for Admin, Accountant and Accountant Lead, and not for Procurement Lead or PMO.
