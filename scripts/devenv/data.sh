@@ -154,7 +154,7 @@ PY
 
   step "4. stamp"
   local fp; fp="$(docker exec -w /workspace/development/frappe-bench "$CONTAINER" env/bin/python -I \
-    apps/nirmaan_stack/scripts/env_sync/remote/db_fingerprint.py 2>/dev/null | grep '^fp_' | tr '\n' ' ' || true)"
+    apps/nirmaan_stack/scripts/devenv/db_fingerprint.py 2>/dev/null | grep '^fp_' | tr '\n' ' ' || true)"
   python3 - "$SITE/data_stamp.json" "$(basename "$db")" "$(basename "$src")" "$fp" <<'PY'
 import json, re, sys, datetime
 path, dump, source, fp = sys.argv[1:]
