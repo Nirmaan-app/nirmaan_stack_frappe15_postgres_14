@@ -20,9 +20,9 @@ jobs:
       - name: Clone
         uses: actions/checkout@v4
         with:
-          # The merge commit and its parents, the PR's base commit among them: React Doctor's --scope changed needs
-          # the merge base of that base commit and HEAD (#1698).
-          fetch-depth: 2
+          # Full history: React Doctor's --scope changed needs the merge base of the PR's base commit and HEAD
+          # (#1698), and residence check W1 asks whether a walked PR's head is in HEAD's history.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,9 +38,10 @@ jobs:
       # the threshold. Nor may it loosen the lint settings (#1702): .oxlintrc.json (ignorePatterns, a rule off or
       # "warn", an override), a nested oxlint config or ignore file, the `lint` script, or a residence_baseline.json
       # count CI reads. `yarn lint` alone cannot see
-      # this: it reads whatever suppressions file and settings the PR brings. The checkout holds only the merge commit made when
-      # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
-      # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
+      # this: it reads whatever suppressions file and settings the PR brings. The check reads the base commit of the
+      # merge made when the run was triggered (pull_request.base.sha, not the base branch's tip, which may have moved
+      # by a re-run). The fetch takes no --depth: a shallow fetch would make the full clone shallow, and W1 below
+      # could then no longer tell a merged walk from an unmerged one.
       - name: Frontend ratchet not loosened (suppressions, --at-least and lint settings against the PR's base commit)
         if: github.event_name == 'pull_request'
         working-directory: .
@@ -48,7 +49,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python3 -m unittest scripts.test_frontend_ratchet_check scripts.test_oxlint_settings_check
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git fetch --no-tags origin "$BASE_SHA"
           python3 scripts/frontend_ratchet_check.py --base-ref "$BASE_SHA"
 
       - name: Install
@@ -57,12 +58,12 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
-      # The twelve residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # The thirteen residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
       # ADR-0010's two (B1, B3) stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
       # passes, a count that rose fails. J1, D1, Q1 and L2 hold per file against their frozen files instead: a file over
       # or under its frozen count fails, so a count that fell fails until the change lowers it. After Install: J1, D1
       # and L2 parse with frontend/node_modules/typescript.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments, L1 raw listener hooks, N1 counted names, Q1 raw enqueues, L2 socket listeners)
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments, L1 raw listener hooks, N1 counted names, Q1 raw enqueues, L2 socket listeners, W1 merged PR walks graduated)
         working-directory: .
         run: python3 scripts/residence_check.py --check --only ci
 

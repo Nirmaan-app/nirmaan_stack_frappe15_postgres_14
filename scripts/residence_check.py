@@ -23,7 +23,7 @@ Usage:
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
     python3 scripts/residence_check.py --prune-disable-comments  # D1: lower the frozen disable-comment counts
 
-D1's code is in disable_comment_check.py; what J1, D1 and L2 share (TypeScript's parser run by node) in
+W1's code is in walk_graduation.py. D1's code is in disable_comment_check.py; what J1, D1 and L2 share (TypeScript's parser run by node) in
 frozen_counts.py. Stdlib only, plus node for J1, D1 and L2 (frontend/scripts/json_calls.mjs, disable_comments.mjs
 and socket_listeners.mjs, with
 frontend/node_modules); run from anywhere (repo root is resolved from __file__).
@@ -44,6 +44,7 @@ from typing import Callable, NamedTuple
 import frozen_counts
 from disable_comment_check import DISABLE_SUPPRESSIONS, PRUNE_FLAG, disable_comments_unfrozen, prune_disable_comments
 from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
+from walk_graduation import LEDGER as GRADUATION_LEDGER, graduation_gaps
 
 # Repo root = the parent of this scripts/ directory (NOT the cwd).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -972,6 +973,19 @@ CHECKS: list[Check] = [
         locate=disable_comments_unfrozen,
         pass_mark=0,
     ),
+    # Not an ADR-0010 rule: a merged PR's walk must become rerunnable feature walks (pr-walk SKILL.md step 9). A
+    # ratchet, not pass mark 0: PRs 1731 and 1732 merged before the rule, and their graduation lowers it.
+    Check(
+        id="w1_walks_not_graduated",
+        rule="W1",
+        description=f"Gaps in the graduation of merged PR walks (.claude/skills/pr-walk/bin/walk_pr_<n>.py): a "
+                    f"claimed change with no walk or skip reason in {GRADUATION_LEDGER}, or a named walk that is "
+                    "missing, unlisted in the features README, bound to a PR env, or without a passing "
+                    "Last walked stamp in its feature file.",
+        route_hint="graduate the PR's walk: pr-walk SKILL.md step 9",
+        measure=lambda: len(graduation_gaps(REPO_ROOT)),
+        locate=lambda: graduation_gaps(REPO_ROOT),
+    ),
 ]
 
 
@@ -1057,7 +1071,7 @@ def do_init() -> int:
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's two
 # counters (B1, B3) run in the local hook only (ADR-0010 amendment, 2026-11-18).
 CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1", "D1", "L1", "N1",
-             "Q1", "L2"]
+             "Q1", "L2", "W1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
