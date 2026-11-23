@@ -96,6 +96,10 @@ into a project and a PO, and a `finish` that stamps only a run of every function
   fake provider that answers 429 above K in flight never halt (#1718; `BIN/fake_ai_provider.py`). The N-worker check,
   `BIN/walk_background_operations.py --workers N`.
 - [Projects](./projects.md): the project list and a project's page.
+- [Vendors](./vendors.md): a vendor's Work Orders tab and its PDF, the Work Order lists' Project and Vendor ⓘ links,
+  and Edit Vendor's MSME ID and certificate (#1731), walked by `BIN/walk_vendor_work_orders.py` and
+  `BIN/walk_vendor_msme.py`; its Payments sub-tabs and its Cheques tab, read-only for PMO (#1732), walked by
+  `BIN/walk_vendor_payments.py` and `BIN/walk_vendor_cheques.py`.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps). Live refresh of the list (#1670): `BIN/walk_live_refresh.py`
