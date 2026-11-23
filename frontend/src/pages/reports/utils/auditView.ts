@@ -91,6 +91,17 @@ export const AUDIT_TABS: readonly AuditTab[] = ["orders", "invoices", "payments"
 /** The URL param that keeps the open tab card. */
 export const AUDIT_TAB_PARAM = "audit_tab";
 
+/**
+ * Set ("1") while step 1 is done on this page, so a refresh keeps it. The shared report date stores a preset or
+ * custom range in the URL but nothing for ALL, so without this a refreshed page could not tell "ALL picked"
+ * from "nothing picked yet" and dropped the range and the open tab.
+ */
+export const AUDIT_RANGE_PARAM = "audit_range";
+
+/** Whether step 1 counts as done when the page loads: a range in the URL, or ALL picked here before a refresh. */
+export const auditRangeChosenAtLoad = (selectionKind: string, rangeParam: string | null | undefined): boolean =>
+  selectionKind !== "all" || rangeParam === "1";
+
 interface AuditTabMeta {
   title: string;
   /** The date each tab is dated by, lower case ("Dated by <basis>"). */

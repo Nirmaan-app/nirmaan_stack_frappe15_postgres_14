@@ -15,7 +15,7 @@ import { TabBar, TabDetails } from "./audit-view/AuditTabBar";
 import { SummaryStrip } from "./audit-view/AuditSummaryStrip";
 import { AuditViewTable } from "./audit-view/AuditViewTable";
 import { InfoTip } from "./audit-view/InfoTip";
-import { AUDIT_TAB_META, AUDIT_TAB_PARAM, AUDIT_TABS, AuditTab, AuditView, auditRangeLabel, auditTabSources, isAuditTabDisabled, resolveAuditTab, toAuditApiDate } from "../utils/auditView";
+import { AUDIT_RANGE_PARAM, AUDIT_TAB_META, AUDIT_TAB_PARAM, AUDIT_TABS, auditRangeChosenAtLoad, AuditTab, AuditView, auditRangeLabel, auditTabSources, isAuditTabDisabled, resolveAuditTab, toAuditApiDate } from "../utils/auditView";
 
 /** Step 1 before any pick: an empty range, which the shared filter shows as "Pick a date range". */
 const NO_RANGE_PICKED: DateRange = { from: undefined };
@@ -36,16 +36,21 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
   const toDate = toAuditApiDate(dateRange?.to);
 
   // Step 1: nothing loads until a range has been picked here. A range carried in from another report
-  // (or the URL) counts; the shared default "ALL" does not -- ALL has to be picked on purpose.
-  const [rangeChosen, setRangeChosen] = useState(() => useReportDateStore.getState().selection.kind !== "all");
+  // (or the URL) counts; the shared default "ALL" does not -- ALL has to be picked on purpose. Being done is
+  // kept in the URL (`audit_range`), so a refresh keeps an ALL pick, and the open tab with it.
+  const [chosenAtLoad] = useState(() =>
+    auditRangeChosenAtLoad(useReportDateStore.getState().selection.kind, urlStateManager.getParam(AUDIT_RANGE_PARAM)),
+  );
+  const [rangeChosen, setRangeChosen] = useState(chosenAtLoad);
+  useEffect(() => { urlStateManager.updateParam(AUDIT_RANGE_PARAM, rangeChosen ? "1" : null); }, [rangeChosen]);
   const handleDateChange = useCallback((range?: DateRange) => { setRangeChosen(true); onDateChange(range); }, [onDateChange]);
   const handleDateClear = useCallback(() => { setRangeChosen(true); onDateClear(); }, [onDateClear]);
 
   // Step 2: the open tab is kept in the URL (`audit_tab`); none is open until the user picks one.
-  // A tab in the URL is honoured only when a range came with it (a shared link); otherwise a stale
+  // A tab in the URL is honoured only when step 1 is done too (a refresh or a shared link); otherwise a stale
   // `audit_tab` from an earlier visit would skip step 2. Orders in Non Project View falls back to Invoices.
   const [askedTab, setAskedTab] = useState<string | null>(() => {
-    if (useReportDateStore.getState().selection.kind !== "all") return urlStateManager.getParam(AUDIT_TAB_PARAM);
+    if (chosenAtLoad) return urlStateManager.getParam(AUDIT_TAB_PARAM);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, null);
     return null;
   });

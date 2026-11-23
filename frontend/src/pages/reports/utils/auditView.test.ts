@@ -6,6 +6,7 @@ import {
   auditAgainstFor,
   auditBreakdown,
   auditColumnSpecs,
+  auditRangeChosenAtLoad,
   compactRupees,
   sharePercent,
   auditFacetOptions,
@@ -320,5 +321,22 @@ describe("auditAgainstFor", () => {
     expect(auditAgainstFor("project", "payments")).toEqual(["PO", "WO", "Project Expense"]);
     expect(auditAgainstFor("nonproject", "invoices")).toEqual(["Non-Project Expense"]);
     expect(auditAgainstFor("nonproject", "orders")).toEqual([]);
+  });
+});
+
+describe("auditRangeChosenAtLoad (does a refresh keep step 1?)", () => {
+  it("a preset or custom range in the URL counts as chosen", () => {
+    expect(auditRangeChosenAtLoad("preset", null)).toBe(true);
+    expect(auditRangeChosenAtLoad("custom", null)).toBe(true);
+  });
+
+  it("ALL picked on this page before the refresh counts (the URL keeps audit_range=1)", () => {
+    expect(auditRangeChosenAtLoad("all", "1")).toBe(true);
+  });
+
+  it("the shared default ALL with no pick here does not: ALL must be picked on purpose", () => {
+    expect(auditRangeChosenAtLoad("all", null)).toBe(false);
+    expect(auditRangeChosenAtLoad("all", "")).toBe(false);
+    expect(auditRangeChosenAtLoad("all", "0")).toBe(false);
   });
 });
