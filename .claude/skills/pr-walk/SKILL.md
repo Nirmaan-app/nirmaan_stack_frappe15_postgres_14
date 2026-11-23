@@ -120,6 +120,26 @@ Out is `~/claude-artifacts/pr-<n>-walk.html`. Before handing it over:
 
 Evidence and the page stay.
 
+## 9. After the PR merges: graduate the walk
+
+A PR walk runs once, on throwaway envs. Once the PR merges, each claimed change it walked becomes a walk anyone can
+rerun on their own env, or gets a written reason it has none.
+
+- Per feature the PR touched, write `.claude/skills/verify/bin/walk_<feature>.py` from the walk's *after* steps.
+  It takes the env as an argument; no `pr-<n>` env is named in it. It picks its records by query, as step 5 says,
+  never by fixed ids.
+- It ends with `w.finish(<feature file>, stamp=<not a partial run>)`. `finish` rolls each change up from its checks and
+  pins, saves `walk.json`, writes `Last walked (<script>): <date> UTC at <commit>, passed.` (or `failed.`) into the
+  feature file, and exits 1 unless the walk passed. A run of some of its parts passes `stamp=False`.
+- Add or update the feature file in `.claude/skills/verify/features/` per that folder's `README.md` contract, and its
+  line in that `README.md` naming the walk.
+- In `.claude/skills/verify/features/graduated.json`, give every claim id of `walk_pr_<n>.py` an entry:
+  `{"<n>": {"<claim id>": "walk_<feature>.py"}}`, or `"skip: <reason>"` for a claim with nothing to walk again.
+- Run each walk on an env until it passes, and commit the stamp it writes with the walk.
+
+Until then, residence check W1 (`scripts/walk_graduation.py`) refuses the commit or merge that brings the merged
+walk in, and CI refuses the pull request.
+
 ## Gotchas
 
 - Sidebar sub-items use `data-sidebar="menu-sub-button"`, which `sidebar()` does not match.

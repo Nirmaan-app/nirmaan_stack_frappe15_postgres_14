@@ -39,6 +39,14 @@ moves the date.
 Each feature file starts with an H1 and one paragraph on the user-visible behaviour, then four H2 sections in this
 order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`, `Gotchas`.
 
+## Graduated PR walks
+
+A merged PR's walk (`.claude/skills/pr-walk/bin/walk_pr_<n>.py`) graduates into feature walks here (pr-walk
+`SKILL.md` step 9). `graduated.json` maps each of its claim ids to the `BIN/walk_<feature>.py` that walks it again, or
+to `skip: <reason>`. Each such walk ends with `w.finish(<feature file>)`, which writes `Last walked (<script>): <date>
+UTC at <commit>, passed.` (or `failed.`) into its feature file before the first `##` section. Residence check W1
+refuses a commit or merge that brings in a merged walk with a claim left out, or a named walk with no passing stamp.
+
 ## Features
 
 - [Login and the app access gate](./login-and-access-gate.md): signing in, the role landing page, the lock card.
