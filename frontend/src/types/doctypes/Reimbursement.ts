@@ -13,7 +13,7 @@ export interface ReimbursementDocType {
 	/** Amount : Currency */
 	amount: number
 	/** Status : Select */
-	status?: "Pending Approval" | "Approved" | "Rejected" | "Paid" | null
+	status?: "Pending Approval" | "Requested" | "CEO Pending" | "Approved" | "Reconciliation Pending" | "Paid" | "Rejected" | null
 	/** Description : Small Text */
 	description?: string | null
 	/** Account Holder : Data */

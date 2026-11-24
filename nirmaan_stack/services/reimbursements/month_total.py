@@ -3,10 +3,10 @@
 
 """A claimant's MONTH TOTAL (owner, 2026-10-28, ADR-0040 Amendment B): the one query that adds it up.
 
-The month total of a claim is the claim itself plus the claimant's OTHER claims that are Approved or Paid and were
-raised in the same calendar month as it (the claim's `creation` month). Pending and Rejected claims don't count.
-The claim in hand counts whatever its own status: pending when HR or Admin decide it, Approved when L1 or the CEO
-approve its expense in Payments.
+The month total of a claim is the claim itself plus the claimant's OTHER claims that have been approved -- at any
+step from Requested to Reconciliation Pending (`rules.APPROVED_STEPS`), or Paid -- and were raised in the same calendar
+month as it (the claim's `creation` month). Pending and Rejected claims don't count. The claim in hand counts whatever
+its own status: pending when HR or Admin decide it, Requested or CEO Pending when L1 or the CEO approve its expense.
 
 Worked out on every read, never stored, so a claim later rejected or deleted simply drops out. What the total
 means -- above `rules.MONTHLY_LIMIT` or not -- is `rules.over_monthly_limit`.
@@ -14,6 +14,8 @@ means -- above `rules.MONTHLY_LIMIT` or not -- is `rules.over_monthly_limit`.
 * `month_totals(claims)` -- one row per claim found, keyed by claim.
 * `month_totals_of_expenses(expenses)` -- the same rows for the Non-Project Expenses created from claims, keyed by
   expense; an expense with no claim is left out.
+* `month_used(claimant, when, exclude)` -- the Project Manager cap's count (owner, 2026-11-18; `rules.cap_problem`):
+  a different sum, of every claim that may still be paid (`rules.PM_CAP_COUNTED`, pending ones included).
 """
 
 from __future__ import annotations
@@ -22,10 +24,10 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, over_monthly_limit
+from nirmaan_stack.services.reimbursements.rules import APPROVED_STEPS, PAID, PM_CAP_COUNTED, over_monthly_limit
 
-#: The statuses of the OTHER claims that count toward a month total.
-COUNTED_STATUSES = (APPROVED, PAID)
+#: The statuses of the OTHER claims that count toward a month total: approved at any step, or paid.
+COUNTED_STATUSES = (*APPROVED_STEPS, PAID)
 
 
 def month_totals(claims) -> dict[str, dict]:
@@ -87,3 +89,21 @@ def month_totals_of_expenses(expenses) -> dict[str, dict]:
         if row:
             out[link.name] = {**row, "expense": link.name}
     return out
+
+
+def month_used(claimant: str, when, exclude: str | None = None) -> float:
+    """The sum of `claimant`'s claims raised in the calendar month of `when` (a date or datetime) whose status is in
+    `rules.PM_CAP_COUNTED` -- Pending Approval, any approved step, Paid -- leaving out the claim `exclude` (the one being
+    edited, whose new amount replaces its old one)."""
+    total = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(amount), 0)
+        FROM "tabReimbursement"
+        WHERE owner = %(claimant)s
+          AND status IN %(counted)s
+          AND DATE_TRUNC('month', creation) = DATE_TRUNC('month', %(when)s::timestamp)
+          AND name <> %(exclude)s
+        """,
+        {"claimant": claimant, "counted": PM_CAP_COUNTED, "when": when, "exclude": exclude or ""},
+    )[0][0]
+    return flt(total, 2)
