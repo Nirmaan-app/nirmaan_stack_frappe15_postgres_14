@@ -32,6 +32,7 @@ import {
     TAB_LINES,
     acknowledgementProblem,
     actsOn,
+    badgeCounts,
     capLeft,
     capProblem,
     claimTab,
@@ -269,5 +270,27 @@ describe("paymentStage", () => {
         expect(paymentStage("Paid")).toBe("Paid");
         expect(paymentStage("Rejected")).toBe("Rejected after approval");
         expect(paymentStage(undefined)).toBe("No expense yet");
+    });
+});
+
+describe("badgeCounts (a badge follows the open tab's filters; owner, 2026-11-24)", () => {
+    const server = { [TAB_APPROVED]: 5, [TAB_ALL]: 40 };
+
+    it("puts the open tab's list total in place of its server count", () => {
+        // PR #1737 walk: Payment need to be paid on this month listed 3 while its badge said 5.
+        expect(badgeCounts(server, TAB_APPROVED, { tab: TAB_APPROVED, count: 3 })).toEqual({ [TAB_APPROVED]: 3, [TAB_ALL]: 40 });
+    });
+
+    it("keeps every other tab's server count", () => {
+        expect(badgeCounts(server, TAB_ALL, { tab: TAB_ALL, count: 7 })[TAB_APPROVED]).toBe(5);
+    });
+
+    it("ignores a total read for another tab, and shows the server's counts before the list has loaded", () => {
+        expect(badgeCounts(server, TAB_ALL, { tab: TAB_APPROVED, count: 3 })).toBe(server);
+        expect(badgeCounts(server, TAB_APPROVED, null)).toBe(server);
+    });
+
+    it("shows 0 when the filters leave nothing", () => {
+        expect(badgeCounts(server, TAB_APPROVED, { tab: TAB_APPROVED, count: 0 })[TAB_APPROVED]).toBe(0);
     });
 });
