@@ -142,7 +142,7 @@ the CEO.
 
 ### Consequences
 
-- The Admins get an information-only bell ("GST payment … approved by … Ready to pay: no L1 or CEO."), cut to
+- The Admins get an information-only bell ("GST payment … approved by … from GPR-…."), cut to
   the bell's 140 characters; the CEO gets nothing. The Accountants get the usual "ready to fulfil" bell.
 - The Request Payment dialog, the GST Requests tab and its Approve dialog say the payment goes straight to
   Payment need to paid.
