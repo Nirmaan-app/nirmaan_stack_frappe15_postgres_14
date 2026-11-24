@@ -2179,6 +2179,13 @@ _SCOPE_RULE_OPTIONAL = {"needs_installing"}
 _SCOPE_RULE_NOTES = {"A": (), "B": (), "C": ("{n}",), "C_qty": ("{n}", "{q_inst}", "{q_box}"), "D": ("{n}",), "E": ("{rows}",),
                      "E_qty": ("{q_inst}", "{q_box}", "{row_list}"), "F": ("{said}",), "G": ("{reason}",), "words_supply_only": ()}
 _SCOPE_RULE_SAID = {"existing", "refix", "by_others", "install_only"}
+# VAV-2c3 (R5 F3 / F4, chat-Claude's calls under the owner's 2026-11-23 13:46 word): `scope.calculator_scope_box_only` (true: the Calculator's
+# Supply only shows the Scope box line alone) and `scope.rule.install_row_texts` (an installation row's own wording of the box-row notes it
+# carries; frontend scopeRule.INSTALL_ROW_TEXT_PATHS, each with the placeholders of the text it replaces). Both OPTIONAL.
+_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"calculator_scope_box_only"}
+_SCOPE_RULE_OPTIONAL = _SCOPE_RULE_OPTIONAL | {"install_row_texts"}
+_INSTALL_ROW_TEXTS = {"sheet_shares.lines.blank_rows": ("{n}",), "integrator_cabling.lines.priced_separately": ("{rows}", "{prices}", "{that_row}", "{does}"),
+                      "sheet_shares.labels.per_box": (), "sheet_shares.labels.typed": ()}
 # VAV-2c2 (R3 h): the Calculator's own "type the number of VAVs" lines (no sheet there)
 _SHEET_SHARES_LABELS_OPTIONAL = _SHEET_SHARES_LABELS_OPTIONAL | {"need_vavs_calculator", "need_vavs_whole_calculator"}
 _SAFEGUARD_OPTIONAL_KEYS = _SAFEGUARD_OPTIONAL_KEYS | {"exact_quotes"}
@@ -2894,6 +2901,12 @@ def _validate_scope_rule(r, w):
     fs = n["F_said"]
     if not isinstance(fs, dict) or set(fs) != _SCOPE_RULE_SAID or not all(_nonempty_str(v) for v in fs.values()):
         _vthrow(f"{w}.notes.F_said needs exactly {', '.join(sorted(_SCOPE_RULE_SAID))} (non-empty strings).")
+    if "install_row_texts" in r:
+        it = r["install_row_texts"]
+        if not isinstance(it, dict) or not it or not set(it) <= set(_INSTALL_ROW_TEXTS):
+            _vthrow(f"{w}.install_row_texts needs one or more of {', '.join(sorted(_INSTALL_ROW_TEXTS))}.")
+        for k in it:
+            _sentence(it, k, f"{w}.install_row_texts", _INSTALL_ROW_TEXTS[k])
 
 
 def _validate_scope(sc, loc):
@@ -2963,6 +2976,9 @@ def _validate_scope(sc, loc):
             _vthrow(f"{w} needs one or more of the scope's lines ({', '.join(sorted(allowed))}).")
         for k in cl:
             _sentence(cl, k, w)
+    # VAV-2c3 (R5 F3): the Calculator's Supply only by its Scope box line alone
+    if "calculator_scope_box_only" in sc and sc["calculator_scope_box_only"] is not True:
+        _vthrow(f"{loc}.calculator_scope_box_only must be true (or absent).")
     # VAV-2c2 (R1 / R2): the scope rule
     if "rule" in sc:
         _validate_scope_rule(sc["rule"], f"{loc}.rule")

@@ -9,11 +9,11 @@
  *     Calculator.
  *  3a #133's wording; 3d the DP sensor's small line gives way to the amber block.
  */
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { blk } from "./vav1Vav.harness";
 import { box81, calc81, sheet81, vav81, type Row81 } from "./vav2b2.harness";
 import { applyShareEdit, type SharesEditState } from "./vavSheetShares";
-import { STUB_RUN_LINE, stubRunLineOf } from "./stubRunMark";
 
 const DDC = "Supply, Installation, Testing & Commissioning of DDC Controller with I/O module etc. as per the technical specification in the tender with all the mounting accessories complete as required.";
 const TOUCH = "Supply, Installation, testing & Commissioning of the VAV Touch Screen Controller is a microprocessor-based device designed for precise control of Variable Air Volume (VAV) terminal units in HVAC systems.";
@@ -96,22 +96,22 @@ describe("ANSWER 18 3b / 3c: the other reworded lines (wording only; WHEN unchan
   });
 });
 
-describe("3b: the TEMPORARY test-run line (UI CHANGE CONTROL item 13)", () => {
+describe("3b: the TEMPORARY test-run line (UI CHANGE CONTROL item 13) -- REMOVED by VAV-2c3 R6 (PIN K1-A)", () => {
   const rows = { 5: HEAD, 1: { ...box81(45, { controller: "bacnet" }), parent: 5 }, 202: ddcRow(2, "hvac_misc") };
-  it("a stub run: on a VAV box row AND on the item-less DDC panel row priced here", () => {
-    expect(sheet81(rows, { runId: "STUB-VAV-2b2-BOQ-26-00313-HVAC" })(1).itemList!.testRunLine).toBe(STUB_RUN_LINE);
-    expect(sheet81(rows, { runId: "STUB-VAV-2b2-BOQ-26-00313-HVAC" })(202).itemList!.testRunLine).toBe(STUB_RUN_LINE);
-    expect(STUB_RUN_LINE).toBe("These answers were written by hand for a test, not read by the model.");
+  it("a stub run: NO line any more, on a VAV box row nor on the item-less DDC panel row priced here", () => {
+    expect((sheet81(rows, { runId: "STUB-VAV-2b2-BOQ-26-00313-HVAC" })(1).itemList as unknown as Record<string, unknown>).testRunLine).toBeUndefined();
+    expect((sheet81(rows, { runId: "STUB-VAV-2b2-BOQ-26-00313-HVAC" })(202).itemList as unknown as Record<string, unknown>).testRunLine).toBeUndefined();
+    expect(JSON.stringify(sheet81(rows, { runId: "STUB-VAV-2b2-BOQ-26-00313-HVAC" })(1))).not.toContain("written by hand for a test");
   });
   it("NEVER on an ordinary run, nor with no run, nor in the Calculator", () => {
-    expect(sheet81(rows, { runId: "a1b2c3d4e5" })(1).itemList!.testRunLine).toBeUndefined();
-    expect(sheet81(rows, { runId: "STUB-VAV-2b1-x" })(1).itemList!.testRunLine).toBeUndefined();
-    expect(sheet81(rows)(1).itemList!.testRunLine).toBeUndefined();
-    expect(calc81({ items: [BOX] }).itemList!.testRunLine).toBeUndefined();
+    const line = (v: unknown) => (v as Record<string, unknown>).testRunLine;
+    expect(line(sheet81(rows, { runId: "a1b2c3d4e5" })(1).itemList)).toBeUndefined();
+    expect(line(sheet81(rows, { runId: "STUB-VAV-2b1-x" })(1).itemList)).toBeUndefined();
+    expect(line(sheet81(rows)(1).itemList)).toBeUndefined();
+    expect(line(calc81({ items: [BOX] }).itemList)).toBeUndefined();
   });
-  it("only the VAV helper's rows: another category on the same stub run shows nothing", () => {
-    expect(stubRunLineOf("STUB-VAV-2b2-x", "hvac_ducting")).toBeNull();
-    expect(stubRunLineOf("STUB-VAV-2b2-x", "hvac_vav_box")).toBe(STUB_RUN_LINE);
+  it("neither category shows a line on a stub run: the module that drew it is gone", () => {
+    expect(existsSync(new URL("./stubRunMark.ts", import.meta.url))).toBe(false);
   });
 });
 

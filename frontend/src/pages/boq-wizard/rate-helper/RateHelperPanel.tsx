@@ -1537,8 +1537,6 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
-      {/* VAV-2b2 QR-MARK (b), owner 2026-11-21 15:56 -- TEMPORARY: a hand-written test run's VAV row says so, first */}
-      {!section && view.testRunLine && <UnitNoteBox note={view.testRunLine} testId="item-test-run-line" />}
       {/* VRF-4 (U4: R-WS, D-5 "option D", D-9): the model read working + standby words -- a SOLID red bar above the card and
           the row's unit and quantity ringed red; the price is one unit */}
       {!section && view.standbyBar && (

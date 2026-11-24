@@ -301,6 +301,7 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
 import { percentOf } from "@/pages/boq-wizard/rate-helper/helperWording";
+import { inputFactor } from "@/pages/boq-wizard/rate-helper/scopeRule";
 import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, oneSizeMessage, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel,
          type AccessorySpec, type CapacityUnits, type CountedSpec, type DefaultSpec, type ItemListPricingSpec, type MaterialText } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
@@ -1750,13 +1751,31 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
             ? `the row's own words start 'Supply of' / 'Supplying of' (or the sheet heading repeated, then 'Supply of') and name no installation, and the same sheet has installation-only rows of the same item -> supply only, with the note '${plainSentence(pairNote.replace("{rows}", "row(s): <the rows>"))}'; the installation is charged once, on its own row(s) (owner 2026-11-16 15:16; 18:06)`
             : "the row's own words start 'Supply of' / 'Supplying of' and name no installation, and the same sheet has an installation-only row of the same item -> supply only, with only the note 'Installation is quoted on its own row on this sheet, so priced supply only here'; the installation is charged once, on its own row",
           "scope_pair");
+    } else if (ps1.rule && typeof ps1.rule === "object") {
+      // VAV-2c3 (R5 F1, owner 2026-11-24 10:36 "1 fix in next slice"): a category on THE SCOPE RULE (VAV-2c2, `pricingSheetHelper` +
+      // `scopeRule.ts`) describes the rule as built, in the owner's words with their dates -- the line below is the older model-scope rule
+      const rl = ps1.rule as { threshold_input?: unknown };
+      const thr = inputFactor(items as never, String(rl.threshold_input ?? ""));
+      const thrWords = `the Pricing Input '${pricingInputLabel(String(rl.threshold_input ?? ""), items)}'${thr === null ? "" : `, ${percentOf(thr)} today`}`;
+      add("The BoQ scope: supply + installation unless a case below is found",
+          [`every row is priced supply + installation unless one of the cases below is positively found (owner, 23 November 2026: "all rows are by default supply + installation")`,
+           `supply and installation of the boxes on separate rows of the sheet: the box rows are priced supply only and the installation row installation only, but only when it is sure that the installation row covers those boxes - its quantity is at least the share of the box rows' quantity set in ${thrWords} (owner, 23 November 2026)`,
+           "in doubt, the box rows stay supply + installation and the installation row is still priced, installation only, with a note on both rows (owner, 24 November 2026)",
+           `the installation row carries the installation of every per-unit component of the boxes it covers - the box, its extras and its shares (owner, 24 November 2026: "all components price move together")`,
+           "existing material being installed, removal and refixing, or supply by others -> installation only (owner, 23 November 2026)",
+           "the row's own words 'installation only' -> installation only; the words 'supply only' alone do not make a row supply only - it stays supply + installation, with a note (owner, 24 November 2026)",
+           "an item that does not need installing, as the AI reads it from the row (attic stock mentioned explicitly included) -> supply only, with the AI's reason in the note (owner, 23 and 24 November 2026)",
+           `every component on the row follows its scope (owner, 24 November 2026: "every component for a row behaves similarly in scope")`,
+           `installation only -> supply 0 and each line's install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee`,
+           `the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; the 'Scope of this rate' box does the same`].join("; "));
     } else
     add("The BoQ scope: supply + installation unless the row says otherwise",
         `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the 'Scope of this rate' box does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);
   }
   // VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02 "yes for both"): the lines of the row follow its scope
   const lf = ((ex5?.scope ?? ps1) as { lines_follow?: { word?: unknown } } | null | undefined)?.lines_follow;
-  const sl = lf ? out.find((l) => l.title === "The BoQ scope: supply + installation unless the row says otherwise" || l.title === "Supply only / installation only, from the BoQ") : undefined;
+  const sl = lf ? out.find((l) => l.title === "The BoQ scope: supply + installation unless the row says otherwise" || l.title === "The BoQ scope: supply + installation unless a case below is found"
+    || l.title === "Supply only / installation only, from the BoQ") : undefined;
   if (lf && sl) sl.detail = `${sl.detail ?? ""}; the lines of the row follow it: each item shows the side left out as 0, '${String(lf.word ?? "")}', and the items add up to the row total`;
   if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
     add("Supply / installation settled by the sheet's own rows",

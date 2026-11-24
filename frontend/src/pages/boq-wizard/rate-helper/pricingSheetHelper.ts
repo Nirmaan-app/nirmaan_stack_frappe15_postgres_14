@@ -155,10 +155,9 @@ import type {
   WorkingsGroup,
 } from "./rateHelperTypes";
 import { SHARES_OVERRIDE_KEY, countWords, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SeparateRowBy, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
-import { stubRunLineOf } from "./stubRunMark";
 import { claimNotesOf, claimedConfigOf, claimedItemsOf, matchedByHelper, type RowClaim } from "./vavClaims";
 import { scopedWarning, withScopeLines, type NotInScope } from "./scopeLines";
-import { installRowItems, scopeRuleForRow } from "./scopeRule";
+import { installRowItems, installRowSpec, scopeRuleForRow } from "./scopeRule";
 import { panelPickLead, percentOf, rateShareWords, rowsStart } from "./helperWording";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
@@ -1637,6 +1636,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // row); an installation row prices the installation item in place of the box (QR-SURE (d), owner 2026-11-24 00:18 "ok")
       const extR0 = (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined;
       const ruled = !paint && !two ? scopeRuleForRow(listSpec as never, withIns, extR0?.items as never, rowCats, items, category.category_id) : null;
+      // VAV-2c3 (R5 F4): an installation row words the box-row notes it carries for itself (`scope.rule.install_row_texts`) -- texts only
+      const ilSpec = ruled?.installRow ? installRowSpec(listSpec) : listSpec;
+      const vavLines = ilSpec !== listSpec && vavSheet
+        ? vavSheetRules(ilSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf)?.lines
+        : vavSheet?.lines;
       // owner 2026-11-24 01:22 / 01:23 ("all components price move together"; "yes to both"): an installation row carries EVERY per-unit
       // component of the box rows it covers -- the box item as the installation item, the box row's extras, its shared items at the sheet's
       // own per-box figures (the VAVs counted as before) -- read from the first covered box row the run read
@@ -1644,7 +1648,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const boxExt = boxRow !== undefined ? extractionByRow.get(boxRow) as ExtractionRowWithItems : undefined;
       const boxDec = boxRow !== undefined ? (() => {
         const l = (withIns.sheetLines ?? []).find((x) => x.row === boxRow && x.sheet === undefined);
-        return vavSheetOf(listSpec, { ...withIns, excelRow: boxRow, description: l?.text ?? "", ownNotes: [] }, boxExt, extractionByRow, rowCats, category.category_id)?.decision ?? null;
+        return vavSheetOf(ilSpec, { ...withIns, excelRow: boxRow, description: l?.text ?? "", ownNotes: [] }, boxExt, extractionByRow, rowCats, category.category_id)?.decision ?? null;
       })() : null;
       const shareDec = !vavSheet?.existing ? boxDec ?? sheetOf?.decision ?? null : null;
       const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
@@ -1653,7 +1657,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const extR = ruled?.installRow && (boxExt?.items ?? extR0?.items) ? { ...(extR0 ?? {}), items: installRowItems(listSpec as never, (boxExt?.items ?? extR0!.items) as never) } as ExtractionRowWithItems : extR0;
       const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}),
         ...(ruled ? { scopeRule: { value: ruled.value, ...(ruled.note ? { note: ruled.note } : {}) } } : {}) };
-      const out1v = computeItemList(category, listSpec, items, withShares, extR, inRun, overrides, configOf, cableRate);
+      const out1v = computeItemList(category, ilSpec, items, withShares, extR, inRun, overrides, configOf, cableRate);
       const out1x = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
       // VAV-2c1 (R4, owner 2026-11-22 10:51 "all a", 4.1): on a claimed row the helper's rule chose the item, not the model
       const v1x = claimed ? (out1x as ItemListSuggestion).itemList : undefined;
@@ -1662,17 +1666,15 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const out0a = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
       const v0a = (out0a as ItemListSuggestion).itemList;
       const claimNotes = claimed && claimRow ? claimNotesOf(listSpec, claimRow) : [];
-      const sheetLinesV = [...claimNotes, ...(wd?.lines ?? []), ...(vavSheet?.lines ?? []), ...(shareDec?.rowNotes ?? [])];
+      const sheetLinesV = [...claimNotes, ...(wd?.lines ?? []), ...(vavLines ?? []), ...(shareDec?.rowNotes ?? [])];
       const out0 = sheetLinesV.length && v0a
         ? { ...out0a, itemList: { ...v0a, sheetHeadingNotes: [...(v0a.sheetHeadingNotes ?? []), ...sheetLinesV.map((l) => plainPricerText(l, items))] } } as ItemListSuggestion
         : out0a;
       // DU-3 (Case 5): a row whose OWN words name a double-skin duct is not on our sheet -- the whole row unpriced, with the line
       const refusal = rowCtx.noRow !== true ? rowRefusalOf(listSpec, rowCtx) : null;
-      const outR = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
-      // VAV-2b2 QR-MARK (b), owner 2026-11-21 15:56 "3b" -- TEMPORARY (the next slice removes it): a hand-written test run says so
-      const stubLine = stubRunLineOf(rowCtx.runId, category.category_id);
-      const vR = (outR as ItemListSuggestion).itemList;
-      const out = stubLine && vR ? { ...outR, itemList: { ...vR, testRunLine: stubLine } } as ItemListSuggestion : outR;
+      // VAV-2c3 (R6, owner 2026-11-21 15:56 "3b"): VAV-2b2's TEMPORARY "written by hand for a test" line is removed -- the paid reading
+      // replaces the hand-written test answers
+      const out = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
       if (!paint) return out;
       const v = (out as ItemListSuggestion).itemList;
       return v ? { ...out, itemList: { ...v, sheetHeadingNotes: [...(v.sheetHeadingNotes ?? []), plainPricerText(paint.line, items)] } } as ItemListSuggestion : out;
@@ -2906,8 +2908,6 @@ export interface ItemListView {
   scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /** VP-1 (N5): the sheet-heading lines (`withSheetHeadingNotes`), drawn by the panel as an amber box after the items. */
   sheetHeadingNotes?: string[];
-  /** VAV-2b2 QR-MARK (b) -- TEMPORARY: the amber line on a VAV row of a hand-written test run (run id STUB-VAV-2b2-...) */
-  testRunLine?: string;
   /** VAV-2a (B9): the combination-row warning (`combinationWarningOf`), drawn by the panel (and so the calculator) as an amber box after
    *  the items. Present ONLY on a priced row of a config declaring `combination_warning` whose extras pass the share. */
   combinationWarning?: string;
@@ -5834,7 +5834,9 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
   // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
-  const note00 = ruleNote !== undefined ? ruleNote : pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
+  // VAV-2c3 (R5 F3): a config whose Calculator shows Supply only by its Scope box line alone does not repeat it as a note
+  const boxOnly = calculator && supplyOnly && sc.calculator_scope_box_only === true;
+  const note00 = ruleNote !== undefined ? ruleNote : pairRule || boxOnly ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
   // VAV-2c2 (R3 b): a note written to introduce the per-line working ends with a colon; with no working line after it (0% uplift) the
   // sentence ends where the text ends
   const note0 = note00 !== undefined && !points.length ? note00.replace(/:\s*$/, ".") : note00;

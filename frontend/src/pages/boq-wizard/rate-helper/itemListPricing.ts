@@ -1156,6 +1156,10 @@ export interface ScopeSpec {
    *  Calculator's, where no BoQ said it -- "BoQ says" stays only where the helper read the scope from the BoQ. A key absent here keeps its
    *  `lines` text; the whole key ABSENT => `lines` everywhere, as before. */
   chosen_lines?: Record<string, string>;
+  /** VAV-2c3 (R5 F3, chat-Claude's call under the owner's 2026-11-23 13:46 word): in the CALCULATOR under Supply only, the Scope box's own
+   *  line ("Installation is not in scope: 0 on every line below.") is the only one -- the supply-only note is not repeated under it.
+   *  ABSENT => the note shows as before (Ducting, Valve Package, VRF; every BoQ row). */
+  calculator_scope_box_only?: true;
   /** VAV-2c2 (R1 / R2, owner 2026-11-23 13:52 - 13:57; QR-SURE / QR-WORDS / QR-ASK 2026-11-24): THE SCOPE RULE (`scopeRule.ts`) -- the row's
    *  scope from the rule, with its note, on a BoQ row with its sheet. ABSENT => the model's scope answer, as before. */
   rule?: ScopeRuleSpec;
