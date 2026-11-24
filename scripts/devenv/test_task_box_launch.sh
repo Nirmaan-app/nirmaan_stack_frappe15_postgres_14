@@ -61,7 +61,13 @@ case "$1 $2" in
   "account select")
     for a in "$@"; do [ "${prev:-}" = --account ] && echo "$a" > "$HOME/.orca-selected"; prev="$a"; done ;;
   "agent launch")
+    # Real Orca answers at once and starts Claude in the background; STUB_SEED does the same.
+    if [ -n "${STUB_SEED:-}" ] && [ -z "${STUB_CHILD:-}" ]; then STUB_CHILD=1 "$0" "$@" >/dev/null 2>&1 & exit 0; fi
     for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; [ "${prev:-}" = --prompt ] && printf '%s' "$a" > "$HOME/.last-prompt"; prev="$a"; done
+    if [ -n "${STUB_SEED:-}" ]; then   # Orca's first, short-lived claude that seeds the session; it ends after 1 s
+      seed="$DEVBOX_PROC/${$}9"; mkdir -p "$seed"; echo claude > "$seed/comm"; ln -s "$wt" "$seed/cwd"; printf 'PATH=/bin\0' > "$seed/environ"
+      sleep 1; echo exited > "$seed/comm"; sleep 1
+    fi
     sleep "${STUB_LAUNCH_SLEEP:-0}"
     sel="$(cat "$HOME/.orca-selected" 2>/dev/null || echo system)"
     cfg=""; [ "$sel" = system ] || cfg="$HOME/.config/orca/claude-profiles/$sel/home"
@@ -96,7 +102,7 @@ esac
 EOF
 chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca-ide" "$T/laptop-orca/orca"
 export PATH="$T/bin:/usr/bin:/bin" HOME="$T/laptop-home" STUB_BOXES="$T/boxes" STUB_LOG="$T/stub.log" DEVBOX_PROC="$PROC"
-export DEVBOX_CLAUDE_HOME="$T/laptop-claude" XDG_STATE_HOME="$T/state"
+export DEVBOX_CLAUDE_HOME="$T/laptop-claude" XDG_STATE_HOME="$T/state" DEVBOX_LAUNCH_SETTLE=0
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 mkdir -p "$DEVBOX_CLAUDE_HOME"
 : > "$STUB_LOG"
@@ -218,6 +224,13 @@ rc_is 0 "done exits 0"; has "launch  requester=madhu" "done shows who launched i
 sed -n '/^watch_probe() {/,/^}/p' "$L/scripts/devenv/task.sh" > "$T/watch_probe.sh"
 idle="$(bash -c ". '$T/watch_probe.sh'; watch_probe" | ssh t@r7-test bash -s -- work/x/variants/master madhu-t7 | awk -F'\t' '$1 == "madhu-t7" {print $4}')"
 case "$idle" in [0-9]*) pass "watch finds a box launch's session log" ;; *) fail "watch finds a box launch's session log (idle '$idle')" ;; esac
+
+# ---- Orca's two-step start: the selection stays until the resumed Claude has run unbroken for the settle time
+: > "$STUB_LOG"
+STUB_KEY=AAAAmadhu TASK_ENV="STUB_SEED=1 DEVBOX_LAUNCH_SETTLE=2" start madhu-t15
+rc_is 0 "a two-step start (seed process, then the real one) exits 0"
+log_has "spawned madhu-t15 as acct-madhu" "the real Claude starts as madhu's account, not the owner's"
+same "$(cat "$BOXH/.orca-selected")" system "the selection still goes back after the settle time"
 
 # ---- the started Claude is not the person's account: stopped and refused
 n="$(procs)"

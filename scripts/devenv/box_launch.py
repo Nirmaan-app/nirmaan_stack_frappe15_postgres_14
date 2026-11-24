@@ -45,6 +45,9 @@ LOCK = os.path.join(HOME, ".local/state/devbox/launch.lock")
 DEFAULT_HOME = os.path.join(HOME, ".claude")
 PROC = os.environ.get("DEVBOX_PROC", "/proc")   # set it only in tests
 LOCK_WAIT, ALIVE_WAIT = 600, 60
+# Orca starts Claude in two steps (a short-lived process that seeds the session, then the one that resumes it),
+# reading the selected account at each. The selection goes back only once a Claude has run this long unbroken.
+SETTLE = float(os.environ.get("DEVBOX_LAUNCH_SETTLE", "10"))
 
 Person = namedtuple("Person", "name keys account email prefix")
 Account = namedtuple("Account", "select home email")   # select: what orca-ide account select takes
@@ -290,9 +293,15 @@ def cmd_launch(task, wt, prompt):
             # The launch reply may say it could not confirm although the agent started: the proof is the process.
             orca("agent", "launch", "--agent", "claude", "--surface", "terminal", "--focus", "--worktree", f"path:{wt}",
                  "--prompt", prompt, "--json", check=False)
-            deadline = time.time() + ALIVE_WAIT
-            while not claude_procs(wt) and time.time() < deadline:
-                time.sleep(1)
+            deadline, since = time.time() + ALIVE_WAIT, None
+            while time.time() < deadline:
+                if not claude_procs(wt):
+                    since = None
+                elif since is None:
+                    since = time.time()
+                if since is not None and time.time() - since >= SETTLE:
+                    break
+                time.sleep(0.5)
         finally:
             if before != acct.select:
                 orca("account", "select", "--agent", "claude", "--account", before, "--json", check=False)
