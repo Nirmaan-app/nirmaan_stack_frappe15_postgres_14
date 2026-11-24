@@ -39,8 +39,8 @@ Last walked (walk_vendor_msme.py): 2026-11-24 UTC at eb86b4b67, passed.
   Approval Pending cheque) Cancel; Procurement gets Edit only on its own open cheque; PMO gets View only.
 - `pmo` PMO opens the Cheques tab and a cheque's details (the read endpoints let it in), with no Edit or Cancel and
   no Cheque Tracker in its sidebar.
-- `cheque_header` Cheque Tracker: the `Cheque/Payment Date` header is 160 px wide on two lines, its words inside its
-  cell (#1736).
+- `cheque_header` Cheque Tracker: the `Cheque/Payment Date` header is 185 px wide on two lines, its words and its sort
+  arrow inside its cell, clear of Issue Date's filter (#1736).
 
 ## How to get to it (user POV)
 

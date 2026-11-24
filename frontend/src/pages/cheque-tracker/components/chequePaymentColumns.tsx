@@ -165,7 +165,8 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }:
             <DataTableColumnHeader column={column} title={CHEQUE_PAYMENT_DATE_LABEL} className={WRAP_HEADER} />
         ),
         cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
-        size: 160,
+        // "Cheque/Payment" never breaks at the slash: at 160px its sort arrow ran 16px into Issue Date's filter.
+        size: 185,
         meta: { exportHeaderName: CHEQUE_PAYMENT_DATE_LABEL, exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
     },
     {
