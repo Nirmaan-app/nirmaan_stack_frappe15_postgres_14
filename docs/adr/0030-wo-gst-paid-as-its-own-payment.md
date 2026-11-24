@@ -1,7 +1,8 @@
 # ADR-0030 — Work Order GST is paid as its own payment, released by approved invoice GST
 
 - **Status:** Accepted, built (owner grilling 2026-09-30, Q1–Q15). Amended 2026-11-04: see *Amendment A*
-  (a GST payment waits for the Accountant as a GST Payment Request)
+  (a GST payment waits for the Accountant as a GST Payment Request). Amended 2026-11-18: see *Amendment B*
+  (the Accountant's approval is the GST payment's only approval: no L1, no CEO)
 - **Date:** 2026-09-30
 - **Feature:** Work Orders (Service Requests) / Project Payments / Vendor Invoices
 - **Replaces:** the ex-GST payment cap on GST-on Work Orders (`050443674`, 2026-09-16, carried into
@@ -84,7 +85,8 @@ owed, before any payment exists.
    Online only. Project Payments' own statuses are unchanged.
 2. **Only an Accountant, an Accountant Lead or an Admin decides it** (`PAYMENT_SETTLE_PROFILES`), and only
    on a project they can see. Approval keeps the amount asked for and creates the payment through Request
-   Payment's own insert, routed by amount as any payment is. A rejection needs a reason and creates nothing.
+   Payment's own insert, routed by amount as any payment is (superseded by *Amendment B*: born Approved).
+   A rejection needs a reason and creates nothing.
 3. **Nobody's GST payment is approved by raising it**, an Accountant's or Admin's own included. A GST
    payment is born only from an approved request, with three exceptions that are not a person asking for
    money: a split of one that already was, a decider's Paid entry, and the `Administrator` system account.
@@ -110,3 +112,38 @@ owed, before any payment exists.
   notified of the decision.
 - No old GST payment is touched or backfilled: the rule applies from the next request.
 - Needs `bench migrate` on every site but localhost (new doctype).
+
+## Amendment B — the Accountant's approval is the GST payment's only approval (2026-11-18)
+
+**Accepted** (owner, 2026-11-18, decisions B1–B3). Changes Amendment A's decision 2 only: what the payment an
+approved request creates looks like. Everything else in Amendment A stands.
+
+### Context
+
+Under Amendment A an approved GST request created its payment through the amount rule, so a GST payment from
+₹15,000 needed L1 again and one above ₹50,000 needed L1 and then the CEO: three approvals for money the
+Accountant had already checked. The owner wants the Accountant's check to be enough.
+
+### Decision
+
+1. **An approved GST request's payment is born Approved, ready to pay** ("Payment need to paid"), at every
+   amount and whoever raised the request. No L1, no CEO. Both approval dates are stamped as cleared; it is not
+   `auto_approved`, because a person approved it (`services/gst_payment_requests.approved_payment_route`).
+2. **B1: the same for every decider.** An Accountant, an Accountant Lead or an Admin approving in GST Requests
+   all make the payment ready to pay.
+3. **B2: GST payments already waiting** at Requested or CEO Pending, made from requests approved before this
+   change, move to Approved by a one-time patch the site owner runs after a dry run. L1- or CEO-rejected,
+   settled, pre-request and base payments are left as they are.
+4. **B3: a later raise needs no L1 or CEO.** When an Accountant, an Accountant Lead or an Admin raises an
+   approved GST payment's amount, it stays Approved at any amount. Nobody else may raise it (unchanged).
+
+Base (non-GST) payments keep the amount rule: under ₹15,000 auto, ₹15,000–₹50,000 L1, above ₹50,000 L1 then
+the CEO.
+
+### Consequences
+
+- The Admins get an information-only bell ("GST payment … approved by … Ready to pay: no L1 or CEO."), cut to
+  the bell's 140 characters; the CEO gets nothing. The Accountants get the usual "ready to fulfil" bell.
+- The Request Payment dialog, the GST Requests tab and its Approve dialog say the payment goes straight to
+  Payment need to paid.
+- No new field or status. B2 is a data patch; B3 changes the payment-step raise rule for GST payments only.

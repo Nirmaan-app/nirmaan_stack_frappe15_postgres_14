@@ -56,14 +56,15 @@ def notify_request_decided(req) -> None:
 DESCRIPTION_MAX = 140  # Nirmaan Notifications.description is a Data field
 
 
-def _fit(text: str, limit: int = DESCRIPTION_MAX) -> str:
-    """Cut text to the bell field's limit; the full reason stays on the request itself."""
+def fit_bell_description(text: str, limit: int = DESCRIPTION_MAX) -> str:
+    """Cut text to the bell field's limit; the full reason stays on the request itself. Also used by the
+    Project Payments controller's admins' note for an approved GST request's payment."""
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _send(user, req, event: str, *, title: str, description: str, action_url: str) -> None:
     """Callers run this AFTER the decision commits, so a failure here must not reach the user as an error."""
-    description = _fit(description)
+    description = fit_bell_description(description)
     try:
         if user.get("push_notification") == "true":
             PrNotification(user, title, description, f"{frappe.utils.get_url()}/frontend/{action_url}")
