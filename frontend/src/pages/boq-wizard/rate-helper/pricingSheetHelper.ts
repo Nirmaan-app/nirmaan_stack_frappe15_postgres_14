@@ -4037,9 +4037,10 @@ function computeItemListOwn(
   overrides?: Record<string, string>,
   probe?: OwnPassProbe,
 ): HelperResult {
-  // VAV-FIX (S1, owner 2026-11-20 17:53 "a"): with no BoQ row (the Calculator -- the same test as `calculator` below) a default
-  // declaring `boq_rows_only` does not fill a blank; every other spec is the same object
-  const spec = ctx.unit === undefined || ctx.unit === null || ctx.noRow === true ? boqRowsOnlyDefaultsOff(specIn) : specIn;
+  // VAV-FIX (S1, owner 2026-11-20 17:53 "a"; ANSWER 7 option (b)): in the CALCULATOR -- the explicit flag `calculatorCtx` sets, never the
+  // unit (a BoQ row with no unit, or no unit key, keeps its defaults) -- a default declaring `boq_rows_only` does not fill a blank; every
+  // other spec is the same object
+  const spec = ctx.calculator === true ? boqRowsOnlyDefaultsOff(specIn) : specIn;
   const modelItems = ext?.items ?? [];
   const decoded = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
   /**
@@ -4674,6 +4675,8 @@ function withExtras(
   const lineCtx = (category: string, pipeOd?: boolean): RowContextWithUnit => ({
     excelRow: ctx.excelRow, description: "", nodeType: ctx.nodeType, category, discipline: ctx.discipline, rateKinds: ctx.rateKinds, unit: "mts", noRow: true,
     ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}),
+    // VAV-FIX (ANSWER 7): a borrowed line priced for the Calculator is the Calculator's too
+    ...(ctx.calculator === true ? { calculator: true as const } : {}),
   } as RowContextWithUnit);
   type LineCall = { rate: { supply: number; install: number } | { reason: string }; attrs?: Record<string, string>; notes?: Record<string, string>; size?: string; note?: string; read?: string };
   const lineCache = new Map<string, LineCall>();

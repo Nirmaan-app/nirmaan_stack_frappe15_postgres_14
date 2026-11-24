@@ -612,6 +612,10 @@ export interface RateHelperRowContext {
   discipline: string | null;
   /** The rate-kinds present on this row's rate cells (derived from the row's rate descriptors). */
   rateKinds: RateKind[];
+  /** VAV-FIX (S1, ANSWER 7 option (b)): the CALCULATOR's context -- set ONLY by `calculatorCtx` (PricingCalculator.tsx), carried by every
+   *  context the helper derives from it; read ONLY by the `boq_rows_only` defaults (`boqRowsOnlyDefaultsOff`). Absent on every BoQ row, a
+   *  row with no unit (or no unit key) included -- never inferred from the unit. */
+  calculator?: true;
   /**
    * SLICE 12d-1a (owner R2): the descriptions of the row's section headings, ROOT-FIRST, built by
    * `buildRowContext` from the priced rows' parent chain. Read ONLY by an item-list category's

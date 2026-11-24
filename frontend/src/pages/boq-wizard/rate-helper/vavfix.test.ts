@@ -5,10 +5,12 @@
  * model left the field out), the owner's 2026-11-24 17:02 lesson.
  */
 import { describe, expect, it } from "vitest";
-import { ITEM_LIST_OVERRIDE_KEY, type ItemBlockView, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
-import { blk } from "./vav1Vav.harness";
+import { calculatorCtx } from "../../pricing/PricingCalculator";
+import { ITEM_LIST_OVERRIDE_KEY, buildExtractionByRow, makePricingSheetHelper, type ItemBlockView, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
+import { blk, surfaceMap } from "./vav1Vav.harness";
+import { mi } from "./vav2a.harness";
 import { box86 } from "./vav2c3c.harness";
-import { EDITS88, VAV, calc88, cfg87, cfg88, sheet88, type Row86 } from "./vavfix.harness";
+import { EDITS88, ITEMS87, V87, VAV, calc88, cfg87, cfg88, sheet88, type Row86 } from "./vavfix.harness";
 
 type Field = { id: string; value: string; defaulted?: boolean; rule?: string; note?: string; required?: true };
 const C88 = cfg88(VAV), C87 = cfg87(VAV);
@@ -95,6 +97,35 @@ describe("T1 S1 - the VAV Box Calculator starts blank (owner 2026-11-20 17:53 'a
     }
     expect(v.items[0].state).toBe("priced");
     expect(v.totals).toEqual(w.totals);
+  });
+  it("NEGATIVE (BoQ row with NO UNIT, SILENT BoQ - ANSWER 6): a no-unit row is a BoQ row, not the Calculator -> all three defaults with their notes, priced per Nos with the bar", () => {
+    // the page hands a no-unit row `unit: ""` (SheetPricingPage.tsx: `unit: row.unit ?? ""`); only an ABSENT unit (the Calculator) is no row
+    const v = one({ text: "VAV box 501-800 CFM", unit: "", items: [silentBox()] }), w = one({ text: "VAV box 501-800 CFM", unit: "", items: [silentBox()] }, C87);
+    for (const id of DEFAULTED) {
+      expect(field(v, id).value, id).toBe(VALUES[id]);
+      expect(field(v, id).defaulted, id).toBe(true);
+      expect(field(v, id).note, id).toBe(NOTES[id]);
+    }
+    expect(v.rowPriced).toBe(true);
+    expect(v.rateUnit).toBe("Nos");
+    expect(v.unitBar?.title).toBe("Warning: no unit on this row");
+    expect(v.totals).toEqual(w.totals);
+  });
+  it("NEGATIVE (ANSWER 7 (1)): a BoQ-row context that OMITS the unit key, silent BoQ -> all three defaults with their notes, priced (only the explicit Calculator flag starts blank)", () => {
+    const map = surfaceMap([], V87.byId); map.set(VAV, C88);
+    const h = makePricingSheetHelper({ configsByCategory: map, items: ITEMS87,
+      extractionByRow: buildExtractionByRow([{ excel_row: 10, description: "VAV box 501-800 CFM", category_id: VAV, attributes: {}, items: [mi(silentBox() as never)] }] as never) });
+    const v = (h.compute({ excelRow: 10, description: "VAV box 501-800 CFM", nodeType: "Line Item", category: VAV, discipline: "HVAC",
+      rateKinds: ["supply_rate", "install_rate", "combined_rate"] } as never, {}) as unknown as ItemListSuggestion).itemList!;
+    for (const id of DEFAULTED) {
+      expect(field(v, id).value, id).toBe(VALUES[id]);
+      expect(field(v, id).defaulted, id).toBe(true);
+      expect(field(v, id).note, id).toBe(NOTES[id]);
+    }
+    expect(v.items[0].state).toBe("priced");
+  });
+  it("the Calculator's context carries the explicit flag the boq_rows_only defaults read (ANSWER 7 (2))", () => {
+    expect(calculatorCtx("HVAC", VAV).calculator).toBe(true);
   });
   it("NEGATIVE (BoQ row): the model's 'None' for all three -> the same defaults (v87 behaviour kept)", () => {
     const v = one({ text: "VAV box 501-800 CFM", items: [box86({ shape: "None", vav_type: "None", integrator_included: "None" })] });

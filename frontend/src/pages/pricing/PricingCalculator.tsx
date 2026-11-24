@@ -214,6 +214,8 @@ export function calculatorCtx(discipline: string, categoryId: string): RateHelpe
     category: categoryId,
     discipline,
     rateKinds: [...DISPLAY_RATE_KINDS],
+    // VAV-FIX (S1, ANSWER 7 option (b)): the explicit Calculator flag the `boq_rows_only` defaults read (never the unit)
+    calculator: true,
   };
 }
 
