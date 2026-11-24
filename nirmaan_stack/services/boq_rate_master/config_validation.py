@@ -2202,6 +2202,10 @@ _SCOPE_RULE_OPTIONAL = _SCOPE_RULE_OPTIONAL | {"install_row_texts"}
 _PRICING_DEFAULT_KEYS = _PRICING_DEFAULT_KEYS | {"note"}
 _PRICING_KEYS = _PRICING_KEYS | {"chain_values", "blank_unit_bar"}
 _SCOPE_RULE_OPTIONAL = _SCOPE_RULE_OPTIONAL | {"install_heading_not"}
+# VAV-FIX (S1, owner 2026-11-20 17:53 "a"; 2026-11-25 00:37): `defaults.<attr>.boq_rows_only` -- the default applies to BoQ rows only: where
+# there is no row (the Calculator) its `absent_as_none` is not read, so the field starts blank (frontend itemListPricing.boqRowsOnlyDefaultsOff).
+# OPTIONAL; true or false; true only beside `absent_as_none: true` (with nothing to switch off it would say nothing).
+_PRICING_DEFAULT_KEYS = _PRICING_DEFAULT_KEYS | {"boq_rows_only"}
 _CHAIN_VALUE_KEYS = {"id", "attr", "words", "when", "value", "line"}
 _CHAIN_VALUE_OPTIONAL = {"families", "section", "unless", "from_attr", "not_if_row_has"}
 _INSTALL_ROW_TEXTS = {"sheet_shares.lines.blank_rows": ("{n}",), "integrator_cabling.lines.priced_separately": ("{rows}", "{prices}", "{that_row}", "{does}"),
@@ -4787,6 +4791,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"{dloc} must carry exactly one of value / by_family.")
         if "absent_as_none" in d and not isinstance(d["absent_as_none"], bool):
             _vthrow(f"{dloc}.absent_as_none must be true or false.")
+        if "boq_rows_only" in d and (not isinstance(d["boq_rows_only"], bool) or (d["boq_rows_only"] and d.get("absent_as_none") is not True)):
+            _vthrow(f"{dloc}.boq_rows_only must be true or false, and true only beside absent_as_none: true.")
         if "unlisted" in d:
             ul = d["unlisted"]
             if "value" not in d:

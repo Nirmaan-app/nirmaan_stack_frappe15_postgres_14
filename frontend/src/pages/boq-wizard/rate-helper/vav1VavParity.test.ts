@@ -194,19 +194,26 @@ describe(`VAV-1 T6 negatives on ${LATEST}`, () => {
     // a unit VAV does not stock refuses on a BoQ row (the calculator offers none); a blank unit is priced per Nos with the bar: the config says so
     const pr = (BY_ID.get(VAV) as unknown as { list_spec: { pricing: { blank_unit_refuses?: boolean; blank_unit_bar?: { line: string }; unit_classes: Record<string, string[]>; unit_refusal: string } } }).list_spec.pricing;
     expect(pr.blank_unit_refuses).toBeUndefined();
-    expect(pr.blank_unit_bar?.line).toBe("WARNING: The BoQ gives no unit for this row. Priced per number (Nos). Check the unit before using this rate.");
+    // VAV-FIX (PIN VAVFIX F-D (2), ANSWER 5; S3 one warning): BEFORE "WARNING: The BoQ gives no unit for this row. Priced per number (Nos). Check the unit before using this rate."
+    expect(pr.blank_unit_bar?.line).toBe("The BoQ gives no unit for this row. It is priced per number (Nos). Check the unit before using this rate.");
     expect(Object.keys(pr.unit_classes)).toEqual(["count"]);
     expect(pr.unit_refusal).toMatch(/is not a VAV unit/);
   });
   // VAV-2c3 FIX (PIN FIX-D; owner 2026-11-24 16:52 "if payload does not me tion integrator - we use integrator = No"; 2026-11-18 23:53 pt 10;
   // 22:16 ruling B): a box missing shape / type / integrator now prices on the ruled default (HVAC v85 `defaults`, marked); a box missing its
   // band (no airflow, no inlet) still refuses (23:53 pt 4) -- never a pick among the 84
-  it("a box missing a fact WITH a ruled default prices on it, marked; missing the band still refuses -- never a pick among the 84", () => {
+  // VAV-FIX (PIN VAVFIX F-D (1), ANSWER 5 - INVERTED, mechanical authority; owner 2026-11-20 17:53 "a", 2026-11-25 00:37: every CALCULATOR field
+  // starts blank and a blank withholds the price; the ruled defaults are for BoQ rows only, HVAC v88 `boq_rows_only`). This check prices on the
+  // Calculator (calc -> calculatorCtx, no BoQ row). BEFORE: rowPriced true and the field defaulted. The BoQ-row side is vavfix.test.ts (silent BoQ).
+  it("INVERTED (VAV-FIX S1): in the CALCULATOR a box missing a fact WITH a ruled default refuses, the field blank and needed; missing the band still refuses -- never a pick among the 84", () => {
     for (const k of ["shape", "vav_type", "integrator_included"]) {
       const attrs = { ...D2_BOX.attrs }; delete (attrs as Record<string, string>)[k];
       const v = view(calc({ items: [blk("VAV box", attrs)] }));
-      expect(v?.rowPriced, k).toBe(true);
-      expect((v?.items?.[0]?.fields as Array<{ id: string; defaulted?: boolean }> | undefined)?.find((f) => f.id === k)?.defaulted, k).toBe(true);
+      expect(v?.rowPriced, k).toBe(false);
+      const f = (v?.items?.[0]?.fields as Array<{ id: string; value: string; defaulted?: boolean; required?: true }> | undefined)?.find((x) => x.id === k);
+      expect(f?.defaulted, k).toBe(false);
+      expect(f?.value, k).toBe("");
+      expect(f?.required, k).toBe(true);
     }
     const attrs = { ...D2_BOX.attrs }; delete (attrs as Record<string, string>).cfm_range;
     const v = view(calc({ items: [blk("VAV box", attrs)] }));

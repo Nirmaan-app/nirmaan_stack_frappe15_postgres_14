@@ -2820,6 +2820,52 @@
    "writes": [],
    "reads": []
   },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3_keys": {
+   "seconds": 14.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabMilestone Tracker"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3b_keys": {
+   "seconds": 13.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ AI Run Log",
+    "tabBoQ Sheet Draft"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3c_keys": {
+   "seconds": 13.6,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabMilestone Tracker"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3d_keys": {
+   "seconds": 12.7,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabGoogle Calendar",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vavfix_keys": {
+   "seconds": 12.6,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
    "seconds": 34.8,
    "series": [],
