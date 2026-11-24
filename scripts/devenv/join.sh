@@ -69,7 +69,7 @@ TS="$(command -v tailscale || true)"
 REACHED=0
 if [ -z "$TS" ]; then
   step FIX "Tailscale: no tailscale CLI here. Install Tailscale, sign in, then rerun"
-elif "$TS" ping -c 1 --timeout 5s "$HOST" >/dev/null 2>&1; then
+elif "$TS" ping -c 1 --until-direct=false --timeout 5s "$HOST" >/dev/null 2>&1; then   # a relayed (DERP) pong counts
   REACHED=1; step ok "Tailscale reaches $BOX ($HOST)"
 else
   step WAIT "Tailscale does not reach $BOX ($HOST): the owner shares $BOX with you, you accept the invite, Tailscale runs"
@@ -128,9 +128,10 @@ if [ -z "$REMOTES" ]; then
   fi
 fi
 for r in $REMOTES; do
-  if [ "$(git -C "$CO" config --get "remote.$r.pushurl" || true)" = "$NO_PUSH" ]; then
+  if [ "$(git -C "$CO" config --get-all "remote.$r.pushurl" || true)" = "$NO_PUSH" ]; then
     step ok "remote $r (the org repo): pushing is off"
   else
+    git -C "$CO" config --unset-all "remote.$r.pushurl" || true   # set-url --push refuses a remote with several
     git -C "$CO" remote set-url --push "$r" "$NO_PUSH"
     step made "remote $r (the org repo): pushing switched off; push to your fork"
   fi

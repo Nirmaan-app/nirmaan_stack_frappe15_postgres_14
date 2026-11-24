@@ -294,6 +294,13 @@ log_has "spawned t11 as system" "the first spawns as its own account"; log_has "
 same "$(grep -E '^(orca-ide account select|spawned)' "$STUB_LOG" | sed 's/ --json//; s/orca-ide account select --agent claude --account/select/' | tr '\n' ',')" \
   "select system,spawned t11 as system,select acct-madhu,spawned madhu-t12 as acct-madhu,select system," "select and spawn never interleave"
 
+# ---- a launch into a folder that is not a worktree of its own sets no one's identity
+mkdir -p "$CO/not-an-env"; : > "$STUB_LOG"
+run env STUB_KEY=AAAAmadhu ssh t@r7-test python3 - launch madhu-t17 "$CO/not-an-env" "$(b64 madhu-t17)" < "$L/scripts/devenv/box_launch.py"
+rc_is 1 "a launch into a plain folder is refused"; has "is not a git worktree of its own" "the refusal says why"
+same "$(box_git -C "$CO" var GIT_AUTHOR_IDENT | sed 's/>.*/>/')" "Box Owner <box-owner@example.com>" "the enclosing checkout keeps its identity"
+log_lacks "orca-ide" "a refused identity never reaches Orca"
+
 # ---- a box without launch = box: the laptop's Orca, as before
 : > "$STUB_LOG"
 run env PATH="$T/laptop-orca:$PATH" /bin/bash "$L/scripts/devenv/task.sh" start t13 --box air --brief "$T/brief.md"

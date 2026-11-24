@@ -56,7 +56,7 @@ mkco "$CO" origin https://github.com/madhu/nirmaan_stack_frappe15_postgres_14.gi
 join "$CO" --name madhu
 rc_is 0 "a fresh Mac exits 0 (only the owner's steps wait)"
 has "  ok    Tailscale reaches r7 (100.80.71.39)" "Tailscale is checked"
-grep -q "tailscale ping -c 1 --timeout 5s 100.80.71.39" "$STUB_LOG" || fail "tailscale pings the box"; pass "tailscale pings the box"
+grep -q "tailscale ping -c 1 --until-direct=false --timeout 5s 100.80.71.39" "$STUB_LOG" || fail "tailscale pings the box"; pass "tailscale pings the box"
 has "  made  key $H/.ssh/id_ed25519_r7 (ed25519, comment madhu-to-r7)" "the key is made"
 PUB="$(cat "$H/.ssh/id_ed25519_r7.pub")"
 case "$PUB" in "ssh-ed25519 AAAA"*" madhu-to-r7") pass "the key is ed25519 with comment madhu-to-r7" ;; *) fail "the key is ed25519 with comment madhu-to-r7: $PUB" ;; esac
@@ -87,11 +87,13 @@ same "$(grep -c '^Host r7$' "$H/.ssh/config")" 1 "the Host block is never writte
 H="$T/second"; CO="$T/second-co"; mkdir -p "$H/.config/devbox"
 mkco "$CO" origin https://github.com/madhu/fork.git nirmaan git@github.com:Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git
 git config -f "$H/.config/devbox/boxes.conf" box.r7.agents 4
+git -C "$CO" config --add remote.nirmaan.pushurl git@github.com:Nirmaan-app/a.git
+git -C "$CO" config --add remote.nirmaan.pushurl git@github.com:Nirmaan-app/b.git
 git config -f "$H/.config/devbox/boxes.conf" devbox.default air
 join "$CO" --name madhu
 rc_is 0 "a differing registry value exits 0"
 same "$(git -C "$CO" remote | sort | tr '\n' ' ')" "nirmaan origin " "an org remote under another name is kept, and no upstream is added"
-same "$(git -C "$CO" config remote.nirmaan.pushurl)" DISABLED-push-to-your-fork "pushing to it is off"
+same "$(git -C "$CO" config --get-all remote.nirmaan.pushurl)" DISABLED-push-to-your-fork "pushing to it is off, even from several push URLs"
 has "  DIFF  registry box.r7.agents is 4, not 2: left as is" "a differing value is reported"
 has "  DIFF  registry devbox.default is air, not r7: left as is" "a differing default is reported"
 same "$(reg box.r7.agents)|$(reg devbox.default)|$(reg box.r7.launch)" "4|air|box" "differing values are kept, missing ones written"

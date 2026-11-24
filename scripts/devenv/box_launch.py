@@ -52,7 +52,6 @@ from collections import namedtuple
 HOME = os.path.expanduser("~")
 PEOPLE = os.path.join(HOME, ".config/devbox/people.conf")
 AUTHORIZED = os.path.join(HOME, ".ssh/authorized_keys")
-SSHD_CONFIG = os.environ.get("DEVBOX_SSHD_CONFIG", "/etc/ssh/sshd_config")   # set it only in tests
 LOCK = os.path.join(HOME, ".local/state/devbox/launch.lock")
 DEFAULT_HOME = os.path.join(HOME, ".claude")
 PROC = os.environ.get("DEVBOX_PROC", "/proc")   # set it only in tests
@@ -153,11 +152,19 @@ def set_git_identity(wt, person):
     """The person's name and email for commits in <wt> only. extensions.worktreeConfig lives in the repo's shared
     config and only lets each worktree read its own config.worktree; the user.* values go there, so the main checkout
     and the other envs keep theirs."""
-    def git(*args):
+    def git(*args, check=True):
         out = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True)
-        if out.returncode != 0:
+        if check and out.returncode != 0:
             raise Refused(f"git {' '.join(args)} in {wt} failed: {out.stderr.strip()}")
         return out.stdout.strip()
+    # A plain folder inside another checkout would set that checkout's identity instead.
+    if os.path.realpath(git("rev-parse", "--show-toplevel")) != os.path.realpath(wt):
+        raise Refused(f"{wt} is not a git worktree of its own")
+    # Once the extension is on, every worktree would read these from the shared config (git help worktree).
+    shared = [k for k in ("core.worktree", "core.bare") if git("config", "--local", k, check=False) not in ("", "false")]
+    if shared:
+        raise Refused(f"the repo's shared config sets {', '.join(shared)}: move it to the main checkout's "
+                      "config.worktree before per-worktree identities can be set (git help worktree, CONFIGURATION FILE)")
     git("config", "extensions.worktreeConfig", "true")
     git("config", "--worktree", "user.name", person.git_name)
     git("config", "--worktree", "user.email", person.git_email)
@@ -420,18 +427,6 @@ def session_keys():
     return set(connected_keys()) if os.environ.get("SSH_USER_AUTH") else set()
 
 
-def sshd_exposes_auth():
-    paths = [SSHD_CONFIG] + sorted(glob.glob(os.path.join(os.path.dirname(SSHD_CONFIG), "sshd_config.d", "*.conf")))
-    for path in paths:
-        try:
-            with open(path) as f:
-                if re.search(r"^\s*ExposeAuthInfo\s+yes\b", f.read(), re.M | re.I):
-                    return True
-        except OSError:
-            continue
-    return False
-
-
 def parse_key(text, name, box):
     """A public key line as people.conf and authorized_keys keep it: one space between words, a comment always."""
     line = " ".join(text.split())
@@ -460,9 +455,9 @@ def people_sh(box, *words):
 
 def sign_in(box, person):
     if person.account == "system":
-        return (f"sign the box's own Claude in: ssh -t {box.ssh} claude, then /login in it"
+        return (f"sign the box's own Claude in: ssh -t {shlex.quote(box.ssh)} claude, then /login in it"
                 + (f", as {person.email}" if person.email else ""))
-    return (f"ssh -t {box.ssh} {shlex.quote(orca_ide_path() + ' account add --agent claude')}, open the sign-in link it "
+    return (f"ssh -t {shlex.quote(box.ssh)} {shlex.quote(orca_ide_path() + ' account add --agent claude')}, open the sign-in link it "
             f"prints in a private browser window and sign in as {person.email or 'the Claude account you give ' + person.name}; "
             "then " + people_sh(box, "add", person.name, "--account", "<new account id or email>"))
 
@@ -544,11 +539,12 @@ def people_check(box, only=None):
         out.extend([f"           by hand: {by_hand}"] if by_hand else [])
 
     out.append(f"box {box.name}")
-    if sshd_exposes_auth():
+    # people.sh runs over SSH: sshd sets $SSH_USER_AUTH for this session exactly when ExposeAuthInfo is on.
+    if os.environ.get("SSH_USER_AUTH"):
         ok("sshd names the key each session logged in with (ExposeAuthInfo yes)")
     else:
-        miss(box.name, f"sshd does not name the session's key (no ExposeAuthInfo yes in {SSHD_CONFIG}), so launches "
-             "cannot tell people apart", fix=f"ssh -t {box.ssh} \"echo 'ExposeAuthInfo yes' | sudo tee "
+        miss(box.name, "sshd does not name the session's key (ExposeAuthInfo is off), so launches "
+             "cannot tell people apart", fix=f"ssh -t {shlex.quote(box.ssh)} \"echo 'ExposeAuthInfo yes' | sudo tee "
              "/etc/ssh/sshd_config.d/devbox.conf && sudo systemctl reload ssh\"")
     for p in sorted(people.values()):
         if only and p.name != only:
@@ -613,6 +609,9 @@ def people_remove(box, a):
     if not p:
         raise Refused(f"no {a.name} in people.conf (people.sh list)")
     blobs = set(map(key_blob, p.keys))
+    if a.yes and not os.environ.get("SSH_USER_AUTH"):
+        raise Refused("sshd does not say which key this session logged in with (ExposeAuthInfo), so remove cannot "
+                      "tell whether it would lock you out: people.sh check names the fix")
     if blobs & session_keys():
         raise Refused(f"{a.name}'s key is the one this session logged in with: removing it would lock you out")
     lines = authorized_lines()
@@ -626,7 +625,8 @@ def people_remove(box, a):
     users = [o.name for o in people.values() if o.name != p.name and o.account == p.account]
     if p.account and p.account != "system":
         print(f"  the Orca account {p.account}: " + (f"still used by {', '.join(users)}" if users else
-              f"ssh -t {box.ssh} '{orca_ide_path()} account rm --agent claude --account {p.account}'"))
+              f"ssh -t {shlex.quote(box.ssh)} "
+              + shlex.quote(f"{orca_ide_path()} account rm --agent claude --account {shlex.quote(p.account)}")))
     print(f"  the Tailscale share: admin console, Machines > {box.name} > Share")
     if not a.yes:
         print("dry run: nothing changed. Run it again with --yes to remove the lines above")

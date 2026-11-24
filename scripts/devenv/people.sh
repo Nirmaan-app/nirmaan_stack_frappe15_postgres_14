@@ -13,7 +13,8 @@
 #       missing from authorized_keys is put back. Refuses a key people.conf gives someone else, and a record left
 #       without a key, an account or a git identity (--git-name, --git-email: the author of their tasks' commits).
 #       --email: the email the account must be signed in as. --prefix: each of their task names starts with it
-#       (--prefix '' drops it). Ends with the person's check.
+#       (--prefix '' drops it). Ends with the person's check; its exit says only whether the record was written
+#       (people.sh check says whether the person is ready).
 #   people.sh check [<name>] [--box <box>]
 #       Per person: key in authorized_keys, record complete, Claude account in the box's Orca and signed in as the
 #       expected email, git identity set. Each missing step comes with the command that fixes it, or the steps to do

@@ -42,12 +42,11 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$T/bin/ssh" "$T/bin/orca-ide"
-export PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" STUB_BOXES="$T/boxes" DEVBOX_SSHD_CONFIG="$T/sshd_config"
+export PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" STUB_BOXES="$T/boxes"
 export DEVBOX_REGISTRY="$T/boxes.conf" STUB_KEY=AAAAC3NzaOwner
 git config -f "$DEVBOX_REGISTRY" box.r7.ssh t@r7-test
 git config -f "$DEVBOX_REGISTRY" box.r7.checkout work/x/variants/master
 git config -f "$DEVBOX_REGISTRY" box.r7.launch box
-echo "ExposeAuthInfo yes" > "$T/sshd_config"
 
 # ---- the box as r7 has it today: two people, no git identities, both keys authorized, one stray key
 cat > "$BOXH/.orca-accounts.json" <<'EOF'
@@ -68,7 +67,8 @@ git config -f "$P" person.madhu.account acct-madhu
 git config -f "$P" person.madhu.email madhu@example.com
 git config -f "$P" person.madhu.prefix madhu-
 chmod 600 "$P"
-printf '%s\n%s\n%s\n' "$OWNER_KEY" "$MADHU_KEY" "ssh-ed25519 AAAAC3NzaStray old-laptop" > "$AK"
+OPTS_LINE='restrict,command="/usr/bin/true" ssh-ed25519 AAAAC3NzaBackup backup-job' NOTE_LINE='# keys below: r7 people'
+printf '%s\n' "$NOTE_LINE" "$OWNER_KEY" "$MADHU_KEY" "ssh-ed25519 AAAAC3NzaStray old-laptop" "$OPTS_LINE" > "$AK"
 echo "ssh-ed25519 AAAAC3NzaRavi ravi-to-r7" > "$T/ravi.pub"
 
 ppl() { run /bin/bash "$HERE/people.sh" "$@"; }
@@ -166,12 +166,10 @@ has "sign in as the Claude account you give ravi" "the sign-in step says whom to
 ppl check abhishek
 rc_is 0 "check exits 0 for a person with nothing missing"; has "ready: abhishek" "check says ready"
 
-echo "PasswordAuthentication no" > "$T/sshd_config"
-ppl check abhishek
+STUB_KEY="" ppl check abhishek
 rc_is 1 "check exits 1 when sshd does not name the session's key"
 has "MISSING  sshd does not name the session's key" "check names ExposeAuthInfo"
 has "sudo tee /etc/ssh/sshd_config.d/devbox.conf" "the fix writes the sshd setting"
-echo "ExposeAuthInfo yes" > "$T/sshd_config"
 
 ppl check zed
 rc_is 1 "check of an unknown name exits 1"; has "no zed in people.conf" "it says the name is unknown"
@@ -203,6 +201,12 @@ same "$(count AAAAC3NzaRavi)" 0 "ravi's key is gone from authorized_keys"
 same "$(conf --get-regexp '^person\.ravi\.')" "" "ravi's record is gone"
 same "$(grep -cF -e "$OWNER_KEY" -e "$MADHU_KEY" "$AK")" 2 "the owner's and madhu's keys stay"
 same "$(conf person.abhishek.git-name)/$(conf person.madhu.git-name)" "Abhishek Kumar/Madhu B" "the other records stay"
+same "$(grep -cxF -e "$OPTS_LINE" -e "$NOTE_LINE" "$AK")" 2 "a comment line and a key line with options survive add and remove byte for byte"
+
+before="$(sums)"
+STUB_KEY="" ppl remove madhu --yes
+rc_is 1 "remove --yes is refused when sshd does not name the session's key"; has "cannot tell whether it would lock you out" "the refusal says why"
+same "$(sums)" "$before" "that refused remove changes nothing"
 
 before="$(sums)"
 ppl remove abhishek --yes
