@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MonthTotal } from "@/types/NirmaanStack/Reimbursement";
 
-import { approvalLanding, monthLabel, monthNotice, peopleOverLimit, personLine, rowTag } from "./monthLimit";
+import { approvalLanding, monthLabel, monthNotice, peopleOverLimit, personLine, rowTag, withBatchTotals } from "./monthLimit";
 
 const row = (over: Partial<MonthTotal> = {}): MonthTotal => ({
     claim: "REIMB-26-00001", expense: null, claimant: "a@x.com", claimant_name: "Asha", month: "2026-10-01",
@@ -23,7 +23,7 @@ describe("monthNotice", () => {
         expect(notice.headline).toBe("Asha has already claimed ₹2,000 in October 2026 (2 claims).");
         expect(notice.detail).toBe(
             "With this claim of ₹1,200, October 2026's total is ₹3,200, at or above the ₹2,000 monthly limit. "
-            + "After you approve, it goes to L1 in Payments.",
+            + "After you approve, it goes to Pending L1 Approval, where Admin or the CEO approves it.",
         );
     });
 
@@ -79,27 +79,57 @@ describe("bulk approve", () => {
 
 describe("approvalLanding", () => {
     it("HR under the limit: straight to the payers; at exactly ₹2,000, L1 first", () => {
-        expect(approvalLanding(1500, 1999, null)).toContain('"Payment need to paid", where Accounts pays it');
-        expect(approvalLanding(500, 2000, null)).toContain('"Payment Pending Approval"');
+        expect(approvalLanding(1500, 1999, null)).toBe('Goes to "Payment need to be paid", where Accounts pays it.');
+        expect(approvalLanding(500, 2000, null)).toContain('"Pending L1 Approval"');
     });
 
     it("HR above the limit: L1 first, even under ₹15,000, and the CEO above ₹50,000", () => {
-        expect(approvalLanding(1200, 3200, null)).toBe(
-            'Approving makes it a Non-Project Expense in Project Payments, under "Payment Pending Approval", '
-            + "where L1 (Admin) approves it.",
-        );
-        expect(approvalLanding(60000, 63200, null)).toContain("where L1 (Admin) approves it, then the CEO.");
+        expect(approvalLanding(1200, 3200, null)).toBe('Goes to "Pending L1 Approval", where Admin or the CEO approves it.');
+        expect(approvalLanding(60000, 63200, null)).toContain("where Admin or the CEO approves it, then the CEO.");
     });
 
     it("an Admin is L1: to the payers up to ₹50,000, to the CEO above it, whatever the month", () => {
-        expect(approvalLanding(4000, 4000, "l1")).toContain('"Payment need to paid"');
-        expect(approvalLanding(50000, 90000, "l1")).toContain('"Payment need to paid"');
-        expect(approvalLanding(80000, 80000, "l1")).toContain('"Payment Pending CEO Approval", where the CEO approves it');
-        expect(approvalLanding(80000, 80000, "ceo")).toContain('"Payment need to paid"');
+        expect(approvalLanding(4000, 4000, "l1")).toContain('"Payment need to be paid"');
+        expect(approvalLanding(50000, 90000, "l1")).toContain('"Payment need to be paid"');
+        expect(approvalLanding(80000, 80000, "l1")).toBe('Goes to "Pending CEO Approval", where the CEO approves it.');
+        expect(approvalLanding(80000, 80000, "ceo")).toContain('"Payment need to be paid"');
+    });
+
+    it("on Pending L1 Approval: an Admin sends above ₹50,000 to the CEO; the CEO always to the payers", () => {
+        expect(approvalLanding(3000, null, "l1", "l1")).toContain('"Payment need to be paid"');
+        expect(approvalLanding(60000, null, "l1", "l1")).toContain('"Pending CEO Approval"');
+        expect(approvalLanding(60000, null, "ceo", "l1")).toContain('"Payment need to be paid"');
+        expect(approvalLanding(90000, null, "ceo", "ceo")).toContain('"Payment need to be paid"');
     });
 
     it("says nothing for HR until the month total is known", () => {
         expect(approvalLanding(1200, null, null)).toBeNull();
-        expect(approvalLanding(4000, null, "l1")).toContain('"Payment need to paid"');
+        expect(approvalLanding(4000, null, "l1")).toContain('"Payment need to be paid"');
+    });
+});
+
+describe("withBatchTotals (Pending Approval bulk approve, browser walk 2026-11-19)", () => {
+    const claim = (name: string, amount: number, claimant = "pm@x.com", monthTotal = amount) => row({
+        claim: name, claimant, claimant_name: claimant, amount, month_total: monthTotal, claims: 1,
+    });
+
+    it("counts a person's earlier claims in the batch, in name order, as the server approves them", () => {
+        const totals = withBatchTotals([claim("REIMB-2", 800), claim("REIMB-1", 1200)]);
+        expect(totals.get("REIMB-1")?.month_total).toBe(1200);
+        expect(totals.get("REIMB-2")?.month_total).toBe(2000);
+        expect(totals.get("REIMB-2")?.over_limit).toBe(true);
+        expect(totals.get("REIMB-2")?.claims).toBe(2);
+    });
+
+    it("keeps other people and other months apart", () => {
+        const totals = withBatchTotals([claim("REIMB-1", 1500), claim("REIMB-2", 1500, "hr@x.com")]);
+        expect(totals.get("REIMB-2")?.month_total).toBe(1500);
+    });
+
+    it("feeds the limit box: the person shows once, with both claims in the approval", () => {
+        const totals = withBatchTotals([claim("REIMB-1", 1200), claim("REIMB-2", 800)]);
+        const people = peopleOverLimit([...totals.values()]);
+        expect(people).toHaveLength(1);
+        expect(people[0]).toMatchObject({ monthTotal: 2000, inSelection: 2, inSelectionAmount: 2000 });
     });
 });

@@ -75,7 +75,7 @@ import { canEditQueueRow, canHoldQueueRow, canPayQueueRow, canWorkQueueRows, isH
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import {
-    afterExport, buildBankFile, describeLeftOut, describeSwitched, shownSwitches, withTakenAccounts,
+    ICICI_DEBIT_ACCOUNT, afterExport, buildBankFile, describeLeftOut, describeSwitched, shownSwitches, withTakenAccounts,
     type BankFile, type BankFileRow,
 } from "../bankUploadFile";
 import {
@@ -103,7 +103,6 @@ interface SelectOption { label: string; value: string; }
  * For now, only supports "New Payments" tab.
  * tab prop is optional, defaulting to "New Payments".
  */
-const ICICI_DEBIT_ACCOUNT = "093705003327";
 
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments", refetchRef }) => {
     const { toast } = useToast();

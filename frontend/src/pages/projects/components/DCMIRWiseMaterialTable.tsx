@@ -79,13 +79,14 @@ export interface DCMIRWiseMaterialTableHandle {
 export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHandle, DCMIRWiseMaterialTableProps>(({ type, items, searchTerm, projectId }, ref) => {
   const isDC = type === 'dc';
   const docLabel = isDC ? 'DC' : 'MIR';
-  const colCount = isDC ? 13 : 14;
+  const colCount = isDC ? 14 : 15;
 
   const [expandedDocs, setExpandedDocs] = React.useState<Set<string>>(new Set());
 
   // --- Sort & Filter State (self-contained) ---
   const [sortKey, setSortKey] = React.useState<DCMIRSortKey | null>(null);
   const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc'>('asc');
+  const [typeFilter, setTypeFilter] = React.useState<Set<string>>(new Set());
   const [vendorFilter, setVendorFilter] = React.useState<Set<string>>(new Set());
   const [signedFilter, setSignedFilter] = React.useState<Set<string>>(new Set());
   const [billingCategoryFilter, setBillingCategoryFilter] = React.useState<Set<string>>(new Set());
@@ -96,6 +97,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
     const unique = new Set(items.map(i => i.vendorName).filter(Boolean));
     return Array.from(unique).sort().map(v => ({ label: v, value: v }));
   }, [items]);
+
+  const typeOptions = [{ label: "PO", value: "PO" }, { label: "ITM", value: "ITM" }];
 
   const signedOptions = [{ label: "Yes", value: "Yes" }, { label: "No", value: "No" }];
 
@@ -135,7 +138,12 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
       );
     }
 
-    // 2. Vendor filter
+    // 2. Type filter (PO / ITM)
+    if (typeFilter.size > 0) {
+      result = result.filter(doc => typeFilter.has(doc.type));
+    }
+
+    // 2b. Vendor filter
     if (vendorFilter.size > 0) {
       result = result.filter(doc => vendorFilter.has(doc.vendorName));
     }
@@ -164,7 +172,7 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
     }
 
     return result;
-  }, [items, searchTerm, vendorFilter, signedFilter, billingCategoryFilter, statusFilter, sortKey, sortDirection]);
+  }, [items, searchTerm, typeFilter, vendorFilter, signedFilter, billingCategoryFilter, statusFilter, sortKey, sortDirection]);
 
   const toggleExpand = React.useCallback((documentName: string) => {
     setExpandedDocs(prev => {
@@ -205,7 +213,7 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
     const headers = [
       docNoHeader,
       ...(isDC ? [] : ['DC Ref']),
-      'PO Number', 'Vendor', dateHeader, 'Upload Date',
+      'Type', 'PO/ITM No.', 'Vendor', dateHeader, 'Upload Date',
       'Item Name', 'Category', 'Unit', 'Billing Category',
       'DN Qty', qtyHeader, 'Make', 'Signed', 'Status'
     ];
@@ -216,7 +224,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
         rows.push({
           [docNoHeader]: doc.referenceNumber,
           ...(isDC ? {} : { 'DC Ref': doc.dcReference || '-' }),
-          'PO Number': doc.poNumber,
+          'Type': doc.type,
+          'PO/ITM No.': doc.poNumber,
           'Vendor': doc.vendorName,
           [dateHeader]: doc.dcDate ? formatDate(doc.dcDate) : '-',
           'Upload Date': doc.creation ? formatDate(doc.creation) : '-',
@@ -235,7 +244,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
           rows.push({
             [docNoHeader]: doc.referenceNumber,
             ...(isDC ? {} : { 'DC Ref': doc.dcReference || '-' }),
-            'PO Number': doc.poNumber,
+            'Type': doc.type,
+            'PO/ITM No.': doc.poNumber,
             'Vendor': doc.vendorName,
             [dateHeader]: doc.dcDate ? formatDate(doc.dcDate) : '-',
             'Upload Date': doc.creation ? formatDate(doc.creation) : '-',
@@ -274,7 +284,13 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
             <TableHead className="w-[40px]"></TableHead>
             <TableHead className="min-w-[150px]">{docLabel} No.</TableHead>
             {!isDC && <TableHead className="min-w-[130px]">DC Ref</TableHead>}
-            <TableHead className="min-w-[150px]">PO Number</TableHead>
+            <TableHead className="min-w-[90px]">
+              <div className="flex items-center gap-1">
+                <SimpleFacetedFilter title="Type" options={typeOptions} selectedValues={typeFilter} onSelectedValuesChange={setTypeFilter} />
+                <span>Type</span>
+              </div>
+            </TableHead>
+            <TableHead className="min-w-[150px]">PO/ITM No.</TableHead>
             <TableHead className="min-w-[150px]">
               <div className="flex items-center gap-1">
                 <SimpleFacetedFilter title="Vendor" options={vendorOptions} selectedValues={vendorFilter} onSelectedValuesChange={setVendorFilter} />
@@ -329,6 +345,15 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
                   </TableCell>
                   <TableCell className="py-2 px-3 font-medium text-xs font-mono">{doc.referenceNumber}</TableCell>
                   {!isDC && <TableCell className="py-2 px-3 text-sm text-muted-foreground">{doc.dcReference || '-'}</TableCell>}
+                  <TableCell className="py-2 px-3">
+                    {/* Same PO / ITM badge as the PO/ITM Wise tab. */}
+                    <Badge
+                      variant="outline"
+                      className={doc.type === "ITM" ? "bg-blue-50 text-blue-600 border-blue-300" : "bg-gray-50 text-gray-700 border-gray-300"}
+                    >
+                      {doc.type}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="py-2 px-3 text-xs font-mono">{doc.poNumber}</TableCell>
                   <TableCell className="py-2 px-3 text-sm text-muted-foreground">{doc.vendorName || '-'}</TableCell>
                   <TableCell className="py-2 px-3 text-sm">{doc.dcDate ? formatDate(doc.dcDate) : '-'}</TableCell>
@@ -386,7 +411,7 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
             return (
               <TableRow key={`item-${doc.documentName}-${row.itemIndex}`} className="bg-muted/30">
                 <TableCell className="py-1.5 px-2"></TableCell>
-                <TableCell className="py-1.5 px-3 text-xs pl-8" colSpan={isDC ? 3 : 4}>
+                <TableCell className="py-1.5 px-3 text-xs pl-8" colSpan={isDC ? 4 : 5}>
                   <span className="text-muted-foreground">{item.category || 'N/A'} / </span>
                   <span className="font-medium">{item.itemName}</span>
                   <span className="text-muted-foreground ml-2">({item.unit})</span>

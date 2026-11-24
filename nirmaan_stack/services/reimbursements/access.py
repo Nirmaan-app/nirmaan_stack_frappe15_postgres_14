@@ -13,6 +13,7 @@ import frappe
 
 from nirmaan_stack.services.reimbursements.rules import decide_problem
 from nirmaan_stack.services.role_profiles import (
+    PROJECT_MANAGER_PROFILE,
     REIMBURSEMENT_HR_PROFILES,
     REIMBURSEMENT_VIEW_ALL_PROFILES,
     has_role_profile,
@@ -23,6 +24,12 @@ from nirmaan_stack.services.role_profiles import (
 def is_hr(user: str) -> bool:
     """True for an HR Executive or HR Lead. Administrator is not HR (it is Admin)."""
     return has_role_profile(user, REIMBURSEMENT_HR_PROFILES, superuser_passes=False)
+
+
+def is_capped(user: str) -> bool:
+    """True for a Project Manager, whose month of claims may not pass `rules.PM_MONTHLY_CAP` (owner, 2026-11-18).
+    Administrator is not one."""
+    return has_role_profile(user, (PROJECT_MANAGER_PROFILE,), superuser_passes=False)
 
 
 def sees_all_claims(user: str) -> bool:

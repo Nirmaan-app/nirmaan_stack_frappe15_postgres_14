@@ -2,7 +2,9 @@
 
 **Status:** Accepted · 2026-10-23 (owner) · Supersedes [ADR-0041](0041-reimbursement-is-money-outside-the-ledgers.md)
 decision "money of its own" and its "No Paid status yet" · Decisions 1 and 3 amended by
-[Amendment B](#amendment-b-2026-10-28-owner----a-monthly-limit-per-person-not-a-cap-per-claim) (2026-10-28)
+[Amendment B](#amendment-b-2026-10-28-owner----a-monthly-limit-per-person-not-a-cap-per-claim) (2026-10-28) ·
+Decision 8, the Payments half of Amendment B point 4, and the Consequences on Export and on the Payments queue
+replaced by [Amendment C](#amendment-c-2026-11-18-owner----every-step-on-the-reimbursements-page) (2026-11-18)
 
 ## Context
 
@@ -92,6 +94,111 @@ other in their month total (PostgreSQL runs at REPEATABLE READ, so a lock would 
 first), and both may auto-approve. Each is HR's approval of a claim that was under the limit on its own, and
 L1 sees the true total on the person's next claim.
 
+### Amendment C (2026-11-18, owner) -- every step on the Reimbursements page
+
+Replaces decision 8, the Payments half of Amendment B point 4, and the Consequences "Payment need to be paid has
+no Export" and "the Payments queue labels it". The claim still becomes a Non-Project Expense on its first
+approval (decisions 2 to 7 stand), but nobody works a reimbursement from Project Payments & Expenses any more:
+one claim had been split across two screens, and the Reimbursements page showed every claim after its first
+approval as just "Approved".
+
+1. **Reimbursement expenses leave Project Payments & Expenses.** Its queue skips every Non-Project Expense whose
+   `reimbursement` is set, in every tab, count, filter, facet and export, Payment Raised By Me included. Every
+   other row there is unchanged. Bulk Import Transactions still links bank lines to these expenses.
+2. **The Reimbursements page does every step, one tab each**, in this order:
+
+   | Tab | Holds | Acts |
+   |---|---|---|
+   | Pending Approval | claims at Pending Approval, nothing else | HR, Admin, CEO: approve / reject |
+   | Pending L1 Approval | Approved claims whose expense is Requested | Admin, CEO: approve / reject |
+   | Pending CEO Approval | Approved claims whose expense is CEO Pending | the CEO only, who alone sees the tab |
+   | Payment need to be paid | Approved claims whose expense is Approved | Accounts, Admin: Export for Payment, Mark as Paid |
+   | Reconciliation Pending | Approved claims whose expense is Reconciliation Pending | Accounts, Admin: Mark Reconciled |
+   | Paid | Paid claims | view |
+   | Reimbursement Raised By Me | the person's own claims | everyone; Edit / Delete as before |
+   | All | every claim, Rejected included (the Rejected tab goes) | view |
+
+   Admin, Accounts and HR see every tab but Pending CEO Approval; the CEO sees all eight; everyone else sees
+   only Reimbursement Raised By Me. Seeing a tab is not acting on it: HR and the CEO only view the payment tabs,
+   and Accounts only views the approval tabs.
+3. **No new status and no new field.** The claim keeps Pending Approval, Approved, Paid and Rejected (owner: "use
+   the old statuses only"); which tab an Approved claim sits in is read from its expense's status. The approval
+   rule is Amendment B's, unchanged: HR under the limit, an Admin up to ₹50,000 and the CEO at any amount finish
+   the approval; HR at or above the limit sends it to L1 (Admin or CEO); an Admin above ₹50,000 sends it to the CEO.
+4. **L1, CEO approval, Mark as Paid and Mark Reconciled are the expense's own decisions**
+   (`api/approvals/expense_actions.decide_expenses`), called from the Reimbursements page with the claim's
+   expense, under the same rules and reasons as in Payments. The claim follows through the existing hook.
+5. **Every approval tab decides in bulk**, as Payments does: tick up to 100 claims, Approve selected or Reject
+   selected. The bulk confirm lists the people at or above the monthly limit with no tick (Amendment B point 4's
+   bulk rule) and takes one reason for every rejection. Approving one claim keeps the tick at or above the limit.
+6. **Export for Payment returns on Payment need to be paid**, the same bank file as Payments. Decision 8 removed
+   it because a second place to pay a claim is how it gets paid twice; with reimbursements gone from Payments, this
+   is again the only place.
+7. **The claim shows its expense**: a Non-Project Expense column (its ID and its own status) on every tab after
+   approval, and the full expense in the claim's view (created on, status, amount, description, invoice ref and
+   date, pay-to account, receipts, paid on, UTR, payment source, and who approved, paid and reconciled it).
+   This reverses decision 8's "not as a table column".
+
+Rejected options: keeping L1 and the CEO in Payments (the two-screen split this removes); new claim statuses
+"HR Approved" and "Admin Approved" (owner: old statuses only); no CEO step at all for an Admin's approval
+(considered the same day and withdrawn: above ₹50,000 still needs the CEO).
+
+Built 2026-11-19 (owner: "complete fully, then we test in one go"). The two readers left open were settled on the
+recommended answers, to be confirmed: the Project Payments summary cards KEEP counting reimbursements in
+non-project outflow (the money still went out; `get_project_payment_summary` is unchanged), and the Action
+Center's pending finance item for a reimbursement's expense opens the Reimbursements page's Payment need to be paid
+tab searched to the claim (`action_items/finance.reimbursement_pay_link`). The Project Payments queue leaves the
+expense out in one place, its Non-Project branch (`get_approval_queue._expense_select`), so its tabs, counts, Type
+facet and filter, export and Payment Raised By Me all drop it; the "Reimbursement" Type option is gone with the rows.
+
+### Amendment D (2026-11-18, owner) -- a Project Manager's monthly cap
+
+A Project Manager may not raise reimbursements adding up to more than ₹2,000 (`rules.PM_MONTHLY_CAP`) in a calendar
+month. Unlike Amendment B's limit, which only warns the approver, this is a block, on the claimant's side:
+
+1. Checked by the server when a claim is raised and when it is edited (`claims._check_cap`, rule
+   `rules.cap_problem`), after taking the person's row, so two claims sent at once are counted one after the other.
+   The refusal says what is left: "You can claim up to ₹500 more this month."
+2. The month counts the claims that may still be paid: Pending Approval, Approved and Paid (`month_total.month_used`);
+   a rejected or deleted claim frees its amount. An edit replaces the claim's own old amount.
+3. Exactly ₹2,000 is allowed. Only the Project Manager profile is capped (`access.is_capped`); Project Lead and
+   every other role keep Amendment B alone.
+4. The Raise / Edit dialog reads the person's own month (`claims.get_my_month`, open to anyone, their own claims
+   only: the month-total call stays Admin / HR / Accounts), shows what is left and keeps Submit off above it.
+
+Points 2-4 were the recommended answers to the owner's four questions (pending counts? exactly ₹2,000? PM only?
+edits too?), built as recommended on 2026-11-19 and to be confirmed.
+
+### Amendment E (2026-11-19, owner) -- the claim carries its expense's status
+
+Replaces Decision point 4 ("the claim follows only the endings") and Amendment C point 3 ("no new status"). With the
+claim fixed at Approved from its first approval until it was paid, the Status column read "Approved" for a claim
+waiting at L1, at the CEO or for reconciliation, while the tab and the totals showed the step. Two ways were put to
+the owner: show the step on screen only, worked out from the expense (no schema change), or give the claim the
+expense's statuses. The owner chose the second.
+
+1. **The claim has the expense's statuses, by the same names, plus its own first one**: Pending Approval (HR's or
+   Admin's first approval; there is no expense yet) · Requested · CEO Pending · Approved (waiting to be paid) ·
+   Reconciliation Pending · Paid · Rejected. Three options were added to the doctype's `status`
+   (`rules.CLAIM_STATUS_OF_EXPENSE`).
+2. **Every change of the expense's status is copied onto the claim**, wherever it is made (`expense_link.follow_expense`,
+   on the expense's insert too): L1 and CEO approval, Mark as Paid, a reconcile, a reject (with its reason) and an
+   undone bank match (back to Reconciliation Pending). A Pending Approval or Rejected claim never moves.
+3. **"Approved" in the rules now means one step**; where a rule meant "approved and may still be paid" it reads
+   `rules.APPROVED_STEPS` (Requested, CEO Pending, Approved, Reconciliation Pending): the month total (Amendment B),
+   the Project Manager cap (Amendment D, point 2) and the profile summary.
+4. **Each step tab lists one claim status** (`rules.TAB_OF_STATUS`); the tab no longer reads the expense.
+5. **Existing claims were moved once** by `patches/v3_0/reimbursement_status_from_expense`: an Approved claim whose
+   expense is Requested, CEO Pending or Reconciliation Pending takes that status. Raw SQL on purpose, leaving
+   `modified` as it was (owner); nothing is derived from the claim's status.
+6. **The tab sets per role changed the same day** (Amendment C named Admin, Accounts and HR as seeing every tab):
+   HR sees Pending Approval, Reconciliation Done / Paid, All and Raised By Me; Accounts sees Payment need to be paid,
+   Reconciliation Pending, Reconciliation Done / Paid, All and Raised By Me; Admin every tab but the CEO's. "Paid" is
+   shown as "Reconciliation Done / Paid".
+
+The price: the claim's status and the expense's are the same fact kept twice. Point 2 is what keeps them equal; a
+write to the expense that skips its hooks would leave the claim behind.
+
 ## Considered options
 
 - **Reimbursement as a fifth kind of payment on the Project Payments screens**, the claim holding its own
@@ -116,6 +223,8 @@ L1 sees the true total on the person's next claim.
   skips the HR ₹2,000 rule. Accepted by the owner (2026-10-23): the roles stay.
 - "Payment need to be paid" has no Export at all (owner, 2026-10-23): its file carried every approved claim's
   bank account, a ready list to pay from outside Project Payments. The other tabs keep their Export.
+  **Reversed by Amendment C (2026-11-18):** the tab now has Export for Payment (the bank file) and Mark as Paid,
+  because it is now the only place a claim is paid.
 - The receipts PDF opens only for people who can open the claim (the claimant, Admin, HR, Accounts); a PM or PMO
   viewing the expense cannot open it.
 - The expense is as open to edit as any Non-Project Expense: every role with write on the doctype (Project
@@ -126,4 +235,5 @@ L1 sees the true total on the person's next claim.
   the Payments queue labels it by its claim link: a "Non Project Expense" pill with a "Reimbursement" tag beside
   it, as a GST payment carries "GST" (export and filter: "Reimbursement / Non Project Expense"). The old
   "Reimbursements" Expense Type is to be deleted (owner, 2026-10-23).
+  Since Amendment C the Payments queue no longer lists it at all.
 - Nothing migrates: the feature had not shipped, so no claim predates this decision.

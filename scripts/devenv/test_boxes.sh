@@ -124,7 +124,7 @@ rc_is 0 "agent_tail on a box without orca is a no-op"
 
 # ---- task.sh and handoff.sh, on a temp laptop repo (it holds the task records) and a checkout of it per box
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
 cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
 #!/bin/bash
 # Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
@@ -143,6 +143,9 @@ git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-veri
 git -C "$L" branch box/legacy
 AIR="$T/boxes/me@air-test/work/y/variants/master"
 git clone -q "$L" "$T/boxes/t@contabo-test/work/x/variants/master"; git clone -q "$L" "$AIR"
+# The org repo's develop, at the base every task starts from (test_task_start_point.sh covers the rule itself)
+git init -q --bare "$T/github.git"; git -C "$T/github.git" fetch -q "$L" master:develop
+for co in "$L" "$T/boxes/t@contabo-test/work/x/variants/master" "$AIR"; do git -C "$co" config devbox.org-repo "$T/github.git"; done
 echo "# Task: experiment: the brief" > "$T/brief.md"
 task() { run env ${TASK_ENV:-} /bin/bash "$L/scripts/devenv/task.sh" "$@"; }
 rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }

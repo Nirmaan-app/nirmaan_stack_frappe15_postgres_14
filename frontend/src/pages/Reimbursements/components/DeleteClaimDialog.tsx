@@ -1,7 +1,7 @@
 /**
- * Delete the claimant's own claim while it is Pending Approval or Rejected (owner, 2026-10-27). Its receipts go
- * with it, and a claim rejected in Payments takes its Rejected Non-Project Expense too. The server checks the same
- * rule (`claims.delete_reimbursement`).
+ * Delete a claim: the claimant's own while it is Pending Approval or Rejected (owner, 2026-10-27), or, for an Admin,
+ * anyone's once it is Rejected (owner, 2026-11-19). Its receipts go with it, and a claim rejected in Payments takes its
+ * Rejected Non-Project Expense too. The server checks the same rule (`claims.delete_reimbursement`).
  */
 
 import { useState } from "react";
@@ -59,7 +59,7 @@ export function DeleteClaimDialog({ open, claim, onOpenChange, onDone }: Props) 
                     <AlertDialogDescription>
                         {claim && `${claim.title} · ${formatToIndianRupee(claim.amount)}. `}
                         {claim?.status === REJECTED
-                            ? "Its rejection reason and receipts are deleted too, and so is its rejected expense in Project Payments, if it has one."
+                            ? "Its rejection reason and receipts are deleted too, and so is its rejected Non-Project Expense, if it has one."
                             : "Its receipts are deleted too."}{" "}
                         This can't be undone.
                     </AlertDialogDescription>
