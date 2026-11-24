@@ -15,6 +15,7 @@ Run:
 from __future__ import annotations
 
 import io
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -23,11 +24,18 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.approvals import expense_actions
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.api.reimbursements import bank_accounts, claims, month_totals, review
+from nirmaan_stack.api.reimbursements import bank_accounts, claims, month_totals, queue, review
 from nirmaan_stack.services.payees import own_accounts
-from nirmaan_stack.services.reimbursements import convert, expense_link, receipts
+from nirmaan_stack.services.reimbursements import access, convert, expense_link, receipts
 from nirmaan_stack.services.reimbursements.month_total import month_totals as totals_of
-from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, PENDING, REJECTED
+from nirmaan_stack.services.reimbursements.rules import (
+    APPROVED,
+    PAID,
+    PENDING,
+    RECONCILIATION_PENDING,
+    REJECTED,
+    REQUESTED,
+)
 from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
@@ -158,6 +166,9 @@ class ReimbursementTestCase(ExpenseTypeFlagGuard, FrappeTestCase):
             patch("nirmaan_stack.services.payees.writer.lookup_ifsc",
                   lambda ifsc: SimpleNamespace(bank_name="HDFC Bank", bank_branch="Test Branch")),
             patch.object(review, "notify_decided", lambda *a, **k: None),
+            # The suite's claimants are Project Managers who raise large claims on purpose (the monthly limit, the
+            # CEO band), so the Project Manager cap is off here; `TestProjectManagerCap` turns it back on.
+            patch.object(claims, "is_capped", lambda user: False),
         ]
         for p in patches:
             p.start()
@@ -725,10 +736,12 @@ class TestClaimExpense(ReimbursementTestCase):
         self.as_user(HR, review.reject_reimbursement, name, "Receipt unreadable")
         self.assertIsNone(convert.expense_of(name))
 
-    def test_the_claim_stays_approved_until_the_expense_is_paid(self):
+    def test_the_claim_carries_each_expense_status_until_paid(self):
+        """Owner, 2026-11-19: the claim's status is its expense's, by the same name."""
         name, expense = self.approve(HR)
-        self.move(expense, "Reconciliation Pending")
         self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), APPROVED)
+        self.move(expense, "Reconciliation Pending")
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), RECONCILIATION_PENDING)
         self.move(expense, "Paid")
         self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), PAID)
 
@@ -741,11 +754,11 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertFalse(frappe.get_all("Nirmaan Notifications",
                                         filters={"docname": ["in", [paid_claim, rejected_claim]]}))
 
-    def test_an_undone_bank_match_puts_the_claim_back_to_approved(self):
+    def test_an_undone_bank_match_puts_the_claim_back_to_reconciliation_pending(self):
         name, expense = self.approve(HR)
         self.move(expense, "Paid")
         self.move(expense, "Reconciliation Pending")
-        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), APPROVED)
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), RECONCILIATION_PENDING)
 
     def test_rejecting_in_the_payments_queue_rejects_the_claim_with_that_reason(self):
         if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
@@ -822,6 +835,35 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertFalse(frappe.db.exists(NPE, expense.name))
         self.assertTrue(set(receipt_files) <= set(self.storage.deleted))
 
+    def test_an_admin_deletes_a_rejected_claim_with_its_expense(self):
+        """Owner, 2026-11-19: an Admin deletes anyone's claim once it is Rejected -- the same call as the claimant's,
+        so a claim rejected in Payments takes its Rejected expense and receipts with it."""
+        name, expense = self.approve(HR)
+        self.move(expense, "Rejected", "Wrong project")
+        frappe.db.commit()
+        receipt_files = [f.name for f in receipts.claim_files(name)]
+        self.as_user(ADMIN, claims.delete_reimbursement, name)
+        self.assertFalse(frappe.db.exists("Reimbursement", name))
+        self.assertFalse(frappe.db.exists(NPE, expense.name))
+        self.assertTrue(set(receipt_files) <= set(self.storage.deleted))
+
+    def test_only_an_admin_deletes_someone_elses_claim_and_only_once_rejected(self):
+        rejected = self.raise_claim(PM)
+        self.as_user(HR, review.reject_reimbursement, rejected, "reimb_test unreadable")
+        for user in (HR, ACC):  # HR and Accounts may not, even rejected
+            with self.assertRaises(frappe.PermissionError):
+                self.as_user(user, claims.delete_reimbursement, rejected)
+        self.as_user(ADMIN, claims.delete_reimbursement, rejected)  # HR rejected: no expense, the claim goes
+        self.assertFalse(frappe.db.exists("Reimbursement", rejected))
+
+        pending = self.raise_claim(PM)
+        approved, expense = self.approve(HR)
+        for name in (pending, approved):  # an Admin may not delete someone else's live claim
+            with self.assertRaises(frappe.ValidationError):
+                self.as_user(ADMIN, claims.delete_reimbursement, name)
+            self.assertTrue(frappe.db.exists("Reimbursement", name))
+        self.assertTrue(frappe.db.exists(NPE, expense.name))
+
     def test_the_claimant_cannot_delete_a_rejected_claim_whose_expense_was_revived(self):
         """A claim Rejected in Payments whose expense was later put back must not take that live expense with it,
         and the refusal says what Accounts can do (code review 2026-10-27, finding 4: a reject is refused there)."""
@@ -867,7 +909,7 @@ class TestClaimExpense(ReimbursementTestCase):
     def test_the_bank_import_links_settles_and_undoes_it_like_any_expense(self):
         """Bulk Import Transactions treats the claim's expense as an ordinary Non-Project Expense: it is offered
         for manual linking once Reconciliation Pending, a settle inside the import's savepoint (with its
-        no-commit flag) turns the claim Paid, and Unreconcile's own revert turns it back to Approved."""
+        no-commit flag) turns the claim Paid, and Unreconcile's own revert turns it back to Reconciliation Pending."""
         from nirmaan_stack.api.outflow_import import link_lines, unreconcile
         from nirmaan_stack.services.outflow_import.settle import outflow_import_write
 
@@ -888,7 +930,8 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertEqual(claims.get_claim_payments([name])[name]["payment_ref"], "REIMB-TEST-UTR")
 
         unreconcile._revert_expense(NPE, expense.name, None)
-        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), APPROVED)
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"),
+                         frappe.db.get_value(NPE, expense.name, "status"))  # back with its expense
 
     def test_payments_are_read_only_for_claims_the_caller_may_read(self):
         name, expense = self.approve(HR)
@@ -896,6 +939,502 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertEqual(mine[name]["expense"], expense.name)
         self.assertEqual(self.as_user(PM2, claims.get_claim_payments, [name]), {})
         self.assertIn(name, self.as_user(ACC, claims.get_claim_payments, [name]))
+
+
+class TestClaimTabs(ReimbursementTestCase):
+    """ADR-0040 Amendment C: each step of a claim has its own tab, and an Approved claim's tab is its expense's
+    status (`queue.get_claims`, `queue.get_claim_tab_counts`). The claim keeps its four statuses."""
+
+    # TestClaimExpense's helpers, borrowed rather than inherited (inheriting would run its tests again). Its
+    # `setUp` can't be borrowed: its zero-argument `super()` is bound to its own class.
+    approve = TestClaimExpense.approve
+    move = TestClaimExpense.move
+
+    def setUp(self):
+        super().setUp()
+        p = patch("nirmaan_stack.services.stored_files.delete_files", self.storage.delete_files)
+        p.start()
+        self.addCleanup(p.stop)
+
+    #: Every tab but the CEO's, which only the CEO may list.
+    OPEN_TABS = ("pending", "l1", "approved", "reconciliation", "paid", "mine", "all")
+
+    def listed(self, user, tab, name):
+        reply = self.as_user(user, queue.get_claims, tab, fields=["name", "status"], filters=[["name", "=", name]])
+        return reply["data"]
+
+    def tabs_of(self, name, user=ACC):
+        """The tabs that list claim `name` for `user` (Accounts by default: sees every claim, raised none)."""
+        return [tab for tab in self.OPEN_TABS if self.listed(user, tab, name)]
+
+    def test_a_new_claim_is_in_pending_approval_and_its_owners_lists(self):
+        name = self.raise_claim(PM)
+        self.assertEqual(self.tabs_of(name), ["pending", "all"])
+        self.assertEqual(self.tabs_of(name, user=PM), ["pending", "mine", "all"])
+        row = self.listed(ACC, "pending", name)[0]
+        self.assertIsNone(row["expense"])  # no expense before the first approval
+        self.assertIsNone(row["expense_status"])
+
+    def test_hr_under_the_limit_sends_it_to_payment_need_to_be_paid(self):
+        name, expense = self.approve(HR)
+        self.assertEqual(self.tabs_of(name), ["approved", "all"])
+        row = self.listed(ACC, "approved", name)[0]
+        self.assertEqual(row["status"], APPROVED)  # the claim's own status stays one of the four
+        self.assertEqual(row["expense"], expense.name)
+        self.assertEqual(row["expense_status"], "Approved")
+        self.assertTrue(row["expense_created"])
+
+    def test_hr_at_the_limit_sends_it_to_pending_l1_approval(self):
+        name, expense = self.approve(HR, amount=2500)
+        self.assertEqual(frappe.db.get_value(NPE, expense.name, "status"), "Requested")
+        self.assertEqual(self.tabs_of(name), ["l1", "all"])
+
+    def test_it_moves_through_reconciliation_pending_to_paid(self):
+        name, expense = self.approve(HR)
+        self.move(expense, "Reconciliation Pending")
+        self.assertEqual(self.tabs_of(name), ["reconciliation", "all"])
+        self.move(expense, "Paid")
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), PAID)
+        self.assertEqual(self.tabs_of(name), ["paid", "all"])
+
+    def test_a_rejected_claim_is_only_in_all(self):
+        name = self.raise_claim(PM)
+        self.as_user(HR, review.reject_reimbursement, name, "reimb_test not claimable")
+        self.assertEqual(self.tabs_of(name), ["all"])
+
+    def test_pending_ceo_approval_is_the_ceos_alone(self):
+        for user in (ADMIN, ACC, HR, PM):
+            with self.subTest(user):
+                with self.assertRaises(frappe.PermissionError):
+                    self.as_user(user, queue.get_claims, "ceo", fields=["name"])
+                self.assertNotIn("ceo", self.as_user(user, queue.get_claim_tab_counts))
+        if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
+            self.skipTest("the CEO user is not on this site")
+        name, expense = self.approve(ADMIN, amount=80000)
+        self.assertEqual(frappe.db.get_value(NPE, expense.name, "status"), "CEO Pending")
+        self.assertEqual([r["name"] for r in self.listed(CEO_AUTHORIZED_USER, "ceo", name)], [name])
+        self.assertIn("ceo", self.as_user(CEO_AUTHORIZED_USER, queue.get_claim_tab_counts))
+        self.assertEqual(self.tabs_of(name), ["all"])  # in no tab Accounts may open but All
+
+    def test_people_who_see_only_their_own_claims_list_and_count_only_those(self):
+        mine, theirs = self.raise_claim(PM), self.raise_claim(PM2)
+        listed = self.as_user(PM, queue.get_claims, "all", fields=["name"], filters=[["name", "in", [mine, theirs]]])
+        self.assertEqual([r["name"] for r in listed["data"]], [mine])
+        counts = self.as_user(PM, queue.get_claim_tab_counts)
+        own = frappe.db.count("Reimbursement", {"owner": PM})
+        self.assertEqual((counts["all"], counts["mine"]), (own, own))
+
+    def test_the_counts_follow_the_claim_from_tab_to_tab(self):
+        before = self.as_user(ACC, queue.get_claim_tab_counts)
+        name = self.raise_claim(PM)
+        raised = self.as_user(ACC, queue.get_claim_tab_counts)
+        self.assertEqual(raised["pending"] - before["pending"], 1)
+        self.assertEqual(raised["all"] - before["all"], 1)
+        self.as_user(HR, review.approve_reimbursement, name, acknowledged=1)
+        approved = self.as_user(ACC, queue.get_claim_tab_counts)
+        self.assertEqual(approved["pending"], before["pending"])
+        self.assertEqual(approved["approved"] - before["approved"], 1)
+        self.assertEqual(approved["all"] - before["all"], 1)
+
+    def test_an_unknown_or_retired_tab_is_refused(self):
+        for tab in ("rejected", "payments", None):
+            with self.subTest(tab), self.assertRaises(frappe.PermissionError):
+                self.as_user(ACC, queue.get_claims, tab, fields=["name"])
+
+    def test_the_claims_view_gets_the_expenses_details(self):
+        name, expense = self.approve(HR)
+        got = claims.get_claim_payments([name])[name]
+        for key in ("expense", "status", "payment_date", "payment_ref", "creation", "amount", "description",
+                    "invoice_ref", "invoice_date", "comment", "approval_date", "ceo_approval_date",
+                    "pay_to_account_name", "pay_to_account_number", "pay_to_ifsc", "pay_to_bank_name",
+                    "pay_to_bank_branch", "payment_source"):
+            self.assertIn(key, got)
+        self.assertEqual(got["expense"], expense.name)
+        self.assertEqual(got["invoice_ref"], name)  # the claim is the invoice
+        self.assertEqual(float(got["amount"]), 1450)
+        self.assertIsNone(got["payment_source"])  # no bank line matched yet
+
+
+class TestClaimMonth(ReimbursementTestCase):
+    """Owner, 2026-11-19: Paid and All take a month -- Paid by the expense's paid-on date, All by the raised date --
+    and the totals the screen shows come from the same call, over every matching row (`queue.get_claims`)."""
+
+    approve = TestClaimExpense.approve
+    move = TestClaimExpense.move
+
+    def setUp(self):
+        super().setUp()
+        p = patch("nirmaan_stack.services.stored_files.delete_files", self.storage.delete_files)
+        p.start()
+        self.addCleanup(p.stop)
+
+    THIS_MONTH = frappe.utils.nowdate()[:7]
+
+    def names(self, tab, month, **kw):
+        reply = self.as_user(ACC, queue.get_claims, tab, fields=["name", "amount", "status"],
+                             filters=[["owner", "in", [PM, PM2]]], month=month, **kw)
+        return reply
+
+    def test_all_lists_the_claims_raised_in_the_month(self):
+        now = self.raise_claim(PM, amount=300)
+        old = self.raise_claim(PM2, amount=500)
+        frappe.db.sql("""UPDATE "tabReimbursement" SET creation = creation - INTERVAL '40 days' WHERE name = %s""", old)
+        frappe.db.commit()
+        listed = {r["name"] for r in self.names("all", self.THIS_MONTH)["data"]}
+        self.assertIn(now, listed)
+        self.assertNotIn(old, listed)
+        self.assertIn(old, {r["name"] for r in self.names("all", None)["data"]})  # no month: every claim
+
+    def test_paid_lists_the_claims_paid_in_the_month_by_paid_on_date(self):
+        name, expense = self.approve(HR)
+        self.move(expense, "Reconciliation Pending")
+        self.move(expense, "Paid")
+        frappe.db.set_value(NPE, expense.name, "payment_date", frappe.utils.nowdate(), update_modified=False)
+        frappe.db.commit()
+        self.assertEqual([r["name"] for r in self.names("paid", self.THIS_MONTH)["data"]], [name])
+        last_month = frappe.utils.add_months(frappe.utils.nowdate(), -1)[:7]
+        self.assertEqual(self.names("paid", last_month)["data"], [])
+
+    def test_the_totals_cover_the_month_with_a_breakdown(self):
+        self.raise_claim(PM, amount=300)
+        self.raise_claim(PM2, amount=700)
+        reply = self.names("all", self.THIS_MONTH,
+                           aggregates_config='[{"field": "amount", "function": "sum"}, {"field": "amount", "function": "count"}]',
+                           group_by_config='{"groupByField": "status", "aggregateField": "amount", "aggregateFunction": "sum", "limit": 10}')
+        self.assertEqual(float(reply["aggregates"]["sum_of_amount"]), 1000)
+        self.assertEqual(int(reply["aggregates"]["count_of_amount"]), 2)
+        self.assertEqual({g["group_key"]: float(g["aggregate_value"]) for g in reply["group_by_result"]}, {PENDING: 1000})
+
+    def test_all_totals_show_each_step_by_its_status(self):
+        """Owner, 2026-11-19: the All totals show every step -- the claim's status names it."""
+        self.fresh_month()
+        self.raise_claim(PM, amount=300)                        # Pending Approval
+        to_pay = self.raise_claim(PM2, amount=700)
+        self.as_user(ADMIN, review.approve_reimbursement, to_pay, acknowledged=1)  # Admin, small: to be paid
+        at_l1 = self.raise_claim(PM, amount=2500)
+        self.as_user(HR, review.approve_reimbursement, at_l1, acknowledged=1)     # HR at the limit: L1
+        reply = self.names("all", self.THIS_MONTH,
+                           aggregates_config='[{"field": "amount", "function": "sum"}]',
+                           group_by_config='{"groupByField": "status", "aggregateField": "amount", "aggregateFunction": "sum", "limit": 10}')
+        groups = {g["group_key"]: float(g["aggregate_value"]) for g in reply["group_by_result"]}
+        self.assertEqual(groups, {PENDING: 300, APPROVED: 700, REQUESTED: 2500})
+        self.assertEqual(sum(groups.values()), float(reply["aggregates"]["sum_of_amount"]))
+
+    def test_the_month_summary_counts_each_month_for_the_picker(self):
+        a = self.raise_claim(PM, amount=300)
+        b = self.raise_claim(PM2, amount=700)
+        frappe.db.sql("""UPDATE "tabReimbursement" SET creation = %s WHERE name = %s""", ("2025-12-10 10:00:00", b))
+        frappe.db.commit()
+        this_year = int(frappe.utils.nowdate()[:4])
+        mine = {r["name"] for r in self.names("all", None)["data"]} & {a, b}
+        self.assertEqual(mine, {a, b})
+        summary = self.as_user(ACC, queue.get_claim_month_summary, "all", 2025)
+        self.assertGreaterEqual(summary["months"]["12"]["count"], 1)
+        self.assertGreaterEqual(summary["months"]["12"]["total"], 700)
+        self.assertLessEqual(summary["first_year"], 2025)
+        now = self.as_user(ACC, queue.get_claim_month_summary, "all", this_year)
+        self.assertGreaterEqual(now["months"][str(int(frappe.utils.nowdate()[5:7]))]["total"], 300)
+        # A claimant reads only their own claims, on All and on Raised By Me.
+        theirs = self.as_user(PM2, queue.get_claim_month_summary, "all", 2025)
+        self.assertEqual(theirs["months"]["12"], {"count": 1, "total": 700.0})
+        self.assertEqual(self.as_user(PM2, queue.get_claim_month_summary, "mine", 2025)["months"]["12"],
+                         {"count": 1, "total": 700.0})
+        # Pending Approval counts its own claims by raised month (owner, 2026-11-19: every tab has months).
+        pending = self.as_user(ACC, queue.get_claim_month_summary, "pending", this_year)
+        self.assertGreaterEqual(pending["months"][str(int(frappe.utils.nowdate()[5:7]))]["count"], 1)
+        with self.assertRaises(frappe.ValidationError):
+            self.as_user(ACC, queue.get_claim_month_summary, "nonsense", 2025)
+
+    def test_payment_need_to_be_paid_narrows_by_the_raised_month(self):
+        name, _ = self.approve(HR)  # small: born Approved, so it waits to be paid
+        listed = [r["name"] for r in self.names("approved", self.THIS_MONTH)["data"]]
+        self.assertIn(name, listed)
+        last_month = frappe.utils.add_months(frappe.utils.nowdate(), -1)[:7]
+        self.assertNotIn(name, [r["name"] for r in self.names("approved", last_month)["data"]])
+        summary = self.as_user(ACC, queue.get_claim_month_summary, "approved", int(self.THIS_MONTH[:4]))
+        self.assertGreaterEqual(summary["months"][str(int(self.THIS_MONTH[5:]))]["count"], 1)
+
+    def test_every_tab_narrows_by_the_raised_month_and_a_bad_month_is_refused(self):
+        name = self.raise_claim(PM, amount=300)
+        self.assertIn(name, {r["name"] for r in self.names("pending", self.THIS_MONTH)["data"]})
+        self.assertNotIn(name, {r["name"] for r in self.names("pending", "1999-01")["data"]})
+        mine = self.as_user(PM, queue.get_claims, "mine", fields=["name"], month="1999-01")
+        self.assertNotIn(name, {r["name"] for r in mine["data"]})
+        for bad in ("2026-13", "Nov 2026", "2026/11"):
+            with self.subTest(bad=bad), self.assertRaises(frappe.ValidationError):
+                self.names("all", bad)
+
+
+class TestBulkDecisions(ReimbursementTestCase):
+    """ADR-0040 Amendment C point 5: Approve selected / Reject selected on Pending Approval run the single call's
+    steps per claim, each in its own savepoint (`review.bulk_approve_reimbursements`, `bulk_reject_reimbursements`)."""
+
+    def setUp(self):
+        super().setUp()
+        p = patch("nirmaan_stack.services.stored_files.delete_files", self.storage.delete_files)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def bulk_approve(self, user, names, acknowledged=1):
+        return self.as_user(user, review.bulk_approve_reimbursements, names, acknowledged=acknowledged)["data"]
+
+    def bulk_reject(self, user, names, reason="reimb_test duplicate"):
+        return self.as_user(user, review.bulk_reject_reimbursements, names, reason)["data"]
+
+    @staticmethod
+    def status(name):
+        return frappe.db.get_value("Reimbursement", name, "status")
+
+    def test_each_claim_lands_in_its_own_tab(self):
+        small = self.raise_claim(PM, amount=1450)
+        at_limit = self.raise_claim(PM2, amount=2500)
+        data = self.bulk_approve(HR, [small, at_limit])
+        self.assertEqual(sorted(data["succeeded"]), sorted([small, at_limit]))
+        self.assertEqual(data["failed"], [])
+        self.assertEqual((data["results"][small]["tab"], data["results"][small]["expense_status"]), ("approved", "Approved"))
+        self.assertEqual((data["results"][at_limit]["tab"], data["results"][at_limit]["expense_status"]), ("l1", "Requested"))
+        # The claim carries its expense's status (owner, 2026-11-19): Approved to be paid, Requested waiting for L1.
+        self.assertEqual((self.status(small), self.status(at_limit)), (APPROVED, REQUESTED))
+        for name in (small, at_limit):
+            self.assertEqual(convert.expense_of(name), data["results"][name]["expense"])
+
+    def test_admin_over_50000_sends_it_to_the_ceo(self):
+        big = self.raise_claim(PM, amount=60000)
+        data = self.bulk_approve(ADMIN, [big])
+        self.assertEqual((data["results"][big]["tab"], data["results"][big]["expense_status"]), ("ceo", "CEO Pending"))
+
+    def test_the_same_persons_second_claim_counts_the_first(self):
+        """Decided in name order: the second claim's month total includes the first, approved just before it."""
+        first, second = sorted([self.raise_claim(PM, amount=1200), self.raise_claim(PM, amount=1000)])
+        data = self.bulk_approve(HR, [second, first])
+        self.assertEqual(data["succeeded"], [first, second])
+        self.assertEqual(data["results"][first]["tab"], "approved")  # ₹1,200 alone
+        self.assertEqual(data["results"][second]["tab"], "l1")  # ₹1,000 + ₹1,200 = ₹2,200
+
+    def test_a_refused_claim_never_takes_the_batch_with_it(self):
+        good = self.raise_claim(PM, amount=500)
+        from_hr = self.raise_claim(HRL, amount=300)  # HR can't decide a claim raised in HR
+        decided = self.raise_claim(PM2, amount=400)
+        self.as_user(ADMIN, review.reject_reimbursement, decided, "reimb_test earlier")
+        data = self.bulk_approve(HR, [good, from_hr, decided])
+        self.assertEqual(data["succeeded"], [good])
+        reasons = {f["name"]: f["reason"] for f in data["failed"]}
+        self.assertEqual(set(reasons), {from_hr, decided})
+        self.assertIn("HR", reasons[from_hr])
+        self.assertIn("Rejected", reasons[decided])
+        frappe.db.rollback()  # what follows reads only what the call committed
+        self.assertEqual(self.status(good), APPROVED)
+        self.assertTrue(convert.expense_of(good))
+        self.assertEqual(self.status(from_hr), PENDING)
+        self.assertIsNone(convert.expense_of(from_hr))
+
+    def test_without_the_confirm_a_claim_at_the_limit_is_refused_and_left_untouched(self):
+        under = self.raise_claim(PM, amount=800)
+        over = self.raise_claim(PM2, amount=2000)
+        data = self.bulk_approve(HR, [under, over], acknowledged=0)
+        self.assertEqual(data["succeeded"], [under])
+        self.assertEqual([f["name"] for f in data["failed"]], [over])
+        self.assertIn("Tick", data["failed"][0]["reason"])
+        self.assertEqual(self.status(over), PENDING)
+        self.assertIsNone(convert.expense_of(over))  # the savepoint undid the half-done approval
+
+    def test_reject_selected_uses_one_reason_for_all(self):
+        names = [self.raise_claim(PM, amount=300), self.raise_claim(PM2, amount=700)]
+        data = self.bulk_reject(HR, names, " reimb_test no receipts ")
+        self.assertEqual(sorted(data["succeeded"]), sorted(names))
+        for name in names:
+            claim = frappe.get_doc("Reimbursement", name)
+            self.assertEqual((claim.status, claim.rejection_reason), (REJECTED, "reimb_test no receipts"))
+            self.assertIsNone(data["results"][name]["tab"])  # Rejected is only in All
+            self.assertIsNone(convert.expense_of(name))
+
+    def test_a_blank_reason_is_refused_before_any_claim_is_touched(self):
+        name = self.raise_claim(PM, amount=300)
+        with self.assertRaises(frappe.ValidationError):
+            self.bulk_reject(HR, [name], "   ")
+        self.assertEqual(self.status(name), PENDING)
+
+    def test_accounts_cannot_decide_in_bulk_either(self):
+        name = self.raise_claim(PM, amount=300)
+        data = self.bulk_approve(ACC, [name])
+        self.assertEqual(data["succeeded"], [])
+        self.assertEqual(self.status(name), PENDING)
+        data = self.bulk_reject(ACC, [name])
+        self.assertEqual(data["succeeded"], [])
+        self.assertEqual(self.status(name), PENDING)
+
+    def test_the_batch_is_one_to_a_hundred_unique_claims(self):
+        with self.assertRaises(frappe.ValidationError):
+            self.bulk_approve(HR, [])
+        with self.assertRaises(frappe.ValidationError):
+            self.bulk_approve(HR, [f"reimb_test-{i}" for i in range(101)])
+        name = self.raise_claim(PM, amount=300)
+        data = self.bulk_approve(HR, f'["{name}", "{name}"]')  # JSON, as the screen sends it; a repeat counts once
+        self.assertEqual((data["succeeded"], data["total"]), ([name], 1))
+
+    def test_unknown_claims_fail_by_name(self):
+        data = self.bulk_approve(HR, ["reimb_test-missing"])
+        self.assertEqual([f["name"] for f in data["failed"]], ["reimb_test-missing"])
+
+    def test_only_the_claims_that_went_through_are_notified_after_the_commit(self):
+        good = self.raise_claim(PM, amount=300)
+        from_hr = self.raise_claim(HRL, amount=300)
+        told = []
+        with patch.object(review, "notify_decided", lambda claim, decision: told.append((claim.name, decision))):
+            self.bulk_approve(HR, [good, from_hr])
+        self.assertEqual(told, [(good, APPROVED)])
+
+    def test_the_single_approve_now_says_where_the_claim_went(self):
+        name = self.raise_claim(PM, amount=2500)
+        reply = self.as_user(HR, review.approve_reimbursement, name, acknowledged=1)
+        self.assertEqual((reply["status"], reply["expense_status"], reply["tab"]), (REQUESTED, "Requested", "l1"))
+
+
+class TestSimultaneousDecisions(ReimbursementTestCase):
+    """Two people approve one claim at the same moment (browser walk 2026-11-19: the second got a raw 500
+    `SerializationFailure`). The loser runs on its own connection, its snapshot taken before the winner commits --
+    the request's first transaction, REPEATABLE READ -- so its lock read is refused; `expense_link.lock_claim` turns
+    that into a sentence. Exactly one expense either way."""
+
+    def race(self, loser_call) -> dict:
+        """Take the loser's snapshot, let HR approve and commit, then run `loser_call(name)` on the loser's
+        connection. Returns `{name, exc | result}`."""
+        name = self.raise_claim(PM, amount=450)
+        out: dict = {"name": name}
+        snapshot_taken, winner_done = threading.Event(), threading.Event()
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+
+        def loser():
+            frappe.init(site=site, sites_path=sites_path)
+            try:
+                frappe.connect()
+                frappe.set_user(ADMIN)
+                # The first statement fixes this transaction's REPEATABLE READ snapshot, before the winner commits.
+                frappe.db.sql('SELECT status FROM "tabReimbursement" WHERE name = %s', name)
+                snapshot_taken.set()
+                winner_done.wait(30)
+                try:
+                    out["result"] = loser_call(name)
+                except Exception as exc:  # noqa: BLE001 -- the test asserts on it
+                    out["exc"] = exc
+                frappe.db.rollback()
+            finally:
+                frappe.destroy()
+
+        thread = threading.Thread(target=loser)
+        thread.start()
+        self.assertTrue(snapshot_taken.wait(30))
+        self.as_user(HR, review.approve_reimbursement, name)
+        winner_done.set()
+        thread.join(60)
+        self.assertEqual(frappe.db.count(NPE, {"reimbursement": name}), 1)
+        self.assertEqual(frappe.db.get_value("Reimbursement", name, "approved_by"), HR)
+        return out
+
+    def test_the_second_single_approve_is_told_not_crashed(self):
+        out = self.race(lambda name: review.approve_reimbursement(name))
+        self.assertIsInstance(out.get("exc"), frappe.ValidationError, out)
+        self.assertIn("a moment ago", str(out["exc"]))
+
+    def test_the_second_bulk_approve_reports_the_claim_it_lost(self):
+        out = self.race(lambda name: review.bulk_approve_reimbursements([name])["data"])
+        data = out.get("result")
+        self.assertIsNotNone(data, out)
+        self.assertEqual(data["succeeded"], [])
+        self.assertEqual([f["name"] for f in data["failed"]], [out["name"]])
+        self.assertIn("a moment ago", data["failed"][0]["reason"])
+
+    def test_a_reject_racing_an_approve_is_told_too(self):
+        out = self.race(lambda name: review.reject_reimbursement(name, "reimb_test too late"))
+        self.assertIsInstance(out.get("exc"), frappe.ValidationError, out)
+        self.assertEqual(frappe.db.get_value("Reimbursement", out["name"], "status"), APPROVED)
+
+
+class TestProjectManagerCap(ReimbursementTestCase):
+    """Owner, 2026-11-18: a Project Manager's claims raised in one calendar month may add up to ₹2,000 and no more,
+    refused at raise and at edit (`claims._check_cap`, `rules.cap_problem`). Pending, Approved and Paid claims count;
+    a rejected one frees its amount."""
+
+    def setUp(self):
+        super().setUp()
+        p = patch.object(claims, "is_capped", access.is_capped)  # the real check, for these tests only
+        p.start()
+        self.addCleanup(p.stop)
+
+    def mine_this_month(self, user=PM):
+        return frappe.get_all("Reimbursement", {"owner": user, "creation": [">=", frappe.utils.get_first_day(frappe.utils.nowdate())]},
+                              pluck="name")
+
+    def test_a_project_manager_can_claim_up_to_2000_in_a_month(self):
+        self.raise_claim(PM, amount=1200)
+        self.raise_claim(PM, amount=800)  # exactly ₹2,000: allowed
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.raise_claim(PM, amount=1)
+        self.assertIn("You have used this month's ₹2,000", str(refused.exception))
+
+    def test_one_claim_of_exactly_2000_is_allowed_and_one_above_it_is_not(self):
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.raise_claim(PM, amount=2000.01)
+        self.assertIn("up to ₹2,000 more", str(refused.exception))
+        self.raise_claim(PM, amount=2000)
+
+    def test_a_refused_claim_saves_nothing_and_says_what_is_left(self):
+        self.raise_claim(PM, amount=1500)
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.raise_claim(PM, amount=600)
+        self.assertIn("You can claim up to ₹500 more this month", str(refused.exception))
+        self.assertEqual(len(self.mine_this_month()), 1)
+
+    def test_pending_claims_count_and_a_rejected_one_frees_its_amount(self):
+        first = self.raise_claim(PM, amount=1500)
+        with self.assertRaises(frappe.ValidationError):
+            self.raise_claim(PM, amount=600)
+        self.as_user(HR, review.reject_reimbursement, first, "reimb_test wrong receipt")
+        self.raise_claim(PM, amount=600)
+
+    def test_approved_claims_count(self):
+        first = self.raise_claim(PM, amount=1500)
+        self.as_user(HR, review.approve_reimbursement, first)
+        with self.assertRaises(frappe.ValidationError):
+            self.raise_claim(PM, amount=501)
+        self.raise_claim(PM, amount=500)
+
+    def test_a_new_month_starts_again(self):
+        self.raise_claim(PM, amount=1800)
+        self.fresh_month()  # moves the claims back a year
+        self.raise_claim(PM, amount=1800)
+
+    def test_an_edit_is_checked_and_replaces_its_own_old_amount(self):
+        payee = self.account(PM)
+        first = self.raise_claim(PM, amount=1500)
+        self.as_user(PM, claims.update_reimbursement, first, "Cab", 2000, payee, description="Site visit",
+                     reimbursement_type="Travel")  # its own ₹1,500 is replaced, so ₹2,000 fits
+        with self.assertRaises(frappe.ValidationError):
+            self.raise_claim(PM, amount=1)
+        self.as_user(PM, claims.update_reimbursement, first, "Cab", 1500, payee, reimbursement_type="Travel")
+        self.raise_claim(PM, amount=500)
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.as_user(PM, claims.update_reimbursement, first, "Cab", 1600, payee, reimbursement_type="Travel")
+        self.assertIn("up to ₹1,500 more", str(refused.exception))
+        self.assertEqual(frappe.db.get_value("Reimbursement", first, "amount"), 1500)
+
+    def test_only_project_managers_are_capped(self):
+        self.raise_claim(PM2, amount=1500)  # also a Project Manager (with System Manager)
+        with self.assertRaises(frappe.ValidationError):
+            self.raise_claim(PM2, amount=600)
+        for user in (HR, ACC, ADMIN):
+            self.raise_claim(user, amount=2500)
+            self.raise_claim(user, amount=2500)
+
+    def test_my_month_tells_the_dialog_what_is_left(self):
+        first = self.raise_claim(PM, amount=1200)
+        self.assertEqual(self.as_user(PM, claims.get_my_month), {"capped": True, "cap": 2000, "used": 1200, "left": 800})
+        # Editing `first`: the month without it.
+        self.assertEqual(self.as_user(PM, claims.get_my_month, exclude=first)["used"], 0)
+        # Someone else's claim is never left out.
+        other = self.raise_claim(PM2, amount=300)
+        self.assertEqual(self.as_user(PM, claims.get_my_month, exclude=other)["used"], 1200)
+        self.assertEqual(self.as_user(ACC, claims.get_my_month), {"capped": False, "cap": 2000, "used": 0, "left": None})
 
 
 class TestMonthlyLimit(ReimbursementTestCase):
@@ -959,7 +1498,7 @@ class TestMonthlyLimit(ReimbursementTestCase):
         # ₹1,200 is in the auto band, but HR's approval above the limit waits for L1.
         self.assertEqual((expense.status, expense.auto_approved), ("Requested", 0))
         self.assertFalse(expense.approval_date)
-        self.assertEqual(frappe.db.get_value("Reimbursement", second, "status"), APPROVED)
+        self.assertEqual(frappe.db.get_value("Reimbursement", second, "status"), REQUESTED)
 
         self.assertEqual(self.l1(HR, expense)["succeeded"], [])  # HR is not L1
         self.assertEqual(self.l1(ADMIN, expense)["statuses"], {expense.name: "Approved"})

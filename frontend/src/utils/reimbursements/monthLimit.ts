@@ -8,7 +8,16 @@ import type { MonthTotal } from "@/types/NirmaanStack/Reimbursement";
 import { initialStatusForRaiser, needsCEO, TIER_L2_ABOVE_EXPENSES, type RaiserLevel } from "@/utils/approvalTiers";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { MONTHLY_LIMIT, overMonthlyLimit } from "./rules";
+import {
+    MONTHLY_LIMIT,
+    TAB_APPROVED,
+    TAB_CEO,
+    TAB_L1,
+    TAB_LABELS,
+    TAB_PENDING,
+    overMonthlyLimit,
+    type ReimbursementTab,
+} from "./rules";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
     "November", "December"];
@@ -51,7 +60,7 @@ export function monthNotice(row: MonthTotal, place: NoticePlace, goesToL1 = fals
     }
     const next = place === "payments"
         ? " Approving it pays at or above the monthly limit."
-        : goesToL1 ? " After you approve, it goes to L1 in Payments." : "";
+        : goesToL1 ? " After you approve, it goes to Pending L1 Approval, where Admin or the CEO approves it." : "";
     return {
         over: true,
         headline,
@@ -86,22 +95,49 @@ export interface LimitPerson {
 
 /**
  * The people at or above the limit among a bulk selection's reimbursements, one per claimant and month, largest
- * total first. Rows under the limit are left out: the box lists only what needs a second look.
+ * total first. A person whose total is under the limit is left out: the box lists only what needs a second look.
+ * A person's total is the highest of their rows (in Payments every row of one person carries the same total; in a
+ * Reimbursements batch a later claim counts the earlier ones, `withBatchTotals`), and every one of their rows in the
+ * selection is counted in it.
  */
 export function peopleOverLimit(rows: readonly MonthTotal[]): LimitPerson[] {
     const byPerson = new Map<string, LimitPerson>();
     for (const row of rows) {
-        if (!overMonthlyLimit(row.month_total)) continue;
         const key = `${row.claimant}|${row.month}`;
         const person = byPerson.get(key) ?? {
-            key, claimantName: row.claimant_name, month: row.month, monthTotal: row.month_total, claims: row.claims,
+            key, claimantName: row.claimant_name, month: row.month, monthTotal: 0, claims: 0,
             inSelection: 0, inSelectionAmount: 0,
         };
+        person.monthTotal = Math.max(person.monthTotal, row.month_total);
+        person.claims = Math.max(person.claims, row.claims);
         person.inSelection += 1;
         person.inSelectionAmount += row.amount;
         byPerson.set(key, person);
     }
-    return [...byPerson.values()].sort((a, b) => b.monthTotal - a.monthTotal || a.claimantName.localeCompare(b.claimantName));
+    return [...byPerson.values()]
+        .filter((p) => overMonthlyLimit(p.monthTotal))
+        .sort((a, b) => b.monthTotal - a.monthTotal || a.claimantName.localeCompare(b.claimantName));
+}
+
+/**
+ * Pending Approval's bulk approve decides claims in name order (`review.bulk_approve_reimbursements`), so a person's
+ * later claim counts the earlier ones approved just before it. Each claim's month total (itself plus the person's
+ * Approved and Paid claims) is raised by the person's earlier claims of the same month in this batch. `rows` are the
+ * month totals of the batch's claims; the answer is keyed by claim.
+ */
+export function withBatchTotals(rows: readonly MonthTotal[]): Map<string, MonthTotal> {
+    const out = new Map<string, MonthTotal>();
+    const before = new Map<string, { amount: number; claims: number }>();
+    for (const row of [...rows].sort((a, b) => a.claim.localeCompare(b.claim))) {
+        const key = `${row.claimant}|${row.month}`;
+        const earlier = before.get(key) ?? { amount: 0, claims: 0 };
+        const monthTotal = row.month_total + earlier.amount;
+        out.set(row.claim, {
+            ...row, month_total: monthTotal, claims: row.claims + earlier.claims, over_limit: overMonthlyLimit(monthTotal),
+        });
+        before.set(key, { amount: earlier.amount + row.amount, claims: earlier.claims + 1 });
+    }
+    return out;
 }
 
 /** "Reimbursed in October 2026 across 4 claims. 2 of them are in this approval: ₹2,100." */
@@ -112,29 +148,44 @@ export function personLine(person: LimitPerson): string {
     return `Claimed in ${monthLabel(person.month)} across ${claimsWord(person.claims)}. ${which}: ${formatToRoundedIndianRupee(person.inSelectionAmount)}.`;
 }
 
-/** The Project Payments tabs an approved claim's expense can land in, by their labels on screen. */
-export const PAYMENTS_TABS = {
-    l1: "Payment Pending Approval",
-    ceo: "Payment Pending CEO Approval",
-    toPay: "Payment need to paid",
-} as const;
+/** The approval tabs a decision is made on. */
+export type ApprovalStage = typeof TAB_PENDING | typeof TAB_L1 | typeof TAB_CEO;
 
 /**
- * Where approving a claim puts its Non-Project Expense, for the approve dialog (the server decides:
- * `expense_decision.starting_status` with the approver as raiser, ADR-0040 and its Amendment B). `level` is the
- * approver's (`approvalTiers.raiserLevelOf`): null for HR, whose approval at or above the monthly limit waits for L1
- * even in the auto band. `monthTotal` null = not known yet; then an HR approval's landing is not guessed.
+ * The tab approving a claim moves it to (ADR-0040 Amendment C), for the approve dialogs; the server decides and its
+ * reply names the real one. `level` is the approver's (`approvalTiers.raiserLevelOf`): null for HR.
+ *
+ * * Pending Approval -- the claim's expense is born at `expense_decision.starting_status` with the approver as raiser:
+ *   HR at or above the monthly limit → Pending L1 Approval (`monthTotal` null = not known yet: not guessed), else
+ *   by amount; an Admin up to ₹50,000 → Payment need to be paid, above → Pending CEO Approval; the CEO → to be paid.
+ * * Pending L1 Approval -- an Admin's L1 approval: above ₹50,000 → Pending CEO Approval, else to be paid. The CEO's
+ *   approval always ends at Payment need to be paid (the screen sends the CEO step straight after).
+ * * Pending CEO Approval → Payment need to be paid.
  */
-export function approvalLanding(amount: number, monthTotal: number | null, level: RaiserLevel | null): string | null {
+export function landingTab(
+    stage: ApprovalStage, amount: number, monthTotal: number | null, level: RaiserLevel | null,
+): ReimbursementTab | null {
+    if (stage === TAB_CEO || level === "ceo") return TAB_APPROVED;
+    if (stage === TAB_L1) return needsCEO(amount, TIER_L2_ABOVE_EXPENSES) ? TAB_CEO : TAB_APPROVED;
     if (level === null && monthTotal === null) return null;
     const status = level === null && overMonthlyLimit(monthTotal ?? 0)
         ? "Requested"
         : initialStatusForRaiser(amount, TIER_L2_ABOVE_EXPENSES, level);
-    const lead = "Approving makes it a Non-Project Expense in Project Payments";
-    if (status === "Requested") {
-        const then = needsCEO(amount, TIER_L2_ABOVE_EXPENSES) ? ", then the CEO" : "";
-        return `${lead}, under "${PAYMENTS_TABS.l1}", where L1 (Admin) approves it${then}.`;
-    }
-    if (status === "CEO Pending") return `${lead}, under "${PAYMENTS_TABS.ceo}", where the CEO approves it.`;
-    return `${lead}, under "${PAYMENTS_TABS.toPay}", where Accounts pays it.`;
+    return status === "Requested" ? TAB_L1 : status === "CEO Pending" ? TAB_CEO : TAB_APPROVED;
+}
+
+const WHO_ACTS: Partial<Record<ReimbursementTab, string>> = {
+    [TAB_L1]: "where Admin or the CEO approves it",
+    [TAB_CEO]: "where the CEO approves it",
+    [TAB_APPROVED]: "where Accounts pays it",
+};
+
+/** The approve dialog's "Goes to" line, or null while it can't be told (HR, month total not read yet). */
+export function approvalLanding(
+    amount: number, monthTotal: number | null, level: RaiserLevel | null, stage: ApprovalStage = TAB_PENDING,
+): string | null {
+    const tab = landingTab(stage, amount, monthTotal, level);
+    if (!tab) return null;
+    const then = tab === TAB_L1 && needsCEO(amount, TIER_L2_ABOVE_EXPENSES) ? ", then the CEO" : "";
+    return `Goes to "${TAB_LABELS[tab]}", ${WHO_ACTS[tab]}${then}.`;
 }

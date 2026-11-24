@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Type filter's flat list (owner, 2026-10-31): the four types and Non Project – Reimbursement, and the
+"""The Type filter's flat list (owner, 2026-10-31): the four types, and the
 narrower options "<type>:<detail>" (WO – GST, PO – Cheque, an expense type). The list and the facet build their
 WHERE in the same place (`_type_clause`), and the facet counts the types and each narrower option in one pass (`_type_facet`).
 
@@ -41,7 +41,7 @@ class TestTheTypeFilter(unittest.TestCase):
 			cls.petty = cls._expense("Project Expenses", "Petty Cash", project=project)
 			cls.labour = cls._expense("Project Expenses", "Labour Charges", project=project)
 			cls.rent = cls._expense("Non Project Expenses", "Office Rent")
-			# A reimbursement's expense of the same type: Non Project – Office Rent must leave it out.
+			# A reimbursement's expense of the same type: not in this queue at all (ADR-0040 Amendment C).
 			cls.claim = cls._expense("Non Project Expenses", "Office Rent", reimbursement="RB-TEST-TYPE-FILTER")
 			frappe.db.commit()
 		except Exception:
@@ -124,9 +124,10 @@ class TestTheTypeFilter(unittest.TestCase):
 		self.assertEqual(self._names("in", ["Non-Project:Office Rent"]), {self.rent})
 		self.assertEqual(self._names("in", ["Project Expense:Office Rent"]), set())
 
-	def test_non_project_expense_includes_the_reimbursements_and_reimbursement_alone_narrows_to_them(self):
-		self.assertEqual(self._names("in", ["Non-Project"]), {self.rent, self.claim})
-		self.assertEqual(self._names("in", ["Reimbursement"]), {self.claim})
+	def test_a_reimbursements_expense_is_not_in_the_queue_and_a_stale_reimbursement_option_matches_nothing(self):
+		self.assertEqual(self._names("in", ["Non-Project"]), {self.rent})
+		self.assertEqual(self._names("in", ["Reimbursement"]), set())
+		self.assertNotIn(self.claim, self._names("not in", ["SR Payment"]))
 
 	def test_picked_options_combine_as_either(self):
 		self.assertEqual(
@@ -138,11 +139,13 @@ class TestTheTypeFilter(unittest.TestCase):
 		# A stale saved `null` (or a number) used to raise TypeError -> 500 on the list, facets and export.
 		self.assertEqual(self._names("in", [None, 7]), set())
 		self.assertEqual(self._names("in", [None, "SR Payment:GST"]), {self.wo_gst})
-		self.assertEqual(self._names("not in", [None, "PO Payment"]), set(self.all) - self._names("in", ["PO Payment"]))
+		self.assertEqual(self._names("not in", [None, "PO Payment"]),
+						 set(self.all) - {self.claim} - self._names("in", ["PO Payment"]))
 
 	def test_not_in_leaves_out_exactly_what_in_lists(self):
 		picked = ["SR Payment:GST", "Non-Project"]
-		self.assertEqual(self._names("not in", picked), set(self.all) - self._names("in", picked))
+		listed = set(self.all) - {self.claim}  # the reimbursement's expense is never listed
+		self.assertEqual(self._names("not in", picked), listed - self._names("in", picked))
 
 	def test_a_single_value_with_equals_reads_the_same(self):
 		self.assertEqual(self._names("=", "PO Payment:Cheque"), {self.po_cheque, self.po_credit})
@@ -158,8 +161,7 @@ class TestTheTypeFilter(unittest.TestCase):
 			"SR Payment": 2,
 			"PO Payment": 3,
 			"Project Expense": 2,
-			"Non-Project": 2,
-			"Reimbursement": 1,
+			"Non-Project": 1,
 			"SR Payment:GST": 1,
 			"PO Payment:Cheque": 2,
 			"PO Payment:Credit Cheque": 1,

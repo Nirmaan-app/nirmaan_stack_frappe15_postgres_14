@@ -5,6 +5,10 @@
  *
  * Approve / Reject show only when the server put the claim in this person's Pending Approval queue
  * (`canDecide`, from `review.get_pending_for_me`): who may decide is never re-derived here.
+ *
+ * Once approved, the claim's Non-Project Expense is shown in full (ADR-0040 Amendment C point 7): created on, its
+ * own status, amount, invoice, the account it is paid into (masked), paid on, UTR, payment source, and a short
+ * history (raised, approved, L1, CEO, paid). Read through `get_claim_payments`: most claimants can't read expenses.
  */
 
 import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
@@ -19,7 +23,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { APPROVED, PAID, PENDING, REJECTED, claimantName, deleteProblem, editProblem, paymentStage, roleLabel } from "@/utils/reimbursements/rules";
 
-import { STATUS_BADGE } from "../config/reimbursementColumns";
+import { EXPENSE_STATUS_BADGE, STATUS_BADGE } from "../config/reimbursementColumns";
 import { claimsWithPayments, useClaimPayments } from "../hooks/useClaimPayments";
 import { CLAIM_FILES_API } from "./RaiseReimbursementDialog";
 import type { Decision } from "./DecisionDialog";
@@ -33,9 +37,16 @@ interface Props {
     onDecide: (decision: Decision, claim: Reimbursement) => void;
     onEdit: (claim: Reimbursement) => void;
     onDelete: (claim: Reimbursement) => void;
+    /** Admin (the CEO included) may delete anyone's claim once it is rejected (owner, 2026-11-19). */
+    isAdmin?: boolean;
 }
 
-export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName, canDecide, onDecide, onEdit, onDelete }: Props) {
+/** "XXXX1234": the account's last four digits. */
+const maskAccount = (account: string): string => `XXXX${account.slice(-4)}`;
+
+export function ClaimDetailSheet({
+    claimName, onOpenChange, userId, getUserName, canDecide, onDecide, onEdit, onDelete, isAdmin = false,
+}: Props) {
     const { data: claim } = useFrappeGetDoc<Reimbursement>(REIMBURSEMENT_DOCTYPE, claimName ?? undefined, claimName ? undefined : null);
     const { data: filesData } = useFrappeGetCall<{ message: ClaimFile[] }>(
         CLAIM_FILES_API, { name: claimName }, claimName ? `reimb_files:${claimName}` : null,
@@ -72,7 +83,7 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
                             {claim.status === APPROVED && (
                                 <div className="rounded-md bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
                                     <span className="font-semibold">Approved by {getUserName(claim.approved_by)}</span>
-                                    <p className="mt-0.5">Being paid from Project Payments &amp; Expenses.</p>
+                                    <p className="mt-0.5">{payment ? paymentStage(payment.status) : "Its expense is being created."}</p>
                                 </div>
                             )}
                             {claim.status === PAID && (
@@ -116,14 +127,47 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
 
                             {payment && (
                                 <section>
-                                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment</h4>
+                                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Non-Project Expense</h4>
                                     <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md border p-3 text-sm">
-                                        <dt className="text-muted-foreground">Stage</dt><dd>{paymentStage(payment.status)}</dd>
                                         <dt className="text-muted-foreground">Expense</dt><dd className="font-mono">{payment.expense}</dd>
+                                        <dt className="text-muted-foreground">Status</dt>
+                                        <dd>
+                                            <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", EXPENSE_STATUS_BADGE[payment.status] ?? "bg-muted")}>{payment.status}</span>
+                                            <span className="ml-2 text-xs text-muted-foreground">{paymentStage(payment.status)}</span>
+                                        </dd>
+                                        {payment.creation && (<><dt className="text-muted-foreground">Created on</dt><dd>{formatDate(payment.creation)}</dd></>)}
+                                        {payment.amount != null && (<><dt className="text-muted-foreground">Amount</dt><dd className="tabular-nums">{formatToIndianRupee(payment.amount)}</dd></>)}
+                                        {payment.description && (<><dt className="text-muted-foreground">Description</dt><dd className="whitespace-pre-wrap break-words">{payment.description}</dd></>)}
+                                        {(payment.invoice_ref || payment.invoice_date) && (
+                                            <><dt className="text-muted-foreground">Invoice</dt>
+                                            <dd>{payment.invoice_ref || "--"}{payment.invoice_date ? ` · ${formatDate(payment.invoice_date)}` : ""}</dd></>
+                                        )}
+                                        {payment.pay_to_account_number && (
+                                            <><dt className="text-muted-foreground">Paid to</dt>
+                                            <dd>{payment.pay_to_account_name} · <span className="font-mono">{maskAccount(payment.pay_to_account_number)}</span></dd></>
+                                        )}
                                         {payment.payment_date && (<><dt className="text-muted-foreground">Paid on</dt><dd>{formatDate(payment.payment_date)}</dd></>)}
                                         {payment.payment_ref && (<><dt className="text-muted-foreground">UTR</dt><dd className="break-all font-mono">{payment.payment_ref}</dd></>)}
+                                        {payment.payment_source && (<><dt className="text-muted-foreground">Payment source</dt><dd>{payment.payment_source}</dd></>)}
+                                        {payment.comment && (<><dt className="text-muted-foreground">Comment</dt><dd className="whitespace-pre-wrap break-words">{payment.comment}</dd></>)}
                                     </dl>
-                                    <p className="mt-1.5 text-xs text-muted-foreground">A Non-Project Expense, paid from Project Payments &amp; Expenses.</p>
+                                    <ol className="mt-3 space-y-1 border-l pl-3 text-xs text-muted-foreground" aria-label="History">
+                                        <li><span className="font-medium text-foreground">Raised</span> · {formatDate(claim.creation)}</li>
+                                        {claim.approved_by && (
+                                            <li><span className="font-medium text-foreground">Approved</span> by {getUserName(claim.approved_by)}{payment.creation ? ` · ${formatDate(payment.creation)}` : ""}</li>
+                                        )}
+                                        {/* An auto-approved expense has both dates stamped at creation: no L1 or CEO step happened. */}
+                                        {payment.auto_approved ? (
+                                            <li><span className="font-medium text-foreground">Auto-approved</span> · no L1 or CEO step needed</li>
+                                        ) : (
+                                            <>
+                                                {payment.approval_date && (<li><span className="font-medium text-foreground">L1 approved</span> · {formatDate(payment.approval_date)}</li>)}
+                                                {payment.ceo_approval_date && (<li><span className="font-medium text-foreground">CEO approved</span> · {formatDate(payment.ceo_approval_date)}</li>)}
+                                            </>
+                                        )}
+                                        {payment.payment_date && (<li><span className="font-medium text-foreground">Paid</span> · {formatDate(payment.payment_date)}{payment.payment_ref ? ` · UTR ${payment.payment_ref}` : ""}</li>)}
+                                        {payment.status === "Rejected" && (<li><span className="font-medium text-red-700">Rejected after approval</span></li>)}
+                                    </ol>
                                 </section>
                             )}
 
@@ -149,7 +193,7 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
                         </div>
 
                         <div className="flex flex-wrap justify-end gap-2 border-t px-6 py-3">
-                            {isClaimant && !deleteProblem(claim.status, true) && (
+                            {!deleteProblem(claim.status, isClaimant, isAdmin) && (
                                 <Button variant="ghost" className="text-red-600" onClick={() => onDelete(claim)}>
                                     <Trash2 className="mr-1.5 h-4 w-4" /> Delete
                                 </Button>

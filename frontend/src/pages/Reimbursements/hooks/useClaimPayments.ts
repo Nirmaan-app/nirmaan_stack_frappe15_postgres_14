@@ -2,7 +2,7 @@
  * The Non-Project Expense paying each claim (ADR-0040), read through the server because most claimants
  * can't read Non-Project Expenses (`api/reimbursements/claims.get_claim_payments`).
  *
- * Read only by the claim's detail sheet (the tables have no Payment column: owner, 2026-10-23).
+ * Read by the claim's detail sheet, which shows the expense in full (ADR-0040 Amendment C point 7).
  *
  * Every key starts with `CLAIM_PAYMENTS_KEY`, so `useRefreshClaimPayments` can refresh them all after a
  * decision: the key is the claims on screen, which an approve or reject does not change (code review finding 5).

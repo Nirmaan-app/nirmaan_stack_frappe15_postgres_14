@@ -68,6 +68,19 @@ describe("totals", () => {
         });
     });
 
+    it("counts every approved step as approved (owner, 2026-11-19: the claim carries its expense's status)", () => {
+        const totals = profileTotals([
+            { group_key: "Requested", aggregate_value: 400 },
+            { group_key: "CEO Pending", aggregate_value: 600 },
+            { group_key: "Approved", aggregate_value: 300 },
+            { group_key: "Reconciliation Pending", aggregate_value: 700 },
+            { group_key: "Paid", aggregate_value: 100 },
+        ]);
+        expect(totals.approved).toBe(2000);
+        expect(totals.monthTotal).toBe(2100);
+        expect(totals.reachesLimit).toBe(true);
+    });
+
     it("exactly ₹2,000 of Approved + Paid reaches the limit; none at all is zero", () => {
         expect(profileTotals([{ group_key: "Approved", aggregate_value: 2000 }]).reachesLimit).toBe(true);
         expect(profileTotals([]).monthTotal).toBe(0);

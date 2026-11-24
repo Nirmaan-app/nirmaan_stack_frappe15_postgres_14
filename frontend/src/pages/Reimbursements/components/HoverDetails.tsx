@@ -1,13 +1,14 @@
 /**
  * Table cells that show the short form and open a card with the whole thing: the bank account a claim is
- * paid into, and its title with the full description. Used by every Reimbursements tab.
+ * paid into, its title (in full, with the description), and a rejected claim's reason behind a message icon
+ * (owner, 2026-11-19: a clipped title or reason in the row hid the rest). Used by every Reimbursements tab.
  *
  * The card opens on hover AND on click / tap. Built on the Radix primitive rather than the shared
  * `ui/hover-card`, which, on any screen reporting touch support (a touch laptop included), opens only on a
  * long press and never on hover -- so the bank details would not show for a mouse user on such a machine.
  */
 
-import { Landmark } from "lucide-react";
+import { Landmark, MessageSquareText } from "lucide-react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { useState, type ReactNode } from "react";
 
@@ -15,7 +16,11 @@ import { cn } from "@/lib/utils";
 import type { Reimbursement } from "@/types/NirmaanStack/Reimbursement";
 
 /** Hover (mouse) or click / tap (anything) opens the card; moving away or clicking again closes it. */
-function DetailsCard({ trigger, children, className }: { trigger: ReactNode; children: ReactNode; className?: string }) {
+function DetailsCard({ trigger, children, className, label }: {
+    trigger: ReactNode; children: ReactNode; className?: string;
+    /** The trigger's accessible name, when its content (an icon) gives none. */
+    label?: string;
+}) {
     const [open, setOpen] = useState(false);
     return (
         <HoverCardPrimitive.Root open={open} onOpenChange={setOpen} openDelay={200} closeDelay={150}>
@@ -23,6 +28,7 @@ function DetailsCard({ trigger, children, className }: { trigger: ReactNode; chi
                 <div
                     role="button"
                     tabIndex={0}
+                    aria-label={label}
                     className="min-w-0 cursor-pointer"
                     onClick={() => setOpen((o) => !o)}
                     onKeyDown={(e) => {
@@ -91,25 +97,41 @@ export function PayToCell({ claim }: { claim: PayTo }) {
     );
 }
 
-/** The title with one line of description in the cell; the title and the whole description in the card. */
+/** The title (and one line of description) in the cell; the whole title and description in the card, so a title
+ *  cut off in the row can always be read in full. */
 export function TitleCell({ claim }: { claim: Pick<Reimbursement, "title" | "description"> }) {
-    if (!claim.description) {
-        return <div className="truncate font-medium" title={claim.title}>{claim.title}</div>;
-    }
     return (
         <DetailsCard
             className="w-96"
             trigger={
                 <div className="min-w-0">
                     <div className="truncate font-medium">{claim.title}</div>
-                    <div className="truncate text-[11px] text-muted-foreground underline decoration-dotted underline-offset-4">
-                        {claim.description}
-                    </div>
+                    {claim.description && (
+                        <div className="truncate text-[11px] text-muted-foreground underline decoration-dotted underline-offset-4">
+                            {claim.description}
+                        </div>
+                    )}
                 </div>
             }
         >
             <p className="break-words text-sm font-semibold">{claim.title}</p>
-            <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{claim.description}</p>
+            {claim.description && (
+                <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{claim.description}</p>
+            )}
+        </DetailsCard>
+    );
+}
+
+/** A message icon beside a rejected claim's status; the reason in the card. */
+export function RejectionReason({ reason }: { reason: string }) {
+    return (
+        <DetailsCard
+            className="w-80"
+            label="Rejection reason"
+            trigger={<MessageSquareText className="h-4 w-4 text-red-600 hover:text-red-700" aria-hidden="true" />}
+        >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700">Rejection reason</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm">{reason}</p>
         </DetailsCard>
     );
 }
