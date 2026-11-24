@@ -195,13 +195,20 @@ describe(`VAV-1 T6 negatives on ${LATEST}`, () => {
     expect(Object.keys(pr.unit_classes)).toEqual(["count"]);
     expect(pr.unit_refusal).toMatch(/is not a VAV unit/);
   });
-  it("a box missing a match fact refuses, naming it -- never a pick among the 84", () => {
-    for (const k of ["shape", "vav_type", "integrator_included", "cfm_range"]) {
+  // VAV-2c3 FIX (PIN FIX-D; owner 2026-11-24 16:52 "if payload does not me tion integrator - we use integrator = No"; 2026-11-18 23:53 pt 10;
+  // 22:16 ruling B): a box missing shape / type / integrator now prices on the ruled default (HVAC v85 `defaults`, marked); a box missing its
+  // band (no airflow, no inlet) still refuses (23:53 pt 4) -- never a pick among the 84
+  it("a box missing a fact WITH a ruled default prices on it, marked; missing the band still refuses -- never a pick among the 84", () => {
+    for (const k of ["shape", "vav_type", "integrator_included"]) {
       const attrs = { ...D2_BOX.attrs }; delete (attrs as Record<string, string>)[k];
       const v = view(calc({ items: [blk("VAV box", attrs)] }));
-      expect(v?.rowPriced, k).toBe(false);
-      expect(v?.items?.[0]?.figures?.supply_rate ?? null, k).toBeNull();
+      expect(v?.rowPriced, k).toBe(true);
+      expect((v?.items?.[0]?.fields as Array<{ id: string; defaulted?: boolean }> | undefined)?.find((f) => f.id === k)?.defaulted, k).toBe(true);
     }
+    const attrs = { ...D2_BOX.attrs }; delete (attrs as Record<string, string>).cfm_range;
+    const v = view(calc({ items: [blk("VAV box", attrs)] }));
+    expect(v?.rowPriced, "cfm_range").toBe(false);
+    expect(v?.items?.[0]?.figures?.supply_rate ?? null, "cfm_range").toBeNull();
   });
   it("VACUITY (a surface without hvac_sensors): the Sensors cases break; with it they price", () => {
     const state = { items: [D2_BOX], sections: { sensors: [blk("CO2 Sensor")] } };

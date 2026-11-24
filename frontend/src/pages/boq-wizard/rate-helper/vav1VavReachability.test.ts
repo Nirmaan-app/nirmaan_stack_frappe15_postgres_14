@@ -91,8 +91,10 @@ describe(`VAV-1 T2 reachability on ${LATEST}: every VAV item from the calculator
     if (bf) {
       // VAV-2a2 (B3, owner 13:31 / 13:46): the band is shown READ-ONLY (no options) after the two typed boxes; its 7 bands are the config's.
       // B4 (owner 22:16 "2b"): shape not stated -> Rectangular is a ruled default, so "None" is no longer offered on Shape (the 12d-2 rule)
+      // VAV-2c3 FIX (PIN FIX-D): type not named -> "Nothing specific mentioned" and integrator not mentioned -> "No" are ruled defaults too
+      // (HVAC v85), so "None" is no longer offered on Type or Integrator either (the same 12d-2 rule)
       expect(f.map((x) => [x.skuAttr, x.options ?? null])).toEqual([["shape", ["Rectangular", "Oval"]],
-        ["vav_type", ["None", "Nothing specific mentioned", "AHRI Certified", "AHRI Certified Imported"]], ["integrator_included", ["None", "Yes", "No"]],
+        ["vav_type", ["Nothing specific mentioned", "AHRI Certified", "AHRI Certified Imported"]], ["integrator_included", ["Yes", "No"]],
         ["airflow_cfm", null], ["inlet_size", null], ["cfm_range", null]]);
       expect(bf.bands.map((b) => b.value)).toEqual(["0-450", "450-800", "800-1350", "1350-2100", "2100-3200", "3200-4000", "4000-8000"]);
     } else {
