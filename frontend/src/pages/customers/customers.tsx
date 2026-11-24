@@ -194,7 +194,6 @@ export default function CustomersPage() {
     defaultSort: "creation desc",
     urlSyncKey: "customers_list",
     enableRowSelection: false, // Adjust if selection is needed
-    shouldCache: true,
   });
 
   // const facetFilterOptions = useMemo(() => ({
