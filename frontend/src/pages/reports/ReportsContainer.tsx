@@ -88,8 +88,8 @@ const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] 
 ];
 
 const auditViewReportOptions: { label: string; value: AuditViewReportType }[] = [
-    { label: 'All Project View', value: 'All Project View' },
-    { label: 'Non Project View', value: 'Non Project View' },
+    { label: 'Projects Data', value: 'All Project View' },
+    { label: 'Non Projects Data', value: 'Non Project View' },
 ];
 
 export default function ReportsContainer() {
@@ -413,6 +413,8 @@ export default function ReportsContainer() {
             return <BulkDownloadPage key="all" scope={ALL_PROJECTS_SCOPE} />;
         }
         if (activeTab === REPORTS_TABS.AUDIT_VIEW) {
+            // Only once the type is known: on a refresh it lands a moment late, and a type change starts the page over.
+            if (selectedReportType !== 'All Project View' && selectedReportType !== 'Non Project View') return <LoadingFallback />;
             return <AuditViewReport view={selectedReportType === 'Non Project View' ? 'nonproject' : 'project'} />;
         }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {

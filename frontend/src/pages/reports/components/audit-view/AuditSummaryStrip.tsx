@@ -2,29 +2,27 @@
 import { CSSProperties, ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { AGAINST_CLASSES } from "../columns/auditViewColumns";
 import { AGAINST_BAR, STRIPES } from "./auditViewStyles";
 import { InfoTip } from "./InfoTip";
-import { AUDIT_TAB_META, AuditAgainst, AuditInvoiceRow, AuditOrderRow, AuditPaymentRow, AuditTab, AuditTableRow, AuditView, auditAgainstFor, auditBreakdown, compactRupees, sharePercent, summariseAuditInvoices, summariseAuditOrders, summariseAuditPayments } from "../../utils/auditView";
+import { AUDIT_TAB_META, AuditAgainst, AuditInvoiceRow, AuditOrderRow, AuditPaymentRow, AuditTab, AuditTableRow, AuditView, auditAgainstFor, auditBreakdown, compactRupees, summariseAuditInvoices, summariseAuditOrders, summariseAuditPayments } from "../../utils/auditView";
 
 const rupees = formatToRoundedIndianRupee;
 
 // ---------------------------------------------------------------------------------------------
-// Summary strip (from the loaded rows): one compact row above the table, segments split by 1px
-// dividers, each a label (notes behind ⓘ), a figure, a 4px bar and one line of chips.
+// Summary cards (from the loaded rows): one row of cards above the table, in the look of the old
+// "Show details" cards; each a label (notes behind ⓘ), a figure and, under a dashed line, one line of chips. The type split comes
+// first, under the tab's own name. No bars, badge counts or percentages (owner, 2026-11-23).
 // ---------------------------------------------------------------------------------------------
 
-/** One part of a segment's bar and its chip. `pct` omitted = no % on the chip. */
+/** One chip of a segment: swatch, label and amount. */
 interface StripPart {
   label: string;
   value: number;
   className?: string;
   style?: CSSProperties;
-  pct?: number;
 }
 
 function StripLabel({ children, note }: { children: ReactNode; note?: string }) {
@@ -40,7 +38,7 @@ function StripLabel({ children, note }: { children: ReactNode; note?: string }) 
  * Side by side from xl only: with the sidebar open, narrower screens leave too little width for the payments sum. */
 function StripSeg({ grow, children }: { grow: number; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col px-3.5 py-2" style={{ flex: `${grow} 1 auto` }}>
+    <div className="flex min-w-0 flex-col rounded-lg border bg-card p-3.5 shadow-sm" style={{ flex: `${grow} 1 220px` }}>
       {children}
     </div>
   );
@@ -55,24 +53,10 @@ function StripFigure({ value, sub, className }: { value: ReactNode; sub?: ReactN
   );
 }
 
-/** A 4px bar of parts; each part is as wide as its value. With no parts it is an empty spacer that keeps rows aligned. */
-function StripBar({ parts, label }: { parts?: StripPart[]; label?: string }) {
-  if (!parts) return <div className="mt-1.5 h-1" aria-hidden="true" />;
-  return (
-    <div className="mt-1.5 flex h-1 gap-0.5 overflow-hidden rounded-full bg-muted" role="img" aria-label={label}>
-      {parts
-        .filter((p) => p.value > 0)
-        .map((p) => (
-          <span key={p.label} className={cn("block h-full min-w-[2px]", p.className)} style={{ flex: p.value, ...p.style }} />
-        ))}
-    </div>
-  );
-}
-
-/** One line of chips split by "·": swatch, label, compact amount, %. */
+/** One line of chips split by "·": swatch, label, compact amount. */
 function StripChips({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-1.5 flex flex-wrap text-[11.5px] leading-[15px] text-muted-foreground [&>*+*]:before:mx-1.5 [&>*+*]:before:text-muted-foreground/50 [&>*+*]:before:content-['·']">
+    <div className="mt-2.5 flex flex-wrap border-t border-dashed pt-2 text-[11.5px] leading-[15px] text-muted-foreground [&>*+*]:before:mx-1.5 [&>*+*]:before:text-muted-foreground/50 [&>*+*]:before:content-['·']">
       {children}
     </div>
   );
@@ -83,7 +67,6 @@ function StripChip({ part, text }: { part: StripPart; text?: string }) {
     <span className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums">
       {(part.className || part.style) && <Swatch className={cn("h-2 w-2 rounded-[2px]", part.className)} style={part.style} />}
       {part.label} <b className="font-semibold text-foreground/80">{text ?? compactRupees(part.value)}</b>
-      {part.pct !== undefined && ` ${part.pct}%`}
     </span>
   );
 }
@@ -104,27 +87,16 @@ const EqOp = ({ label, children }: { label: string; children: ReactNode }) => (
   <span className="pb-px text-[15px] leading-[22px] text-muted-foreground/70" aria-label={label}>{children}</span>
 );
 
-/** By type (project): each Against with its count on the badge; the bar and chips split the tab's amount. */
-function StripByType({ view, tab, rows, value, what, note }: {
-  view: AuditView; tab: AuditTab; rows: AuditTableRow[]; value: (r: AuditTableRow) => number | null | undefined; what: string; note: string;
+/** The tab's amount split by type (project), under the tab's name: PO / WO / Project Expense, each its amount. */
+function StripByType({ view, tab, rows, value, note }: {
+  view: AuditView; tab: AuditTab; rows: AuditTableRow[]; value: (r: AuditTableRow) => number | null | undefined; note: string;
 }) {
-  const items = auditBreakdown(rows, (r) => r.against, value, auditAgainstFor(view, tab));
-  const total = items.reduce((s, it) => s + Math.max(it.value, 0), 0);
-  const parts: StripPart[] = items.map((it) => ({
-    label: it.key, value: Math.max(it.value, 0), className: AGAINST_BAR[it.key as AuditAgainst], pct: sharePercent(Math.max(it.value, 0), total),
+  const parts: StripPart[] = auditBreakdown(rows, (r) => r.against, value, auditAgainstFor(view, tab)).map((it) => ({
+    label: it.key, value: Math.max(it.value, 0), className: AGAINST_BAR[it.key as AuditAgainst],
   }));
   return (
     <StripSeg grow={1}>
-      <StripLabel note={note}>By type</StripLabel>
-      <div className="mt-0.5 flex min-h-[22px] flex-wrap items-center gap-x-3.5 gap-y-1">
-        {items.map((it) => (
-          <span key={it.key} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px] font-semibold", AGAINST_CLASSES[it.key as AuditAgainst])}>{it.key}</Badge>
-            <b className="text-base font-bold tabular-nums">{it.count.toLocaleString("en-IN")}</b>
-          </span>
-        ))}
-      </div>
-      <StripBar parts={parts} label={`${what} by type: ${parts.map((p) => `${p.label} ${p.pct}%`).join(", ")}`} />
+      <StripLabel note={note}>{AUDIT_TAB_META[tab].title}</StripLabel>
       <StripChips>{parts.map((p) => <StripChip key={p.label} part={p} />)}</StripChips>
     </StripSeg>
   );
@@ -136,15 +108,14 @@ const TOP_TYPE_SHADES = ["bg-slate-700 dark:bg-slate-200", "bg-slate-500 dark:bg
 /** Top expense types (non-project): the 3 biggest by amount, the rest as "N more". */
 function StripTopTypes({ rows, value, what }: { rows: AuditTableRow[]; value: (r: AuditTableRow) => number | null | undefined; what: string }) {
   const items = auditBreakdown(rows, (r) => (r as AuditInvoiceRow).expense_type, value);
-  const total = items.reduce((s, it) => s + Math.max(it.value, 0), 0);
   const top = items.slice(0, 3).map((it) => ({ label: it.key, value: Math.max(it.value, 0) }));
   const rest = items.slice(3).reduce((s, it) => s + Math.max(it.value, 0), 0);
   // "N more", not "Others": "Other" is itself an expense type (and the label of blank types).
   if (rest > 0) top.push({ label: `${items.length - 3} more`, value: rest });
-  const parts: StripPart[] = top.map((p, i) => ({ ...p, className: TOP_TYPE_SHADES[i], pct: sharePercent(p.value, total) }));
+  const parts: StripPart[] = top.map((p, i) => ({ ...p, className: TOP_TYPE_SHADES[i] }));
   return (
     <StripSeg grow={1}>
-      <StripLabel note={`Bar = share of ${what}. The 3 biggest expense types by amount; the rest are grouped as "N more".`}>
+      <StripLabel note={`The 3 biggest expense types by ${what}; the rest are grouped as "N more".`}>
         Top expense types
       </StripLabel>
       <StripFigure
@@ -152,7 +123,6 @@ function StripTopTypes({ rows, value, what }: { rows: AuditTableRow[]; value: (r
         value={items.length.toLocaleString("en-IN")}
         sub={`expense type${items.length === 1 ? "" : "s"}${items[0] ? ` · biggest: ${items[0].key}` : ""}`}
       />
-      <StripBar parts={parts} label={`${what} by expense type: ${parts.map((p) => `${p.label} ${p.pct}%`).join(", ")}`} />
       <StripChips>{parts.map((p) => <StripChip key={p.label} part={p} />)}</StripChips>
     </StripSeg>
   );
@@ -166,8 +136,8 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
     const s = summariseAuditOrders(rows as AuditOrderRow[]);
     const notYet = Math.max(0, s.inclGst - s.totalInvoiced);
     const value: StripPart[] = [
-      { label: "Excl", value: s.exclGst, className: STRIP_DARK, pct: sharePercent(s.exclGst, s.inclGst) },
-      { label: "GST", value: s.gst, className: "bg-rose-400", pct: sharePercent(s.gst, s.inclGst) },
+      { label: "Excl", value: s.exclGst, className: STRIP_DARK },
+      { label: "GST", value: s.gst, className: "bg-rose-400" },
     ];
     const invoiced: StripPart[] = [
       { label: "Invoiced", value: s.totalInvoiced, className: STRIP_DARK },
@@ -175,6 +145,8 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
     ];
     segments = (
       <>
+        <StripByType view={view} tab={tab} rows={rows} value={(r) => (r as AuditOrderRow).incl_gst}
+          note="Order value incl. GST, split by order type." />
         <StripSeg grow={1.3}>
           <StripLabel note="Created date in the selected range. Only live POs and WOs: Inactive, Cancelled and Merged orders are never counted.">
             Order value incl. GST
@@ -183,17 +155,13 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
             value={rupees(s.inclGst)}
             sub={`${s.count.toLocaleString("en-IN")} orders${s.count ? ` · avg ${rupees(Math.round(s.inclGst / s.count))}` : ""}`}
           />
-          <StripBar parts={value} label={`Excl. GST ${value[0].pct}%, GST ${value[1].pct}%`} />
           <StripChips>{value.map((p) => <StripChip key={p.label} part={p} />)}</StripChips>
         </StripSeg>
         <StripSeg grow={1.3}>
           <StripLabel note="All approved invoices of these orders, whatever the invoice date.">Total invoiced</StripLabel>
-          <StripFigure value={rupees(s.totalInvoiced)} sub={s.invoicedPct === null ? "No order value" : `${s.invoicedPct}% of order value`} />
-          <StripBar parts={invoiced} label={`Invoiced ${s.invoicedPct ?? 0}%`} />
+          <StripFigure value={rupees(s.totalInvoiced)} />
           <StripChips>{invoiced.map((p) => <StripChip key={p.label} part={p} />)}</StripChips>
         </StripSeg>
-        <StripByType view={view} tab={tab} rows={rows} value={(r) => (r as AuditOrderRow).incl_gst} what="Order value"
-          note="Bar = share of order value incl. GST. Numbers on the badges are order counts." />
       </>
     );
   } else if (tab === "invoices") {
@@ -201,6 +169,11 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
     const value = (r: AuditTableRow) => (r as AuditInvoiceRow).invoice_amount;
     segments = (
       <>
+        {project ? (
+          <StripByType view={view} tab={tab} rows={rows} value={value} note="Invoice amount, split by type." />
+        ) : (
+          <StripTopTypes rows={rows} value={value} what="invoice amount" />
+        )}
         <StripSeg grow={1.3}>
           <StripLabel
             note={project
@@ -213,7 +186,6 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
             value={rupees(s.invoiceAmount)}
             sub={`${s.count.toLocaleString("en-IN")} ${project ? "approved invoices" : "expense invoices"}${s.count ? ` · avg ${rupees(Math.round(s.invoiceAmount / s.count))}` : ""}`}
           />
-          <StripBar />
           <StripChips>
             <span className="inline-flex items-center gap-1 whitespace-nowrap text-green-700 dark:text-green-400">
               <CheckCircle2 className="h-3 w-3" />
@@ -221,12 +193,6 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
             </span>
           </StripChips>
         </StripSeg>
-        {project ? (
-          <StripByType view={view} tab={tab} rows={rows} value={value} what="Invoice amount"
-            note="Bar = share of invoice amount. Numbers on the badges are invoice counts." />
-        ) : (
-          <StripTopTypes rows={rows} value={value} what="invoice amount" />
-        )}
       </>
     );
   } else {
@@ -240,11 +206,17 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
         (project ? "Expenses have no TDS field (shown as —), so for them Net paid = Amount paid." : "Non-project expenses have no TDS field, so TDS shows — and Net paid = Amount paid."),
     ].filter(Boolean).join(" ");
     const split: StripPart[] = [
-      { label: "Amount paid", value: s.amountPaid, className: STRIP_DARK, pct: sharePercent(s.amountPaid, s.netPaid) },
-      { label: "TDS", value: s.noTds ? 0 : s.tds, className: "bg-amber-500", pct: s.noTds ? undefined : sharePercent(s.tds, s.netPaid) },
+      { label: "Amount paid", value: s.amountPaid, className: STRIP_DARK },
+      { label: "TDS", value: s.noTds ? 0 : s.tds, className: "bg-amber-500" },
     ];
     segments = (
       <>
+        {project ? (
+          <StripByType view={view} tab={tab} rows={rows} value={value}
+            note="Net paid, split by type (WO includes its separate GST payments)." />
+        ) : (
+          <StripTopTypes rows={rows} value={value} what="net paid" />
+        )}
         <StripSeg grow={1.8}>
           {/* Each term is its label over its figure; on a narrow strip the terms wrap to the next line. */}
           <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1.5">
@@ -259,18 +231,11 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
             />
             <span className="whitespace-nowrap pb-0.5 pl-1 text-xs tabular-nums text-muted-foreground">{s.count.toLocaleString("en-IN")} payments</span>
           </div>
-          <StripBar parts={split} label={`Amount paid ${split[0].pct}%${s.noTds ? ", no TDS" : `, TDS ${split[1].pct}%`} of net paid`} />
           <StripChips>
             <StripChip part={split[0]} />
             <StripChip part={split[1]} text={s.noTds ? "—" : undefined} />
           </StripChips>
         </StripSeg>
-        {project ? (
-          <StripByType view={view} tab={tab} rows={rows} value={value} what="Net paid"
-            note="Bar = share of net paid. Numbers on the badges are payment counts (WO includes its separate GST payments)." />
-        ) : (
-          <StripTopTypes rows={rows} value={value} what="net paid" />
-        )}
       </>
     );
   }
@@ -279,7 +244,7 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
     <div
       role="group"
       aria-label={`${AUDIT_TAB_META[tab].title} summary`}
-      className="mb-1 flex min-w-0 flex-col rounded-lg border bg-card xl:flex-row [&>*+*]:border-t xl:[&>*+*]:border-l xl:[&>*+*]:border-t-0"
+      className="mb-2 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap"
     >
       {segments}
     </div>

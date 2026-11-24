@@ -57,7 +57,7 @@ export interface ItemITMEntry {
   itm: string;
   itmStatus: string;            // ITM document status: Approved / Dispatched / Partially Delivered / Delivered
   status: POStatus;
-  sourceName: string;           // source project name ("" when the ITM has none, e.g. from a warehouse)
+  sourceName: string;           // source project name, or "Warehouse" for a Warehouse ITM
   orderedQty: number;
 }
 
@@ -153,8 +153,10 @@ export interface DCMIRWiseDisplayItem {
   documentName: string;
   referenceNumber: string;
   dcReference?: string;
-  poNumber: string;
-  vendorName: string;
+  /** What the DC / MIR is filed against: a Procurement Order or an incoming Internal Transfer Memo. */
+  type: OrderSourceType;
+  poNumber: string;             // the PO or ITM id
+  vendorName: string;           // the PO's vendor, or "From <source project>" / "From Warehouse" for an ITM
   dcDate?: string;
   creation?: string;   // system upload timestamp (when the DC/MIR row was keyed in)
   billingCategory: string;
