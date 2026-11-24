@@ -330,6 +330,25 @@ export interface DefaultSpec {
   /** VAV-2c3 FIX-2 (D1, owner 2026-11-24 19:53 "fix"): the note the field shows when this default was taken ("... (assumed)").
    *  ABSENT => the field shows no note for the default, as before. */
   note?: string;
+  /** VAV-FIX (S1, owner 2026-11-20 17:53 "a", re-confirmed 2026-11-25 00:37): the default applies to BoQ ROWS only -- where there is
+   *  no row (the Calculator) its `absent_as_none` is not read, so the field starts blank, carries its "*" and a blank withholds the
+   *  price (`boqRowsOnlyDefaultsOff`). ABSENT => the default reads the same way on every surface, as before. */
+  boq_rows_only?: boolean;
+}
+
+/**
+ * VAV-FIX (S1, owner 2026-11-20 17:53 "a": every Calculator field starts blank; "shape not stated -> Rectangular (assumed)" is for
+ * BoQ rows only). PURE. The spec a row WITHOUT a BoQ row (the Calculator) prices on: every default declaring `boq_rows_only` loses
+ * its `absent_as_none`, so an answer nobody gave stays blank -- no ruled value, no "default" tag, no note -- and is asked for (the
+ * "*" reads the same flag, `itemFieldDefs`). A spec with no such default is returned AS IS (the same object), so every other
+ * category, and every BoQ row, is untouched.
+ */
+export function boqRowsOnlyDefaultsOff(spec: ItemListPricingSpec): ItemListPricingSpec {
+  const ds = spec.defaults;
+  if (!ds || !Object.values(ds).some((d) => d?.boq_rows_only === true && d.absent_as_none === true)) return spec;
+  const defaults = Object.fromEntries(Object.entries(ds).map(([k, d]) =>
+    [k, d?.boq_rows_only === true && d.absent_as_none === true ? { ...d, absent_as_none: false } : d]));
+  return { ...spec, defaults };
 }
 
 /**
@@ -5955,9 +5974,13 @@ function priceOneItem(
   // missing one -- the dropdowns narrow on these, and a block that refuses must still narrow.
   out.readValues = { ...read };
   // SLICE 12e-5 (AC1): the "None" answers already read into their ruled defaults, held on a refusal below
-  const held = (n: string): Pick<ItemPriceResult, "heldDefaults"> => {
+  // VAV-FIX (S5, inside the owner's 2026-11-24 16:52 / 16:58 rulings): an item of a band family (`band_from`: the VAV box) refusing here
+  // -- above the largest box, no airflow -- SHOWS the defaults it read, exactly as the same box shows them when it prices; the row
+  // stays refused with its own reason. Every other family keeps them held only (a delegated section shows them, 12e-5).
+  const bandFamily = !!spec.band_from && family !== null && spec.band_from.families.includes(family);
+  const held = (n: string): Pick<ItemPriceResult, "heldDefaults"> & Partial<Pick<ItemPriceResult, "defaulted">> => {
     const d = readDefaulted.filter((x) => needs.includes(x.attr) && !(x.attr in spec.numbers));
-    return d.length ? { heldDefaults: { need: n, defaulted: d } } : {};
+    return d.length ? { heldDefaults: { need: n, defaulted: d }, ...(bandFamily ? { defaulted: d } : {}) } : {};
   };
   // (4) the needs (R7-R10, R2): only the needed facts reach the matcher.
   // ADP-3a (U3): EVERY missing need is named, not only the first ("no width and height stated"), each one's box

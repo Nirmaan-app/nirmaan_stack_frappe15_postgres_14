@@ -91,6 +91,7 @@ import {
   readLayers,
   readNumber,
   ruledDefaultValue,
+  boqRowsOnlyDefaultsOff,
   sizeIsOutsideDiameter,
   severalSizesTaken,
   listSpecDefs,
@@ -3644,7 +3645,9 @@ function itemBlockView(
       value: noneShown ? "" : value,
       typedValue: defaultInBox ? value : stated,
       defaulted,
-      ...(defaulted ? { rule: d!.rule } : tm ? { rule: tm.line } : {}),
+      // VAV-FIX (S2, chat-Claude's call under the owner's 2026-11-23 13:46 word): a default whose own note is the field's blue box
+      // says its reason ONCE -- the blue box; the amber line stays where it is the field's only note (every other default)
+      ...(defaulted ? (spec.defaults?.[f.skuAttr]?.note && note === spec.defaults[f.skuAttr]!.note ? {} : { rule: d!.rule }) : tm ? { rule: tm.line } : {}),
       ...(modelGave ? { readOnly: true as const } : {}),
       userEdited,
       otherMode: otherMode || defaultInBox,
@@ -3725,7 +3728,9 @@ function itemBlockView(
     fields,
     // SLICE 12d-1a (owner R7): read-only attributes -- declared in config, read off the assembled item,
     // shown under the definition's label. A value the model did not give is simply absent.
-    readOnly: (spec.panel_readonly ?? []).flatMap((id) => {
+    // VAV-FIX (S6): an item the HELPER added by its own rule (the integrator cabling) is not something the BoQ wrote -- no
+    // "as written (BoQ)" line under it (its heading says "added by the helper"); an item the model read keeps its line
+    readOnly: !edit.helper && helperAdded !== undefined ? [] : (spec.panel_readonly ?? []).flatMap((id) => {
       const raw = assembled.attributes[id]?.value;
       if (raw === null || raw === undefined || raw === "None" || String(raw).trim() === "") return [];
       // SLICE 12e-4b (owner D-3, decision 2 "(b)"): the family AS WRITTEN is shown only where it differs from
@@ -4024,7 +4029,7 @@ function foldedModelItems(spec: ItemListPricingSpec, edits: ItemListEditState, m
 
 function computeItemListOwn(
   category: RateCategoryConfig,
-  spec: ItemListPricingSpec,
+  specIn: ItemListPricingSpec,
   items: RateMasterItem[],
   ctx: RowContextWithUnit,
   ext: ExtractionRowWithItems | undefined,
@@ -4032,6 +4037,9 @@ function computeItemListOwn(
   overrides?: Record<string, string>,
   probe?: OwnPassProbe,
 ): HelperResult {
+  // VAV-FIX (S1, owner 2026-11-20 17:53 "a"): with no BoQ row (the Calculator -- the same test as `calculator` below) a default
+  // declaring `boq_rows_only` does not fill a blank; every other spec is the same object
+  const spec = ctx.unit === undefined || ctx.unit === null || ctx.noRow === true ? boqRowsOnlyDefaultsOff(specIn) : specIn;
   const modelItems = ext?.items ?? [];
   const decoded = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
   /**
@@ -4406,6 +4414,9 @@ function computeItemListOwn(
   else if (rowReason) derivation.push(rowReason);
   const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
   // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
+  // VAV-FIX (S3, chat-Claude's call under the owner's 2026-11-23 13:46 word): the no-unit bar is the row's ONE warning -- the
+  // "No unit on the BoQ row -> priced per ..." line is not drawn beside it (set where the bar is chosen, below)
+  let blankUnitBarShown = false;
   const unitBar = ((): ItemListView["unitBar"] => {
     // DU-2 (R-NOTE-ORDER): a row refused as not a duct (re-file) shows no whole-lot bar -- the re-file note is what it needs
     if (priced.refile) return undefined;
@@ -4416,6 +4427,7 @@ function computeItemListOwn(
     }
     // VAV-2c3 FIX-2 (B2-3, owner 20:00 "the notes should be a stronger warning"): a row with NO unit that the default unit priced
     if (spec.blank_unit_bar && unit.trim() === "" && priced.unitClass) {
+      blankUnitBarShown = true;
       return { tone: "orange", title: spec.blank_unit_bar.title, lines: [spec.blank_unit_bar.line] };
     }
     if (!perSetRow || !spec.per_set) return undefined;
@@ -4451,7 +4463,7 @@ function computeItemListOwn(
     ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
     ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? rowReason) ? { reason: unshowableReason ?? rowReason } : {}),
-    ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
+    ...(priced.unitNote && !blankUnitBarShown ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
     items: blocks, families: offeredFamilies(spec), editState: edits, modelCount: modelItems.length,
     // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
