@@ -1,0 +1,15 @@
+[
+ ["Audit View", "A report under Reports. It lists Orders, Invoices and Payments for a date range you pick, first for project data, then for non-project data."],
+ ["Projects Data / Non Projects Data", "The new names of the Report Type choices. They were All Project View / Non Project View; the values in the link stay the same."],
+ ["Step 1 / Step 2", "The Audit View asks for a date range first (step 1), then for a tab: Orders, Invoices or Payments (step 2)."],
+ ["Against", "The column that says what a row is for: the PO or WO number, or, for an expense, its description."],
+ ["ITM", "Internal Transfer Memo: material moved into this project from another project or from the warehouse."],
+ ["DC / MIR", "Delivery Challan (the paper that comes with a delivery) and Material Inspection Report (the site's check of what arrived)."],
+ ["DC Wise / MIR Wise", "Views of a project's Material Usage tab that list one row per DC or MIR."],
+ ["DN Qty", "Delivery Note quantity: how much of the document's items was received, from the PO or the ITM."],
+ ["MSME", "A small-business registration (Udyam). A vendor's MSME ID and its certificate are kept on the vendor."],
+ ["TDS", "Tax deducted at source: tax held back from a vendor's payment. Net Paid = Amount Paid + TDS."],
+ ["Before / After", "Before is the code the PR starts from (develop at de49cf3c0). After is the PR's own code (e65cc94c0)."],
+ ["Role check", "A test that one role sees, or does not see, what the PR says it should."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]
