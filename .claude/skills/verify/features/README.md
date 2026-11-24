@@ -65,6 +65,10 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
 - [Audit View](./audit-view.md): Reports -> Audit View for Admin and the Accountants only, its tab counts and Net Paid
   = Amount Paid + TDS held to the server's summary (#1732). Walked by `BIN/walk_audit_view.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
+- [Reimbursements](./reimbursements.md): every step of a claim on the Reimbursements page, each by its role (HR,
+  Admin L1, CEO, Accounts' pay and reconcile), the claim carrying its expense's status, claim expenses gone from
+  Project Payments, the Project Manager's ₹2,000 monthly cap, the Action Center item (#1737). Walked by
+  `BIN/walk_reimbursements.py`.
 - [Pasted link fields](./link_fields.md): a project's Drive links, a Customer PO link, a Design Tracker task's file
   link, a Commission Report task's report link (shown only in a handover document's Sources) and a bill's document
   link each save a link of any length whole, show it and open it (#1680). Walked by `BIN/walk_link_fields.py`

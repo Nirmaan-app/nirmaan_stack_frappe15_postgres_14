@@ -16,5 +16,21 @@
   "payments": "walk_vendor_payments.py",
   "cheques": "walk_vendor_cheques.py",
   "pmo": "walk_vendor_cheques.py"
+ },
+ "1737": {
+  "tabs": "walk_reimbursements.py",
+  "hr": "walk_reimbursements.py",
+  "payments": "walk_reimbursements.py",
+  "l1": "walk_reimbursements.py",
+  "ceo": "walk_reimbursements.py",
+  "pay": "walk_reimbursements.py",
+  "reconcile": "walk_reimbursements.py",
+  "month": "walk_reimbursements.py",
+  "status": "walk_reimbursements.py",
+  "cap": "walk_reimbursements.py",
+  "delete": "walk_reimbursements.py",
+  "action": "walk_reimbursements.py",
+  "patch": "skip: a one-time migration (v3_0.reimbursement_status_from_expense) that ran on every env's migrate; a fresh env holds no claim left Approved behind its expense, so there is nothing for a walk to move. The PR walk ran it on such claims in a rolled-back DB script, and test_reimbursements covers it",
+  "race": "skip: two people deciding one claim at the same moment can't be driven from one screen; test_reimbursements' simultaneous-decision tests (lock_claim) cover it"
  }
 }
