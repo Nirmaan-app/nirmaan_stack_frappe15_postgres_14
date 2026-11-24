@@ -1,0 +1,16 @@
+[
+ ["Reimbursement (claim)", "Money a person spent for work and asks to be paid back, raised on the Reimbursements page with receipts."],
+ ["Non-Project Expense", "The company-level expense a claim becomes once HR or Admin approves it. Paying it is what pays the claim back."],
+ ["Pending Approval", "A new claim, waiting for HR or Admin."],
+ ["Requested / Pending L1 Approval", "Approved by HR, but the person's claims this month reach ₹2,000, so an Admin (L1) must approve too."],
+ ["CEO Pending", "Approved by L1, but above ₹50,000, so it waits for the CEO."],
+ ["Payment need to be paid", "Fully approved (status Approved) and waiting for Accounts to send the money."],
+ ["Reconciliation Pending", "Accounts marked it paid; the bank reference (UTR) and proof are still to be added."],
+ ["Reconciliation Done / Paid", "UTR and proof added: the claim is Paid."],
+ ["UTR", "The bank's reference number for an online transfer."],
+ ["Monthly limit (₹2,000)", "For anyone: an approval that takes a person's month to ₹2,000 or more needs the L1 step. A warning, not a block."],
+ ["PM monthly cap (₹2,000)", "New in this PR: a Project Manager cannot raise more than ₹2,000 of claims in one calendar month. A block."],
+ ["Badge", "The number beside a tab's name."],
+ ["Month bar", "The bar above each tab's list: a month picker with tiles, and the totals by type (Travel, Food, Others)."],
+ ["Patch", "A one-time database change that runs on bench migrate."]
+]
