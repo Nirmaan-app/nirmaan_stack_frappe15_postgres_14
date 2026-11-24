@@ -314,6 +314,9 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 	return (
 		<div className="flex flex-col gap-2">
 			<DataTable<GstRequestDoc>
+				// DataTable reads its column widths once, so a pill that adds or drops Reviewed / Actions remounts it;
+				// otherwise Reviewed kept Pending's last width (Actions' 84px) and broke names mid-word (PR #1738 walk).
+				key={`${shown.reviewed ? "reviewed" : ""}-${canDecide && shown.actions ? "actions" : ""}`}
 				table={table}
 				columns={columns}
 				facetDoctype={DOCTYPE}
