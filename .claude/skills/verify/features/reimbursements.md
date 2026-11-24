@@ -65,4 +65,4 @@ Last walked (walk_reimbursements.py): 2026-11-24 UTC at 153adc0d2, passed.
   the app locks them until both are done.
 - The Payments search box reads the expense's description, which ends in `[<claim ID>]`; an expense ID finds nothing.
 - The Action Center's tab is named `<count> Expenses` (count first), and the sidebar has its own `Expenses`.
-- Mark Reconciled's dialog is titled "Record Payment & Mark as Paid" and its button says Mark as Paid.
+- Mark Reconciled's dialog is titled "Record Payment & Mark as Reconciled" and its button says Mark as Reconciled.

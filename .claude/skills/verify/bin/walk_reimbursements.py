@@ -621,8 +621,8 @@ def reconcile() -> None:
         if not dlg.locator("#payment_date_update_pd").input_value():
             dlg.locator("#payment_date_update_pd").fill(datetime.date.today().isoformat())
         page.wait_for_timeout(800)
-        w.step(page, "reconcile", "after", role, email, "Receipt, UTR and date filled; Mark as Paid.",
-               click=dlg.get_by_role("button", name="Mark as Paid"))
+        w.step(page, "reconcile", "after", role, email, "Receipt, UTR and date filled; Mark as Reconciled.",
+               click=dlg.get_by_role("button", name="Mark as Reconciled"))
         settle(page, 3500)
         st = claims_now("after_reconcile", [mid])[mid]
         w.check("reconcile", role, f"{mid}: Paid, UTR {utr}", f"{st['claim']} / {st['expense_status']}, {st['payment_ref']}",
