@@ -132,9 +132,9 @@ class AuditViewFixture(FrappeTestCase):
 
     @classmethod
     def _expense(cls, doctype, amount, status="Paid", invoice_date=IN, invoice_ref="INV-1", payment_date=IN,
-                 **values):
+                 untyped=False, **values):
         project = {"projects": cls.project, "vendor": cls.vendor} if doctype == PE else {}
-        expense_type = cls.project_type if doctype == PE else cls.non_project_type
+        expense_type = None if untyped else cls.project_type if doctype == PE else cls.non_project_type
         return cls._insert(doctype, status=status, type=expense_type, amount=amount, invoice_date=invoice_date,
                            invoice_ref=invoice_ref, payment_date=payment_date,
                            payment_ref=f"{PREFIX}-REF-{amount}", **project, **values)
@@ -181,17 +181,23 @@ class AuditViewFixture(FrappeTestCase):
         c.pp_edges = {k: c._payment(c.po_live, 10, date=d)
                       for k, d in (("from", FROM), ("to", TO), ("before", BEFORE), ("after", AFTER))}
         # Expenses
-        c.pe_ok = c._expense(PE, 750, invoice_ref="  PE-INV-1  ")
+        c.pe_ok = c._expense(PE, 750, invoice_ref="  PE-INV-1  ",
+                             description="  Porter delivery to Block B\nBank: XXXX1234  ")
         c.pe_blank_ref = c._expense(PE, 751, invoice_ref="   ")
         c.pe_null_ref = c._expense(PE, 752, invoice_ref=None)
         c.pe_no_date = c._expense(PE, 753, invoice_date=None)
         c.pe_approved = c._expense(PE, 754, status="Approved")
         c.pe_with_file = c._expense(PE, 760, invoice_ref="PE-INV-FILE", invoice_attachment="/private/files/pe.pdf")
-        c.npe_ok = c._expense(NPE, 850, invoice_ref="NPE-INV-1")
+        c.npe_ok = c._expense(NPE, 850, invoice_ref="NPE-INV-1", description="Office rent, November")
         c.npe_with_file = c._expense(NPE, 860, invoice_ref="NPE-INV-FILE", invoice_attachment="/files/npe.pdf")
         c.npe_blank_ref = c._expense(NPE, 851, invoice_ref=" ")
         c.npe_no_date = c._expense(NPE, 852, invoice_date=None)
         c.npe_pending = c._expense(NPE, 853, status="Reconciliation Pending")
+        # Made from an approved reimbursement claim: no expense type, a link to the claim.
+        c.npe_reimbursement = c._expense(NPE, 870, invoice_ref="REIMB-INV-1", untyped=True,
+                                         reimbursement=f"{PREFIX}-REIMB-1",
+                                         description="Travel · Site visit · Claimant: Test User · [REIMB-1]")
+        c.npe_untyped = c._expense(NPE, 871, invoice_ref="NPE-INV-UNTYPED", untyped=True)
 
     # ── reading ─────────────────────────────────────────────────────────────
 
@@ -286,7 +292,8 @@ class Invoices(AuditViewFixture):
         self.assertEqual(rows[self.vi_approved], {
             "against": "PO", "id": self.po_live, "invoice_no": self.vi_approved, "project": self.project,
             "project_name": self.project_name, "vendor": self.vendor, "vendor_name": self.vendor_name,
-            "expense_type": None, "date": IN, "invoice_amount": 1180.0, "order_date": IN, "invoice_url": None,
+            "expense_type": None, "description": None, "date": IN, "invoice_amount": 1180.0, "order_date": IN,
+            "invoice_url": None,
         })
 
     def test_a_credit_note_is_kept_negative_against_its_work_order(self):
@@ -306,7 +313,8 @@ class Invoices(AuditViewFixture):
         self.assertEqual(rows[self.pe_ok], {
             "against": "Project Expense", "id": self.pe_ok, "invoice_no": "PE-INV-1", "project": self.project,
             "project_name": self.project_name, "vendor": self.vendor, "vendor_name": self.vendor_name,
-            "expense_type": self.project_type, "date": IN, "invoice_amount": 750.0, "order_date": None, "invoice_url": None,
+            "expense_type": self.project_type, "description": "Porter delivery to Block B\nBank: XXXX1234",
+            "date": IN, "invoice_amount": 750.0, "order_date": None, "invoice_url": None,
         })
         for missing in (self.pe_blank_ref, self.pe_null_ref, self.pe_no_date, self.pe_approved):
             with self.subTest(missing):
@@ -319,7 +327,7 @@ class Invoices(AuditViewFixture):
         self.assertEqual(rows[self.npe_ok], {
             "against": "Non-Project Expense", "id": self.npe_ok, "invoice_no": "NPE-INV-1", "project": None,
             "project_name": None, "vendor": None, "vendor_name": None, "expense_type": self.non_project_type,
-            "date": IN, "invoice_amount": 850.0, "order_date": None, "invoice_url": None,
+            "description": "Office rent, November", "date": IN, "invoice_amount": 850.0, "order_date": None, "invoice_url": None,
         })
         for missing in (self.npe_blank_ref, self.npe_no_date, self.npe_pending, self.pe_ok):
             with self.subTest(missing):
@@ -344,8 +352,8 @@ class Payments(AuditViewFixture):
         rows = self._by("utr", "project", "payments")
         self.assertEqual(rows[self.pp_tds], {
             "against": "PO", "id": self.po_live, "project": self.project, "project_name": self.project_name,
-            "vendor": self.vendor, "vendor_name": self.vendor_name, "expense_type": None, "date": IN,
-            "utr": self.pp_tds, "amount_paid": 9500.0, "tds": 500.0, "net_paid": 10000.0,
+            "vendor": self.vendor, "vendor_name": self.vendor_name, "expense_type": None, "description": None,
+            "date": IN, "utr": self.pp_tds, "amount_paid": 9500.0, "tds": 500.0, "net_paid": 10000.0,
             "is_gst_payment": False, "order_date": IN,
         })
         self.assertEqual((rows[self.pp_tds_float]["tds"], rows[self.pp_tds_float]["net_paid"]), (250.5, 1250.5))
@@ -378,7 +386,8 @@ class Payments(AuditViewFixture):
         self.assertEqual(rows[self.pe_ok], {
             "against": "Project Expense", "id": self.pe_ok, "project": self.project,
             "project_name": self.project_name, "vendor": self.vendor, "vendor_name": self.vendor_name,
-            "expense_type": self.project_type, "date": IN, "utr": f"{PREFIX}-REF-750", "amount_paid": 750.0,
+            "expense_type": self.project_type, "description": "Porter delivery to Block B\nBank: XXXX1234",
+            "date": IN, "utr": f"{PREFIX}-REF-750", "amount_paid": 750.0,
             "tds": None, "net_paid": 750.0, "is_gst_payment": False, "order_date": None,
         })
         # Paid without an invoice ref is still a payment; a non-Paid expense is not.
@@ -394,6 +403,7 @@ class Payments(AuditViewFixture):
              rows[self.npe_ok]["project"], rows[self.npe_ok]["utr"]),
             (850.0, None, 850.0, None, f"{PREFIX}-REF-850"),
         )
+        self.assertEqual(rows[self.npe_ok]["description"], "Office rent, November")
         self.assertIn(self.npe_no_date, rows)  # no invoice date, but Paid
         self.assertNotIn(self.npe_pending, rows)
 
@@ -454,6 +464,28 @@ class Summary(AuditViewFixture):
         mine = self._by("utr", "project", "payments")
         self.assertGreaterEqual(summary["payments"]["count"], len(mine))
         self.assertGreaterEqual(summary["payments"]["tds"], 766.5)
+
+
+class ReimbursementType(AuditViewFixture):
+    def test_a_reimbursement_expense_reads_reimbursement_as_its_type_on_both_tabs(self):
+        for tab in ("invoices", "payments"):
+            with self.subTest(tab):
+                rows = {r["id"]: r for r in get_audit_view_rows("nonproject", tab, FROM, TO)}
+                self.assertEqual(rows[self.npe_reimbursement]["expense_type"], "Reimbursement")
+                self.assertEqual(rows[self.npe_reimbursement]["description"],
+                                 "Travel · Site visit · Claimant: Test User · [REIMB-1]")
+
+    def test_only_a_missing_type_with_a_claim_is_labelled(self):
+        for tab in ("invoices", "payments"):
+            with self.subTest(tab):
+                rows = {r["id"]: r for r in get_audit_view_rows("nonproject", tab, FROM, TO)}
+                # No type and no claim stays blank; an expense with its own type keeps it.
+                self.assertIsNone(rows[self.npe_untyped]["expense_type"])
+                self.assertEqual(rows[self.npe_ok]["expense_type"], self.non_project_type)
+
+    def test_nothing_is_stored(self):
+        get_audit_view_rows("nonproject", "payments", FROM, TO)
+        self.assertIsNone(frappe.db.get_value(NPE, self.npe_reimbursement, "type"))
 
 
 class Refusals(AuditViewFixture):

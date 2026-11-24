@@ -78,8 +78,12 @@ export function AuditViewTable({ view, tab, rows }: AuditViewTableProps) {
 
   const facetFilterOptions = useMemo(() => {
     const anyRow = (r: AuditTableRow) => r as AuditTableRow & Partial<Record<string, string | null>>;
+    // The Type column's filter: PO / WO / Project Expense, or in Non Project View (every row a Non-Project
+    // Expense, and no Expense type column) the expense type.
     const facets: Record<string, { title: string; options: { label: string; value: string }[] }> = {
-      against: { title: "Against", options: auditFacetOptions(rows, (r) => r.against) },
+      against: view === "project"
+        ? { title: "Type", options: auditFacetOptions(rows, (r) => r.against) }
+        : { title: "Expense type", options: auditFacetOptions(rows, (r) => anyRow(r).expense_type) },
     };
     if (view === "project") {
       facets.project = {
@@ -90,8 +94,6 @@ export function AuditViewTable({ view, tab, rows }: AuditViewTableProps) {
         title: "Vendor",
         options: auditFacetOptions(rows, (r) => anyRow(r).vendor_name || anyRow(r).vendor),
       };
-    } else {
-      facets.expense_type = { title: "Expense type", options: auditFacetOptions(rows, (r) => anyRow(r).expense_type) };
     }
     return facets;
   }, [rows, view]);

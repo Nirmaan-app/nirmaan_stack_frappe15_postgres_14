@@ -11,11 +11,14 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useAuditViewData } from "../hooks/useAuditViewData";
 import { useFillWindowHeight } from "../hooks/useFillWindowHeight";
 import { useReportDateStore, useSharedReportDateRange } from "../store/useReportDateStore";
-import { TabBar, TabDetails } from "./audit-view/AuditTabBar";
+import { TabBar } from "./audit-view/AuditTabBar";
 import { SummaryStrip } from "./audit-view/AuditSummaryStrip";
 import { AuditViewTable } from "./audit-view/AuditViewTable";
 import { InfoTip } from "./audit-view/InfoTip";
-import { AUDIT_TAB_META, AUDIT_TAB_PARAM, AUDIT_TABS, AuditTab, AuditView, auditRangeLabel, auditTabSources, isAuditTabDisabled, resolveAuditTab, toAuditApiDate } from "../utils/auditView";
+import { AUDIT_RANGE_PARAM, AUDIT_TAB_META, AUDIT_TAB_PARAM, AUDIT_TABS, auditRangeChosenAtLoad, AuditTab, AuditView, auditRangeLabel, auditTabSources, isAuditTabDisabled, resolveAuditTab, toAuditApiDate } from "../utils/auditView";
+
+/** Step 1 before any pick: an empty range, which the shared filter shows as "Pick a date range". */
+const NO_RANGE_PICKED: DateRange = { from: undefined };
 
 interface AuditViewReportProps {
   view: AuditView;
@@ -33,28 +36,36 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
   const toDate = toAuditApiDate(dateRange?.to);
 
   // Step 1: nothing loads until a range has been picked here. A range carried in from another report
-  // (or the URL) counts; the shared default "ALL" does not -- ALL has to be picked on purpose.
-  const [rangeChosen, setRangeChosen] = useState(() => useReportDateStore.getState().selection.kind !== "all");
+  // (or the URL) counts; the shared default "ALL" does not -- ALL has to be picked on purpose. Being done is
+  // kept in the URL (`audit_range`), so a refresh keeps an ALL pick, and the open tab with it.
+  const [chosenAtLoad] = useState(() =>
+    auditRangeChosenAtLoad(useReportDateStore.getState().selection.kind, urlStateManager.getParam(AUDIT_RANGE_PARAM)),
+  );
+  const [rangeChosen, setRangeChosen] = useState(chosenAtLoad);
+  useEffect(() => { urlStateManager.updateParam(AUDIT_RANGE_PARAM, rangeChosen ? "1" : null); }, [rangeChosen]);
   const handleDateChange = useCallback((range?: DateRange) => { setRangeChosen(true); onDateChange(range); }, [onDateChange]);
   const handleDateClear = useCallback(() => { setRangeChosen(true); onDateClear(); }, [onDateClear]);
 
   // Step 2: the open tab is kept in the URL (`audit_tab`); none is open until the user picks one.
-  // A tab in the URL is honoured only when a range came with it (a shared link); otherwise a stale
+  // A tab in the URL is honoured only when step 1 is done too (a refresh or a shared link); otherwise a stale
   // `audit_tab` from an earlier visit would skip step 2. Orders in Non Project View falls back to Invoices.
   const [askedTab, setAskedTab] = useState<string | null>(() => {
-    if (useReportDateStore.getState().selection.kind !== "all") return urlStateManager.getParam(AUDIT_TAB_PARAM);
+    if (chosenAtLoad) return urlStateManager.getParam(AUDIT_TAB_PARAM);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, null);
     return null;
   });
   useEffect(() => urlStateManager.subscribe(AUDIT_TAB_PARAM, (_, v) => setAskedTab(v)), []);
   const tab: AuditTab | null =
     rangeChosen && AUDIT_TABS.some((t) => t === askedTab) ? resolveAuditTab(view, askedTab) : null;
-  // Switching Report Type (All Project <-> Non Project) clears the open tab: the user picks again, so
-  // a tab from the other view is never carried over pre-selected. Skips the first render (URL restore).
+  // Switching Report Type (All Project <-> Non Project) starts over from step 1: the date box goes back to
+  // "Pick a date range" and the open tab is cleared, so neither the range nor a tab from the other view is
+  // carried over pre-selected. The shared report date itself is left alone (other reports use it); the next
+  // pick here sets it. Skips the first render (URL restore).
   const lastView = useRef(view);
   useEffect(() => {
     if (lastView.current === view) return;
     lastView.current = view;
+    setRangeChosen(false);
     setAskedTab(null);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, null);
   }, [view]);
@@ -63,7 +74,6 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
     setAskedTab(next);
     urlStateManager.updateParam(AUDIT_TAB_PARAM, next);
   }, []);
-  const [showDetails, setShowDetails] = useState(false);
 
   // The tab highlights at once (`tab`); the panel follows a deferred copy (`panelTab`), so React
   // renders the new tab's table in the background and keeps the old one on screen, dimmed, until it
@@ -88,7 +98,7 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
       className={cn(
         "rounded-xl border bg-card shadow-sm",
         // Steps, tabs and strip keep their height; the panel takes the rest. overflow-y-auto is only a
-        // fallback for a very short window (or Show details open), never the normal case.
+        // fallback for a very short window, never the normal case.
         fillHeight && "lg:flex lg:h-[var(--audit-fill-h)] lg:flex-col lg:overflow-y-auto",
       )}
     >
@@ -97,7 +107,15 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
         {/* The shared filter prints its own "Selected Date Range:" label (its root's first child); the step
             title already says it, so it is hidden here. components/ui is not hand-edited. */}
         <div className={cn("w-fit rounded-md [&>div>div:first-child]:hidden", !rangeChosen && "ring-2 ring-red-500/40 ring-offset-2")}>
-          <StandaloneDateFilter value={dateRange} onChange={handleDateChange} onClear={handleDateClear} />
+          {/* Until a range is picked here, the box shows "Pick a date range", not the shared default ALL:
+              an empty value reads as ALL in the shared filter, and ALL would look picked while the tabs stay
+              locked. Picking ALL (or Reset) marks the range chosen, and the box then shows ALL. */}
+          <StandaloneDateFilter
+            value={rangeChosen ? dateRange : NO_RANGE_PICKED}
+            onChange={handleDateChange}
+            onClear={handleDateClear}
+            className={cn(!rangeChosen && "text-muted-foreground")}
+          />
         </div>
       </Step>
       {/* Step 2 is its own line; its tabs sit directly below it. */}
@@ -112,12 +130,7 @@ export default function AuditViewReport({ view }: AuditViewReportProps) {
         onSelect={selectTab}
         summary={summary}
         isLoading={rangeChosen && isSummaryLoading}
-        showDetails={showDetails}
-        onToggleDetails={() => setShowDetails((v) => !v)}
       />
-      {rangeChosen && showDetails && (
-        <TabDetails view={view} tab={tab} onSelect={selectTab} summary={summary} isLoading={isSummaryLoading} />
-      )}
 
       <div
         role="tabpanel"

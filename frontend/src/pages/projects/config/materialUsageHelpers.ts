@@ -57,3 +57,41 @@ export function determineOverallItemPOStatus(
   
   return "Unpaid";
 }
+/** The per-ITM fields of `get_transfer_summary`'s `itms` that say where an ITM came from and what arrived. */
+export interface ItmSourceLine {
+  itm: string;
+  /** "Project" or "Warehouse"; a Warehouse ITM has no source project. */
+  source_type?: string | null;
+  source_project_name?: string | null;
+  received_qty?: number | null;
+}
+
+/** Where an ITM's material comes from, shown as "From <source>": its source project, or "Warehouse". */
+export const itmSourceName = (i: ItmSourceLine): string =>
+  i.source_project_name || (i.source_type === "Warehouse" ? "Warehouse" : "");
+
+/**
+ * Lookups for listing ITM-filed DCs / MIRs beside the PO ones (DC Wise / MIR Wise), from the transfer summary
+ * keyed by item id:
+ * - `receivedQty`: "<itm>_<itemId>" -> what that ITM delivered of that item (its DN Qty, as a PO row shows
+ *   the PO's received quantity);
+ * - `fromLabel`: itm -> "From <source project>" / "From Warehouse" (its Vendor cell); "" when unknown.
+ */
+export function itmDeliveryLookups(summary: Record<string, { itms?: ItmSourceLine[] }>): {
+  receivedQty: Map<string, number>;
+  fromLabel: Map<string, string>;
+} {
+  const receivedQty = new Map<string, number>();
+  const fromLabel = new Map<string, string>();
+  for (const [itemId, itemData] of Object.entries(summary)) {
+    for (const line of itemData.itms || []) {
+      const key = `${line.itm}_${itemId}`;
+      receivedQty.set(key, (receivedQty.get(key) || 0) + (line.received_qty || 0));
+      if (!fromLabel.has(line.itm)) {
+        const source = itmSourceName(line);
+        fromLabel.set(line.itm, source ? `From ${source}` : "");
+      }
+    }
+  }
+  return { receivedQty, fromLabel };
+}

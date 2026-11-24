@@ -8,11 +8,11 @@ Cheques tab shows the Cheque Tracker narrowed to this vendor, read-only for PMO.
 
 Last walked (walk_vendor_payments.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
-Last walked (walk_vendor_cheques.py): 2026-11-23 UTC at 4fb4ccdea, passed.
+Last walked (walk_vendor_cheques.py): 2026-11-24 UTC at eb86b4b67, passed.
 
 Last walked (walk_vendor_work_orders.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
-Last walked (walk_vendor_msme.py): 2026-11-23 UTC at 4fb4ccdea, passed.
+Last walked (walk_vendor_msme.py): 2026-11-24 UTC at eb86b4b67, passed.
 
 ## Sub-features
 
@@ -28,6 +28,8 @@ Last walked (walk_vendor_msme.py): 2026-11-23 UTC at 4fb4ccdea, passed.
   tab.
 - `msme_read` picking the certificate uploads it and asks Document AI (`api/vendor/msme_autofill.extract_msme_fields`)
   to read it and fill the MSME ID. Not walkable on an env (see Gotchas).
+- `msme_cancel` the certificate is attached to the vendor on Update only (#1736): picked in Edit Vendor and then
+  cancelled, it leaves no file on the vendor and the MSME fields empty.
 - `payments` Vendor › Payments: sub-tabs Paid (status Paid), Cheque Pending (a Cheque payment at Reconciliation
   Pending) and Other Pending Payments (the rest), each with a count, a ₹ total (Other leaves Rejected out) and its
   own table. Rules: `frontend/src/utils/vendorPayments/paymentGroups.ts`. Counts follow the user's project filter.
@@ -37,6 +39,8 @@ Last walked (walk_vendor_msme.py): 2026-11-23 UTC at 4fb4ccdea, passed.
   Approval Pending cheque) Cancel; Procurement gets Edit only on its own open cheque; PMO gets View only.
 - `pmo` PMO opens the Cheques tab and a cheque's details (the read endpoints let it in), with no Edit or Cancel and
   no Cheque Tracker in its sidebar.
+- `cheque_header` Cheque Tracker: the `Cheque/Payment Date` header is 160 px wide on two lines, its words inside its
+  cell (#1736).
 
 ## How to get to it (user POV)
 
@@ -52,13 +56,13 @@ walk password on the env only, and exits 0 only when every claim it walked passe
 
 ```bash
 python3 -I BIN/walk_vendor_work_orders.py <env> <out>   # wo_pdf, wo_links (Admin)
-python3 -I BIN/walk_vendor_msme.py <env> <out>          # msme, msme_read (Admin; writes one vendor's MSME pair)
+python3 -I BIN/walk_vendor_msme.py <env> <out>          # msme, msme_read, msme_cancel (Admin; writes two vendors)
 python3 -I BIN/walk_vendor_payments.py <env> <out>      # payments (Admin, Accountant, Procurement Lead, PMO)
-python3 -I BIN/walk_vendor_cheques.py <env> <out>       # cheques, pmo (Admin, Accountants, Procurement Lead, PMO)
+python3 -I BIN/walk_vendor_cheques.py <env> <out>       # cheques, pmo, cheque_header (Admin, Accountants, Proc. Lead, PMO)
 ```
 
-Name functions after `<out>` to run only those (`wo_pdf wo_links`, `msme`, `payments_admin payments_roles`,
-`cheques_admin cheques_roles pmo_view`); such a run leaves the stamps below alone. They build on
+Name functions after `<out>` to run only those (`wo_pdf wo_links`, `msme msme_cancel`, `payments_admin
+payments_roles`, `cheques_admin cheques_roles pmo_view cheque_header`); such a run leaves the stamps below alone. They build on
 `BIN/feature_walk.py`, the helper every graduated walk shares: the env DB read (`db/` under the out folder), one
 unlocked user per role (`users.json`), the sidebar way to a vendor (`open_vendor`), and the PDF renderer. Every
 expected number (sub-tab counts and totals, cheque badges and strip, WO ids) is read from the env DB for the walking
@@ -71,8 +75,11 @@ user.
   extraction failed", and the form says "The certificate could not be read. Type the MSME ID yourself." The MSME
   walk then reports `msme_read` not walked with that answer and walks the rest by typing the ID. Never add a key to
   an env yourself.
-- **Picking the certificate attaches it to the vendor at once**, before Update (the vendor's MSME fields stay empty
-  until Update). Each MSME run uses up one vendor with no MSME ID and no certificate, newest first.
+- **Picking the certificate uploads it unattached**; Update attaches it to the vendor (`Vendors._attach_msme_file`).
+  A cancelled pick leaves an unattached private File behind. Each MSME run uses up two vendors with no MSME ID, no
+  certificate and no attached file, newest first.
+- **The sort arrow of `Cheque/Payment Date` still reaches about 16 px into the Issue Date cell** (#1736's walk); the
+  cheque walk reports it as a nit, not a failure.
 - **The vendor's Work Orders table renders only the rows near the viewport.** Count rendered rows, not the
   footer's `of N`, when checking a per-row control; the footer's total is the sub-tab's count.
 - **A Vendors search matches by name**: open the row by its `href` (`/vendors/<id>`), as two vendors can share a name.

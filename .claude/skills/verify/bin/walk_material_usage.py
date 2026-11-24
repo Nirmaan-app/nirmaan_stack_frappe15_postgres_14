@@ -1,6 +1,6 @@
-"""Walk a project's Material Usage tab with incoming Internal Transfer Memos (graduated from PR #1731's walk).
+"""Walk a project's Material Usage tab with incoming Internal Transfer Memos (graduated from PR #1731's and #1736's walks).
 
-    python3 -I .claude/skills/verify/bin/walk_material_usage.py <env> <out dir> [mu_admin | mu_lead ...]
+    python3 -I .claude/skills/verify/bin/walk_material_usage.py <env> <out dir> [mu_admin | mu_lead | mu_doc_views ...]
 
 It picks a project and item with PO quantity, an incoming ITM (Approved or later, from another project) and a
 Delivery Challan filed against that ITM, and reads every expected number from the env DB first (db/facts.txt).
@@ -28,6 +28,11 @@ w.change("mu_docs", "Material Usage › DCs / MIRs include ITM documents",
 w.change("mu_powise", "Material Usage › PO/ITM Wise tab",
          "ITMs get their own rows, and a Type column (PO / ITM filter) is the second column. ITM rows show "
          "\"From <source project>\" and \"-\" for Rate.")
+w.change("mu_itm", "Material Usage › DC Wise / MIR Wise list ITMs",
+         "DC Wise and MIR Wise list documents filed against an ITM beside the PO ones: a Type column (PO / ITM, "
+         "filterable), \"PO/ITM No.\", and DN Qty = the ITM's received qty of that document's items.")
+w.change("mu_source", "Material Usage › ITM from a warehouse",
+         "A warehouse ITM reads \"From Warehouse\", not \"-\".")
 
 facts = fw.db("facts", r'''
 ITM_OK = ("Approved", "Dispatched", "Partially Delivered", "Delivered")
@@ -220,5 +225,87 @@ def mu_lead() -> None:
                pins=[pin(row, ITEM, "info")])
 
 
-fw.run([("mu_ordered", mu_admin), ("mu_ordered", mu_lead)])
+DOCS_SQL = r'''
+def dn_per_doc(itm, kind):
+    """Each DC / MIR of the ITM: the ITM's received qty summed over that document's own items (its DN Qty)."""
+    rows = frappe.db.sql("""SELECT p.name, COALESCE(SUM(r.recv), 0) dn FROM "tabPO Delivery Documents" p
+        JOIN "tabDC Item" d ON d.parent = p.name
+        LEFT JOIN (SELECT item_id, SUM(received_quantity) recv FROM "tabInternal Transfer Memo Item" WHERE parent = %s
+                   GROUP BY item_id) r ON r.item_id = d.item_id
+        WHERE p.parent_docname = %s AND p.type = %s GROUP BY p.name""", (itm, itm, kind), as_dict=True)
+    return sorted(round(float(r.dn), 3) for r in rows)
+
+out = {"admins": candidates("Nirmaan Admin Profile")}
+for key, kind in (("dc", "Delivery Challan"), ("mir", "Material Inspection Report")):
+    # The project with the most documents of this kind filed against a warehouse ITM.
+    r = frappe.db.sql("""SELECT p.project, p.parent_docname itm, COUNT(*) n FROM "tabPO Delivery Documents" p
+        JOIN "tabInternal Transfer Memo" itm ON itm.name = p.parent_docname
+        WHERE p.parent_doctype = 'Internal Transfer Memo' AND p.type = %s AND itm.source_type = 'Warehouse'
+        GROUP BY 1, 2 ORDER BY n DESC, 1, 2 LIMIT 1""", kind, as_dict=True)[0]
+    out[key] = {"project": r.project, "project_name": frappe.db.get_value("Projects", r.project, "project_name"),
+                "itm": r.itm, "dn": dn_per_doc(r.itm, kind),
+                "itm_docs": frappe.db.count("PO Delivery Documents", {"project": r.project, "type": kind,
+                                                                      "parent_doctype": "Internal Transfer Memo"}),
+                "execs": candidates("Nirmaan Procurement Executive Profile", [r.project])}
+emit(out)
+'''
+
+
+def doc_view(page, role: str, user: str, key: str, view: str) -> None:
+    """One DC Wise / MIR Wise view of the project the DB picked for it: the warehouse ITM's rows, then Type = ITM."""
+    d = docs[key]
+    open_project(page, d["project_name"])
+    w.step(page, "mu_itm", "after", role, user, f"{role}: Projects › {d['project_name']}. Open its Material Usage tab.",
+           click=page.get_by_role("button", name="Material Usage", exact=True))
+    settle(page, 2500)
+    w.step(page, "mu_itm", "after", role, user, f"Switch to {view}.",
+           click=page.get_by_role("button", name=view, exact=True))
+    settle(page, 2500)
+    heads = [h.strip() for h in page.get_by_role("columnheader").all_inner_texts()]
+    w.check("mu_itm", role, f"{view}: a Type column and \"PO/ITM No.\" (no \"PO Number\")",
+            " | ".join(h for h in heads if h)[:120], "Type" in heads and "PO/ITM No." in heads and "PO Number" not in heads)
+    i_type, i_no, i_ven, i_dn = (heads.index(h) for h in ("Type", "PO/ITM No.", "Vendor", "DN Qty"))
+    rows = page.locator("tbody tr").filter(has=page.locator("td", has_text=re.compile(rf"^{re.escape(d['itm'])}$")))
+    cells = [[c.strip() for c in r.locator("td").all_inner_texts()] for r in rows.all()]
+    dns = sorted(round(num(c[i_dn]), 3) for c in cells)
+    w.check("mu_itm", role, f"{d['itm']}'s documents, each typed ITM with DN Qty = the DB's "
+            f"{' / '.join(f'{x:g}' for x in d['dn'])}", " / ".join(f"{x:g}" for x in dns) + " ("
+            + ", ".join(sorted({c[i_type] for c in cells})) + ")",
+            dns == d["dn"] and all(c[i_type] == "ITM" for c in cells))
+    w.check("mu_source", role, f"{d['itm']} (from the warehouse) reads \"From Warehouse\"",
+            ", ".join(sorted({c[i_ven] for c in cells})) or "no rows", bool(cells) and all(c[i_ven] == "From Warehouse"
+                                                                                       for c in cells))
+    first = rows.first
+    w.step(page, "mu_itm", "after", role, user,
+           f"{view} lists {d['itm']} from the warehouse: Type ITM, DN Qty {' / '.join(f'{x:g}' for x in dns)}.",
+           pins=[pin(first.locator("td").nth(i_type), "Type ITM", "info"),
+                 pin(first.locator("td").nth(i_ven), "From Warehouse", "info"),
+                 pin(first.locator("td").nth(i_dn), "DN Qty, held to the DB", "info")] if cells else [])
+    hdr = page.get_by_role("columnheader", name="Type")
+    w.step(page, "mu_itm", "after", role, user, "Open the Type filter.", click=hdr.locator("button, svg").first)
+    settle(page, 600)
+    w.step(page, "mu_itm", "after", role, user, "Filter to ITM.",
+           click=page.get_by_role("option", name=re.compile(r"^ITM")).first)
+    page.keyboard.press("Escape")
+    settle(page, 1500)
+    types = [r.locator("td").nth(i_type).inner_text().strip() for r in page.locator("tbody tr").all()]
+    types = [t for t in types if t in ("PO", "ITM")]
+    w.check("mu_itm", role, f"Type = ITM: only ITM documents, {d['itm_docs']} as in the DB",
+            f"{len(types)} rows ({', '.join(sorted(set(types))) or 'none'})",
+            set(types) == {"ITM"} and len(types) == d["itm_docs"])
+    w.step(page, "mu_itm", "after", role, user, f"Type = ITM: {len(types)} documents (the DB has {d['itm_docs']}).")
+
+
+def mu_doc_views() -> None:
+    admin = fw.user("Admin", docs["admins"])
+    with fw.session(admin) as page:
+        doc_view(page, "Admin", admin, "dc", "DC Wise")
+    role = "Procurement Executive" if docs["mir"]["execs"] else "Admin"
+    user = fw.user(role, docs["mir"]["execs"] or docs["admins"])
+    with fw.session(user) as page:
+        doc_view(page, role, user, "mir", "MIR Wise")
+
+
+docs = fw.db("docs", DOCS_SQL)
+fw.run([("mu_ordered", mu_admin), ("mu_ordered", mu_lead), ("mu_itm", mu_doc_views)])
 fw.finish()

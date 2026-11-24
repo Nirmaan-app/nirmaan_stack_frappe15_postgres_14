@@ -17,6 +17,18 @@
   "cheques": "walk_vendor_cheques.py",
   "pmo": "walk_vendor_cheques.py"
  },
+ "1736": {
+  "labels": "walk_audit_view.py",
+  "datebox": "walk_audit_view.py",
+  "refresh": "walk_audit_view.py",
+  "cards": "walk_audit_view.py",
+  "columns": "walk_audit_view.py",
+  "reimb": "skip: no data to walk it on: the backup holds no non-project expense with no type and a reimbursement link (0 rows on 2026-11-24), and making one would mean faking a reimbursement claim; test_audit_view.py checks the label at the API",
+  "mu_itm": "walk_material_usage.py",
+  "mu_source": "walk_material_usage.py",
+  "msme": "walk_vendor_msme.py",
+  "cheque": "walk_vendor_cheques.py"
+ },
  "1737": {
   "tabs": "walk_reimbursements.py",
   "hr": "walk_reimbursements.py",

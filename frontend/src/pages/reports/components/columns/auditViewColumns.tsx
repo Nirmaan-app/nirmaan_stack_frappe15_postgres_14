@@ -46,6 +46,12 @@ const fileHref = (url: string) => (/^https?:\/\//.test(url) ? url : SITEURL + ur
 
 const isOrder = (row: AuditRow) => row.against === "PO" || row.against === "WO";
 
+/** An expense's description up to its first line break (what follows is often bank details), as on the Payments page. */
+const firstLine = (description: string | null): string => (description ?? "").split("\n")[0].trim();
+
+/** What the Against column shows: the PO / WO number, or the expense's description (its record name if it has none). */
+const againstText = (row: AuditRow): string => (isOrder(row) ? row.id : firstLine(text(row, "description")) || row.id);
+
 /** The headline money column of each tab, in bold. */
 const HEADLINE: AuditColumnKey[] = ["incl_gst", "invoice_amount", "net_paid"];
 
@@ -85,9 +91,12 @@ const isMoneyKey = (key: AuditColumnKey) => !TEXT_KEYS.has(key);
 const FACET_INDENT = "pl-6";
 
 /** One column from its spec. */
-const column = (spec: AuditColumnSpec): ColumnDef<AuditTableRow> => ({ size: WIDTH[spec.key], ...columnBody(spec) });
+const column = (view: AuditView) => (spec: AuditColumnSpec): ColumnDef<AuditTableRow> => ({
+  size: WIDTH[spec.key],
+  ...columnBody(spec, view),
+});
 
-const columnBody = (spec: AuditColumnSpec): ColumnDef<AuditTableRow> => {
+const columnBody = (spec: AuditColumnSpec, view: AuditView): ColumnDef<AuditTableRow> => {
   // Money headers sit on the right, over their right-aligned figures (`ml-auto` inside the header's flex row).
   const header = ({ column: c }: HeaderContext<AuditTableRow, unknown>) => (
     <DataTableColumnHeader
@@ -99,50 +108,78 @@ const columnBody = (spec: AuditColumnSpec): ColumnDef<AuditTableRow> => {
 
   switch (spec.key) {
     case "against":
+      // Type, as on the Payments page: the pill (+ a WO's "GST payment" tag), the expense type under it. Its filter
+      // picks a type (PO / WO / Project Expense); in Non Project View, where every row is a Non-Project Expense,
+      // it picks an expense type instead, since that view has no Expense type column of its own.
       return {
         id: "against",
-        accessorKey: "against",
-        header,
-        cell: ({ row }) => (
-          <Badge variant="outline" className={cn("whitespace-nowrap text-[11px] font-medium", AGAINST_CLASSES[row.original.against])}>
-            {row.original.against}
-          </Badge>
-        ),
-        filterFn: facetedFilterFn,
-        meta: { exportHeaderName: spec.label, exportValue: (row: AuditRow) => row.against },
-      };
-    case "id":
-      return {
-        id: "id",
-        accessorKey: "id",
+        accessorFn: (row) => (view === "nonproject" ? text(row, "expense_type") ?? "" : row.against),
         header,
         cell: ({ row }) => {
           const r = row.original;
+          const expenseType = text(r, "expense_type");
           return (
             <div className="flex min-w-0 flex-col gap-0.5">
-              {isOrder(r) ? (
-                <OrderDetailLink docName={r.id} className="font-medium text-blue-600 underline-offset-2 hover:underline">
-                  {r.id}
-                </OrderDetailLink>
-              ) : (
-                // An expense opens the same Expense details card as the Payments & Expenses table:
-                // type, project, vendor, description and its bank lines, fetched only when opened.
-                <ExpenseBankLinesPopover
-                  doctype={r.against === "Project Expense" ? "Project Expenses" : "Non Project Expenses"}
-                  name={r.id}
-                  subtitle={text(r, "expense_type") ?? undefined}
-                  status="Paid"
-                >
-                  <span className="font-medium">{r.id}</span>
-                </ExpenseBankLinesPopover>
-              )}
-              {field(r, "is_gst_payment") === true && (
-                <span className="text-[11px] font-medium text-red-600">GST payment</span>
+              <span className="inline-flex flex-wrap items-center gap-1">
+                <Badge variant="outline" className={cn("whitespace-nowrap text-[11px] font-medium", AGAINST_CLASSES[r.against])}>
+                  {r.against}
+                </Badge>
+                {field(r, "is_gst_payment") === true && (
+                  <span className="text-[11px] font-medium text-red-600">GST payment</span>
+                )}
+              </span>
+              {expenseType && (
+                <span className="truncate text-[10px] font-medium text-muted-foreground" title={expenseType}>{expenseType}</span>
               )}
             </div>
           );
         },
-        meta: { exportHeaderName: spec.label, exportValue: (row: AuditRow) => row.id },
+        filterFn: facetedFilterFn,
+        meta: {
+          exportHeaderName: spec.label,
+          exportValue: (row: AuditRow) => {
+            const expenseType = text(row, "expense_type");
+            return expenseType ? `${row.against} (${expenseType})` : row.against;
+          },
+        },
+      };
+    case "id":
+      // Against, as on the Payments page: a PO / WO number, or the expense's description (up to two lines, the
+      // full text on hover) instead of its record name. Search and sort read the same text the cell shows.
+      return {
+        id: "id",
+        accessorFn: againstText,
+        header,
+        cell: ({ row }) => {
+          const r = row.original;
+          if (isOrder(r)) {
+            return (
+              <OrderDetailLink docName={r.id} className="block truncate font-mono text-xs text-blue-600 underline-offset-2 hover:underline">
+                {r.id}
+              </OrderDetailLink>
+            );
+          }
+          const description = text(r, "description");
+          // An expense opens the same Expense details card as the Payments & Expenses table:
+          // type, project, vendor, the full description and its bank lines, fetched only when opened.
+          return (
+            <ExpenseBankLinesPopover
+              doctype={r.against === "Project Expense" ? "Project Expenses" : "Non Project Expenses"}
+              name={r.id}
+              subtitle={text(r, "expense_type") ?? undefined}
+              description={description ?? undefined}
+              status="Paid"
+            >
+              <span className="line-clamp-2 break-words text-left font-medium" title={description ?? r.id}>
+                {againstText(r)}
+              </span>
+            </ExpenseBankLinesPopover>
+          );
+        },
+        meta: {
+          exportHeaderName: spec.label,
+          exportValue: (row: AuditRow) => (isOrder(row) ? row.id : text(row, "description") ?? row.id),
+        },
       };
     case "project":
     case "vendor": {
@@ -254,4 +291,4 @@ const columnBody = (spec: AuditColumnSpec): ColumnDef<AuditTableRow> => {
 
 /** The table's columns for a view and tab (order and labels from `auditColumnSpecs`). */
 export const getAuditViewColumns = (view: AuditView, tab: AuditTab): ColumnDef<AuditTableRow>[] =>
-  auditColumnSpecs(view, tab).map(column);
+  auditColumnSpecs(view, tab).map(column(view));
