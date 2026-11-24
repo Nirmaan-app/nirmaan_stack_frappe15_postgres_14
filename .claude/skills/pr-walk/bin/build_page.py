@@ -67,7 +67,7 @@ def verdict(data: dict, s: dict) -> str:
     if s["by_kind"]["should"]:
         tail.append(f"{s['by_kind']['should']} that should be fixed")
     if s["by_kind"]["nit"]:
-        tail.append(f"{s['by_kind']['nit']} small polish points")
+        tail.append(f"{s['by_kind']['nit']} small polish point{'' if s['by_kind']['nit'] == 1 else 's'}")
     return head + (", with " + " and ".join(tail) if tail else ", with nothing to fix") + "."
 
 
@@ -195,7 +195,7 @@ footer{{margin-top:56px;border-top:1px solid var(--rule);padding-top:12px;font-s
   <div class="strip">
     <div><div class="lbl">Changes seen</div><div class="val">{s['status']['seen']} of {s['changes']}<small>walked on the PR's code</small></div></div>
     <div><div class="lbl">Checks</div><div class="val">{s['checks_ok']} of {s['checks']}<small>passed (role and number checks)</small></div></div>
-    <div><div class="lbl">To fix</div><div class="val">{s['by_kind']['must'] + s['by_kind']['should']}<small>{s['by_kind']['must']} must · {s['by_kind']['should']} should · {s['by_kind']['nit']} nits</small></div></div>
+    <div><div class="lbl">To fix</div><div class="val">{s['by_kind']['must'] + s['by_kind']['should']}<small>{s['by_kind']['must']} must · {s['by_kind']['should']} should · {s['by_kind']['nit']} nit{'' if s['by_kind']['nit'] == 1 else 's'}</small></div></div>
     <div><div class="lbl">Screens</div><div class="val">{s['screens']}<small>each with its click marked</small></div></div>
   </div>
   <p class="prov">PR <a href="{e(pr['url'])}">#{pr['number']}</a> by {e(pr['author'])} · {e(pr['title'])} · walked {e(data['walked_at'])} on head <code>{e(pr['head'])}</code> (env <code>{e(data['envs']['after'])}</code>) and base <code>{e(pr['base'])}</code> (env <code>{e(data['envs']['before'])}</code>) · data: {e(data.get('data_note') or 'not recorded')}</p>
