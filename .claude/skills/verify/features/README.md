@@ -67,6 +67,7 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   = Amount Paid + TDS held to the server's summary (#1732); its Report Type names, date box, refresh, summary cards
   and columns (#1736). Walked by `BIN/walk_audit_view.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
+- [GST Payment Requests](./gst-requests.md): a Work Order GST request raised from Request Payment, approved in GST Requests straight to Approved with no L1 or CEO step, rejected with a reason, the tab's Reviewed and Actions columns, base payments still at L1 (#1738). Walked by `BIN/walk_gst_requests.py`.
 - [Reimbursements](./reimbursements.md): every step of a claim on the Reimbursements page, each by its role (HR,
   Admin L1, CEO, Accounts' pay and reconcile), the claim carrying its expense's status, claim expenses gone from
   Project Payments, the Project Manager's ₹2,000 monthly cap, the Action Center item (#1737). Walked by

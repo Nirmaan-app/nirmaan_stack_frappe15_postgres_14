@@ -1,0 +1,15 @@
+[
+ ["GST Payment Request", "A request to pay a Work Order's GST. An Accountant, Accountant Lead or Admin approves or rejects it; approving creates the GST payment."],
+ ["GST left", "The GST on approved invoices that has not been paid or asked for yet: min(GST invoiced, Work Order GST) - GST payments - Pending GST requests."],
+ ["L1", "The first approval step of a payment, done by an Admin-profile user."],
+ ["CEO step", "The second approval step, for a payment over ₹50,000."],
+ ["Amount rule", "How a new payment is routed: under ₹15,000 auto-approved, ₹15,000-₹50,000 waits for L1, over ₹50,000 waits for L1 then the CEO."],
+ ["Payment need to paid", "The tab of Approved payments waiting for the Accountant to pay them."],
+ ["Payment Pending Approval", "L1's queue: payments at Requested."],
+ ["Payment Pending CEO Approval", "The CEO's queue: payments at CEO Pending."],
+ ["Amendment B", "The change to ADR-0030 this PR makes: an approved GST request's payment needs no L1 or CEO approval."],
+ ["Patch B2", "A one-time database change, run once by bench migrate, that moves GST payments already waiting for L1 or the CEO to Approved."],
+ ["UTR", "The bank's reference number for an online transfer."],
+ ["Before / After", "Before is develop at de49cf3c0, where the PR starts. After is the PR's own code at eeef9097c."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]

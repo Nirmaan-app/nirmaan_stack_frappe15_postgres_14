@@ -44,5 +44,17 @@
   "action": "walk_reimbursements.py",
   "patch": "skip: a one-time migration (v3_0.reimbursement_status_from_expense) that ran on every env's migrate; a fresh env holds no claim left Approved behind its expense, so there is nothing for a walk to move. The PR walk ran it on such claims in a rolled-back DB script, and test_reimbursements covers it",
   "race": "skip: two people deciding one claim at the same moment can't be driven from one screen; test_reimbursements' simultaneous-decision tests (lock_claim) cover it"
+ },
+ "1738": {
+  "approve": "walk_gst_requests.py",
+  "lead": "walk_gst_requests.py",
+  "base": "walk_gst_requests.py",
+  "tab": "walk_gst_requests.py",
+  "reject": "walk_gst_requests.py",
+  "errors": "walk_gst_requests.py",
+  "summary": "walk_gst_requests.py",
+  "bell": "walk_gst_requests.py",
+  "patch": "skip: a one-time migration (v3_0.gst_payments_waiting_to_approved) that ran on every env's migrate; a fresh env holds no GST payment an approved request left at Requested / CEO Pending (0 on the 17 Nov 2026 backup), so there is nothing for a walk to move. The PR walk ran it on such payments in a rolled-back DB script, and test_gst_payment_requests covers it",
+  "live": "skip: envs serve no realtime (Socket.IO), so the GST badge's live update across windows cannot be seen on one"
  }
 }
