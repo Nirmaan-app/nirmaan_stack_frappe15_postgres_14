@@ -3,7 +3,8 @@
 # unknown key, a missing or signed-out account and a task name without the person's prefix before anything changes,
 # starts Claude as that person's Orca account under a lock, proves the process uses that account's config dir (else
 # stops it), puts Orca's selection back, records who and which account, and finds the first reply in that account's
-# session logs. The laptop runs with no orca CLI. A box without the key still launches through the laptop's Orca.
+# session logs. A person without a git identity is refused before anything changes; a launch sets the person's git
+# identity in that env only, so its commits carry it and the box's main checkout and other envs keep theirs. The laptop runs with no orca CLI. A box without the key still launches through the laptop's Orca.
 # A temp laptop repo, a temp registry, stub ssh (it hands the box side $SSH_USER_AUTH as sshd's ExposeAuthInfo does),
 # scp, orca-ide on the box and orca on the laptop, and a fake /proc (DEVBOX_PROC). No network, no real box, nothing
 # outside a fresh folder under $TMPDIR, which each run leaves in place.
@@ -131,6 +132,12 @@ git config -f "$P" person.late.key AAAAlate
 git config -f "$P" person.late.account acct-late
 git config -f "$P" person.gone.key AAAAgone
 git config -f "$P" person.gone.account acct-gone
+git config -f "$P" person.nogit.key AAAAnogit
+git config -f "$P" person.nogit.account system
+for p in abhishek:'Abhishek Kumar' madhu:'Madhu Balan' late:'Late Comer' gone:'Gone Away'; do
+  git config -f "$P" "person.${p%%:*}.git-name" "${p#*:}"; git config -f "$P" "person.${p%%:*}.git-email" "${p%%:*}@commits.example.com"
+done
+printf '[user]\n\tname = Box Owner\n\temail = box-owner@example.com\n' > "$BOXH/.gitconfig"
 chmod 600 "$P"
 
 R="$T/boxes.conf"; export DEVBOX_REGISTRY="$R"
@@ -186,6 +193,14 @@ same "$(made t3)" none "a name without the prefix leaves no branch"
 STUB_KEY=AAAAgone start s4
 rc_is 1 "an account Orca lacks is refused"; has "account 'acct-gone' is not in the box's Orca" "the refusal names the account"
 
+STUB_KEY=AAAAnogit start s16
+rc_is 1 "a person without a git identity is refused"
+has "people.conf gives nogit no git identity" "the refusal names the missing git identity"
+has "scripts/devenv/people.sh add nogit --git-name '<name>' --git-email <email>" "the refusal gives the owner's fix"
+has "nothing was changed" "the refusal says nothing changed"
+same "$(made s16)" none "a person without a git identity leaves no branch"
+log_lacks "orca-ide" "a person without a git identity never reaches Orca"
+
 STUB_KEY=AAAAlate start s5
 rc_is 1 "a signed-out account is refused"; has "is not signed in on the box" "the refusal says it is signed out"
 same "$(made s5)" none "a signed-out account leaves no branch"
@@ -209,6 +224,8 @@ log_has "spawned madhu-t7 as acct-madhu" "Claude starts as madhu's account"
 same "$(cat "$BOXH/.orca-selected")" system "the box's selection is put back after the launch"
 has "Claude is working in 'madhu-t7'" "the first reply is found in the account's own session logs"
 case "$(launch_file madhu-t7)" in *"requester=madhu"*"email=madhu@example.com"*"config=$PROFILES/acct-madhu/home"*) pass "LAUNCH records madhu and the account" ;; *) fail "LAUNCH records madhu and the account: $(launch_file madhu-t7)" ;; esac
+case "$(launch_file madhu-t7)" in *"git-name=Madhu Balan"*"git-email=madhu@commits.example.com"*) pass "LAUNCH records madhu's git identity" ;; *) fail "LAUNCH records madhu's git identity: $(launch_file madhu-t7)" ;; esac
+has "commits as Madhu Balan <madhu@commits.example.com>" "the check says whom the commits will name"
 python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert any(v.get("hasTrustDialogAccepted") for v in c["projects"].values())' \
   "$PROFILES/acct-madhu/home/.claude.json" || fail "the env is trusted in the account's .claude.json"; pass "the env is trusted in the account's .claude.json"
 log_has "python3 - $(wt madhu-t7)" "the reply is read on the box"
@@ -217,8 +234,18 @@ grep -q "python3 - .*madhu-t7.* [0-9]* $PROFILES/acct-madhu/home" "$STUB_LOG" ||
 STUB_KEY=AAAAmadhu start madhu-t7
 rc_is 1 "a rerun while Claude still runs in the env is refused"; has "a Claude already runs in" "the refusal says why"
 
+# Commits as the box makes them: the box user's HOME (its global identity is the owner's), no identity in the env.
+box_git() { env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL HOME="$BOXH" git "$@"; }
+box_git -C "$(wt madhu-t7)" commit -q --no-verify --allow-empty -m "madhu's work"
+same "$(git -C "$(wt madhu-t7)" log -1 --format='%an <%ae> / %cn <%ce>')" \
+  "Madhu Balan <madhu@commits.example.com> / Madhu Balan <madhu@commits.example.com>" "a commit in madhu's env carries madhu's identity"
+same "$(box_git -C "$CO" var GIT_AUTHOR_IDENT | sed 's/>.*/>/')" "Box Owner <box-owner@example.com>" "the box's main checkout keeps the box's identity"
+same "$(box_git -C "$(wt t6)" var GIT_AUTHOR_IDENT | sed 's/>.*/>/')" "Abhishek Kumar <abhishek@commits.example.com>" "another person's env keeps that person's identity"
+
 run env STUB_KEY=AAAAmadhu /bin/bash "$L/scripts/devenv/task.sh" done madhu-t7
 rc_is 0 "done exits 0"; has "launch  requester=madhu" "done shows who launched it"; has "launch  account=madhu@example.com" "done shows the account"
+has "launch  git-email=madhu@commits.example.com" "done shows the git identity"
+same "$(git -C "$L" log -1 --format='%an <%ae>' box/madhu-t7)" "Madhu Balan <madhu@commits.example.com>" "the commit reaches the laptop with madhu's identity"
 
 # watch reads the agent's idle time from the account's session logs, not ~/.claude's
 sed -n '/^watch_probe() {/,/^}/p' "$L/scripts/devenv/task.sh" > "$T/watch_probe.sh"
@@ -253,7 +280,7 @@ rc_is 1 "no reply exits 1"; has "Welcome-to-Claude" "the terminal's last lines c
 log_has "orca-ide terminal read --terminal term_" "the box reads its own terminal"
 
 # ---- two launches at once: the lock keeps each select next to its own spawn
-for n in t11 madhu-t12; do mkdir -p "$(wt $n)"; done; echo 0 > "$T/a.rc"; echo 0 > "$T/b.rc"
+for n in t11 madhu-t12; do git -C "$CO" worktree add -q --detach "$(wt $n)"; done; echo 0 > "$T/a.rc"; echo 0 > "$T/b.rc"
 : > "$STUB_LOG"
 b64() { printf 'go %s' "$1" | base64 | tr -d '\n'; }
 ( STUB_LAUNCH_SLEEP=2 STUB_KEY=AAAAowner ssh t@r7-test python3 - launch t11 "$(wt t11)" "$(b64 t11)" < "$L/scripts/devenv/box_launch.py" > "$T/a.out" 2>&1 || echo $? > "$T/a.rc" ) &
@@ -266,6 +293,13 @@ has "wait  another launch is starting its Claude on the box" "the second launch 
 log_has "spawned t11 as system" "the first spawns as its own account"; log_has "spawned madhu-t12 as acct-madhu" "the second spawns as its own account"
 same "$(grep -E '^(orca-ide account select|spawned)' "$STUB_LOG" | sed 's/ --json//; s/orca-ide account select --agent claude --account/select/' | tr '\n' ',')" \
   "select system,spawned t11 as system,select acct-madhu,spawned madhu-t12 as acct-madhu,select system," "select and spawn never interleave"
+
+# ---- a launch into a folder that is not a worktree of its own sets no one's identity
+mkdir -p "$CO/not-an-env"; : > "$STUB_LOG"
+run env STUB_KEY=AAAAmadhu ssh t@r7-test python3 - launch madhu-t17 "$CO/not-an-env" "$(b64 madhu-t17)" < "$L/scripts/devenv/box_launch.py"
+rc_is 1 "a launch into a plain folder is refused"; has "is not a git worktree of its own" "the refusal says why"
+same "$(box_git -C "$CO" var GIT_AUTHOR_IDENT | sed 's/>.*/>/')" "Box Owner <box-owner@example.com>" "the enclosing checkout keeps its identity"
+log_lacks "orca-ide" "a refused identity never reaches Orca"
 
 # ---- a box without launch = box: the laptop's Orca, as before
 : > "$STUB_LOG"

@@ -31,10 +31,9 @@
 #   git config -f $R box.air.ssh           <user>@<host>
 #   git config -f $R box.air.checkout      <checkout path under the box user's home>
 #   chmod 600 $R
-# A box shared between developers (r7) starts each one's Claude itself. Each developer's laptop needs only SSH to it:
-#   git config -f $R box.r7.ssh <user>@<host>; git config -f $R box.r7.checkout <checkout path>
-#   git config -f $R box.r7.launch box
-# and the box's owner adds their public key to its people.conf (box_launch.py's header).
+# A box shared between developers (r7) starts each one's Claude itself, as their own Claude account and git identity.
+# Each developer's laptop needs only SSH to it: scripts/devenv/join.sh writes their entry, and the box's owner adds
+# them with scripts/devenv/people.sh (its header has the onboarding steps, both sides, and offboarding).
 # Every task started before task.sh recorded boxes ran on contabo. Record them once, from any checkout of the repo
 # (a task that already has a record is left alone):
 #   for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/box/*'); do n="${b#box/}"

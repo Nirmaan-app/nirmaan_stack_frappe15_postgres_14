@@ -7,8 +7,10 @@
 #       Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first reply in its
 #       session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
 #       --no-agent stops before Claude. On a box whose registry entry says box.<box>.launch = box, the box starts
-#       Claude itself, as the Claude account its owner gave your SSH key (scripts/devenv/box_launch.py), refusing an
-#       unknown key or a name without your prefix before anything changes; this laptop then needs no Orca.
+#       Claude itself, as the Claude account its owner gave your SSH key, with your git name and email set for that
+#       env only (scripts/devenv/box_launch.py), refusing an unknown key, a person without a git identity or a name
+#       without your prefix before anything changes; this laptop then needs no Orca. Joining such a box:
+#       scripts/devenv/join.sh, and the owner's scripts/devenv/people.sh.
 #       The start point is <ref>, else the HEAD of the checkout you run task.sh from (only commits travel: start WARNs
 #       when that checkout has uncommitted changes); on a rerun, the box/<name> already made. It must hold GitHub's
 #       develop as it is now (scripts/devenv/develop.sh: how develop is found, and the rule). Equal or ahead starts;
