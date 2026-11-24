@@ -1,13 +1,16 @@
 #!/bin/bash
 # Tests box launches (box.<box>.launch = box): the box names the person by the SSH key that connected, refuses an
 # unknown key, a missing or signed-out account and a task name without the person's prefix before anything changes,
-# starts Claude as that person's Orca account under a lock, proves the process uses that account's config dir (else
-# stops it), puts Orca's selection back, records who and which account, and finds the first reply in that account's
-# session logs. A person without a git identity is refused before anything changes; a launch sets the person's git
-# identity in that env only, so its commits carry it and the box's main checkout and other envs keep theirs. The laptop runs with no orca CLI. A box without the key still launches through the laptop's Orca.
+# starts Claude in a plain Orca terminal on that person's account's config dir without touching Orca's account
+# selection, so it stays on that account while other people's tasks start and while anyone changes the selection;
+# proves the process uses that config dir (else stops it), records who and which account, and finds the first reply
+# in that account's session logs. The prompt reaches Claude byte for byte. A person without a git identity is refused
+# before anything changes; a launch sets the person's git identity in that env only, so its commits carry it and the
+# box's main checkout and other envs keep theirs. The laptop runs with no orca CLI. A box without the key still
+# launches through the laptop's Orca.
 # A temp laptop repo, a temp registry, stub ssh (it hands the box side $SSH_USER_AUTH as sshd's ExposeAuthInfo does),
-# scp, orca-ide on the box and orca on the laptop, and a fake /proc (DEVBOX_PROC). No network, no real box, nothing
-# outside a fresh folder under $TMPDIR, which each run leaves in place.
+# scp, orca-ide and claude on the box, orca on the laptop, and a fake /proc (DEVBOX_PROC). No network, no real box,
+# nothing outside a fresh folder under $TMPDIR, which each run leaves in place.
 # Run: /bin/bash scripts/devenv/test_task_box_launch.sh
 set -euo pipefail
 
@@ -27,7 +30,7 @@ same() { [ "$1" = "$2" ] || fail "$3 (got '$1', want '$2')"; pass "$3"; }
 
 BOXH="$T/boxes/t@r7-test"; CO="$BOXH/work/x/variants/master"; PROC="$T/proc"
 PROFILES="$BOXH/.config/orca/claude-profiles"
-mkdir -p "$T/bin" "$T/laptop-orca" "$T/laptop-home" "$PROC" "$BOXH/.claude"
+mkdir -p "$T/bin" "$T/box-bin" "$T/laptop-orca" "$T/laptop-home" "$PROC" "$BOXH/.claude"
 ln -s /bin/bash "$T/bin/bash"
 # ---- stubs. ssh runs the box side locally with $STUB_BOXES/<target> as home, and, when STUB_KEY is set, writes the
 # file sshd's ExposeAuthInfo names in $SSH_USER_AUTH.
@@ -48,39 +51,49 @@ args=(); while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; -q) shift ;; *) args
 at() { case "$1" in *@*:*) p="${1#*:}"; echo "$STUB_BOXES/${1%%:*}/${p#\~/}" ;; *) echo "$1" ;; esac; }
 cp "$(at "${args[0]}")" "$(at "${args[1]}")"
 EOF
-# orca-ide on the box. Its account selection is one file, as Orca's is one setting per host. A launch waits
-# STUB_LAUNCH_SLEEP seconds, then starts a fake claude process (an entry in $DEVBOX_PROC) with the config dir of the
-# account selected at that moment (STUB_WRONG_HOME overrides it) and writes the session log STUB_REPLY says there.
+# claude on the box: an entry in the fake /proc ($DEVBOX_PROC) with the config dir it was given (STUB_WRONG_HOME
+# overrides it), its arguments and its prompt (the last argument); then the session log STUB_REPLY says.
+cat > "$T/box-bin/claude" <<'EOF'
+#!/bin/bash
+p="$DEVBOX_PROC/$$"; mkdir -p "$p"
+echo claude > "$p/comm"; echo "${STUB_KIND:-terminal}" > "$p/kind"; ln -s "$PWD" "$p/cwd"
+cfg="${STUB_WRONG_HOME:-${CLAUDE_CONFIG_DIR:-}}"
+if [ -n "$cfg" ]; then printf 'PATH=/bin\0CLAUDE_CONFIG_DIR=%s\0' "$cfg"; else printf 'PATH=/bin\0'; fi > "$p/environ"
+printf '%s\n' "${@:1:$#-1}" > "$p/args"; printf '%s' "${!#}" > "$p/prompt"
+d="${cfg:-$HOME/.claude}/projects/$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
+case "${STUB_REPLY:-real}" in
+  real) echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
+  synthetic) echo '{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}' > "$d/s1.jsonl" ;;
+esac
+EOF
+# orca-ide on the box, as Orca 1.4.265 behaves (measured on r7). Its account selection is one setting for the whole
+# box. agent launch starts claude on the account selected at that moment, and every account select restarts each
+# Claude agent launch started as a new process on the newly selected account. terminal create types its command into
+# the box user's login shell in the worktree, answers before it runs, and leaves it alone on later selects.
 cat > "$T/bin/orca-ide" <<'EOF'
 #!/bin/bash
 echo "orca-ide $*" >> "$STUB_LOG"
 sel="$(cat "$HOME/.orca-selected" 2>/dev/null || echo system)"
+cfg_of() { [ "$1" = system ] || echo "$HOME/.config/orca/claude-profiles/$1/home"; }
 case "$1 $2" in
   "account list")
     active=null; [ "$sel" = system ] || active="\"$sel\""
     sed "s|@ACTIVE@|$active|; s|@P@|$HOME/.config/orca/claude-profiles|g" "$HOME/.orca-accounts.json" ;;
   "account select")
-    for a in "$@"; do [ "${prev:-}" = --account ] && echo "$a" > "$HOME/.orca-selected"; prev="$a"; done ;;
+    for a in "$@"; do [ "${prev:-}" = --account ] && sel="$a"; prev="$a"; done; echo "$sel" > "$HOME/.orca-selected"
+    for p in "$DEVBOX_PROC"/*; do [ "$(cat "$p/kind" 2>/dev/null)" = agent ] || continue
+      new="$DEVBOX_PROC/$(( ${p##*/} + 1000000 ))"; mv "$p" "$new"; cfg="$(cfg_of "$sel")"
+      if [ -n "$cfg" ]; then printf 'PATH=/bin\0CLAUDE_CONFIG_DIR=%s\0' "$cfg"; else printf 'PATH=/bin\0'; fi > "$new/environ"
+      echo "restarted $(readlink "$new/cwd") as $sel" >> "$STUB_LOG"
+    done ;;
   "agent launch")
-    # Real Orca answers at once and starts Claude in the background; STUB_SEED does the same.
-    if [ -n "${STUB_SEED:-}" ] && [ -z "${STUB_CHILD:-}" ]; then STUB_CHILD=1 "$0" "$@" >/dev/null 2>&1 & exit 0; fi
-    for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; [ "${prev:-}" = --prompt ] && printf '%s' "$a" > "$HOME/.last-prompt"; prev="$a"; done
-    if [ -n "${STUB_SEED:-}" ]; then   # Orca's first, short-lived claude that seeds the session; it ends after 1 s
-      seed="$DEVBOX_PROC/${$}9"; mkdir -p "$seed"; echo claude > "$seed/comm"; ln -s "$wt" "$seed/cwd"; printf 'PATH=/bin\0' > "$seed/environ"
-      sleep 1; echo exited > "$seed/comm"; sleep 1
-    fi
-    sleep "${STUB_LAUNCH_SLEEP:-0}"
-    sel="$(cat "$HOME/.orca-selected" 2>/dev/null || echo system)"
-    cfg=""; [ "$sel" = system ] || cfg="$HOME/.config/orca/claude-profiles/$sel/home"
-    cfg="${STUB_WRONG_HOME:-$cfg}"
-    echo "spawned $(basename "$(dirname "$(dirname "$wt")")") as $sel" >> "$STUB_LOG"
-    pid=$$; mkdir -p "$DEVBOX_PROC/$pid"; echo claude > "$DEVBOX_PROC/$pid/comm"; ln -s "$wt" "$DEVBOX_PROC/$pid/cwd"
-    if [ -n "$cfg" ]; then printf 'PATH=/bin\0CLAUDE_CONFIG_DIR=%s\0' "$cfg"; else printf 'PATH=/bin\0'; fi > "$DEVBOX_PROC/$pid/environ"
-    d="${cfg:-$HOME/.claude}/projects/$(cd "$wt" && pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
-    case "${STUB_REPLY:-real}" in
-      real) echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
-      synthetic) echo '{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}' > "$d/s1.jsonl" ;;
-    esac ;;
+    for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; [ "${prev:-}" = --prompt ] && prompt="$a"; prev="$a"; done
+    cfg="$(cfg_of "$sel")"
+    ( cd "$wt" && if [ -n "$cfg" ]; then export CLAUDE_CONFIG_DIR="$cfg"; else unset CLAUDE_CONFIG_DIR; fi
+      STUB_KIND=agent exec "$STUB_BOX_BIN/claude" --dangerously-skip-permissions "${prompt:-}" ) ;;
+  "terminal create")
+    for a in "$@"; do case "${prev:-}" in --worktree) wt="${a#path:}" ;; --command) cmd="$a" ;; esac; prev="$a"; done
+    ( cd "$wt" && PATH="$STUB_BOX_BIN:$PATH" exec bash -c "$cmd" ) </dev/null >/dev/null 2>&1 & ;;
   "terminal list")
     for p in "$DEVBOX_PROC"/*; do [ -L "$p/cwd" ] || continue
       for a in "$@"; do [ "$a" = "path:$(readlink "$p/cwd")" ] && echo "term_${p##*/}  claude"; done; done ;;
@@ -101,9 +114,9 @@ case "$1 $2" in
     echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"hi"}]}}' > "$d/s1.jsonl" ;;
 esac
 EOF
-chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca-ide" "$T/laptop-orca/orca"
+chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca-ide" "$T/box-bin/claude" "$T/laptop-orca/orca"
 export PATH="$T/bin:/usr/bin:/bin" HOME="$T/laptop-home" STUB_BOXES="$T/boxes" STUB_LOG="$T/stub.log" DEVBOX_PROC="$PROC"
-export DEVBOX_CLAUDE_HOME="$T/laptop-claude" XDG_STATE_HOME="$T/state" DEVBOX_LAUNCH_SETTLE=0
+export DEVBOX_CLAUDE_HOME="$T/laptop-claude" XDG_STATE_HOME="$T/state" STUB_BOX_BIN="$T/box-bin"
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 mkdir -p "$DEVBOX_CLAUDE_HOME"
 : > "$STUB_LOG"
@@ -173,6 +186,25 @@ wt() { echo "$BOXH/work/x/benches/$1/apps/nirmaan_stack"; }
 made() { git -C "$L" rev-parse -q --verify "refs/heads/box/$1" >/dev/null && echo branch || echo none; }
 launch_file() { cat "$BOXH/claude-artifacts/dod/box-$1/LAUNCH" 2>/dev/null || true; }
 procs() { ls "$PROC" | wc -l | tr -d ' '; }
+# The claude processes in env <task> as the box's /proc shows them, one "<pid> <its CLAUDE_CONFIG_DIR, or ~/.claude>" each.
+claude_in() {
+  local p
+  for p in "$PROC"/*; do
+    [ "$(readlink "$p/cwd" 2>/dev/null)" = "$(wt "$1")" ] && [ "$(cat "$p/comm")" = claude ] || continue
+    printf '%s %s\n' "${p##*/}" "$(tr '\0' '\n' < "$p/environ" | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | grep . || echo "$BOXH/.claude")"
+  done
+}
+pid_in() { claude_in "$1" | awk 'NR == 1 {print $1}'; }
+select_on_box() { ssh t@r7-test orca-ide account select --agent claude --account "$1" --json; }
+
+# ---- the stub restarts a Claude Orca's agent launch started when the selection changes, as Orca 1.4.265 does on r7
+git -C "$CO" worktree add -q --detach "$(wt ctl)"
+ssh t@r7-test orca-ide agent launch --agent claude --worktree "path:$(wt ctl)" --prompt hi
+same "$(claude_in ctl | cut -d' ' -f2)" "$BOXH/.claude" "an agent-launch Claude starts on the selected account"
+before="$(pid_in ctl)"; select_on_box acct-madhu
+[ "$(pid_in ctl)" != "$before" ] || fail "a select restarts the agent-launch Claude as a new process"; pass "a select restarts the agent-launch Claude as a new process"
+same "$(claude_in ctl | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "the restarted Claude runs on the newly selected account"
+select_on_box system; ssh t@r7-test orca-ide terminal close --terminal "term_$(pid_in ctl)"
 
 # ---- refusals before anything changes: no branch, no record, nothing past the check on the box
 STUB_KEY=AAAAstranger start s1
@@ -210,18 +242,19 @@ STUB_KEY=AAAAowner start t6
 rc_is 0 "the owner's start exits 0"
 has "you are abhishek (people.conf); Claude runs as system, signed in as owner@example.com" "the check names the person and account"
 has "Claude is working in 't6'" "the first reply in ~/.claude is found"
-log_has "orca-ide account select --agent claude --account system --json" "the owner's account is selected on the box"
-log_has "spawned t6 as system" "Claude starts as the selected account"
+same "$(claude_in t6 | cut -d' ' -f2)" "$BOXH/.claude" "the owner's Claude runs on the box's own login"
+same "$(cat "$PROC/$(pid_in t6)/args")" "--dangerously-skip-permissions" "Claude gets the permission mode Orca's agent launch gives it"
 log_lacks "laptop-orca" "the laptop's orca is never called"
 case "$(launch_file t6)" in *"requester=abhishek"*"account=system"*"email=owner@example.com"*"config=$BOXH/.claude"*) pass "LAUNCH records the owner and his login" ;; *) fail "LAUNCH records the owner and his login: $(launch_file t6)" ;; esac
-case "$(cat "$BOXH/.last-prompt")" in *"task 't6'"*"Never push"*) pass "the prompt arrives whole on the box" ;; *) fail "the prompt arrives whole on the box" ;; esac
+case "$(cat "$PROC/$(pid_in t6)/prompt")" in "You are an agent on a dev box, working on task 't6'"*'$(python3 scripts/devenv/dod.py base)'*"say what the owner must decide.") pass "the prompt arrives whole, as Claude's first message" ;; *) fail "the prompt arrives whole, as Claude's first message" ;; esac
 
-# ---- madhu: an Orca account; the selection goes back to what it was
+# ---- madhu, right after the owner: an Orca account. Each Claude stays on its own person's account.
+owner_claude="$(claude_in t6)"
 STUB_KEY=AAAAmadhu start madhu-t7
 rc_is 0 "madhu's start exits 0"
-log_has "orca-ide account select --agent claude --account acct-madhu --json" "madhu's account is selected by its id"
-log_has "spawned madhu-t7 as acct-madhu" "Claude starts as madhu's account"
-same "$(cat "$BOXH/.orca-selected")" system "the box's selection is put back after the launch"
+same "$(claude_in madhu-t7 | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "madhu's Claude runs on madhu's account"
+same "$(claude_in t6)" "$owner_claude" "the owner's Claude keeps its process and account while madhu's task starts"
+log_lacks "orca-ide account select" "madhu's launch leaves Orca's account selection alone"
 has "Claude is working in 'madhu-t7'" "the first reply is found in the account's own session logs"
 case "$(launch_file madhu-t7)" in *"requester=madhu"*"email=madhu@example.com"*"config=$PROFILES/acct-madhu/home"*) pass "LAUNCH records madhu and the account" ;; *) fail "LAUNCH records madhu and the account: $(launch_file madhu-t7)" ;; esac
 case "$(launch_file madhu-t7)" in *"git-name=Madhu Balan"*"git-email=madhu@commits.example.com"*) pass "LAUNCH records madhu's git identity" ;; *) fail "LAUNCH records madhu's git identity: $(launch_file madhu-t7)" ;; esac
@@ -252,12 +285,10 @@ sed -n '/^watch_probe() {/,/^}/p' "$L/scripts/devenv/task.sh" > "$T/watch_probe.
 idle="$(bash -c ". '$T/watch_probe.sh'; watch_probe" | ssh t@r7-test bash -s -- work/x/variants/master madhu-t7 | awk -F'\t' '$1 == "madhu-t7" {print $4}')"
 case "$idle" in [0-9]*) pass "watch finds a box launch's session log" ;; *) fail "watch finds a box launch's session log (idle '$idle')" ;; esac
 
-# ---- Orca's two-step start: the selection stays until the resumed Claude has run unbroken for the settle time
-: > "$STUB_LOG"
-STUB_KEY=AAAAmadhu TASK_ENV="STUB_SEED=1 DEVBOX_LAUNCH_SETTLE=2" start madhu-t15
-rc_is 0 "a two-step start (seed process, then the real one) exits 0"
-log_has "spawned madhu-t15 as acct-madhu" "the real Claude starts as madhu's account, not the owner's"
-same "$(cat "$BOXH/.orca-selected")" system "the selection still goes back after the settle time"
+# ---- for the task's whole life: anyone changing the box's Orca selection leaves both Claudes where they are
+both="$(claude_in t6) / $(claude_in madhu-t7)"
+select_on_box acct-madhu; select_on_box acct-late; select_on_box system
+same "$(claude_in t6) / $(claude_in madhu-t7)" "$both" "box-launched Claudes keep their process and account when Orca's selection changes"
 
 # ---- the started Claude is not the person's account: stopped and refused
 n="$(procs)"
@@ -279,20 +310,26 @@ STUB_KEY=AAAAmadhu TASK_ENV="STUB_REPLY=none DEVBOX_REPLY_WAIT=1 STUB_SCREEN=Wel
 rc_is 1 "no reply exits 1"; has "Welcome-to-Claude" "the terminal's last lines come from the box"
 log_has "orca-ide terminal read --terminal term_" "the box reads its own terminal"
 
-# ---- two launches at once: the lock keeps each select next to its own spawn
-for n in t11 madhu-t12; do git -C "$CO" worktree add -q --detach "$(wt $n)"; done; echo 0 > "$T/a.rc"; echo 0 > "$T/b.rc"
+# ---- two people's launches at once: each Claude on its own person's account
+for n in t11 madhu-t12 t18; do git -C "$CO" worktree add -q --detach "$(wt $n)"; done; echo 0 > "$T/a.rc"; echo 0 > "$T/b.rc"
 : > "$STUB_LOG"
-b64() { printf 'go %s' "$1" | base64 | tr -d '\n'; }
-( STUB_LAUNCH_SLEEP=2 STUB_KEY=AAAAowner ssh t@r7-test python3 - launch t11 "$(wt t11)" "$(b64 t11)" < "$L/scripts/devenv/box_launch.py" > "$T/a.out" 2>&1 || echo $? > "$T/a.rc" ) &
-sleep 0.5
-( STUB_LAUNCH_SLEEP=2 STUB_KEY=AAAAmadhu ssh t@r7-test python3 - launch madhu-t12 "$(wt madhu-t12)" "$(b64 madhu-t12)" < "$L/scripts/devenv/box_launch.py" > "$T/b.out" 2>&1 || echo $? > "$T/b.rc" ) &
+b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+( STUB_KEY=AAAAowner ssh t@r7-test python3 - launch t11 "$(wt t11)" "$(b64 'go t11')" < "$L/scripts/devenv/box_launch.py" > "$T/a.out" 2>&1 || echo $? > "$T/a.rc" ) &
+( STUB_KEY=AAAAmadhu ssh t@r7-test python3 - launch madhu-t12 "$(wt madhu-t12)" "$(b64 'go madhu-t12')" < "$L/scripts/devenv/box_launch.py" > "$T/b.out" 2>&1 || echo $? > "$T/b.rc" ) &
 wait
 OUT="$(cat "$T/a.out" "$T/b.out")"; RC="$(cat "$T/a.rc")/$(cat "$T/b.rc")"
 same "$RC" "0/0" "two launches at once both prove their accounts"
-has "wait  another launch is starting its Claude on the box" "the second launch waits for the first"
-log_has "spawned t11 as system" "the first spawns as its own account"; log_has "spawned madhu-t12 as acct-madhu" "the second spawns as its own account"
-same "$(grep -E '^(orca-ide account select|spawned)' "$STUB_LOG" | sed 's/ --json//; s/orca-ide account select --agent claude --account/select/' | tr '\n' ',')" \
-  "select system,spawned t11 as system,select acct-madhu,spawned madhu-t12 as acct-madhu,select system," "select and spawn never interleave"
+same "$(claude_in t11 | cut -d' ' -f2)" "$BOXH/.claude" "the owner's Claude runs on the owner's account"
+same "$(claude_in madhu-t12 | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "madhu's Claude runs on madhu's account"
+log_lacks "orca-ide account select" "neither launch touches Orca's account selection"
+
+# ---- the prompt reaches Claude byte for byte: quotes, newlines, shell syntax, a leading dash, spaces at its edges
+nasty="$(printf '%s\n' "  it's \"quoted\" and 'single'" 'a $(touch '"$T"'/pwned) `touch '"$T"'/pwned` $HOME ${PATH}' \
+  'back\slash \n	tab; && || > /dev/null' '--help' "!! history *glob* ~tilde  ")"
+run env STUB_KEY=AAAAowner ssh t@r7-test python3 - launch t18 "$(wt t18)" "$(b64 "$nasty")" < "$L/scripts/devenv/box_launch.py"
+rc_is 0 "a launch with a hostile prompt exits 0"
+same "$(cat "$PROC/$(pid_in t18)/prompt")" "$nasty" "the prompt arrives byte for byte"
+[ ! -e "$T/pwned" ] || fail "nothing in the prompt runs as a command"; pass "nothing in the prompt runs as a command"
 
 # ---- a launch into a folder that is not a worktree of its own sets no one's identity
 mkdir -p "$CO/not-an-env"; : > "$STUB_LOG"
