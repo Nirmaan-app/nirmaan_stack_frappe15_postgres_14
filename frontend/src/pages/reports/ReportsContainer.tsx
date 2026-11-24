@@ -2,6 +2,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
+import { useKeptReportForTab } from './hooks/useKeptReportForTab';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AuditViewReportType, DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
@@ -111,10 +112,6 @@ export default function ReportsContainer() {
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
-
-
-
-
     const [activeTab, setActiveTab] = useState<string>(initialTab);
 
     // Parent doctype toggle for the DCs & MIRs tab (PO vs ITM)
@@ -163,17 +160,21 @@ export default function ReportsContainer() {
         // The dependency array is now stable and won't cause loops.
     }, [activeTab, role, initialTab, setDefaultReportType, setSelectedReportType]);
 
+    const keptReportFor = useKeptReportForTab(activeTab, selectedReportType);
     const handleTabClick = useCallback((value: string) => {
         if (activeTab !== value) {
             // When user clicks a tab, update the URL. The effects above will handle state changes.
-            // Clear report and filter params to ensure a clean state for the new tab.
+            // Clear report and filter params to ensure a clean state for the new tab (Audit View: its last type).
+            const keptReport = keptReportFor(value);
             urlStateManager.updateParam("tab", value);
-            urlStateManager.updateParam("report", null);
+            // Set directly too: updateParam does not notify when the URL already holds this value.
+            if (keptReport) setSelectedReportType(keptReport);
+            urlStateManager.updateParam("report", keptReport);
             // This is important: Clear the filters specific to the inflow table.
             urlStateManager.updateParam("inflow_report_table_filters", null);
             urlStateManager.updateParam("outflow_report_table_filters", null); // Also clear outflow filters
         }
-    }, [activeTab]);
+    }, [activeTab, keptReportFor, setSelectedReportType]);
 
     const handleReportTypeChange = (value: string) => {
         const validReportType = currentReportOptions.find(opt => opt.value === value)?.value as ReportType;
@@ -187,7 +188,6 @@ export default function ReportsContainer() {
             urlStateManager.updateParam("outflow_report_table_filters", null);
         }
     };
-
 
     // Define available tabs based on role
     const tabs = useMemo(() => {
@@ -244,10 +244,6 @@ export default function ReportsContainer() {
         }
     }, [tabs, activeTab, role]);
 
-
-
-
-
     // Role-limited reports of the PO and WO tabs: 2B Reconcile (Admin + Accountants), and
     // Amount Paid Mismatch (Admin + Accountant Lead, #1455; the server refuses anyone else).
     const hiddenOrderReports = useMemo(() => {
@@ -303,7 +299,6 @@ export default function ReportsContainer() {
         return [];
     }, [activeTab, role, hiddenOrderReports]);
 
-
     // Effect to auto-select/validate report type when options change
     useEffect(() => {
         // Options are [] until the role lands; validating against that would discard the
@@ -347,7 +342,6 @@ export default function ReportsContainer() {
         }
 
     }, [currentReportOptions, selectedReportType, setSelectedReportType, setDefaultReportType, activeTab, role]);
-
 
     const renderTabs = () => {
         if (!tabs.length) {
@@ -426,7 +420,6 @@ export default function ReportsContainer() {
         }
         return <div className="p-4 text-center text-gray-500">Select a report tab to view details.</div>;
     };
-
 
     return (
         <div className="flex-1 space-y-4">
