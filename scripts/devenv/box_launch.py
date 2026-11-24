@@ -8,11 +8,13 @@ not matter. Linux only (it reads /proc). Progress goes to stderr; stdout carries
   launch <task> <worktree> <prompt, base64>
                                     set the person's git name and email for <worktree> only (git's per-worktree config:
                                     extensions.worktreeConfig, then git config --worktree; the main checkout and other
-                                    envs keep theirs); then, under the launch lock: select the person's account in the
-                                    box's Orca, start Claude in <worktree>, wait for its process, prove that process
-                                    uses the account's config dir (else close its terminal and refuse), put the Orca
-                                    selection back, and record requester, account and git identity in
-                                    ~/claude-artifacts/dod/box-<task>/LAUNCH. Prints @config <dir>
+                                    envs keep theirs); then open a terminal in <worktree> in the box's Orca that runs
+                                    Claude on the person's account's config dir (CLAUDE_CONFIG_DIR, unset for system)
+                                    with the prompt as its first message (kept beside the brief, in
+                                    ~/claude-artifacts/dod/box-<task>/PROMPT.md), wait for its process, prove that
+                                    process uses the account's config dir (else close its terminal and refuse), and
+                                    record requester, account and git identity in ~/claude-artifacts/dod/box-<task>/
+                                    LAUNCH. Orca's account selection is never touched. Prints @config <dir>
   alive <worktree>                  exit 0 when a claude process runs in <worktree>
   tail <worktree>                   the last 15 rows of its Orca terminal's screen
   stop <worktree>                   close its Orca terminals
@@ -37,7 +39,6 @@ Exit 1: refused, failed, or (people check) something missing, with the reason on
 """
 import argparse
 import base64
-import contextlib
 import fcntl
 import glob
 import json
@@ -52,19 +53,16 @@ from collections import namedtuple
 HOME = os.path.expanduser("~")
 PEOPLE = os.path.join(HOME, ".config/devbox/people.conf")
 AUTHORIZED = os.path.join(HOME, ".ssh/authorized_keys")
-LOCK = os.path.join(HOME, ".local/state/devbox/launch.lock")
+LOCK = os.path.join(HOME, ".local/state/devbox/trust.lock")
 DEFAULT_HOME = os.path.join(HOME, ".claude")
 PROC = os.environ.get("DEVBOX_PROC", "/proc")   # set it only in tests
-LOCK_WAIT, ALIVE_WAIT = 600, 60
-# Orca starts Claude in two steps (a short-lived process that seeds the session, then the one that resumes it),
-# reading the selected account at each. The selection goes back only once a Claude has run this long unbroken.
-SETTLE = float(os.environ.get("DEVBOX_LAUNCH_SETTLE", "10"))
+ALIVE_WAIT = 60
 
 # One person's record in people.conf. keys: the public key lines as written there.
 Person = namedtuple("Person", "name keys account email prefix git_name git_email")
 # people.conf variable -> Person field, for the single-valued ones (key is the list).
 VARS = {"account": "account", "email": "email", "prefix": "prefix", "git-name": "git_name", "git-email": "git_email"}
-Account = namedtuple("Account", "select home email")   # select: what orca-ide account select takes
+Account = namedtuple("Account", "id home email")   # id: Orca's id for it, system for the box's own login
 Proc = namedtuple("Proc", "pid config")
 
 
@@ -165,7 +163,9 @@ def set_git_identity(wt, person):
     if shared:
         raise Refused(f"the repo's shared config sets {', '.join(shared)}: move it to the main checkout's "
                       "config.worktree before per-worktree identities can be set (git help worktree, CONFIGURATION FILE)")
-    git("config", "extensions.worktreeConfig", "true")
+    # The repo's shared config: writing it only when off keeps launches at the same moment off git's config lock.
+    if git("config", "--bool", "extensions.worktreeConfig", check=False) != "true":
+        git("config", "extensions.worktreeConfig", "true")
     git("config", "--worktree", "user.name", person.git_name)
     git("config", "--worktree", "user.email", person.git_email)
     got = (git("config", "user.name"), git("config", "user.email"))
@@ -202,9 +202,13 @@ def claude_accounts():
     return json.loads(orca("account", "list", "--json"))["result"]["claude"]
 
 
+def is_default(home):
+    return os.path.realpath(home) == os.path.realpath(DEFAULT_HOME)
+
+
 def config_json(home):
     """Claude Code keeps its login in ~/.claude.json for the default config dir, else in <dir>/.claude.json."""
-    if os.path.realpath(home) == os.path.realpath(DEFAULT_HOME):
+    if is_default(home):
         return os.path.join(HOME, ".claude.json")
     return os.path.join(home, ".claude.json")
 
@@ -279,49 +283,49 @@ def stop(wt):
 
 def trust(home, wt):
     """Claude asks "trust this folder?" first, and the question swallows the prompt. task.sh marks the folder trusted in
-    ~/.claude.json; an Orca account keeps its own .claude.json, so mark it there too."""
+    ~/.claude.json; an Orca account keeps its own .claude.json, so mark it there too. Two launches on one account
+    rewrite the same file, so they take turns."""
     path = config_json(home)
-    try:
-        with open(path) as f:
-            c = json.load(f)
-    except (OSError, ValueError):
-        c = {}
-    c.setdefault("projects", {}).setdefault(wt, {})["hasTrustDialogAccepted"] = True
-    with open(path + ".new", "w") as f:
-        json.dump(c, f, indent=2)
-    os.replace(path + ".new", path)
-
-
-@contextlib.contextmanager
-def launch_lock():
-    """Orca's account selection is one setting for the whole box: two launches must not interleave select and spawn."""
     os.makedirs(os.path.dirname(LOCK), exist_ok=True)
-    with open(LOCK, "a") as f:
-        deadline, told = time.time() + LOCK_WAIT, False
-        while True:
-            try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.time() > deadline:
-                    raise Refused(f"another launch held {LOCK} for {LOCK_WAIT} s")
-                if not told:
-                    say("wait  another launch is starting its Claude on the box; this one goes next")
-                    told = True
-                time.sleep(1)
-        yield
+    with open(LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path) as f:
+                c = json.load(f)
+        except (OSError, ValueError):
+            c = {}
+        c.setdefault("projects", {}).setdefault(wt, {})["hasTrustDialogAccepted"] = True
+        with open(path + ".new", "w") as f:
+            json.dump(c, f, indent=2)
+        os.replace(path + ".new", path)
+
+
+def write_private(task, name, text):
+    """~/claude-artifacts/dod/box-<task>/<name>, beside the brief, readable by the box user only."""
+    d = os.path.join(HOME, "claude-artifacts/dod", f"box-{task}")
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    path = os.path.join(d, name)
+    with open(path, "w") as f:
+        f.write(text)
+    os.chmod(path, 0o600)
+    return path
+
+
+def claude_command(acct, prompt_file):
+    """The command the env's terminal runs: Claude on the account's config dir, in the permission mode Orca's agent
+    launch gives it, with the task prompt as its first message. The box's own login is read from ~/.claude.json only
+    while CLAUDE_CONFIG_DIR is unset."""
+    config = ["-u", "CLAUDE_CONFIG_DIR"] if is_default(acct.home) else [f"CLAUDE_CONFIG_DIR={acct.home}"]
+    return " ".join(["env", *map(shlex.quote, config), "claude", "--dangerously-skip-permissions",
+                     f'"$(cat {shlex.quote(prompt_file)})"'])
 
 
 def record(task, person, acct):
-    d = os.path.join(HOME, "claude-artifacts/dod", f"box-{task}")
-    os.makedirs(d, mode=0o700, exist_ok=True)
-    lines = [f"requester={person.name}", f"account={person.account}", f"account-id={acct.select}",
+    lines = [f"requester={person.name}", f"account={person.account}", f"account-id={acct.id}",
              f"email={signed_in_email(acct.home)}", f"config={acct.home}",
              f"git-name={person.git_name}", f"git-email={person.git_email}",
              "launched=" + time.strftime("%Y-%m-%dT%H:%M:%S%z")]
-    with open(os.path.join(d, "LAUNCH"), "w") as f:
-        f.write("\n".join(lines) + "\n")
-    os.chmod(os.path.join(d, "LAUNCH"), 0o600)
+    write_private(task, "LAUNCH", "\n".join(lines) + "\n")
 
 
 def cmd_check(task):
@@ -340,28 +344,15 @@ def cmd_launch(task, wt, prompt):
     if already:
         raise Refused(f"a Claude already runs in {wt} (pid {already[0].pid}): close its terminal first")
     set_git_identity(wt, person)
-    with launch_lock():
-        listing = claude_accounts()
-        acct = resolve(person, listing)
-        trust(acct.home, wt)
-        before = listing.get("activeAccountId") or "system"
-        orca("account", "select", "--agent", "claude", "--account", acct.select, "--json")
-        try:
-            # The launch reply may say it could not confirm although the agent started: the proof is the process.
-            orca("agent", "launch", "--agent", "claude", "--surface", "terminal", "--focus", "--worktree", f"path:{wt}",
-                 "--prompt", prompt, "--json", check=False)
-            deadline, since = time.time() + ALIVE_WAIT, None
-            while time.time() < deadline:
-                if not claude_procs(wt):
-                    since = None
-                elif since is None:
-                    since = time.time()
-                if since is not None and time.time() - since >= SETTLE:
-                    break
-                time.sleep(0.5)
-        finally:
-            if before != acct.select:
-                orca("account", "select", "--agent", "claude", "--account", before, "--json", check=False)
+    acct = resolve(person, claude_accounts())
+    trust(acct.home, wt)
+    # Not orca-ide agent launch: Orca restarts every Claude it launched onto whichever account is selected next on the
+    # box, so one person's task would move to the next person's account.
+    orca("terminal", "create", "--worktree", f"path:{wt}", "--title", task, "--focus",
+         "--command", claude_command(acct, write_private(task, "PROMPT.md", prompt)), "--json")
+    deadline = time.time() + ALIVE_WAIT
+    while not claude_procs(wt) and time.time() < deadline:
+        time.sleep(0.5)
     procs = claude_procs(wt)
     if not procs:
         raise Refused(f"no Claude process in {wt} after {ALIVE_WAIT} s")

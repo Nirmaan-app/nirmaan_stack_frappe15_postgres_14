@@ -52,7 +52,9 @@ at() { case "$1" in *@*:*) p="${1#*:}"; echo "$STUB_BOXES/${1%%:*}/${p#\~/}" ;; 
 cp "$(at "${args[0]}")" "$(at "${args[1]}")"
 EOF
 # claude on the box: an entry in the fake /proc ($DEVBOX_PROC) with the config dir it was given (STUB_WRONG_HOME
-# overrides it), its arguments and its prompt (the last argument); then the session log STUB_REPLY says.
+# overrides it), its arguments and its prompt (the last argument); then the session log STUB_REPLY says. Without
+# STUB_REPLY it replies when it finds a login where Claude Code reads it: <CLAUDE_CONFIG_DIR>/.claude.json, or
+# ~/.claude.json while CLAUDE_CONFIG_DIR is unset; else it writes the "Not logged in" entry.
 cat > "$T/box-bin/claude" <<'EOF'
 #!/bin/bash
 p="$DEVBOX_PROC/$$"; mkdir -p "$p"
@@ -61,7 +63,9 @@ cfg="${STUB_WRONG_HOME:-${CLAUDE_CONFIG_DIR:-}}"
 if [ -n "$cfg" ]; then printf 'PATH=/bin\0CLAUDE_CONFIG_DIR=%s\0' "$cfg"; else printf 'PATH=/bin\0'; fi > "$p/environ"
 printf '%s\n' "${@:1:$#-1}" > "$p/args"; printf '%s' "${!#}" > "$p/prompt"
 d="${cfg:-$HOME/.claude}/projects/$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
-case "${STUB_REPLY:-real}" in
+reply="${STUB_REPLY:-}"
+[ -n "$reply" ] || { grep -q emailAddress "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" 2>/dev/null && reply=real || reply=synthetic; }
+case "$reply" in
   real) echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
   synthetic) echo '{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}' > "$d/s1.jsonl" ;;
 esac
@@ -323,7 +327,7 @@ same "$(claude_in t11 | cut -d' ' -f2)" "$BOXH/.claude" "the owner's Claude runs
 same "$(claude_in madhu-t12 | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "madhu's Claude runs on madhu's account"
 log_lacks "orca-ide account select" "neither launch touches Orca's account selection"
 
-# ---- the prompt reaches Claude byte for byte: quotes, newlines, shell syntax, a leading dash, spaces at its edges
+# ---- the prompt reaches Claude byte for byte: quotes, newlines, shell syntax, a line like a flag, spaces at its edges
 nasty="$(printf '%s\n' "  it's \"quoted\" and 'single'" 'a $(touch '"$T"'/pwned) `touch '"$T"'/pwned` $HOME ${PATH}' \
   'back\slash \n	tab; && || > /dev/null' '--help' "!! history *glob* ~tilde  ")"
 run env STUB_KEY=AAAAowner ssh t@r7-test python3 - launch t18 "$(wt t18)" "$(b64 "$nasty")" < "$L/scripts/devenv/box_launch.py"
