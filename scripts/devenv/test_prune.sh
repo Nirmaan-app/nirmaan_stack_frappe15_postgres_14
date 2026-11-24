@@ -358,8 +358,8 @@ task clean tj
 rc_is 0 "clean tj"; has "ok    DIVERGED, but the box tip" "clean accepts DIVERGED when a laptop ref holds the box tip"
 same "$(rec tj)" none "clean tj unsets the record"
 
-# ---- watch --clean cleans each PRUNE task itself (2026-11-24: air held 14 merged tasks for up to 6 days, since
-# nothing ran prune). tl's destroy stops at its last rmdir on a file an agent left in benches/tl, as one did on air.
+# ---- watch --clean cleans each PRUNE task itself. tl's destroy stops at its last rmdir on a file an agent left in
+# benches/tl.
 for n in tk tl; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
 commit "$(bwt tk)" k1; commit "$(bwt tl)" l1
 for n in tk tl; do task done "$n"; rc_is 0 "done $n"; git -C "$L" merge -q --no-ff --no-edit "box/$n"; done

@@ -45,8 +45,8 @@
 #                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
 #                            when that changes. done prints the same WARN.
 #                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does:
-#                            it cleans each PRUNE task (on 2026-11-24 air held 14 merged tasks, 3.9 GB of idle chats
-#                            and about 36 GiB of disk, because nothing ran prune). A clean that fails alerts, naming the
+#                            it cleans each PRUNE task, so merged tasks never pile up on a box (each holds an idle chat,
+#                            its folder and a ~2 GB test DB). A clean that fails alerts, naming the
 #                            task (its output is in the pass), and WARNs on each later pass while it still fails. A box
 #                            that did not answer is left alone: the watch rows above already show it unreachable.
 #                            --every repeats until Ctrl-C. --install (macOS) runs watch --clean every 300 s as the
@@ -771,7 +771,7 @@ case "$CMD" in
     agent_stop "$WT"
     # No pipe after destroy: its status is what stops the branch delete. The login shell may be zsh (air).
     # With the env gone, a benches/<name> folder is what a destroy left when its last rmdir met files an agent left
-    # there (air, 2026-11-24): removed when empty, so a rerun converges; never forced.
+    # there: removed when empty, so a rerun converges; never forced.
     RC=0; OUT="$(box_ssh "cd ~/$BOX_CO || exit 1
       if [ -d $WT ]; then
         scripts/devenv/devenv.sh stop $NAME >/dev/null 2>&1
