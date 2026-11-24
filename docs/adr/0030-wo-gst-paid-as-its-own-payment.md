@@ -143,7 +143,8 @@ the CEO.
 ### Consequences
 
 - The Admins get an information-only bell ("GST payment … approved by … from GPR-…."), cut to
-  the bell's 140 characters; the CEO gets nothing. The Accountants get the usual "ready to fulfil" bell.
+  the bell's 140 characters. The CEO, an Admin-profile user, gets it too (owner, 2026-11-24). The Accountants
+  get the usual "ready to fulfil" bell.
 - The Request Payment dialog, the GST Requests tab and its Approve dialog say the payment goes straight to
   Payment need to paid.
 - No new field or status. B2 is a data patch; B3 changes the payment-step raise rule for GST payments only.
