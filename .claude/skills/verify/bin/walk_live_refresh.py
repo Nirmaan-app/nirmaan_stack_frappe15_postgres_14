@@ -15,6 +15,8 @@ As a Nirmaan Accountant Profile user (Customers in its sidebar):
   01-list       sidebar Customers: the customer's company name on the list.
   02-refreshed  the Administrator renames the customer through the REST API (PUT /api/resource/Customers/<id>); the
                 open list shows the new name and the "Data Updated" toast, with no reload.
+  02b-reopened  the sidebar's Dashboard, then Customers again: the list still shows the new name (#1729: a list
+                answered from the server's page cache showed the old one again).
   03-restored   the name is put back the same way; the list shows it again.
 Each rename is read back from the env DB (`db-*.json`); the name is put back even when a step fails. Each step
 prints seen or FAILED; the walk exits 1 on any FAILED.
@@ -109,6 +111,10 @@ def main() -> int:
             check(shows(page, renamed), f"the open list shows {renamed!r} with no reload")
             check(page.get_by_text("Data Updated").first.is_visible(), "the 'Data Updated' toast")
             save(page, out, "02-refreshed")
+            sidebar(page, "Dashboard")
+            sidebar(page, "Customers")
+            check(shows(page, renamed), f"the list reopened from the sidebar still shows {renamed!r}")
+            save(page, out, "02b-reopened")
         finally:
             rename(a.customer, before)
         check(db(a.task, out, "03-restored", a.customer)["company_name"] == before, f"the DB holds {before!r} again")

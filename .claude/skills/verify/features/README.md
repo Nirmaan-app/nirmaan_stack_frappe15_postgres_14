@@ -112,7 +112,7 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps). Live refresh of the list (#1670): `BIN/walk_live_refresh.py`
-  (failed on 2026-11-19; see the feature file).
+  (passes since #1729; see the feature file).
 - [Office Rent](./office-rent.md): a bill incl. 18% GST raised by HR, approved by Admin and the CEO, split
   into rent, GST, TDS and what the landlord gets, paid by an Accountant. Walked end to end by
   `BIN/walk_office_rent.py`.

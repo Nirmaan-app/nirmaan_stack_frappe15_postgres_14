@@ -43,7 +43,7 @@ Preconditions:
   Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on any miss. `--part view`
   runs 01-03b alone and writes nothing.
   With no customer to open (none, all inside the list's 5-minute cache, or all made-up) it exits 1 saying
-  which; `python3 -m unittest test_walk_customers` (from `BIN`) tests that choice.
+  which (the cache rule predates #1729, which turned the list's cache off); `python3 -m unittest test_walk_customers` (from `BIN`) tests that choice.
 - **Read the DB.** `DEVENV script <task> BIN/customers_db.py list|customer <id>|by-company <name>|pincode|empty <prefix>`.
 - **The page.** Wait for `Customer ID` and `Total Projects`; labels render uppercase in `inner_text`.
 - **The edit form.** The pen is `button:has(svg.lucide-file-pen-line)`; the form is the `dialog`, its 11 inputs in
@@ -57,17 +57,17 @@ Preconditions:
 - An Accountant may read customers but the Customers DocType gives the Accountant roles no create or write: the
   create form fails for them with a "Failed!" toast, after it has already made the Address, which its rollback
   cannot delete either (an orphan `<name>-Office` Address is left). Create and edit as the Admin.
-- The list's API caches each page for 5 minutes (`CACHE_EXPIRY`, `api/data_table/constants.py`) and the env serves
-  no realtime event to clear it, so a customer made in the last 5 minutes is missing from the plain list (the count
-  card is not cached). Find it with the search box (`Search by company name...`), a query not cached yet.
+- The list asks for a fresh page every time (#1729 turned its 5-minute page cache off), so a customer made or
+  renamed a moment ago shows on the plain list once it is reopened.
 - The made-up customers stay in the env DB; their names start with `Zephyr Walk Builders`.
 - Live refresh (#1670): `BIN/walk_live_refresh.py` holds the list open as the Accountant while the Administrator
-  renames a customer through the REST API, and expects the new name with no reload. It needs the env bench's own
-  Socket.IO server (its docstring says how). **Fails on the code before #1654 as well**
+  renames a customer through the REST API, and expects the new name with no reload, then reopens the list from the
+  sidebar and expects it still. It needs the env bench's own Socket.IO server (its docstring says how). Passes since
+  #1729. **Failed on the code before #1654 as well**
   (2026-11-19, measured on a throwaway env at `49b9e1d89`). The transport is fine: recorded with the browser's own
   frame hooks, the upgraded websocket receives `list_update` within 10 ms and its pings on both codes. An earlier
   note here said no frame arrived; that came from a probe that hooked `ws.send`, which socket.io 4.8 skips for
   broadcast frames. Two causes, both older than #1654: (1) the SDK's listener hooks drop every `list_update`
   handler whenever the sidebar re-renders, which #1670's safe hooks fix (the Customers handler now runs and the
   "Data Updated" toast shows); (2) the refetch is answered from the list API's 5-minute page cache, so the list
-  redraws with the old name. Until (2) is fixed the walk's step 02 fails on any code.
+  redraws with the old name. #1729 fixed (2) by turning the Customers list's page cache off.
