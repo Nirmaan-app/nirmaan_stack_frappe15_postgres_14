@@ -118,6 +118,12 @@ watch --every soon
 rc_is 1 "--every with a word is a usage error"
 watch now
 rc_is 1 "an unknown argument is a usage error"
+watch --clean --clean
+rc_is 1 "--clean twice is a usage error"
+watch --every 5 --clean --every 5
+rc_is 1 "--every twice is a usage error"
+watch --clean --install
+rc_is 1 "--install takes no --clean (the job always cleans)"
 [ ! -e "$STATE" ] || [ -z "$(ls "$STATE")" ] || fail "a usage error saves no state"; pass "a usage error saves no state"
 
 # ---- the first pass: every row of the classification table
@@ -367,7 +373,7 @@ plutil -lint -s "$PLIST" || fail "the plist is valid"; pass "the plist is valid"
 P="$(cat "$PLIST")"
 case "$P" in *"<string>app.nirmaan.task-watch</string>"*) pass "the label is app.nirmaan.task-watch" ;; *) fail "the label is app.nirmaan.task-watch" ;; esac
 SELF="$(cd "$L/scripts/devenv" && pwd -P)/task.sh"
-case "$P" in *"<string>/bin/bash</string>"*"<string>-c</string>"*"<string>\"$SELF\" watch &gt; \"$LOG\" 2&gt;&amp;1</string>"*) pass "the job runs this task.sh watch with its log at devbox/watch.log" ;; *) fail "the job runs this task.sh watch with its log at devbox/watch.log" ;; esac
+case "$P" in *"<string>/bin/bash</string>"*"<string>-c</string>"*"<string>\"$SELF\" watch --clean &gt; \"$LOG\" 2&gt;&amp;1</string>"*) pass "the job runs this task.sh watch --clean with its log at devbox/watch.log" ;; *) fail "the job runs this task.sh watch --clean with its log at devbox/watch.log" ;; esac
 case "$P" in *"<key>StartInterval</key>"*"<integer>300</integer>"*) pass "the job runs every 300 s" ;; *) fail "the job runs every 300 s" ;; esac
 case "$P" in *"<key>RunAtLoad</key>"*"<true/>"*) pass "the job runs at load" ;; *) fail "the job runs at load" ;; esac
 case "$P" in *"<key>PATH</key>"*"<string>$T/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"*) pass "the job's PATH has orca's folder and the usual bins" ;; *) fail "the job's PATH has orca's folder and the usual bins" ;; esac

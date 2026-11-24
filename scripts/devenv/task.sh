@@ -19,17 +19,20 @@
 #                            ${XDG_STATE_HOME:-~/.local/state}/devbox/reports/<name>.md (review, merge and
 #                            push stay with you)
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
-#                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh)
+#                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh).
+#                            When the env is already gone, it removes the benches/<name> folder left behind if that is
+#                            empty (rmdir), and stops, keeping the record, while that folder still holds files.
 #   task.sh prune [--yes]    each recorded task, one line: PRUNE when a laptop ref holds its box tip (landed.sh:
 #                            master, upstream/ or origin/ develop and main) and nothing holds it, else KEEP with the
 #                            holds: unreachable, working or stalled (its agent, as watch counts it), tracked-changes, untracked,
 #                            status-failed (git status failed; these three in its env on the box), unfetched (the
 #                            laptop lacks the box tip: task.sh done first), off-branch (the env's HEAD is off
 #                            box/<name> and no laptop ref holds it).
-#                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task.
+#                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task, and prints
+#                            "FAIL  clean <name>" for each clean that stopped.
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
 #   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
-#   task.sh watch [--every <seconds> | --install | --uninstall]
+#   task.sh watch [--clean] [--every <seconds>] | --install | --uninstall
 #                            each recorded task's agent: working, stalled (alive, not finished, and nothing written to
 #                            its session log for DEVBOX_STALL_SECONDS, 1200), finished (its report's Status is DONE or
 #                            BLOCKED), crashed (no agent in its env and no finished report) or unreachable (the box
@@ -41,9 +44,14 @@
 #                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
 #                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
 #                            when that changes. done prints the same WARN.
-#                            --every repeats until Ctrl-C. --install (macOS) runs a pass every 300 s as the launchd
-#                            user agent app.nirmaan.task-watch, from this task.sh (so from the checkout whose records
-#                            you want watched), its last pass in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch.log;
+#                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does:
+#                            it cleans each PRUNE task, so merged tasks never pile up on a box (each holds an idle chat,
+#                            its folder and a ~2 GB test DB). A clean that fails alerts, naming the
+#                            task (its output is in the pass), and WARNs on each later pass while it still fails. A box
+#                            that did not answer is left alone: the watch rows above already show it unreachable.
+#                            --every repeats until Ctrl-C. --install (macOS) runs watch --clean every 300 s as the
+#                            launchd user agent app.nirmaan.task-watch, from this task.sh (so from the checkout whose
+#                            records you want watched), its last pass in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch.log;
 #                            a chat then needs no watch loop of its own (one died with its chat on #1698). A rerun
 #                            replaces the job. --uninstall boots it out and keeps its plist as .off.
 #
@@ -275,18 +283,49 @@ watch_pass() {
       echo "$hooks" > "$WATCH_DIR/.hooks-$box.new" && mv "$WATCH_DIR/.hooks-$box.new" "$WATCH_DIR/.hooks-$box"
     fi
   done
-  printf '%s' "$alerts" | while IFS= read -r a; do
+  notify "$alerts"
+  for f in "$WATCH_DIR"/*; do
+    [ -e "$f" ] || continue
+    n="${f##*/}"
+    printf '%s\n' "$recs" | awk -v n="$n" '$1 == n {f=1} END {exit !f}' && continue
+    rm -f "$f" "$WATCH_DIR/.base-$n" "$WATCH_DIR/.clean-$n"; echo "gone  $n: no task record, its watch state removed"
+  done
+}
+
+# notify <alerts, one per line>: an ALERT line and a macOS notification for each.
+notify() {
+  printf '%s' "$1" | while IFS= read -r a; do
     echo "ALERT $a"
     if command -v osascript >/dev/null; then
       osascript -e "display notification \"$a\" with title \"task.sh watch\"" >/dev/null 2>&1 || true
     fi
   done
-  for f in "$WATCH_DIR"/*; do
+}
+
+# watch_clean: watch --clean's step after the pass. prune_tasks decides and cleans; it runs in a command substitution
+# because it exits 3 when a box did not answer, which would end a --every loop. Each failing clean alerts once and
+# WARNs on later passes, the way a wrong hooksPath does: the launchd job retries it every 300 s.
+watch_clean() {
+  local out rc=0 failed n f msg alerts=""
+  out="$(prune_tasks 1 2>&1)" || rc=$?
+  printf '%s\n' "$out"
+  failed="$(printf '%s\n' "$out" | sed -n 's/^FAIL  clean \([a-z0-9-]*\) .*/\1/p')"
+  # 1 with no FAIL line, or any code but 0, 1 and 3: prune itself stopped, so nothing past that point was cleaned.
+  [ -n "$failed" ] || [ "$rc" = 0 ] || [ "$rc" = 3 ] || failed="@prune"
+  for f in "$WATCH_DIR"/.clean-*; do
     [ -e "$f" ] || continue
-    n="${f##*/}"
-    printf '%s\n' "$recs" | awk -v n="$n" '$1 == n {f=1} END {exit !f}' && continue
-    rm -f "$f" "$WATCH_DIR/.base-$n"; echo "gone  $n: no task record, its watch state removed"
+    printf '%s\n' "$failed" | grep -qxF "${f##*/.clean-}" || rm -f "$f"
   done
+  for n in $failed; do
+    if [ "$n" = @prune ]; then msg="task.sh prune stopped (exit $rc), so the tasks after that point were not cleaned"
+    else msg="$n on $(git config "devbox-task.$n.box" || echo '?'): task.sh clean failed, its record kept"; fi
+    if [ -e "$WATCH_DIR/.clean-$n" ]; then echo "WARN  $msg, again (output above)"
+    else
+      alerts="$alerts$msg (output: above, or $WATCH_LOG for the launchd job)"$'\n'
+      : > "$WATCH_DIR/.clean-$n"
+    fi
+  done
+  notify "$alerts"
 }
 
 # The watch as a launchd user agent (macOS): a pass every 300 s, so no chat has to keep a loop alive. On #1698 the
@@ -320,7 +359,7 @@ watch_install() {
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>$(printf '"%s" watch > "%s" 2>&1' "$SELF_DIR/task.sh" "$WATCH_LOG" | xml)</string>
+    <string>$(printf '"%s" watch --clean > "%s" 2>&1' "$SELF_DIR/task.sh" "$WATCH_LOG" | xml)</string>
   </array>
   <key>StartInterval</key>
   <integer>300</integer>
@@ -341,7 +380,7 @@ EOF
   mv "$WATCH_PLIST.new" "$WATCH_PLIST"
   launchctl bootout "gui/$uid/$WATCH_LABEL" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$uid" "$WATCH_PLIST"
-  ok "installed $WATCH_PLIST: task.sh watch every 300 s, its last pass in $WATCH_LOG (launchctl print gui/$uid/$WATCH_LABEL shows the job)"
+  ok "installed $WATCH_PLIST: task.sh watch --clean every 300 s, its last pass in $WATCH_LOG (launchctl print gui/$uid/$WATCH_LABEL shows the job)"
 }
 
 watch_uninstall() {
@@ -463,7 +502,10 @@ prune_tasks() {
   if [ -z "$todo" ]; then echo "to prune: 0 tasks"
   elif [ "$yes" = 0 ]; then echo "to prune:$todo (task.sh prune --yes cleans them; laptop branches stay)"
   else
-    for n in $todo; do echo; echo "== clean $n"; bash "$SELF_DIR/task.sh" clean "$n" </dev/null || failed=1; done
+    for n in $todo; do
+      echo; echo "== clean $n"
+      bash "$SELF_DIR/task.sh" clean "$n" </dev/null || { failed=1; echo "FAIL  clean $n stopped (above); its record stays"; }
+    done
   fi
   [ "$down" = 0 ] || exit 3
   return "$failed"
@@ -478,9 +520,16 @@ case "$CMD" in
     exit ;;
   watch)
     case "$#:${2:-}" in 2:--install) watch_install; exit 0 ;; 2:--uninstall) watch_uninstall; exit 0 ;; esac
-    [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
-      || die "usage: task.sh watch [--every <seconds> | --install | --uninstall]"
-    while :; do watch_pass; [ $# = 3 ] || break; sleep "$3"; done
+    shift; CLEAN=0 EVERY=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --clean) [ "$CLEAN" = 0 ] || break; CLEAN=1; shift ;;
+        --every) [ -z "$EVERY" ] && [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || break; EVERY="$2"; shift 2 ;;
+        *) break ;;
+      esac
+    done
+    [ $# = 0 ] || die "usage: task.sh watch [--clean] [--every <seconds>] | --install | --uninstall"
+    while :; do watch_pass; [ "$CLEAN" = 0 ] || watch_clean; [ -n "$EVERY" ] || break; sleep "$EVERY"; done
     exit 0 ;;
   pick)
     [ $# = 1 ] || die "usage: task.sh pick"
@@ -496,7 +545,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,56p' "$0"; exit 1 ;;
+  *) sed -n '2,64p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -721,12 +770,21 @@ case "$CMD" in
     # Close the task's Orca terminals first: a finished agent would otherwise keep running in a deleted folder.
     agent_stop "$WT"
     # No pipe after destroy: its status is what stops the branch delete. The login shell may be zsh (air).
+    # With the env gone, a benches/<name> folder is what a destroy left when its last rmdir met files an agent left
+    # there: removed when empty, so a rerun converges; never forced.
     RC=0; OUT="$(box_ssh "cd ~/$BOX_CO || exit 1
       if [ -d $WT ]; then
         scripts/devenv/devenv.sh stop $NAME >/dev/null 2>&1
         o=\"\$(scripts/devenv/devenv.sh destroy $NAME 2>&1)\" || { printf '%s\n' \"\$o\"; exit 1; }
         printf '%s\n' \"\$o\" | tail -1
-      else echo 'No env $NAME on the box.'; fi
+      else
+        if [ -d $ROOT/benches/$NAME ]; then
+          rmdir $ROOT/benches/$NAME/apps 2>/dev/null
+          rmdir $ROOT/benches/$NAME 2>/dev/null || { echo 'The env is gone, but $ROOT/benches/$NAME still holds files: look at them, move or remove them yourself:'; ls -A $ROOT/benches/$NAME; exit 1; }
+          echo 'removed the empty folder $ROOT/benches/$NAME'
+        fi
+        echo 'No env $NAME on the box.'
+      fi
       git branch -D $BRANCH 2>/dev/null && echo 'deleted the box branch $BRANCH' || true")" || RC=$?
     [ -z "$OUT" ] || printf '%s\n' "$OUT"
     [ "$RC" != 3 ] || exit 3
