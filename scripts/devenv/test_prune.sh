@@ -76,8 +76,13 @@ case "$1" in
   *) exec /usr/bin/readlink "$@" ;;
 esac
 EOF
+cat > "$T/bin/osascript" <<'EOF'
+#!/bin/bash
+echo "$*" >> "$OSA_LOG"
+EOF
 chmod +x "$T/bin/"*
-export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes" XDG_STATE_HOME="$T/state"
+export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes" XDG_STATE_HOME="$T/state" OSA_LOG="$T/osascript.log"
+: > "$OSA_LOG"
 # Every reflog entry (git dates them by the committer date) is two days old unless a step unsets this.
 export GIT_COMMITTER_DATE="@$(( $(date +%s) - 172800 )) +0000"
 
@@ -260,14 +265,15 @@ L="$T/laptop"; mkdir -p "$L/scripts/devenv"
 cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$L/scripts/devenv/"
 cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
 #!/bin/bash
-# Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
+# Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout. destroy ends as the real one does,
+# with an rmdir of the bench folder that stops on any file left in it.
 set -e
 wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
 case "$1" in
   create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
   stop) ;;
   destroy) [ -z "$(git -C "$wt" status --porcelain)" ] || { echo "ERROR: worktree has uncommitted changes." >&2; exit 1; }
-    git worktree remove "$wt"; echo "Destroyed env $2. Commits stay in git." ;;
+    git worktree remove "$wt"; rmdir "${wt%/*}" "${wt%/*/*}"; echo "Destroyed env $2. Commits stay in git." ;;
 esac
 EOF
 printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"
@@ -352,9 +358,69 @@ task clean tj
 rc_is 0 "clean tj"; has "ok    DIVERGED, but the box tip" "clean accepts DIVERGED when a laptop ref holds the box tip"
 same "$(rec tj)" none "clean tj unsets the record"
 
+# ---- watch --clean cleans each PRUNE task itself (2026-11-24: air held 14 merged tasks for up to 6 days, since
+# nothing ran prune). tl's destroy stops at its last rmdir on a file an agent left in benches/tl, as one did on air.
+for n in tk tl; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+commit "$(bwt tk)" k1; commit "$(bwt tl)" l1
+for n in tk tl; do task done "$n"; rc_is 0 "done $n"; git -C "$L" merge -q --no-ff --no-edit "box/$n"; done
+printf '# Report: tk\n\n## Status\n\nDONE. Built and tested.\n' > "$CH/claude-artifacts/dod/box-tk/REPORT.md"
+echo probe > "$CROOT/benches/tl/probe.out"
+task prune
+line '^PRUNE +box-task +tk .*landed:master$' "tk is landed and nothing holds it"
+line '^PRUNE +box-task +tl .*landed:master$' "tl is too: a file beside the env is no hold"
+before="$(cd "$T/boxes" && find . | sort | cksum)"
+task watch
+rc_is 0 "plain watch with landed tasks"
+line '^tk +contabo +finished +DONE\.$' "the landed task with a DONE report is finished"
+same "$(rec tk) $(rec tl)" "contabo contabo" "plain watch cleans no landed task"
+same "$(cd "$T/boxes" && find . | sort | cksum)" "$before" "plain watch deletes nothing on the box"
+no_line '^(PRUNE|== clean)' "plain watch runs no prune"
+
+: > "$OSA_LOG"
+task watch --clean
+rc_is 0 "watch --clean exits 0 though one clean failed"
+has "cleaned tk on box contabo" "watch --clean cleans a landed, finished task"
+same "$(rec tk)" none "the cleaned task's record is gone"
+gone "$CROOT/benches/tk" "the cleaned task's bench folder is gone"
+git -C "$CO" rev-parse -q --verify refs/heads/box/tk >/dev/null && fail "the box still has box/tk"; pass "the cleaned task's box branch is gone"
+same "$(rec tc) $(rec te)" "contabo contabo" "an unlanded task and a working one are kept"
+there "$(bwt tc)" "the unlanded task's env stays"; there "$(bwt te)" "the working task's env stays"
+line '^FAIL  clean tl stopped' "the failed clean is named"
+has "Directory not empty" "the failed clean's output is in the pass"
+line '^ALERT tl on contabo: task.sh clean failed, its record kept' "a failing clean alerts, naming the task"
+same "$(grep -c 'tl on contabo: task.sh clean failed' "$OSA_LOG" || true)" 1 "the failing clean raises one notification"
+same "$(rec tl)" contabo "a failed clean keeps the record"
+there "$CROOT/benches/tl/probe.out" "the agent's file stays"
+
+task watch --clean
+line '^gone  tk: no task record' "the next pass drops the cleaned task's watch state"
+has "still holds files" "a rerun stops on the folder that still holds files"
+has "probe.out" "and lists them"
+line '^WARN  tl on contabo: task.sh clean failed, its record kept, again' "a clean that fails again WARNs"
+no_line '^ALERT tl on contabo: task.sh clean' "and does not alert again"
+same "$(grep -c 'task.sh clean failed' "$OSA_LOG" || true)" 1 "nor notify again"
+same "$(rec tl)" contabo "the record stays while the folder holds files"
+
+rm "$CROOT/benches/tl/probe.out"
+task watch --clean
+has "removed the empty folder $CROOT/benches/tl" "a rerun removes the empty folder the stopped destroy left"
+has "cleaned tl on box contabo" "and cleans the task"
+same "$(rec tl)" none "its record is gone"; gone "$CROOT/benches/tl" "its bench folder is gone"
+no_line '^(ALERT|WARN) .*clean' "a clean that now succeeds raises nothing"
+gone "$T/state/devbox/watch/.clean-tl" "a clean that succeeds drops its failure state"
+
 touch "$CH/.stub/down"
 task prune
 rc_is 3 "an unreachable box is exit 3"; has "box contabo: did not answer over SSH" "the unreachable box is named"
 line '^KEEP +box-task +tc .*unreachable$' "an unreachable box's tasks are KEEP"
+: > "$OSA_LOG"
+task watch --clean
+rc_is 0 "watch --clean with the box down exits 0"
+line '^tc +contabo +unreachable' "the watch rows show the box's tasks unreachable"
+no_line '^(ALERT|WARN|FAIL) .*clean' "a box that did not answer raises no clean alert"
+same "$(grep -c clean "$OSA_LOG" || true)" 0 "nor a clean notification"
+OUT="$(bash "$L/scripts/devenv/task.sh" watch --clean --every 1 2>&1 & p=$!; sleep 4; kill $p; wait $p 2>/dev/null)" || true
+[ "$(echo "$OUT" | grep -c 'task watch$')" -ge 2 ] || fail "prune's exit 3 does not end a watch --clean --every loop"
+pass "prune's exit 3 does not end a watch --clean --every loop"
 
 echo; echo "all $N checks passed"
