@@ -108,11 +108,11 @@ run lib 'box_load air; echo hi > "$STUB_BOXES/note"; box_scp "$STUB_BOXES/note" 
 rc_is 0 "box_scp copies to the box"; has hi "box_scp maps BOX: to the box"
 
 fresh_log
-run lib 'box_load air; agent_ready'
+run lib 'box_load air; agent_ready t1'
 rc_is 1 "a box without orca refuses an agent"; has "box air has no Orca server" "no-orca STOP names the box"; has "use --no-agent" "no-orca STOP says --no-agent"
 run lib 'box_load air; agent_stop /wt'
 rc_is 0 "agent_stop on a box without orca is a no-op"; log_lacks "orca" "agent_stop on a box without orca calls no orca"
-run lib 'box_load contabo; agent_ready; agent_launch /wt "the prompt"; agent_alive /wt && echo alive; agent_stop /wt'
+run lib 'box_load contabo; agent_ready t1; agent_launch t1 /wt "the prompt"; agent_alive /wt && echo alive; agent_stop /wt'
 rc_is 0 "agent route on an env: box"; has alive "agent_alive sees the terminal"; has "closed Orca terminal term_t1" "agent_stop closes the terminals"
 log_has "orca agent launch --environment test-orca --agent claude --surface terminal --focus --worktree path:/wt --prompt the prompt --json" "agent_launch passes env: as --environment"
 log_has "orca terminal close --environment test-orca --terminal term_t1" "agent_stop closes on the box's server"
