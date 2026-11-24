@@ -54,31 +54,47 @@ EOF
 # claude on the box: an entry in the fake /proc ($DEVBOX_PROC) with the config dir it was given (STUB_WRONG_HOME
 # overrides it), its arguments and its prompt (the last argument); then the session log STUB_REPLY says. Without
 # STUB_REPLY it replies when it finds a login where Claude Code reads it: <CLAUDE_CONFIG_DIR>/.claude.json, or
-# ~/.claude.json while CLAUDE_CONFIG_DIR is unset; else it writes the "Not logged in" entry.
+# ~/.claude.json while CLAUDE_CONFIG_DIR is unset; else it writes the "Not logged in" entry. Once it has a session,
+# Orca's hooks (in ~/.claude/settings.json and every profile's) report it to Orca when they find a port, a token
+# and a pane key, as ~/.orca/agent-hooks/claude-hook.sh does: the file ORCA_AGENT_HOOK_ENDPOINT names supplies the
+# port and token too. Orca then adopts it: kind agent.
 cat > "$T/box-bin/claude" <<'EOF'
 #!/bin/bash
 p="$DEVBOX_PROC/$$"; mkdir -p "$p"
-echo claude > "$p/comm"; echo "${STUB_KIND:-terminal}" > "$p/kind"; ln -s "$PWD" "$p/cwd"
+echo claude > "$p/comm"; echo terminal > "$p/kind"; ln -s "$PWD" "$p/cwd"
 cfg="${STUB_WRONG_HOME:-${CLAUDE_CONFIG_DIR:-}}"
 if [ -n "$cfg" ]; then printf 'PATH=/bin\0CLAUDE_CONFIG_DIR=%s\0' "$cfg"; else printf 'PATH=/bin\0'; fi > "$p/environ"
 printf '%s\n' "${@:1:$#-1}" > "$p/args"; printf '%s' "${!#}" > "$p/prompt"
 d="${cfg:-$HOME/.claude}/projects/$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"
-reply="${STUB_REPLY:-}"
+reply="${STUB_REPLY:-}" session=
 [ -n "$reply" ] || { grep -q emailAddress "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" 2>/dev/null && reply=real || reply=synthetic; }
 case "$reply" in
-  real) echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl" ;;
-  synthetic) echo '{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}' > "$d/s1.jsonl" ;;
+  real) echo '{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Reading the brief."}]}}' > "$d/s1.jsonl"; session=1 ;;
+  synthetic) echo '{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}' > "$d/s1.jsonl"; session=1 ;;
 esac
+if [ -n "$session" ]; then
+  [ -z "${ORCA_AGENT_HOOK_ENDPOINT:-}" ] || [ ! -r "$ORCA_AGENT_HOOK_ENDPOINT" ] || . "$ORCA_AGENT_HOOK_ENDPOINT"
+  [ -z "${ORCA_AGENT_HOOK_PORT:-}" ] || [ -z "${ORCA_AGENT_HOOK_TOKEN:-}" ] || [ -z "${ORCA_PANE_KEY:-}" ] || echo agent > "$p/kind"
+fi
+: > "$p/settled"
 EOF
 # orca-ide on the box, as Orca 1.4.265 behaves (measured on r7). Its account selection is one setting for the whole
-# box. agent launch starts claude on the account selected at that moment, and every account select restarts each
-# Claude agent launch started as a new process on the newly selected account. terminal create types its command into
-# the box user's login shell in the worktree, answers before it runs, and leaves it alone on later selects.
+# box. agent launch starts claude on the account selected at that moment. terminal create types its command into the
+# box user's login shell in the worktree and answers before it runs. Both give the process Orca's hook variables
+# (buildPtyEnv): the port, the token, and the endpoint file that holds them both. Every account select restarts each
+# Claude Orca adopted (kind agent, see claude above) as a new process on the newly selected account, and leaves the
+# rest alone.
 cat > "$T/bin/orca-ide" <<'EOF'
 #!/bin/bash
 echo "orca-ide $*" >> "$STUB_LOG"
 sel="$(cat "$HOME/.orca-selected" 2>/dev/null || echo system)"
 cfg_of() { [ "$1" = system ] || echo "$HOME/.config/orca/claude-profiles/$1/home"; }
+hook_env() {
+  export ORCA_AGENT_HOOK_ENDPOINT="$HOME/.config/orca/agent-hooks/endpoint.env" ORCA_AGENT_HOOK_PORT=4711
+  export ORCA_AGENT_HOOK_TOKEN=stub-token ORCA_AGENT_HOOK_ENV=production ORCA_AGENT_HOOK_VERSION=1 ORCA_PANE_KEY="tab-$$:1"
+  mkdir -p "${ORCA_AGENT_HOOK_ENDPOINT%/*}"
+  printf 'ORCA_AGENT_HOOK_PORT=4711\nORCA_AGENT_HOOK_TOKEN=stub-token\n' > "$ORCA_AGENT_HOOK_ENDPOINT"
+}
 case "$1 $2" in
   "account list")
     active=null; [ "$sel" = system ] || active="\"$sel\""
@@ -93,11 +109,11 @@ case "$1 $2" in
   "agent launch")
     for a in "$@"; do case "$a" in path:*) wt="${a#path:}" ;; esac; [ "${prev:-}" = --prompt ] && prompt="$a"; prev="$a"; done
     cfg="$(cfg_of "$sel")"
-    ( cd "$wt" && if [ -n "$cfg" ]; then export CLAUDE_CONFIG_DIR="$cfg"; else unset CLAUDE_CONFIG_DIR; fi
-      STUB_KIND=agent exec "$STUB_BOX_BIN/claude" --dangerously-skip-permissions "${prompt:-}" ) ;;
+    ( cd "$wt" && hook_env && if [ -n "$cfg" ]; then export CLAUDE_CONFIG_DIR="$cfg"; else unset CLAUDE_CONFIG_DIR; fi
+      exec "$STUB_BOX_BIN/claude" --dangerously-skip-permissions "${prompt:-}" ) ;;
   "terminal create")
     for a in "$@"; do case "${prev:-}" in --worktree) wt="${a#path:}" ;; --command) cmd="$a" ;; esac; prev="$a"; done
-    ( cd "$wt" && PATH="$STUB_BOX_BIN:$PATH" exec bash -c "$cmd" ) </dev/null >/dev/null 2>&1 & ;;
+    ( cd "$wt" && hook_env && PATH="$STUB_BOX_BIN:$PATH" exec bash -c "$cmd" ) </dev/null >/dev/null 2>&1 & ;;
   "terminal list")
     for p in "$DEVBOX_PROC"/*; do [ -L "$p/cwd" ] || continue
       for a in "$@"; do [ "$a" = "path:$(readlink "$p/cwd")" ] && echo "term_${p##*/}  claude"; done; done ;;
@@ -119,6 +135,7 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$T/bin/ssh" "$T/bin/scp" "$T/bin/orca-ide" "$T/box-bin/claude" "$T/laptop-orca/orca"
+unset CLAUDE_CONFIG_DIR
 export PATH="$T/bin:/usr/bin:/bin" HOME="$T/laptop-home" STUB_BOXES="$T/boxes" STUB_LOG="$T/stub.log" DEVBOX_PROC="$PROC"
 export DEVBOX_CLAUDE_HOME="$T/laptop-claude" XDG_STATE_HOME="$T/state" STUB_BOX_BIN="$T/box-bin"
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
@@ -200,14 +217,34 @@ claude_in() {
 }
 pid_in() { claude_in "$1" | awk 'NR == 1 {print $1}'; }
 select_on_box() { ssh t@r7-test orca-ide account select --agent claude --account "$1" --json; }
+# Wait until a Claude runs in env <task> and each one there has written its session and run Orca's hooks (its last
+# step).
+settle() {
+  local p i ps
+  for i in $(seq 100); do
+    ps="$(claude_in "$1" | cut -d' ' -f1)"
+    if [ -n "$ps" ]; then for p in $ps -; do [ "$p" = - ] && return; [ -e "$PROC/$p/settled" ] || break; done; fi
+    sleep 0.1
+  done
+  fail "the Claude in $1 settles"
+}
 
-# ---- the stub restarts a Claude Orca's agent launch started when the selection changes, as Orca 1.4.265 does on r7
+# ---- the stub restarts each Claude Orca adopted when the selection changes, as Orca 1.4.265 does on r7
 git -C "$CO" worktree add -q --detach "$(wt ctl)"
 ssh t@r7-test orca-ide agent launch --agent claude --worktree "path:$(wt ctl)" --prompt hi
 same "$(claude_in ctl | cut -d' ' -f2)" "$BOXH/.claude" "an agent-launch Claude starts on the selected account"
 before="$(pid_in ctl)"; select_on_box acct-madhu
 [ "$(pid_in ctl)" != "$before" ] || fail "a select restarts the agent-launch Claude as a new process"; pass "a select restarts the agent-launch Claude as a new process"
 same "$(claude_in ctl | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "the restarted Claude runs on the newly selected account"
+select_on_box system; ssh t@r7-test orca-ide terminal close --terminal "term_$(pid_in ctl)"
+ssh t@r7-test orca-ide terminal create --worktree "path:$(wt ctl)" --command "'claude hi'" --json; settle ctl
+before="$(pid_in ctl)"; select_on_box acct-madhu
+[ "$(pid_in ctl)" != "$before" ] || fail "Orca adopts a Claude typed into its terminal once it has a session"; pass "Orca adopts a Claude typed into its terminal once it has a session"
+same "$(claude_in ctl | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "the adopted terminal Claude moves to the newly selected account"
+select_on_box system; ssh t@r7-test orca-ide terminal close --terminal "term_$(pid_in ctl)"
+ssh t@r7-test STUB_REPLY=none orca-ide terminal create --worktree "path:$(wt ctl)" --command "'claude hi'" --json; settle ctl
+before="$(claude_in ctl)"; select_on_box acct-madhu
+same "$(claude_in ctl)" "$before" "a terminal Claude with no session yet is never adopted"
 select_on_box system; ssh t@r7-test orca-ide terminal close --terminal "term_$(pid_in ctl)"
 
 # ---- refusals before anything changes: no branch, no record, nothing past the check on the box
@@ -290,7 +327,7 @@ idle="$(bash -c ". '$T/watch_probe.sh'; watch_probe" | ssh t@r7-test bash -s -- 
 case "$idle" in [0-9]*) pass "watch finds a box launch's session log" ;; *) fail "watch finds a box launch's session log (idle '$idle')" ;; esac
 
 # ---- for the task's whole life: anyone changing the box's Orca selection leaves both Claudes where they are
-both="$(claude_in t6) / $(claude_in madhu-t7)"
+settle t6; settle madhu-t7; both="$(claude_in t6) / $(claude_in madhu-t7)"
 select_on_box acct-madhu; select_on_box acct-late; select_on_box system
 same "$(claude_in t6) / $(claude_in madhu-t7)" "$both" "box-launched Claudes keep their process and account when Orca's selection changes"
 
@@ -326,6 +363,9 @@ same "$RC" "0/0" "two launches at once both prove their accounts"
 same "$(claude_in t11 | cut -d' ' -f2)" "$BOXH/.claude" "the owner's Claude runs on the owner's account"
 same "$(claude_in madhu-t12 | cut -d' ' -f2)" "$PROFILES/acct-madhu/home" "madhu's Claude runs on madhu's account"
 log_lacks "orca-ide account select" "neither launch touches Orca's account selection"
+settle t11; settle madhu-t12; both="$(claude_in t11) / $(claude_in madhu-t12)"
+select_on_box acct-late; select_on_box system
+same "$(claude_in t11) / $(claude_in madhu-t12)" "$both" "both stay on their own accounts when the selection changes after"
 
 # ---- the prompt reaches Claude byte for byte: quotes, newlines, shell syntax, a line like a flag, spaces at its edges
 nasty="$(printf '%s\n' "  it's \"quoted\" and 'single'" 'a $(touch '"$T"'/pwned) `touch '"$T"'/pwned` $HOME ${PATH}' \
