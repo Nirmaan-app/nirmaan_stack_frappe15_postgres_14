@@ -58,12 +58,14 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   end to end by `BIN/walk_purchase_orders.py`.
   The Revised PO Date in a PO's preview and PDF (#1731): `BIN/walk_revised_po_date.py`.
 - [Material Usage](./material-usage.md): a project's Material Usage tab with incoming Internal Transfer Memos counted
-  in Ordered Qty, the PO / ITM numbers, the DCs and the PO/ITM Wise view (#1731). Walked by
+  in Ordered Qty, the PO / ITM numbers, the DCs and the PO/ITM Wise view (#1731), and ITM documents on DC Wise and
+  MIR Wise with `From Warehouse` (#1736). Walked by
   `BIN/walk_material_usage.py`.
 - [Material Test Certificates](./material-test-certificates.md): Upload, Edit and Delete of a PO's MTCs by role, a
   Project Manager uploading on their own project and editing only their own (#1731). Walked by `BIN/walk_mtc.py`.
 - [Audit View](./audit-view.md): Reports -> Audit View for Admin and the Accountants only, its tab counts and Net Paid
-  = Amount Paid + TDS held to the server's summary (#1732). Walked by `BIN/walk_audit_view.py`.
+  = Amount Paid + TDS held to the server's summary (#1732); its Report Type names, date box, refresh, summary cards
+  and columns (#1736). Walked by `BIN/walk_audit_view.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
 - [Pasted link fields](./link_fields.md): a project's Drive links, a Customer PO link, a Design Tracker task's file
   link, a Commission Report task's report link (shown only in a handover document's Sources) and a bill's document
@@ -100,7 +102,8 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
 - [Vendors](./vendors.md): a vendor's Work Orders tab and its PDF, the Work Order lists' Project and Vendor ⓘ links,
   and Edit Vendor's MSME ID and certificate (#1731), walked by `BIN/walk_vendor_work_orders.py` and
   `BIN/walk_vendor_msme.py`; its Payments sub-tabs and its Cheques tab, read-only for PMO (#1732), walked by
-  `BIN/walk_vendor_payments.py` and `BIN/walk_vendor_cheques.py`.
+  `BIN/walk_vendor_payments.py` and `BIN/walk_vendor_cheques.py`; the MSME certificate attached on Update only and
+  the Cheque Tracker's date header (#1736), walked by `BIN/walk_vendor_msme.py` and `BIN/walk_vendor_cheques.py`.
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps). Live refresh of the list (#1670): `BIN/walk_live_refresh.py`

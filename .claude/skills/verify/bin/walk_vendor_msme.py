@@ -1,6 +1,7 @@
 """Walk a vendor's MSME details (PR #1731) as Admin: Edit Vendor's MSME Details block, the rule that the MSME ID and
 the Udyam certificate are saved together or not at all, the saved pair in the DB, and the Overview's MSME ID opening
-the certificate. Uploading the certificate also asks Document AI to read it and fill the MSME ID.
+the certificate. Uploading the certificate also asks Document AI to read it and fill the MSME ID. A certificate
+picked and then cancelled is never attached to the vendor (PR #1736).
 
     python3 -I .claude/skills/verify/bin/walk_vendor_msme.py <env> <out dir> [function ...]
 
@@ -27,11 +28,18 @@ NEEDS_CERTIFICATE = "Upload the MSME certificate for this MSME ID."
 NEEDS_ID = "Enter the MSME ID from the certificate."
 
 FACTS_SQL = r'''
+# Two vendors still in the starting state: no MSME fields and no file attached (one to save, one to cancel on).
 v = frappe.db.sql("""
-    SELECT name, vendor_name FROM "tabVendors"
-    WHERE COALESCE(msme_id, '') = '' AND COALESCE(msme_attachment, '') = ''
-    ORDER BY creation DESC, name LIMIT 1""", as_dict=True)[0]
-emit(v)
+    SELECT v.name, v.vendor_name FROM "tabVendors" v
+    WHERE COALESCE(v.msme_id, '') = '' AND COALESCE(v.msme_attachment, '') = ''
+      AND NOT EXISTS (SELECT 1 FROM "tabFile" f WHERE f.attached_to_doctype = 'Vendors' AND f.attached_to_name = v.name)
+    ORDER BY v.creation DESC, v.name LIMIT 2""", as_dict=True)
+emit({**v[0], "cancel": v[1]})
+'''
+
+ATTACHED_SQL = r'''
+emit(frappe.get_all("File", filters={"attached_to_doctype": "Vendors", "attached_to_name": sys.argv[1]},
+                    fields=["name", "file_name", "attached_to_field"]))
 '''
 
 SAVED_SQL = r'''
@@ -43,6 +51,9 @@ w = fw.w
 w.change("msme", "Vendors › MSME ID and certificate",
          "New / Edit Vendor get MSME Details: an Udyam certificate upload and an MSME ID. ID and certificate go "
          "together or not at all. Vendor Overview shows the MSME ID, which opens the certificate.")
+w.change("msme_cancel", "Vendors › Cancel leaves no certificate on the vendor",
+         "The certificate is attached to the vendor on Update only: pick one in Edit Vendor, Cancel, and the vendor "
+         "holds no file.")
 w.change("msme_read", "Vendors › Document AI reads the MSME certificate",
          "Uploading the certificate sends it to Gemini, which reads it and fills the MSME ID.")
 USER = fw.pick([ROLE])[ROLE]
@@ -163,5 +174,37 @@ def msme() -> None:
                pins=[pin(link, "Opens the certificate in a new tab.", "info")] if link.count() else [])
 
 
-fw.run([("msme", msme)])
+def msme_cancel() -> None:
+    vendor, name = facts["cancel"]["name"], facts["cancel"]["vendor_name"]
+    make_certificate()
+    with fw.session(USER) as page:
+        fw.open_vendor(page, "msme_cancel", ROLE, vendor, name)
+        w.step(page, "msme_cancel", "after", ROLE, USER, f"{name} has no MSME details. Open Edit.",
+               click=page.get_by_role("button", name="Edit Vendor Details"))
+        settle(page, 1500)
+        sheet = page.get_by_role("dialog")
+        sheet.locator("input[type=file]").first.set_input_files(str(CERT))
+        view = sheet.get_by_role("link", name="View Certificate")
+        view.wait_for(timeout=180_000)
+        sheet.get_by_text("Reading certificate…").wait_for(state="hidden", timeout=180_000)
+        settle(page, 1000)
+        sheet.get_by_text("MSME Details", exact=True).scroll_into_view_if_needed()
+        w.check("msme_cancel", ROLE, "the picked certificate is uploaded (View Certificate shows)",
+                "shown" if view.count() else "not shown", view.count() > 0)
+        w.step(page, "msme_cancel", "after", ROLE, USER, "Pick a certificate, then Cancel instead of Update.",
+               click=sheet.get_by_role("button", name="Cancel"), pins=[pin(view, "Uploaded.", "info")])
+        settle(page, 1500)
+        attached = fw.db("msme_cancel_files", ATTACHED_SQL, vendor)
+        saved = fw.db("msme_cancel_saved", SAVED_SQL, vendor)
+        w.check("msme_cancel", ROLE, "DB after Cancel: no file attached to the vendor, MSME fields still empty",
+                f"{len(attached)} attached; {json.dumps(saved)}",
+                not attached and not saved.get("msme_id") and not saved.get("msme_attachment"))
+        page.reload()
+        settle(page, 2500)
+        w.step(page, "msme_cancel", "after", ROLE, USER,
+               f"After Cancel the DB holds {len(attached)} file{'s' if len(attached) != 1 else ''} on {vendor}.",
+               pins=[pin(page.get_by_text("MSME ID", exact=True).first.locator(".."), "Still empty.", "info")])
+
+
+fw.run([("msme", msme), ("msme_cancel", msme_cancel)])
 fw.finish()
