@@ -2,9 +2,9 @@
 # Tests box launches (box.<box>.launch = box): the box names the person by the SSH key that connected, refuses an
 # unknown key, a missing or signed-out account and a task name without the person's prefix before anything changes,
 # starts Claude in a plain Orca terminal on that person's account's config dir without touching Orca's account
-# selection, so it stays on that account while other people's tasks start and while anyone changes the selection;
-# proves the process uses that config dir (else stops it), records who and which account, and finds the first reply
-# in that account's session logs. The prompt reaches Claude byte for byte. A person without a git identity is refused
+# selection and without Orca's hook token, so Orca never adopts it and it stays on that account while other people's
+# tasks start and while anyone changes the selection; proves the process uses that config dir (else stops it),
+# records who and which account, and finds the first reply in that account's session logs. The prompt reaches Claude byte for byte. A person without a git identity is refused
 # before anything changes; a launch sets the person's git identity in that env only, so its commits carry it and the
 # box's main checkout and other envs keep theirs. The laptop runs with no orca CLI. A box without the key still
 # launches through the laptop's Orca.

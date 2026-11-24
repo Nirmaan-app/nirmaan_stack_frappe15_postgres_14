@@ -14,7 +14,10 @@ not matter. Linux only (it reads /proc). Progress goes to stderr; stdout carries
                                     ~/claude-artifacts/dod/box-<task>/PROMPT.md), wait for its process, prove that
                                     process uses the account's config dir (else close its terminal and refuse), and
                                     record requester, account and git identity in ~/claude-artifacts/dod/box-<task>/
-                                    LAUNCH. Orca's account selection is never touched. Prints @config <dir>
+                                    LAUNCH. Orca's account selection is never touched, and Claude runs without
+                                    Orca's hook token (ORCA_AGENT_HOOK_TOKEN, ORCA_AGENT_HOOK_ENDPOINT): with it, Orca
+                                    adopts the Claude as its agent and moves it to every account selected later on
+                                    the box. Prints @config <dir>
   alive <worktree>                  exit 0 when a claude process runs in <worktree>
   tail <worktree>                   the last 15 rows of its Orca terminal's screen
   stop <worktree>                   close its Orca terminals
@@ -314,10 +317,12 @@ def write_private(task, name, text):
 def claude_command(acct, prompt_file):
     """The command the env's terminal runs: Claude on the account's config dir, in the permission mode Orca's agent
     launch gives it, with the task prompt as its first message. The box's own login is read from ~/.claude.json only
-    while CLAUDE_CONFIG_DIR is unset."""
+    while CLAUDE_CONFIG_DIR is unset. Orca's hooks in Claude's settings.json read the token from the environment or
+    from the endpoint file; with neither they cannot report the session, so Orca never adopts this Claude (see the
+    header), and they print {} and exit 0, which Claude ignores."""
     config = ["-u", "CLAUDE_CONFIG_DIR"] if is_default(acct.home) else [f"CLAUDE_CONFIG_DIR={acct.home}"]
-    return " ".join(["env", *map(shlex.quote, config), "claude", "--dangerously-skip-permissions",
-                     f'"$(cat {shlex.quote(prompt_file)})"'])
+    return " ".join(["env", "-u", "ORCA_AGENT_HOOK_ENDPOINT", "-u", "ORCA_AGENT_HOOK_TOKEN", *map(shlex.quote, config),
+                     "claude", "--dangerously-skip-permissions", f'"$(cat {shlex.quote(prompt_file)})"'])
 
 
 def record(task, person, acct):
