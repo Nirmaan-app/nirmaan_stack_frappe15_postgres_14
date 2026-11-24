@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Join a shared dev box (r7) as a developer: run it on your Mac, from your checkout of the repo. Rerunnable: each run
-# does only what is missing, changes nothing that is already set (a value that differs is reported, not overwritten),
-# and ends with one block to send to the box's owner. Rerun it after the owner's reply until every line says ok.
+# does only what is missing, changes nothing that is already set (a value that differs is reported, not overwritten)
+# apart from a push URL that reaches the org repo (step 5), and ends with one block to send to the box's owner. Rerun
+# it after the owner's reply until every line says ok.
+#
+# The box is shared: everyone logs in as the same Linux user. The box keeps people's usage, billing and authorship
+# apart, not their secrets: anyone with a shell there can read or change whatever that user can, including your
+# Claude login and config, your task worktrees and envs, and people.conf. Leave no secret there that only you may see.
 #
 #   scripts/devenv/join.sh [--name <you>] [--box r7] [--host 100.80.71.39] [--user abhishek_nirmaan]
 #
@@ -16,8 +21,9 @@
 #      ssh -G checks that the box's address, user and key are what ssh really uses.
 #   4. ssh <box> logs in (accepting the box's host key the first time). Until the owner adds your key, it WAITs.
 #   5. In this checkout: the remote pointing at github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14 (added as
-#      upstream only when none does; remotes are never renamed) has pushing switched off (its push URL becomes
-#      DISABLED-push-to-your-fork): you push to your fork.
+#      upstream only when none does; remotes are never renamed) has pushing to the org switched off: a push URL on
+#      github.com/Nirmaan-app/ is removed, and with no push URL left it becomes DISABLED-push-to-your-fork. Any other
+#      push URL (your fork) is kept and reported: you push to your fork.
 #   6. The box's entry in ~/.config/devbox/boxes.conf (scripts/devenv/boxes.sh): ssh <user>@<box> (the Host block's
 #      key applies), the box's checkout, launch box, agents 2, and devbox.default.
 #   7. Your git user.name and user.email: the box writes them into each of your tasks, so its commits are yours.
@@ -127,13 +133,24 @@ if [ -z "$REMOTES" ]; then
     REMOTES=upstream; step made "remote upstream: github.com/$ORG_REPO_PATH"
   fi
 fi
+ORG_PUSH_RE='github\.com[/:]nirmaan-app/'   # a push URL into the org's GitHub, matched case-blind
+oneline() { printf '%s' "$1" | tr '\n' ' ' | sed 's/ $//'; }
 for r in $REMOTES; do
-  if [ "$(git -C "$CO" config --get-all "remote.$r.pushurl" || true)" = "$NO_PUSH" ]; then
+  PUSH="$(git -C "$CO" config --get-all "remote.$r.pushurl" || true)"
+  TO_ORG="$(printf '%s\n' "$PUSH" | grep -Ei "$ORG_PUSH_RE" || true)"
+  KEEP="$(printf '%s\n' "$PUSH" | grep -Eiv "$ORG_PUSH_RE" | grep -v '^$' || true)"
+  if [ "$PUSH" = "$NO_PUSH" ]; then
     step ok "remote $r (the org repo): pushing is off"
-  else
+  elif [ -z "$KEEP" ]; then   # no push URL (a push goes to the org URL), or only ones into the org
     git -C "$CO" config --unset-all "remote.$r.pushurl" || true   # set-url --push refuses a remote with several
     git -C "$CO" remote set-url --push "$r" "$NO_PUSH"
-    step made "remote $r (the org repo): pushing switched off; push to your fork"
+    step made "remote $r (the org repo): pushing switched off${TO_ORG:+ (it pushed to $(oneline "$TO_ORG"))}; push to your fork"
+  elif [ -z "$TO_ORG" ]; then
+    step DIFF "remote $r fetches from the org repo and pushes to $(oneline "$KEEP"): left as is (check it is your fork)"
+  else   # some into the org, some elsewhere: drop only the org ones
+    git -C "$CO" config --unset-all "remote.$r.pushurl"
+    printf '%s\n' "$KEEP" | while IFS= read -r u; do git -C "$CO" config --add "remote.$r.pushurl" "$u"; done
+    step made "remote $r (the org repo): push URL $(oneline "$TO_ORG") removed; it still pushes to $(oneline "$KEEP") (check it is your fork)"
   fi
 done
 

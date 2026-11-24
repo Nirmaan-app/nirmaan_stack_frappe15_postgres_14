@@ -2,7 +2,8 @@
 # Tests join.sh, a developer's one setup step for a shared box: on a fresh Mac it makes the key, the Host block, the
 # registry entry and the org repo's remote with pushing off, and prints the people.sh add command for the owner; a
 # rerun changes nothing; an org remote under another name is kept, never renamed; a registry value or Host block that
-# differs is reported, not overwritten; a missing git identity is a FIX.
+# differs is reported, not overwritten; a push URL to the fork on the org remote is kept, only one into the org goes;
+# a missing git identity is a FIX.
 # A temp HOME and checkout, stub tailscale and ssh (ssh -G runs the real ssh on the temp config). Real ssh-keygen.
 # No network, nothing outside a fresh folder under $TMPDIR, which each run leaves in place.
 # Run: /bin/bash scripts/devenv/test_join.sh
@@ -97,6 +98,33 @@ same "$(git -C "$CO" config --get-all remote.nirmaan.pushurl)" DISABLED-push-to-
 has "  DIFF  registry box.r7.agents is 4, not 2: left as is" "a differing value is reported"
 has "  DIFF  registry devbox.default is air, not r7: left as is" "a differing default is reported"
 same "$(reg box.r7.agents)|$(reg devbox.default)|$(reg box.r7.launch)" "4|air|box" "differing values are kept, missing ones written"
+
+# ---- origin fetches from the org repo and pushes to the fork: the fork push URL is kept
+H="$T/fork"; CO="$T/fork-co"; mkdir -p "$H"
+FORK=git@github.com:madhu/nirmaan_stack_frappe15_postgres_14.git
+mkco "$CO" origin "$ORG"
+git -C "$CO" remote set-url --push origin "$FORK"
+join "$CO" --name madhu
+rc_is 0 "a fork push URL on the org remote exits 0"
+same "$(git -C "$CO" config --get-all remote.origin.pushurl)" "$FORK" "a push URL to the fork is kept"
+has "  DIFF  remote origin fetches from the org repo and pushes to $FORK: left as is" "a fork push URL is reported"
+same "$(git -C "$CO" remote | tr '\n' ' ')" "origin " "no upstream is added"
+
+# ---- push URLs to both the org and the fork: only the org one goes
+H="$T/mixed"; CO="$T/mixed-co"; mkdir -p "$H"
+mkco "$CO" origin "$ORG"
+git -C "$CO" config --add remote.origin.pushurl git@GitHub.com:Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git
+git -C "$CO" config --add remote.origin.pushurl "$FORK"
+join "$CO" --name madhu
+rc_is 0 "mixed push URLs exit 0"
+same "$(git -C "$CO" config --get-all remote.origin.pushurl)" "$FORK" "only the push URL into the org is removed"
+has "  made  remote origin (the org repo): push URL git@GitHub.com:Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git removed; it still pushes to $FORK" "the removed URL is named"
+join "$CO" --name madhu
+same "$(git -C "$CO" config --get-all remote.origin.pushurl)" "$FORK" "a rerun keeps the fork push URL"
+
+# ---- the header warns the developer the box is shared
+sed -n '2,/^# Exit 1/p' "$HERE/join.sh" | grep -q "not their secrets" && pass "join.sh's header says the box keeps no secrets apart" \
+  || { RC=0 OUT=""; fail "join.sh's header says the box keeps no secrets apart"; }
 
 # ---- upstream taken by something else; a Host block that differs; no git identity; Tailscale down
 H="$T/third"; CO="$T/third-co"; mkdir -p "$H/.ssh"
