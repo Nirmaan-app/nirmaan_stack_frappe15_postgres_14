@@ -362,15 +362,18 @@ same "$(rec tj)" none "clean tj unsets the record"
 # benches/tl.
 # Only finished, merged tasks go: tm landed with no finished report (its agent died after committing), tn was just
 # started (its tip is its base, which master holds), to reuses a cleaned name whose old DONE report the box kept.
-for n in tk tl tm tn to; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
-commit "$(bwt tk)" k1; commit "$(bwt tl)" l1; commit "$(bwt tm)" m1
-for n in tk tl tm; do task done "$n"; rc_is 0 "done $n"; git -C "$L" merge -q --no-ff --no-edit "box/$n"; done
+# tw's own commit is merged while its agent still works with no report yet: only the working hold keeps it.
+for n in tk tl tm tn to tw; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+commit "$(bwt tk)" k1; commit "$(bwt tl)" l1; commit "$(bwt tm)" m1; commit "$(bwt tw)" w1
+for n in tk tl tm tw; do task done "$n"; rc_is 0 "done $n"; git -C "$L" merge -q --no-ff --no-edit "box/$n"; done
 for n in tk tl to; do printf '# Report: %s\n\n## Status\n\nDONE. Built and tested.\n' "$n" > "$CH/claude-artifacts/dod/box-$n/REPORT.md"; done
 echo probe > "$CROOT/benches/tl/probe.out"
+echo "4102 claude $(bwt tw)" >> "$CH/.stub/procs"
 task prune
 line '^PRUNE +box-task +tk .*landed:master$' "tk is landed and nothing holds it"
 line '^PRUNE +box-task +tl .*landed:master$' "tl is too: a file beside the env is no hold"
 for n in tm tn to; do line "^PRUNE +box-task +$n .*landed:master\$" "plain prune lists $n: a person judges it"; done
+line '^KEEP +box-task +tw .*landed:master +working$' "a working agent on a merged task with commits holds"
 before="$(cd "$T/boxes" && find . | sort | cksum)"
 task watch
 rc_is 0 "plain watch with landed tasks"
@@ -392,6 +395,9 @@ same "$(rec tc) $(rec te)" "contabo contabo" "an unlanded task and a working one
 there "$(bwt tc)" "the unlanded task's env stays"; there "$(bwt te)" "the working task's env stays"
 line '^KEEP +box-task +tm .*landed:master +not-finished$' "a landed task with no finished report is kept"
 line '^KEEP +box-task +tn .*landed:master +not-finished no-commits$' "a task just started is kept"
+line '^KEEP +box-task +tw .*landed:master +working$' "watch --clean keeps a merged task with commits while its agent works"
+same "$(rec tw)" contabo "the working merged task's record stays"; there "$(bwt tw)" "the working merged task's env stays"
+git -C "$CO" rev-parse -q --verify refs/heads/box/tw >/dev/null || fail "watch --clean took box/tw"; pass "the working merged task's box branch stays"
 line '^KEEP +box-task +to .*landed:master +no-commits$' "a reused name's old DONE report does not clean a task with no commits"
 same "$(rec tm) $(rec tn) $(rec to)" "contabo contabo contabo" "their records stay"
 for n in tm tn to; do there "$(bwt "$n")" "$n's env stays"; done
