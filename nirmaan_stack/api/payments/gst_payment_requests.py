@@ -11,8 +11,9 @@ URLs:
   /api/method/nirmaan_stack.api.payments.gst_payment_requests.delete_gst_payment_request
 
 A request is Online only: it carries no cheque. The approval creates the payment through Request
-Payment's own insert (`project_payments.insert_requested_payment`), routed by the REQUESTER's level and owned
-by them, so it shows in their "Payment Raised By Me".
+Payment's own insert (`project_payments.insert_requested_payment`), owned by the REQUESTER, so it shows in
+their "Payment Raised By Me". It is born Approved, ready to pay, at any amount: the approval here is its only
+one, with no L1 and no CEO step (`gst_payment_requests.approved_payment_route`, ADR-0030 Amendment B).
 
 TWO AT ONCE. Frappe runs PostgreSQL at REPEATABLE READ: a request that waited on the Work Order's row lock
 still reads GST left from a snapshot taken before the first one committed. So the request and the approval
@@ -168,7 +169,10 @@ def _load_pending(name: str):
 
 @frappe.whitelist(methods=["POST"])
 def approve_gst_payment_request(name: str) -> dict:
-    """Approve a Pending request: create its GST payment for the amount asked, routed by amount as any payment is.
+    """Approve a Pending request: create its GST payment for the amount asked, Approved and ready to pay.
+
+    This approval is the payment's only one, at any amount and whoever raised it: no L1, no CEO
+    (ADR-0030 Amendment B, owner 2026-11-18).
 
     The amount is the request's own and is not changed at approval (owner, 2026-11-04). The Work Order is
     checked again, since it may have changed since the request: still payable, still the request's vendor, and the GST still left (an
@@ -197,7 +201,8 @@ def approve_gst_payment_request(name: str) -> dict:
 
     pay, _cheque, status = insert_requested_payment(sr, approved, True, {}, gst_request=req)
     req.project_payment = pay.name  # written by `link_payment`; kept on the doc for the notification
-    pay.add_comment("Comment", _("GST approved by {0} from {1}.").format(frappe.utils.get_fullname(decider), req.name))
+    pay.add_comment("Comment", _("GST approved by {0} from {1}. A GST payment needs no L1 or CEO approval: "
+                                 "it is ready to pay.").format(frappe.utils.get_fullname(decider), req.name))
     frappe.db.commit()
 
     notify_request_decided(req)

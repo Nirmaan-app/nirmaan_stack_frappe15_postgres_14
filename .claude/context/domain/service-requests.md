@@ -27,7 +27,8 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 - **A WO GST payment is born only from an approved GST Payment Request (ADR-0030 Amendment A).** Request
   Payment's GST choice calls `api/payments/gst_payment_requests.request_gst_payment` (Pending); an Accountant,
   Accountant Lead or Admin approves (`approve_gst_payment_request`, the amount fixed, the payment inserted through
-  `insert_requested_payment`) or rejects (`reject_gst_payment_request`, reason required, at most
+  `insert_requested_payment` **born Approved at any amount, no L1 / CEO, owned by the requester**:
+  `approved_payment_route`, ADR-0030 Amendment B, 2026-11-18) or rejects (`reject_gst_payment_request`, reason required, at most
   `REJECT_REASON_MAX` = 250 characters after trimming, refused before the request is touched; the Reject dialog
   stops typing at 250). The decision's notifications (`integrations/Notifications/gst_payment_request_notify`)
   run after it commits: the bell text is cut to 140 characters (`Nirmaan Notifications.description` is a Data
