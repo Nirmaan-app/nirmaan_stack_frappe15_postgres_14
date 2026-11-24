@@ -32,8 +32,8 @@ Design decisions (docs/adr/0003-dual-provider-boq-ai-assist.md):
 
 Statelessness: this module performs NO DB writes and never `frappe.throw`s for a
 terminal classify failure -- it raises `_NonRetryable` (blocked/truncated/empty)
-or re-raises the transient exception, and the worker (Stage 2) owns persistence,
-the gemini_in_progress flag, the socket event and the redis fallback.
+or re-raises the transient exception, and the worker (Stage 2) owns persistence
+and the gemini_in_progress flag.
 
 Deltas vs the ported source (the ONLY differences):
   1. logger channel "boq_gemini" (source: "boq_ai_assist"); docstrings say Gemini
@@ -417,13 +417,11 @@ def classify_sheet(client, model: str, settings: dict, payloads: list[dict],
 
     Delta 3 -- token logging is aggregated ONCE PER PASS: this function sums each
     chunk's tokens and emits a single info line with the pass total; the per-call
-    line in `_generate` is .debug only. The returned `token_total` is the value the
-    worker echoes into the "boq:gemini_pass_done" socket payload, so the worker logs
-    nothing extra per chunk.
+    line in `_generate` is .debug only, so the worker logs nothing extra per chunk.
 
     Pure-ish: no DB writes, no socket, no frappe.throw for a terminal classify
     failure -- a blocked/empty chunk raises _NonRetryable and a still-transient chunk
-    re-raises; the worker maps either to an error_code and clears gemini_in_progress.
+    re-raises; the worker logs either and clears gemini_in_progress.
     """
     # EA-6b: cuts come from the API-resolved effective classification, never the payload.
     chunks = chunk_rows(payloads, section_flags)

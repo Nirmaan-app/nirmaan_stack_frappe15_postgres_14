@@ -109,6 +109,12 @@ def _insert_vendor(values, vendor_type, payee, bank):
     _tds = values.get("tds_deduction_percentage")
     vendor_doc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
     vendor_doc.payee = choose_payee(payee, bank)
+    # MSME (Udyam) details, optional but ID and certificate together (owner, 2026-11-19); `Vendors.validate`
+    # checks them and stores the read data as JSON text, and
+    # `on_update` attaches the certificate, uploaded before the vendor existed, to it.
+    vendor_doc.msme_id = values.get("msme_id") or None
+    vendor_doc.msme_attachment = values.get("msme_attachment") or None
+    vendor_doc.autofill_all_entities_json = values.get("autofill_all_entities_json") or None
     vendor_doc.credit_limit = 50000
     vendor_doc.available_credit = 50000
 

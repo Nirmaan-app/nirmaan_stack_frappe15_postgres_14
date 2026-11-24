@@ -48,6 +48,12 @@ export interface VendorsDocType {
 	vendor_pan?: string | null
 	/** TDS Deduction Percentage : Percent */
 	tds_deduction_percentage?: number
+	/** MSME ID : Data */
+	msme_id?: string | null
+	/** MSME Attachment : Attach */
+	msme_attachment?: string | null
+	/** Autofill All Entities JSON : Long Text */
+	autofill_all_entities_json?: string | null
 	/** Vendor Category : JSON */
 	vendor_category?: unknown | null
 	/** Po Amount Balance : Currency */

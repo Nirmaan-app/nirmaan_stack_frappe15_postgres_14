@@ -16,7 +16,7 @@
 // import { Outlet } from "react-router-dom";
 // import { Link, useLocation } from 'react-router-dom';
 // import { Sheet, SheetContent } from "../ui/sheet";
-// import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+// import { FrappeConfig, FrappeContext, useDocTypeEventListener, useSocketEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 // import Cookies from "js-cookie";
 // import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 // import ScrollToTop from "@/hooks/ScrollToTop";
@@ -189,27 +189,27 @@
 
 
 //     //  ***** PR Events *****
-//     useFrappeEventListener("pr:new", async (event) => {
+//     useSocketEventListener("pr:new", async (event) => {
 //         await handlePRNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeEventListener("pr:delete", (event) => {
+//     useSocketEventListener("pr:delete", (event) => {
 //         handlePRDeleteEvent(event, delete_notification);
 //     });
 
-//     useFrappeEventListener("pr:vendorSelected", async (event) => {
+//     useSocketEventListener("pr:vendorSelected", async (event) => {
 //         await handlePRVendorSelectedEvent(db, event, add_new_notification);
 //     });
 
-//     useFrappeEventListener("pr:approved", async (event) => {
+//     useSocketEventListener("pr:approved", async (event) => {
 //         await handlePRApproveNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeEventListener("pr:rejected", async (event) => {
+//     useSocketEventListener("pr:rejected", async (event) => {
 //         await handlePRNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+//     useDocTypeEventListener("Procurement Requests", async (event) => {
 //         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
 //             await adminPRDataMutate()
 //         } else {
@@ -219,23 +219,23 @@
 
 
 //     //  ***** SB Events *****
-//     useFrappeEventListener("sb:vendorSelected", async (event) => {
+//     useSocketEventListener("sb:vendorSelected", async (event) => {
 //         await handleSBVendorSelectedEvent(db, event, add_new_notification);
 //     });
 
-//     useFrappeEventListener("Rejected-sb:new", async (event) => {
+//     useSocketEventListener("Rejected-sb:new", async (event) => {
 //         await handleSBNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeEventListener("Delayed-sb:new", async (event) => {
+//     useSocketEventListener("Delayed-sb:new", async (event) => {
 //         await handleSBNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeEventListener("Cancelled-sb:new", async (event) => {
+//     useSocketEventListener("Cancelled-sb:new", async (event) => {
 //         await handleSBNewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
+//     useDocTypeEventListener("Sent Back Category", async (event) => {
 //         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
 //             await adminSBDataMutate()
 //         } else {
@@ -245,19 +245,19 @@
 
 
 //     //  ***** PO Events *****
-//     useFrappeEventListener("po:amended", async (event) => {
+//     useSocketEventListener("po:amended", async (event) => {
 //         await handlePOAmendedEvent(db, event, add_new_notification);
 //     });
 
-//     useFrappeEventListener("po:new", async (event) => {
+//     useSocketEventListener("po:new", async (event) => {
 //         await handlePONewEvent(db, event, add_new_notification)
 //     });
 
-//     useFrappeEventListener("po:delete", (event) => {
+//     useSocketEventListener("po:delete", (event) => {
 //         handlePRDeleteEvent(event, delete_notification);
 //     });
 
-//     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
+//     useDocTypeEventListener("Procurement Orders", async (event) => {
 //         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
 //             await adminPODataMutate()
 //         } else {
@@ -266,23 +266,23 @@
 //     })
 
 //     //  ***** SR Events *****
-//     useFrappeEventListener("sr:vendorSelected", async (event) => {
+//     useSocketEventListener("sr:vendorSelected", async (event) => {
 //         await handleSRVendorSelectedEvent(db, event, add_new_notification);
 //     })
 
-//     useFrappeEventListener("sr:approved", async (event) => {
+//     useSocketEventListener("sr:approved", async (event) => {
 //         await handleSRApprovedEvent(db, event, add_new_notification);
 //     })
 
-//     useFrappeEventListener("sr:delete", (event) => {
+//     useSocketEventListener("sr:delete", (event) => {
 //         handlePRDeleteEvent(event, delete_notification);
 //     });
 
-//     // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
+//     // useSocketEventListener("pr:statusChanged", async (event) => { // not working
 //     //     await handlePRStatusChangedEvent(role, user_id);
 //     // });
 
-//     // useFrappeEventListener("pr:resolved", async (event) => {
+//     // useSocketEventListener("pr:resolved", async (event) => {
 //     //     await handlePRResolvedEvent(db, event, role, user_id, add_new_notification, mutate);
 //     // });
 

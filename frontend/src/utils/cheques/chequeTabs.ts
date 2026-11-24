@@ -59,6 +59,16 @@ const defOf = (tab: ChequeTrackerTab): ChequeTabDef =>
 /** The filters a tab sends to the list endpoint. */
 export const chequeTabFilters = (tab: ChequeTrackerTab): ChequeTabFilter[] => defOf(tab).filters;
 
+/** A list filter on any Cheque field (the tab's own, or the vendor the Vendor page narrows to). */
+export type ChequeListFilter = [field: string, op: "=", value: string];
+
+/**
+ * The filters a tab sends, narrowed to one vendor's cheques when `vendorId` is given (the Vendor page's Cheques tab).
+ * The table, its tab badges, its summary strip and its facets all read this one list, so they always agree.
+ */
+export const chequeTabFiltersFor = (tab: ChequeTrackerTab, vendorId?: string): ChequeListFilter[] =>
+    vendorId ? [...chequeTabFilters(tab), ["vendor", "=", vendorId]] : [...chequeTabFilters(tab)];
+
 /** Whether a Cheque belongs in a tab. */
 export const isInChequeTab = (row: ChequeTabRow, tab: ChequeTrackerTab): boolean =>
     chequeTabFilters(tab).every(([field, , value]) => row[field] === value);

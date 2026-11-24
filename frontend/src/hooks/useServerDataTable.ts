@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -18,7 +18,8 @@ import {
     TableMeta,
     getPaginationRowModel,
 } from '@tanstack/react-table';
-import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useDocTypeEventListener } from '@/lib/frappe';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
@@ -819,7 +820,7 @@ export function useServerDataTable<TData extends { name: string }>({
         fetchData();
     }, [fetchData, isClientSideMode]); // Dependency is the memoized fetchData function
 
-    // --- Real-time Event Listener using useFrappeEventListener ---
+    // --- Real-time Event Listener using useSocketEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
         console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
         // Check if the event is relevant to the current doctype
@@ -848,9 +849,9 @@ export function useServerDataTable<TData extends { name: string }>({
     }, [doctype, apiEndpoint, mutate, fetchData, isClientSideMode]); // Add fetchData to deps
 
 
-    useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
+    useDocTypeEventListener(doctype, handleRealtimeEvent);
 
-    // The table's rows as of the last render, for `reviseRowSelection` (which runs on click).
+    // The table's rows as of the last commit, for `reviseRowSelection` (which runs on click).
     const rowsRef = useRef<Row<TData>[]>([]);
     const setRevisedRowSelection = useCallback(
         (updater: React.SetStateAction<RowSelectionState>) =>
@@ -870,10 +871,11 @@ export function useServerDataTable<TData extends { name: string }>({
         manualPagination: !isClientSideMode,
         manualSorting: !isClientSideMode,
         manualFiltering: !isClientSideMode, // We handle filtering via API call
-        // Page count calculation
-        pageCount: isClientSideMode
-            ? Math.ceil(totalCount / pagination.pageSize) // Use totalCount for client mode
-            : (totalCount > 0 ? Math.ceil(totalCount / pagination.pageSize) : -1), // -1 or server calculated for server mode
+        // Page count from totalCount (the server's total, or clientTotalCount / clientData's length in client mode).
+        // Never -1: TanStack reads -1 as "count unknown" and enables Next / Last,
+        // so an empty table showed "Page 0 of -1" and Last jumped to page index -2. Empty is 0 pages; while loading,
+        // the pager's buttons are already disabled.
+        pageCount: Math.ceil(totalCount / pagination.pageSize),
         // State managed by the hook
         state: {
             pagination,
@@ -907,7 +909,11 @@ export function useServerDataTable<TData extends { name: string }>({
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
-    rowsRef.current = table.getCoreRowModel().rows;
+    // Kept current after each commit (before paint, so a click never sees an older list); only the click reads it.
+    const coreRows = table.getCoreRowModel().rows;
+    useLayoutEffect(() => {
+        rowsRef.current = coreRows;
+    }, [coreRows]);
 
     // NEW: Toggle Item Search
     // const toggleItemSearch = useCallback(() => {

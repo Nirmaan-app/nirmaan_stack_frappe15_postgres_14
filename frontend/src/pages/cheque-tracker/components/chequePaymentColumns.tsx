@@ -165,7 +165,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }:
             <DataTableColumnHeader column={column} title={CHEQUE_PAYMENT_DATE_LABEL} className={WRAP_HEADER} />
         ),
         cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
-        size: 125,
+        size: 160,
         meta: { exportHeaderName: CHEQUE_PAYMENT_DATE_LABEL, exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
     },
     {

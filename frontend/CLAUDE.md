@@ -50,14 +50,15 @@ Four standards fail silently when broken, so they are summarised here too (full 
 Read the doc for the area you touch before writing code; where it has a Load-bearing invariants section, read
 that first. Paths are under `.claude/context/domain/` unless given in full.
 
-`boq-frontend.md` (~330 KB) and `.claude/plans/boq-upload-plan.md` (~3 MB) are too large to read whole: list the
+`boq-frontend.md` (~330 KB) and `.claude/plans/boq-upload-plan.md` (~4 MB) are too large to read whole: list the
 headings with `grep -n '^#' <file>`, then read only that range.
 
 | Touching… | Read |
 |---|---|
 | **BoQ pricing editor**: `PricingGrid.tsx`, `SheetPricingPage.tsx`, the BCS cost block, the Category column, the rate-helper chassis, view filters | `boq-pricing-editor-frontend.md` |
 | **BoQ wizard** (`src/pages/boq-wizard/`): upload, hub, spoke, the review screen | `boq-frontend.md` § Load-bearing invariants |
-| **BoQ status**: the active slice, the design spec, as-built records | `.claude/plans/boq-upload-plan.md` |
+| **BoQ status**: the active slice | `.claude/plans/boq-status.md` |
+| **BoQ history**: the design spec and the as-built records (closed, read by heading) | `.claude/plans/boq-upload-plan.md` |
 | **Rate-helper panel** attributes, Pricing Module workbook pages, Rate Master screens | `pricing-rate-master-frontend.md` |
 | **Procurement**: Loss Justification (PR/SB), Critical PO Task packages and links | `../.claude/context/domain/procurement.md` § Load-bearing invariants |
 | **CEO Hold**, including the Delivery Note exemption | `ceo-hold.md` |

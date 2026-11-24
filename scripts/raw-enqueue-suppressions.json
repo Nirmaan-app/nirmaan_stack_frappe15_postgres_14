@@ -1,0 +1,74 @@
+{
+  "nirmaan_stack/api/boq/rate_match.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "The 06:00 cron job's match pool rebuild: no screen waits on it; one at a time by its fixed job id."
+    }
+  },
+  "nirmaan_stack/api/boq/wizard/gemini_assist.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "run_gemini_pass has had no screen caller since ADR-0034; its sheet's gemini_in_progress flag is its only state."
+    }
+  },
+  "nirmaan_stack/api/outflow_import/card_create.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "Statement import, card Create (owner, #1654): one job per batch by job id; every user's screen re-reads the batch status."
+    }
+  },
+  "nirmaan_stack/api/outflow_import/card_import.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "Statement import, card type suggestion (owner, #1654): one job per batch by job id; Review re-reads the batch status."
+    }
+  },
+  "nirmaan_stack/api/outflow_import/cashbook.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "Statement import, Cashbook confirm and Resume (owner, #1654): one job per batch by job id; the screen re-reads the batch status."
+    }
+  },
+  "nirmaan_stack/api/outflow_import/porter_create.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "Statement import, Porter Create (owner, #1654): one job per batch by job id; every user's screen re-reads the batch status."
+    }
+  },
+  "nirmaan_stack/api/outflow_import/porter_validation.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "Statement import, Porter validation and Retry (owner, #1654): one job per batch or invoice by job id; the screen re-reads the batch status."
+    }
+  },
+  "nirmaan_stack/nirmaan_stack/doctype/reminder_schedule/reminder_schedule.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "A schedule save sends the reminders now due; no screen waits on it (the Reminders page re-reads its logs)."
+    }
+  },
+  "nirmaan_stack/services/action_items/doc_hooks.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "A doc hook's per-project action-item reconcile, queued after the commit; no screen waits on it."
+    }
+  },
+  "nirmaan_stack/services/boq_rate_match/cards.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "A committed sheet's spec cards, queued by the commit; no screen waits on them."
+    }
+  },
+  "nirmaan_stack/services/boq_rate_match/pool_autobuild.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "The 5-minute check's pool rebuild after a deploy: no screen waits on it; one at a time by the 06:00 job's fixed id."
+    }
+  },
+  "nirmaan_stack/services/expense_bills/reading.py": {
+    "no-raw-enqueue": {
+      "count": 1,
+      "reason": "An expense bill's reading, queued after the bill's commit, one job per bill; screens read the bill's own reading status."
+    }
+  }
+}

@@ -22,6 +22,18 @@ describe("yarn type-coverage", () => {
   });
 });
 
+describe("yarn doctor", () => {
+  // The owner's privacy rule (#1698): no telemetry, no score API, no Socket.dev dependency check, local and in CI.
+  // Nothing a shell must expand, so it runs the same from cmd.exe.
+  it("runs React Doctor through scripts/react_doctor.mjs (the privacy flags, no install) and nothing a shell must expand", () => {
+    expect(pkg.scripts.doctor).toBe("node scripts/react_doctor.mjs");
+  });
+
+  it("pins react-doctor to an exact version", () => {
+    expect(pkg.devDependencies["react-doctor"]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
 describe("yarn lint", () => {
   const lint = pkg.scripts.lint;
 
@@ -55,7 +67,9 @@ describe("yarn lint", () => {
     if (suppressions) writeFileSync(join(root, "oxlint-suppressions.json"), JSON.stringify(suppressions));
     symlinkSync(join(FRONTEND, "node_modules"), join(root, "node_modules"));
     const [bin, ...args] = lint.split(" ");
-    return spawnSync(join(root, "node_modules", ".bin", bin), args, { cwd: root, encoding: "utf8" });
+    // Under GITHUB_ACTIONS oxlint prints GitHub annotations, which drop the help lines these tests read.
+    const { GITHUB_ACTIONS, ...env } = process.env;
+    return spawnSync(join(root, "node_modules", ".bin", bin), args, { cwd: root, env, encoding: "utf8" });
   }
   const frozen = (count) => ({ "src/sample.ts": { "typescript/no-explicit-any": { count } } });
   const twoAnys = "export const a: any = 1;\nexport const b: any = 2;\n";
@@ -173,11 +187,13 @@ describe(".githooks/checks.sh", () => {
     return { run };
   }
 
+  // A commit that stages only files oxlint's ignorePatterns skip (components/ui/) leaves oxlint no file to lint;
+  // without the flag it exits 1 ("No files found to lint") and the hook refused the commit.
   it("lints the staged copy with the local oxlint where its native binary runs", () => {
     const { run } = stagedRepo({ nativeRuns: true });
     const pass = run();
     expect(pass.status, pass.stderr).toBe(0);
-    expect(pass.logged).toMatch(/args: --type-aware src\/a\.ts/);
+    expect(pass.logged).toMatch(/args: --type-aware --no-error-on-unmatched-pattern src\/a\.ts/);
     expect(pass.logged).toMatch(/staged: export const staged = 1;/);
     expect(pass.logged).not.toMatch(/docker/);
     const fail = run({ FAKE_RC: "1" });
@@ -190,7 +206,7 @@ describe(".githooks/checks.sh", () => {
     const pass = run({ NIRMAAN_LINT_CONTAINER: "test-container" });
     expect(pass.status, pass.stderr).toBe(0);
     expect(pass.logged).toMatch(/docker exec/);
-    expect(pass.logged).toMatch(/args: --type-aware src\/a\.ts/);
+    expect(pass.logged).toMatch(/args: --type-aware --no-error-on-unmatched-pattern src\/a\.ts/);
     expect(pass.logged).toMatch(/staged: export const staged = 1;/);
     const fail = run({ NIRMAAN_LINT_CONTAINER: "test-container", FAKE_RC: "1" });
     expect(fail.status).toBe(1);

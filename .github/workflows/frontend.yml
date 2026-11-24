@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Clone
         uses: actions/checkout@v4
+        with:
+          # Full history: React Doctor's --scope changed needs the merge base of the PR's base commit and HEAD
+          # (#1698), and residence check W1 asks whether a walked PR's head is in HEAD's history.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -27,20 +31,25 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
-      # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
-      # type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
-      # the threshold. `yarn lint` alone cannot see
-      # this: it reads whatever suppressions file the PR brings. The checkout holds only the merge commit made when
-      # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
-      # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
-      - name: Frontend ratchet not loosened (suppressions and --at-least against the PR's base commit)
+      # A PR may shrink frontend/oxlint-suppressions.json, frontend/json-call-suppressions.json,
+      # frontend/disable-comment-suppressions.json and the frozen raw enqueues and socket listeners
+      # (scripts/raw-enqueue-suppressions.json, frontend/socket-listener-suppressions.json), and raise type-coverage's
+      # --at-least; it may not grow a count (oxlint's, J1's, D1's, Q1's or L2's file), add a file or rule (`oxlint --suppress-all`), or lower
+      # the threshold. Nor may it loosen the lint settings (#1702): .oxlintrc.json (ignorePatterns, a rule off or
+      # "warn", an override), a nested oxlint config or ignore file, the `lint` script, or a residence_baseline.json
+      # count CI reads. `yarn lint` alone cannot see
+      # this: it reads whatever suppressions file and settings the PR brings. The check reads the base commit of the
+      # merge made when the run was triggered (pull_request.base.sha, not the base branch's tip, which may have moved
+      # by a re-run). The fetch takes no --depth: a shallow fetch would make the full clone shallow, and W1 below
+      # could then no longer tell a merged walk from an unmerged one.
+      - name: Frontend ratchet not loosened (suppressions, --at-least and lint settings against the PR's base commit)
         if: github.event_name == 'pull_request'
         working-directory: .
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          python3 -m unittest scripts.test_frontend_ratchet_check
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python3 -m unittest scripts.test_frontend_ratchet_check scripts.test_oxlint_settings_check
+          git fetch --no-tags origin "$BASE_SHA"
           python3 scripts/frontend_ratchet_check.py --base-ref "$BASE_SHA"
 
       - name: Install
@@ -49,10 +58,12 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
-      # The seven residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
-      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails. After Install: J1 parses with frontend/node_modules/typescript.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls)
+      # The thirteen residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # ADR-0010's two (B1, B3) stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
+      # passes, a count that rose fails. J1, D1, Q1 and L2 hold per file against their frozen files instead: a file over
+      # or under its frozen count fails, so a count that fell fails until the change lowers it. After Install: J1, D1
+      # and L2 parse with frontend/node_modules/typescript.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls, D1 lint disable comments, L1 raw listener hooks, N1 counted names, Q1 raw enqueues, L2 socket listeners, W1 merged PR walks graduated)
         working-directory: .
         run: python3 scripts/residence_check.py --check --only ci
 
@@ -77,6 +88,20 @@ jobs:
       # did, where a call's inferred type depended on the checker's order (ADR-0049, #1699). About 4 s here.
       - name: Lint gives one result (the type-aware lint twice on the same tree; names the files that differ)
         run: node scripts/lint_same_twice.mjs
+
+      # React Doctor (#1698) checks React problems the type checks cannot see; it adds to ADR-0049's checks. It fails on
+      # an error-level finding the PR brings, per file and rule against the PR's base commit (a count may fall, never
+      # rise; an old finding in a touched file passes; warnings never fail), naming file, line and rule. `yarn doctor`'s
+      # three flags (scripts/react_doctor.mjs) keep it from sending anything out: no telemetry, score API or Socket.dev.
+      - name: React Doctor (new error-level findings against the PR's base commit)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/react_doctor_new.mjs --base "$BASE_SHA"
+
+      # The comparison above counts findings per file and rule, so two scans of one tree must agree.
+      - name: React Doctor gives one result (two full scans of the same tree; names the files that differ)
+        run: node scripts/react_doctor_new.mjs --twice
 
       # Upward only: raise --at-least in package.json in the same PR whenever this percentage rises.
       - name: Type coverage (type-coverage --strict; fails below the threshold in package.json)

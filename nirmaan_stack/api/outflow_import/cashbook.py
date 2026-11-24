@@ -47,7 +47,8 @@ accountants and administrators and returns 403 for everyone else. Reversing it i
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import frappe
@@ -66,7 +67,6 @@ from nirmaan_stack.api.outflow_import.cashbook_bills import (
     copy_created_line_bills,
     new_bill_work,
     save_bill_work,
-    store_collect_bills,
 )
 from nirmaan_stack.api.outflow_import.cashbook_lines import (
     BATCH_DOCTYPE,
@@ -75,6 +75,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     line_values,
     lock_line_if,
 )
+from nirmaan_stack.api.outflow_import.cashbook_refund_spends import refunds_spend_ids, spend_expenses
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import import internal_transfers as internal_transfer_records
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -87,8 +88,15 @@ from nirmaan_stack.services.outflow_import.candidates import (
     prior_import_sightings,
 )
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
-from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import (
+    before_cutoff_note,
+    kept_lines,
+    kept_period,
+    only_before_cutoff_message,
+)
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import money_in_description
+from nirmaan_stack.services.outflow_import.cashbook_refunds import CREDIT_ROW_KINDS
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -149,7 +157,7 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     return preview_payload(parsed, plan, filename, verdict, [_late_bill_preview(b) for b in late], len(fills))
 
@@ -173,7 +181,7 @@ def confirm_cashbook_import():
     # path): `store_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
-    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
+    fills = _zero_records_to_fill(parsed)
     verdict = _assess(parsed, plan, filename, late, fills)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
@@ -211,14 +219,18 @@ def confirm_cashbook_import():
     frappe.db.commit()
 
     _enqueue_worker(batch.name, user)
+    # #1708: an earlier line re-opened as a Collect payment to create stays in its own import, whose job creates it.
+    for earlier_batch in sorted({planned.reopens.batch for planned in plan.reopening if planned.creates}):
+        _enqueue_worker(earlier_batch, user)
     return {
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
         # #1623: Cashbook's own moves, staged as Internal Transfer lines.
         "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,
+        # #1707: the lines dated before 1 Apr 2026 or undated, left out and not saved.
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff, plan.undated),
         # #1593: the existing Expenses the job will give a bill.
         "late_bills": len(late),
         # #1596: the earlier lines this import re-opened in place.
@@ -243,9 +255,9 @@ def get_cashbook_status(batch: str):
     killed outright stays "started" in RQ until RQ marks the job abandoned, so `stopped` can lag a hard
     kill by RQ's own clean-up interval; it never shows while a job really runs.)
 
-    ⚠️ BILLS STILL TO COPY STOP A BATCH TOO (code review S1, S2). The job copies its open Collect payments' bills
-    and its late bills after its lines, so a job that dies after the last line leaves no pending line and work
-    still undone. `bills_waiting` counts it (`cashbook_bills.bills_waiting`), and `stopped` covers it.
+    ⚠️ BILLS STILL TO COPY STOP A BATCH TOO (code review S1, S2). The job copies its late bills after its lines, so a
+    job that dies after the last line leaves no pending line and work still undone. `bills_waiting` counts it
+    (`cashbook_bills.bills_waiting`), and `stopped` covers it.
     """
     require_outflow_access()
     counts = dict(
@@ -272,13 +284,13 @@ def get_cashbook_status(batch: str):
         # #1594: the open lines (unpaired wallet refunds, wallet credits, and any line a person reopened).
         "open": counts.get(ROW_MISMATCHED, 0),
         "pending": pending,
-        # #1595 / #1593: open Collect payments' bills and late bills the job has still to copy.
+        # #1593: late bills the job has still to copy.
         "bills_waiting": waiting_bills,
         "running": running,
         "stopped": (pending > 0 or waiting_bills > 0) and not running,
         "batch_status": frappe.db.get_value(BATCH_DOCTYPE, batch, "status"),
-        # #1591: every created spend whose bills were not copied onto its Expense, and why; #1595: an open Collect
-        # payment's (no Expense); #1593: a late bill's, which has no line of its own (code review S2).
+        # #1591: every created spend whose bills were not copied onto its Expense, and why; #1593: a late bill's,
+        # which has no line of its own (code review S2).
         "bills_not_copied": bills_not_copied(batch),
     }
 
@@ -335,9 +347,7 @@ def _enqueue_worker(batch: str, actor: str) -> None:
     )
 
 
-def _cashbook_worker(
-    batch: str, actor: str, late_bills: list[dict] | None = None, reopened: list[str] | None = None
-):
+def _cashbook_worker(batch: str, actor: str, late_bills: list[dict] | None = None):
     """Create one expense per planned row. ONE TRANSACTION PER ROW.
 
     ⚠️ COMMIT PER ROW, NOT PER BATCH, and that is what makes a partial run safe. A worker killed at
@@ -358,13 +368,16 @@ def _cashbook_worker(
     rolled back, not marked. The rollup at the end reads the rows in a fresh transaction (every line
     ends its own), so it counts what they really say.
 
-    After the lines, the bills outside them (code review S1, S2, R1): the late bills (#1593) and the Collect
-    payment lines whose bills this import copies (#1595, and the earlier ones it re-opened, #1596) are read from the
-    batch (`cashbook_bills.bill_work`), not from the job's arguments, so Resume redoes whatever a dead job left.
-    `late_bills` / `reopened` are accepted only from a job queued before that change, and kept on the batch first.
+    After the lines, the late bills (#1593, code review S1, S2) are read from the batch (`cashbook_bills.bill_work`),
+    not from the job's arguments, so Resume redoes whatever a dead job left. `late_bills` is accepted only from a job
+    queued before that change, and kept on the batch first.
+
+    A Collect payment is one of its lines like any spend (#1708). An earlier line a later import re-opened as a
+    Collect payment (#1596) stays in its own import and is created by that import's job, which the re-opening
+    confirm queues.
     """
-    if (late_bills or reopened) and not bill_work(batch):
-        save_bill_work(batch, new_bill_work(list(late_bills or ()), list(reopened or ())))
+    if late_bills and not bill_work(batch):
+        save_bill_work(batch, new_bill_work(list(late_bills)))
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
         """
@@ -391,9 +404,6 @@ def _cashbook_worker(
             frappe.db.rollback()
 
     attach_late_bills(batch, actor)
-
-    # #1595: each open Collect payment's bills are copied onto its line now, while the links still work.
-    store_collect_bills(batch)
 
     refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -494,6 +504,13 @@ def _lock_pending_line(row_name: str):
         return None
 
 
+def write_line_expense(row_name: str, batch: str, actor: str) -> bool:
+    """Write one staged line's Expense exactly as the job does (`_write_one`), for a writer outside the job: the
+    one-time patches of spec #1711 (`cashbook_open_lines`). The line must be `Pending match run` with its placement;
+    `False` -- nothing written -- when it is not. Never commits."""
+    return _write_one(row_name, batch, actor, _statement_file_url(batch))
+
+
 def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | None) -> bool:
     """One row -> one expense -> one match record -> the row flips to Settled. Returns whether it wrote:
     `False` -- nothing written -- when the line is no longer this job's (`_lock_pending_line`)."""
@@ -512,21 +529,29 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     # out of the database after a real run. `expenses.create_expense` has always used this adapter;
     # this path simply did not, which is the whole of the defect.
     staged = StagedRow(doc)
+    # #1709, #1720: a *Wallet refund expense* or *Wallet credit expense* -- minus the line's Credit. On a money-in line
+    # the statement's From is whoever paid it in and To the wallet holder, so who spent it is the To.
+    kind = (doc.get("row_kind") or "").strip()
+    money_in = kind in CREDIT_ROW_KINDS
+    spent_by = doc.get("beneficiary_name") if money_in else doc.get("added_by_raw")
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
         expense_type=doc["suggested_expense_type"],
         actor=actor,
         project=doc.get("resolved_project"),
-        # Description is left to `settle._default_description`, which composes the payee with the
-        # remark. Deciding it here would be a second definition of the same sentence.
-        description=None,
+        # A spend's description is left to `settle._default_description`, which composes the payee with the
+        # remark; a refund's names its spend and the merchant (#1709), a credit's who paid it in (#1720).
+        description=(
+            money_in_description(kind, doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if money_in else None
+        ),
         comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
-        # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
-        payment_by=(doc.get("added_by_raw") or "").strip() or None,
+        # ⚠️ WHO SPENT IT, from the statement (a spend's From, a refund's To) -- not the accountant importing it.
+        payment_by=(spent_by or "").strip() or None,
         # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
         cashbook_batch=batch,
+        cashbook_money_in=money_in,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now
@@ -680,24 +705,30 @@ def _plan_claiming_reopens(parsed) -> CashbookPlan:
 def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
     """Read the two lookup tables and decide. The ONE place the plan is computed. `not_reopening`: earlier lines
     confirm found taken meanwhile (`_plan_claiming_reopens`), planned as if they were not own-balances skips."""
-    won = frappe.db.sql(
-        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
-        (_WON,),
-        as_dict=True,
-    )
-    index = build_project_index(
-        [(row["name"], row.get("project_name") or "") for row in won],
-        aliases=load_project_aliases(),
-    )
     return plan_statement(
         parsed.rows,
-        index,
+        project_index(),
         load_expense_rules(),
         already_imported=_already_imported(parsed),
         already_booked=_already_booked(parsed),
         wrong_skips=[
             skip for skip in wrong_skips(_statement_transfer_ids(parsed)) if skip.line not in not_reopening
         ],
+        # #1709: where each refund's spend is booked, so an unpaired refund is booked there too.
+        refunded_spends=spend_expenses(refunds_spend_ids(_statement_transfer_ids(parsed))),
+    )
+
+
+def project_index():
+    """The Won projects and their aliases: what the plan places a line against (`cashbook_placement.placement`)."""
+    won = frappe.db.sql(
+        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
+        (_WON,),
+        as_dict=True,
+    )
+    return build_project_index(
+        [(row["name"], row.get("project_name") or "") for row in won],
+        aliases=load_project_aliases(),
     )
 
 
@@ -841,6 +872,12 @@ def _booked_index(ids) -> dict:
     return index_prior_sightings(entries)
 
 
+def booked_as(transfer_id: str, amount: Decimal, when: date | None) -> str | None:
+    """The Expense already carrying `transfer_id` at `amount` on `when`, as the label the "already booked" skip names
+    ("<doctype> <name>"), or `None`: the one check `_already_booked` makes, for one Txn Id."""
+    return find_prior_sighting(_booked_index([transfer_id]), transfer_id, amount, when)
+
+
 def booked_elsewhere(row: str) -> str | None:
     """Where this Cashbook line's money is already booked, as the label the skip sentence names -- or
     `None`. The unskip re-check for a Cashbook line (#1314, owner Q5; trap 3).
@@ -862,9 +899,7 @@ def booked_elsewhere(row: str) -> str | None:
     if not transfer_id:
         return None
     staged = StagedRow(line)
-    label = find_prior_sighting(
-        _booked_index([transfer_id]), transfer_id, staged.amount, staged.added_on_date
-    )
+    label = booked_as(transfer_id, staged.amount, staged.added_on_date)
     if label:
         return label
     leg = frappe.db.get_value(
@@ -885,9 +920,15 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: 
     what the preview promised is what the confirm enforces. A repeat bringing a late bill (`late`, #1593) is work,
     and so is one giving a ₹0 Internal Transfer record its money (`fills`, owner decision 2, #1619): a file of
     nothing but repeats is accepted when some of them bring either.
+
+    #1707: a line before 1 Apr 2026 is not one of the file's transfers here (it is left out and only counted), and a
+    file of nothing else is refused with its own sentence.
     """
+    if plan.before_cutoff == len(parsed.rows) and not late and not fills:
+        message = only_before_cutoff_message(plan.before_cutoff, filename)
+        return DuplicateVerdict(total=0, duplicates=0, new=0, refuse=True, warn=False, message=message)
     return assess_duplicates(
-        total=len(parsed.rows),
+        total=len(parsed.rows) - plan.before_cutoff,
         duplicates=plan.split.repeats_not_saved,
         earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
@@ -895,6 +936,13 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: 
         earlier_batches=plan.split.repeats_by_batch,
         repeats_with_work=len(late) + len(fills),
     )
+
+
+def _zero_records_to_fill(parsed) -> tuple:
+    """The ₹0 Internal Transfer records this statement fills, read from its KEPT lines only (#1715, owner decision 2):
+    a line before 1 Apr 2026 or undated is left out like any other early line, so it fills nothing, and a file of
+    nothing else is refused by `_assess`."""
+    return internal_transfer_records.zero_records_to_fill(kept_lines(parsed.rows))
 
 
 def _statement_transfer_ids(parsed) -> list[str]:
@@ -921,6 +969,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
     # A line that re-opens an earlier one (#1596) is stored in that line's import, so its money is too.
     stored = [raw for raw, planned in zip(all_kept, plan.rows, strict=True) if not planned.reopens]
     gross, charges = stored_money(stored)
+    period_from, period_to = kept_period(parsed.rows)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -928,12 +977,15 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
             "source": SOURCE,
             "source_file": file_url,
             "original_filename": filename,
-            "period_from": parsed.period_from,
-            "period_to": parsed.period_to,
+            # #1715: the period of the kept lines; a line left out by date does not count toward it.
+            "period_from": period_from,
+            "period_to": period_to,
             "gross_amount": float(gross),
             "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
             "repeats_not_saved": plan.split.repeats_not_saved,
+            # #1707: the same, for the lines dated before 1 Apr 2026.
+            "lines_before_cutoff": plan.before_cutoff,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",
@@ -941,14 +993,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
     )
     batch.insert(ignore_permissions=True)
 
-    # The Collect payment lines whose bills this import's job copies (#1595): its own, and the earlier ones it
-    # re-opens (#1596), which stay in their own import but are this import's work (code review R1).
-    collect_lines: list[str] = []
     # `plan.rows` and `plan.split.kept` are the same lines in the same order -- see `CashbookPlan`.
     for raw, planned in zip(all_kept, plan.rows, strict=True):
         if planned.reopens:
-            if _copies_a_collect_bill(raw, planned):
-                collect_lines.append(planned.reopens.line)
             continue
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update({"import_batch": batch.name, **line_values(raw, planned)})
@@ -958,17 +1005,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         # decision 3, #1619), so each Internal Transfer line holds exactly one record.
         if planned.move:
             internal_transfer_records.record_cashbook_move(doc, planned.move)
-        if _copies_a_collect_bill(raw, planned):
-            collect_lines.append(doc.name)
 
     # #1596: each line that re-opens an earlier own-balances skip is written onto THAT line, never staged anew.
     reopen_lines(plan, all_kept, batch.name, user)
-    # Code review S1, S2: the bill copies outside the job's own Pending lines, kept so Resume can finish them.
+    # Code review S1, S2: the late bills, kept so Resume can finish them.
     # Not committed: confirm commits once, holding the re-open claims to the end.
-    save_bill_work(batch.name, new_bill_work(list(late_bill_jobs), collect_lines), commit=False)
+    save_bill_work(batch.name, new_bill_work(list(late_bill_jobs)), commit=False)
     return batch
-
-
-def _copies_a_collect_bill(raw, planned) -> bool:
-    """Whether the job copies this line's bills onto it: an open Collect payment with bill links (#1595)."""
-    return planned.opens and planned.row_kind == COLLECT_ROW_KIND and bool(raw.bill_links)

@@ -24,6 +24,9 @@ CUSTOMER_PO = "customer_po"
 TDS_CHALLAN = "tds_challan"
 # A photo of one of our own paper cheques (spec #1407): bank, MICR line, date, amount, payee.
 CHEQUE = "cheque"
+# A vendor's Udyam (MSME) registration certificate (owner, 2026-11-19): Udyam number, enterprise
+# name and type. Read by `api/vendor/msme_autofill.py`.
+MSME_CERTIFICATE = "msme_certificate"
 
 
 class Entity(TypedDict):

@@ -21,11 +21,11 @@ import { parseNumber } from "@/utils/parseNumber";
 import { computeLossPercent, isHighLoss } from "@/utils/lossPercent";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  useFrappeDocumentEventListener,
   useFrappePostCall,
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import memoize from "lodash/memoize";
 import {
   ArrowBigUpDash,
@@ -155,7 +155,7 @@ export const VendorsSelectionSummary: React.FC = () => {
     mutate: pr_mutate,
   } = useProcurementRequest(prId);
 
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Procurement Requests",
     prId,
     (event) => {
@@ -861,7 +861,7 @@ export default VendorsSelectionSummary;
 // import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 // import { parseNumber } from "@/utils/parseNumber";
 // import {
-//   useFrappeDocumentEventListener,
+//   useDocumentEventListener,
 //   useFrappePostCall,
 //   useFrappeUpdateDoc,
 // } from "frappe-react-sdk";
@@ -1005,7 +1005,7 @@ export default VendorsSelectionSummary;
 //     mutate: pr_mutate,
 //   } = useProcurementRequest(prId);
 
-//   useFrappeDocumentEventListener(
+//   useDocumentEventListener(
 //     "Procurement Requests",
 //     prId,
 //     (event) => {

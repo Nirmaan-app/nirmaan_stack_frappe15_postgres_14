@@ -58,13 +58,13 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     PO: initiatePODownload,
     WO: initiateWODownload,
     Invoice: initiateInvoiceDownload,
-    DC: () => handleBulkDownload("DC", TYPE_INFO.DC.card),
-    MIR: () => handleBulkDownload("MIR", TYPE_INFO.MIR.card),
-    DN: () => handleBulkDownload("DN", TYPE_INFO.DN.card),
-    MTC: () => handleBulkDownload("MTC", TYPE_INFO.MTC.card),
-    ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
-    POPaymentVoucher: () => handleBulkDownload("POPaymentVoucher", TYPE_INFO.POPaymentVoucher.card),
-    WOPaymentVoucher: () => handleBulkDownload("WOPaymentVoucher", TYPE_INFO.WOPaymentVoucher.card),
+    DC: () => handleBulkDownload("DC"),
+    MIR: () => handleBulkDownload("MIR"),
+    DN: () => handleBulkDownload("DN"),
+    MTC: () => handleBulkDownload("MTC"),
+    ClientInvoice: () => handleBulkDownload("ClientInvoice"),
+    POPaymentVoucher: () => handleBulkDownload("POPaymentVoucher"),
+    WOPaymentVoucher: () => handleBulkDownload("WOPaymentVoucher"),
     // Never in this menu: Porter invoices are Report Bulk Download only, which has no Quick Download.
     PorterInvoice: () => {},
   };
@@ -134,7 +134,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
             <div className="flex flex-col gap-2">
               <Button
                 variant="outline"
-                onClick={() => handleBulkDownload(rateDocType, rateLabel, { withRate: true })}
+                onClick={() => handleBulkDownload(rateDocType, { withRate: true })}
                 disabled={isProjectManager}
                 className="justify-start h-auto py-3 px-4"
               >
@@ -148,7 +148,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleBulkDownload(rateDocType, rateLabel, { withRate: false })}
+                onClick={() => handleBulkDownload(rateDocType, { withRate: false })}
                 className="justify-start h-auto py-3 px-4"
               >
                 <div className="flex flex-col items-start">
@@ -181,7 +181,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
             </RadioGroup>
             <Button
               className="mt-4"
-              onClick={() => handleBulkDownload("Invoice", "Invoices")}
+              onClick={() => handleBulkDownload("Invoice")}
             >
               Generate Invoices PDF
             </Button>

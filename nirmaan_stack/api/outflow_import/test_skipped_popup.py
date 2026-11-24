@@ -43,7 +43,7 @@ class TestTheSkippedPopupReads(SkipFixture):
             ),
             "wallet_in": self._line(
                 batch=self.batch, status=ROW_SKIPPED, direction=" Credit ",
-                skip_kind="Wallet money returned",
+                skip_kind="Failed payment bounced back",
             ),
             "open_line": self._line(batch=self.batch, status=ROW_MISMATCHED, direction="Credit"),
         }
@@ -72,10 +72,10 @@ class TestTheSkippedPopupReads(SkipFixture):
     def test_every_row_carries_its_kind(self):
         kinds = {r["name"]: r["skip_kind"] for r in self._page(scope="skipped")["rows"]}
         self.assertEqual(kinds[self.lines["refused_out"]], "Bank refused")
-        self.assertEqual(kinds[self.lines["wallet_in"]], "Wallet money returned")
+        self.assertEqual(kinds[self.lines["wallet_in"]], "Failed payment bounced back")
 
     def test_the_skip_type_facet_narrows_the_page_its_counts_and_the_export(self):
-        facets = json.dumps({"skip_kind": ["Bank refused", "Wallet money returned"]})
+        facets = json.dumps({"skip_kind": ["Bank refused", "Failed payment bounced back"]})
         page = self._page(scope="skipped", facets=facets)
         self.assertEqual(
             {r["name"] for r in page["rows"]}, {self.lines["refused_out"], self.lines["wallet_in"]}
@@ -87,12 +87,19 @@ class TestTheSkippedPopupReads(SkipFixture):
             {r["name"] for r in exported["rows"]}, {self.lines["refused_out"], self.lines["wallet_in"]}
         )
         self.assertEqual(
-            {r["skip_kind"] for r in exported["rows"]}, {"Bank refused", "Wallet money returned"}
+            {r["skip_kind"] for r in exported["rows"]}, {"Bank refused", "Failed payment bounced back"}
         )
 
     def test_the_funnel_offers_the_kinds_of_the_tab_on_screen(self):
         values = get_outflow_facet_values("skip_kind", batch=self.batch, scope="skipped_inflow")["values"]
-        self.assertEqual(sorted(v for v in values if v), ["Inflow Already Recorded", "Wallet money returned"])
+        self.assertEqual(sorted(v for v in values if v), ["Failed payment bounced back", "Inflow Already Recorded"])
+
+    def test_the_funnel_never_offers_a_retired_kind(self):
+        """#1628 (owner, 2026-11-19): a line imported before spec #1619 may still hold one of the 8 retired kinds
+        (none does on production). The line stays listed; the funnel no longer offers its kind."""
+        self._line(batch=self.batch, status=ROW_SKIPPED, direction="Credit", skip_kind="Cashbook internal movement")
+        values = get_outflow_facet_values("skip_kind", batch=self.batch, scope="skipped_inflow")["values"]
+        self.assertEqual(sorted(v for v in values if v), ["Failed payment bounced back", "Inflow Already Recorded"])
 
 
 class TestTheSkipTypeHoverSources(SkipFixture):
@@ -122,10 +129,10 @@ class TestTheSkipTypeHoverSources(SkipFixture):
         self.assertEqual(row["skip_source"]["earlier_line"]["name"], first)
 
     def test_a_bank_rule_kind_carries_what_the_rule_catches(self):
-        line = self._line(status=ROW_SKIPPED, skip_origin="System", skip_kind="Porter wallet top-up")
+        line = self._line(status=ROW_SKIPPED, skip_origin="System", skip_kind="Failed payment bounced back")
         batch = frappe.db.get_value("Outflow Import Row", line, "import_batch")
         row = get_outflow_rows(scope="skipped", batch=batch)["rows"][0]
-        self.assertIn("Porter wallet", row["skip_source"]["rule"])
+        self.assertIn("A payment we made failed", row["skip_source"]["rule"])
         self.assertIsNone(row["skip_source"]["earlier_import"])
 
     def test_a_row_that_is_not_skipped_carries_no_source(self):

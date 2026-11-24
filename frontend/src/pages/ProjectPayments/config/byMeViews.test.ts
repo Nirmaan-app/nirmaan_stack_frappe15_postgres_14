@@ -5,18 +5,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    CURRENT_USER_TOKEN,
+    getApprovalsStaticFilters,
+    TAB_COLUMNS,
+    TAB_DEFAULT_SORT,
+} from "./approvalsTable.config";
+import {
     BY_ME_VIEW_COLUMNS,
     BY_ME_VIEW_SORT,
     BY_ME_VIEWS,
     byMeViewCounts,
     byMeViewFilters,
     byMeViewStateTab,
-    CURRENT_USER_TOKEN,
-    getApprovalsStaticFilters,
     parseByMeView,
-    TAB_COLUMNS,
-    TAB_DEFAULT_SORT,
-} from "./approvalsTable.config";
+} from "./byMeViews.config";
 import { getProjectPaymentsStaticFilters } from "./projectPaymentsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
 

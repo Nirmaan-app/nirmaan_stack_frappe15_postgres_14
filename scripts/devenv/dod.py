@@ -42,6 +42,21 @@ REQUIRED_SKILLS = {
     "code-review": "Call the Skill tool with mattpocock-skills:code-review against the task's base {base} and fix its "
                    "in-scope findings",
 }
+# Lines of the report's Review that a DONE report must show as finished: label, its shape, whether only a blocker owes
+# it (the brief says `Blocker: yes`), and what to do before writing it. "finished" is a positive word because word
+# lists of "pending" and the like both missed and blocked honest text (#1699's fix round said DONE with its review
+# "pending ... is running"). The bypass hunt: in #1702, #1705 and #1698 the briefs listed the bad cases, the builder
+# refused exactly those, and each laptop review found one more hole, over three rounds each.
+# Each line: label, its shape, whether only a blocker brief owes it, how to finish it, and the pattern its value must
+# start with. Own code-review needs only the positive word "finished" (so "pending" and "running" fail); Bypass hunt
+# needs `finished, ` and then its passes, so a bare "finished" or "finished." names no pass and fails.
+FINISHED_LINES = (
+    ("Own code-review", "finished, <result>, against <base commit>", False,
+     "once your code-review has finished, write it", r"[\s*_`]*finished\b"),
+    ("Bypass hunt", "finished, <each pass and what it found>", True,
+     "the brief says Blocker: yes, so run its bypass hunt until a fresh hunter's pass finds nothing, then write it",
+     r"[\s*_`]*finished[*_`]*,.*\bpass(?:es)?\b"),
+)
 
 
 def git(wt: Path, *args: str, ok: bool = False) -> str:
@@ -148,7 +163,18 @@ def skills_loaded(wt: Path, since: str) -> set[str]:
     return {name.rsplit(":", 1)[-1] for name in found}
 
 
-def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]:
+def brief_is_blocker(path: Path) -> bool:
+    """Whether the task's brief says it builds a blocker. Every answer other than `no` counts as yes; a brief with no
+    `Blocker:` line (older than the field) or no brief at all counts as no."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    answers = re.findall(r"^[ \t>*_`-]*Blocker:[ \t*_`]*(.*)$", text, re.M)
+    return any(not re.match(r"no\b", a.strip(), re.I) for a in answers)
+
+
+def report_problems(path: Path, head_short: str, blocker: bool = False) -> tuple[list[str], str | None]:
     """Problems with the report, and its Status (DONE, BLOCKED or None)."""
     if not path.exists():
         return [f"write the report at {path} (dod.py start made a template)"], None
@@ -159,10 +185,6 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     # A placeholder written while a run is still going (#1607's report said done with "RESULT_PENDING" in Evidence).
     if re.search(r"\b[A-Z]+_PENDING\b", text):
         problems.append(f"replace every *_PENDING placeholder in {path} with the real result")
-    # The builder's own review must be finished, not still running (#1699's fix round said DONE with its review
-    # "pending ... is running"). The template's Review holds two set lines: the first must start with "finished"
-    # (a positive word, since word lists of "pending" and the like both missed and blocked honest text), the
-    # separate review stays pending by design. A run left going reads "running when this was written".
     if re.search(r"\brunning when this was written\b", text, re.I):
         problems.append(f"the report says a run is still going: wait for it, then write its result in {path}")
     if head_short not in text:
@@ -175,14 +197,14 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     status = m.group(1).upper() if m else None
     if status not in ("DONE", "BLOCKED"):
         problems.append("'## Status' must start with DONE or BLOCKED")
-    if status == "DONE":
-        own = re.search(r"^[ \t>*_`-]*Own code-review:[ \t*_`]*(.*)$", text, re.M)
-        if not own:
-            problems.append(f"the report's Review needs its line 'Own code-review: finished, <result>, against <base "
-                            f"commit>' ({path})")
-        elif not re.match(r"[\s*_`]*finished\b", own.group(1), re.I):
-            problems.append(f"the 'Own code-review:' line must start with 'finished, ' and the review's result: once "
-                            f"your code-review has finished, write it in {path}")
+    for label, shape, blocker_only, how, finished in FINISHED_LINES if status == "DONE" else ():
+        if blocker_only and not blocker:
+            continue
+        line = re.search(rf"^[ \t>*_`-]*{re.escape(label)}:[ \t*_`]*(.*)$", text, re.M)
+        if not line:
+            problems.append(f"the report's Review needs its line '{label}: {shape}' ({path})")
+        elif not re.match(finished, line.group(1), re.I):
+            problems.append(f"the '{label}:' line must read '{label}: {shape}': {how} in {path}")
     return problems, status
 
 
@@ -205,7 +227,9 @@ def check(wt: Path) -> list[str] | None:
     if git(wt, "status", "--porcelain"):
         missing.append("commit every change (git status shows uncommitted or untracked files); nothing is done until it is committed")
 
-    report, status = report_problems(Path(task["report"]), head[:9])
+    # task.sh start puts the brief beside the report (~/claude-artifacts/dod/box-<name>/).
+    report_path = Path(task["report"])
+    report, status = report_problems(report_path, head[:9], brief_is_blocker(report_path.with_name("BRIEF.md")))
     missing += report
     if status == "BLOCKED":
         return missing  # the report explains why; no proofs are owed for work that could not be done
@@ -270,6 +294,7 @@ TODO: the data the env ran on (devenv.sh up prints its backup date)
 
 ## Review
 Own code-review: TODO: once it has finished, "finished, " then its result (fixed findings, what was left and why), against the task's base commit
+Bypass hunt: TODO: "not a blocker" when the brief says Blocker: no; else, once a pass found nothing, "finished, " then each pass and what it found
 Separate review: pending
 
 ## Open questions

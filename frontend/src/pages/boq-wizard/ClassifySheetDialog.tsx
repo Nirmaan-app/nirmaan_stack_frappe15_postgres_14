@@ -2,14 +2,14 @@
  * ClassifySheetDialog -- the launch surface for CL-2 AI category classification (BoQ Phase 5).
  * Modeled on CopyForwardDialog: it fetches the available engines (classify.list_engines), lets the
  * user pick one or more AVAILABLE engines + a scope (whole-sheet or an Excel-row range) per engine,
- * then fires start_classify for each and hands the launched disciplines up via onStarted + closes.
+ * then hands the chosen launches up via onStarted + closes.
  *
- * The dialog OWNS only the launch; the run itself is socket-driven (boq:classify_sheet_progress /
- * boq:classify_sheet_done) and watched by SheetPricingPage. v1: only the Electrical engine is
- * available; the rest render disabled with a "(coming soon)" hint.
+ * The dialog OWNS only the pick; SheetPricingPage starts each engine as its own background
+ * operation (start_classify, #1666) and follows it through that operation's status record. An
+ * unavailable engine renders disabled with a "(coming soon)" hint.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { getFrappeError } from "@/utils/frappeErrors";
 import type { ClassifyScope, EngineOption } from "./boqTypes";
 
 // ── Pure helpers (vitest-tested) ─────────────────────────────────────────────────
@@ -56,26 +55,6 @@ export function buildStartArgs(
   scope: ClassifyScope,
 ): { discipline: string; scope: ClassifyScope } {
   return { discipline: engine.discipline, scope };
-}
-
-/** Clamp a progress `done` into [0, total]. */
-export function clampDone(done: number, total: number): number {
-  return Math.max(0, Math.min(done, total));
-}
-
-/**
- * Fold a progress event into the prior state. `done` is clamped to [0, total]; when the totals
- * match, `done` is monotonic non-decreasing (a late/out-of-order event can never rewind the bar).
- */
-export function reduceProgress(
-  prev: { done: number; total: number } | null,
-  ev: { done: number; total: number },
-): { done: number; total: number } {
-  const clamped = clampDone(ev.done, ev.total);
-  if (prev && prev.total === ev.total) {
-    return { done: Math.max(prev.done, clamped), total: ev.total };
-  }
-  return { done: clamped, total: ev.total };
 }
 
 const SKIP_REASON_WORDS: Record<string, string> = {
@@ -126,19 +105,15 @@ const DEFAULT_SCOPE: ClassifyScope = { mode: "sheet" };
 
 interface ClassifySheetDialogProps {
   open: boolean;
-  boqId: string;
-  sheetName: string;
   onClose: () => void;
   // HV-10b: report each launched engine's chosen scope (not just its discipline) so the page can
-  // scope the COMBINED-EFFECTIVE completion summary to the run set's row range union. Signature-only
-  // extension -- the dialog's launch behaviour is unchanged.
+  // start each engine's operation with it and scope the COMBINED-EFFECTIVE completion summary to the
+  // run set's row range union.
   onStarted: (launches: Array<{ discipline: string; scope: ClassifyScope }>) => void;
 }
 
 export function ClassifySheetDialog({
   open,
-  boqId,
-  sheetName,
   onClose,
   onStarted,
 }: ClassifySheetDialogProps) {
@@ -147,24 +122,17 @@ export function ClassifySheetDialog({
     {},
     open ? undefined : null,
   );
-  const { call: startCall } = useFrappePostCall(
-    "nirmaan_stack.api.boq.wizard.classify.start_classify",
-  );
 
   const engines = useMemo(() => data?.message ?? [], [data]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [scopeByEngine, setScopeByEngine] = useState<Record<string, ClassifyScope>>({});
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Reset the transient picks whenever the dialog (re)opens.
   useEffect(() => {
     if (open) {
       setSelected(new Set());
       setScopeByEngine({});
-      setError(null);
-      setRunning(false);
     }
   }, [open]);
 
@@ -188,34 +156,18 @@ export function ClassifySheetDialog({
     const scope = scopeFor(e.id);
     return scope.mode === "range" && !validateRange(scope.start, scope.end).ok;
   });
-  const canConfirm = !running && !isLoading && selected.size > 0 && !rangeError;
+  const canConfirm = !isLoading && selected.size > 0 && !rangeError;
 
-  const handleConfirm = async () => {
-    setRunning(true);
-    setError(null);
-    try {
-      const chosen = engines.filter((e) => selected.has(e.id) && e.available);
-      const launches: Array<{ discipline: string; scope: ClassifyScope }> = [];
-      for (const engine of chosen) {
-        const args = buildStartArgs(engine, scopeFor(engine.id));
-        await startCall({
-          boq: boqId,
-          sheet_name: sheetName, // VERBATIM (#152)
-          discipline: args.discipline,
-          scope: JSON.stringify(args.scope),
-        });
-        launches.push({ discipline: args.discipline, scope: args.scope });
-      }
-      onStarted(launches);
-      onClose();
-    } catch (e) {
-      setError(getFrappeError(e) || "Could not start classification. Please try again.");
-      setRunning(false);
-    }
+  const handleConfirm = () => {
+    const launches = engines
+      .filter((e) => selected.has(e.id) && e.available)
+      .map((engine) => buildStartArgs(engine, scopeFor(engine.id)));
+    onStarted(launches);
+    onClose();
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !running) onClose(); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Classify sheet</DialogTitle>
@@ -340,14 +292,11 @@ export function ClassifySheetDialog({
           </div>
         )}
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={running}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={handleConfirm} disabled={!canConfirm}>
-            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Classify {selected.size > 0 ? `${selected.size} ` : ""}
             engine{selected.size === 1 ? "" : "s"}
           </Button>

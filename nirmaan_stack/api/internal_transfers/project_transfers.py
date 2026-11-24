@@ -106,6 +106,12 @@ def get_transfer_summary(project_id: str) -> dict:
         source_project = project_id, ITM status in dispatched+ states.
       - transferred_in: sum of received_quantity from ITMs where
         target_project = project_id, same status constraints.
+      - ordered_in: sum of transfer_quantity from ITMs where
+        target_project = project_id, ITM status Approved or later (the ITM
+        counterpart of a PO's ordered quantity: a PO counts once it is approved).
+      - itms: one entry per incoming ITM (Approved or later) carrying this item:
+        {itm, status, source_type, source_project, source_project_name, ordered_qty, received_qty}.
+        `source_type` is "Project" or "Warehouse"; a Warehouse ITM has no source project.
     All ITM items are approved by definition (created from ITR approval).
     """
 
@@ -113,6 +119,7 @@ def get_transfer_summary(project_id: str) -> dict:
         frappe.throw(_("Authentication required."), frappe.PermissionError)
 
     dispatched_statuses = ("Dispatched", "Partially Delivered", "Delivered")
+    approved_statuses = ("Approved",) + dispatched_statuses
 
     transferred_out_rows = frappe.db.sql(
         """
@@ -150,32 +157,68 @@ def get_transfer_summary(project_id: str) -> dict:
         as_dict=True,
     )
 
+    incoming_itm_rows = frappe.db.sql(
+        """
+        SELECT
+            itm.name AS itm,
+            itm.status,
+            itm.source_type,
+            itm.source_project,
+            src.project_name AS source_project_name,
+            itmi.item_id,
+            MAX(itmi.item_name) AS item_name,
+            MAX(itmi.unit) AS unit,
+            MAX(itmi.category) AS category,
+            SUM(COALESCE(itmi.transfer_quantity, 0)) AS ordered_qty,
+            SUM(COALESCE(itmi.received_quantity, 0)) AS received_qty
+        FROM "tabInternal Transfer Memo Item" itmi
+        JOIN "tabInternal Transfer Memo" itm ON itm.name = itmi.parent
+        LEFT JOIN "tabProjects" src ON src.name = itm.source_project
+        WHERE itm.target_project = %(project_id)s
+          AND itm.status IN %(statuses)s
+        GROUP BY itm.name, itm.status, itm.source_type, itm.source_project, src.project_name, itmi.item_id
+        ORDER BY itm.name
+        """,
+        {"project_id": project_id, "statuses": approved_statuses},
+        as_dict=True,
+    )
+
     result: dict[str, dict] = {}
 
-    for row in transferred_out_rows:
-        result[row.item_id] = {
-            "transferred_out": row.transferred_out or 0,
+    def _entry(row) -> dict:
+        """Get or create the item's entry, filling item details from whichever query has them."""
+        entry = result.setdefault(row.item_id, {
+            "transferred_out": 0,
             "transferred_in": 0,
+            "ordered_in": 0,
+            "itms": [],
             "item_name": row.item_name,
             "unit": row.unit,
             "category": row.category,
-        }
+        })
+        if not entry.get("item_name"):
+            entry["item_name"] = row.item_name
+            entry["unit"] = row.unit
+            entry["category"] = row.category
+        return entry
+
+    for row in transferred_out_rows:
+        _entry(row)["transferred_out"] = row.transferred_out or 0
 
     for row in transferred_in_rows:
-        if row.item_id in result:
-            result[row.item_id]["transferred_in"] = row.transferred_in or 0
-            # Keep item details from whichever query had them
-            if not result[row.item_id].get("item_name"):
-                result[row.item_id]["item_name"] = row.item_name
-                result[row.item_id]["unit"] = row.unit
-                result[row.item_id]["category"] = row.category
-        else:
-            result[row.item_id] = {
-                "transferred_out": 0,
-                "transferred_in": row.transferred_in or 0,
-                "item_name": row.item_name,
-                "unit": row.unit,
-                "category": row.category,
-            }
+        _entry(row)["transferred_in"] = row.transferred_in or 0
+
+    for row in incoming_itm_rows:
+        entry = _entry(row)
+        entry["ordered_in"] += row.ordered_qty or 0
+        entry["itms"].append({
+            "itm": row.itm,
+            "status": row.status,
+            "source_type": row.source_type,
+            "source_project": row.source_project,
+            "source_project_name": row.source_project_name,
+            "ordered_qty": row.ordered_qty or 0,
+            "received_qty": row.received_qty or 0,
+        })
 
     return {"data": result}

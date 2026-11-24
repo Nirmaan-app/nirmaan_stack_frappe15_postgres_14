@@ -6,8 +6,7 @@ import {
     useFrappeFileUpload,
     useFrappeGetDocList,
     GetDocListArgs,
-    FrappeDoc,
-    useFrappeDocTypeEventListener
+    FrappeDoc
 } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { TailSpin } from "react-loader-spinner";

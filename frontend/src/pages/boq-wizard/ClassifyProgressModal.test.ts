@@ -4,7 +4,7 @@
 // guard) that the blocking modal's dismiss-gating + progress bar depend on. The JSX modal itself
 // is manual-cert; only these pure fns are tested.
 import { describe, it, expect } from "vitest";
-import { deriveClassifyModalPhase, classifyPercent, aiStatusWarning } from "./ClassifyProgressModal";
+import { deriveClassifyModalPhase, classifyPercent, aiStatusWarning, engineOutcomeLines } from "./ClassifyProgressModal";
 
 describe("deriveClassifyModalPhase", () => {
   it("running with known progress -> running (determinate bar)", () => {
@@ -34,6 +34,30 @@ describe("deriveClassifyModalPhase", () => {
   it("running WINS over a terminal-looking summary (done flips running=false upstream)", () => {
     // While running is still true, an error summary must not flip the phase to error.
     expect(deriveClassifyModalPhase(true, { done: 3, total: 3 }, { status: "error" })).toBe("running");
+  });
+
+  it("running while every engine still waits in the queue -> queued (told apart from starting)", () => {
+    expect(deriveClassifyModalPhase(true, null, null, true)).toBe("queued");
+  });
+});
+
+describe("engineOutcomeLines", () => {
+  it("names every engine's outcome, with the server's words for one that failed", () => {
+    expect(
+      engineOutcomeLines({
+        engine_outcomes: [
+          { discipline: "Electrical", ok: false, error: "The operation failed. The error has been logged." },
+          { discipline: "HVAC", ok: true },
+        ],
+      }),
+    ).toEqual([
+      "Electrical: failed. The operation failed. The error has been logged.",
+      "HVAC: classified; its categories were saved.",
+    ]);
+  });
+
+  it("is empty without engine outcomes", () => {
+    expect(engineOutcomeLines(null)).toEqual([]);
   });
 });
 

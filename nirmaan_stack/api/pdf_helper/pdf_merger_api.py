@@ -61,11 +61,17 @@ def ensure_a4(page):
     return page, was_converted
 
 @frappe.whitelist()
-def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event: str = None) -> tuple:
+def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, on_progress=None) -> tuple:
     """
     Merge main PDF with attachments interleaved after each item's page.
     Returns: (pdf_content: bytes, failed_items: list)
+
+    Progress goes to `on_progress(percent, message)` when given (a background operation's record).
     """
+    def report(payload):
+        if on_progress:
+            on_progress(payload["progress"], payload["message"])
+
     writer = PdfWriter()
     failed_items = []
     
@@ -112,12 +118,7 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
         
         if attachment_url:
             # Inform frontend about conversion starting
-            if progress_event:
-                frappe.publish_realtime(
-                    progress_event,
-                    {"progress": int((idx / num_items) * 100), "message": f"Processing {item.get('tds_item_name', 'Item')}...", "status": "converting"},
-                    user=frappe.session.user
-                )
+            report({"progress": int((idx / num_items) * 100), "message": f"Processing {item.get('tds_item_name', 'Item')}...", "status": "converting"})
             try:
                 # Fetch attachment content
                 attachment_content = fetch_attachment_content(attachment_url)
@@ -153,24 +154,14 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
                 failed_items.append(f"{item.get('tds_item_name', 'Item')} (Failed to fetch/download attachment)")
 
         # Publish Progress AFTER processing this item
-        if progress_event:
-            progress = int(((idx + 1) / num_items) * 100)
-            item_name = item.get('tds_item_name', f"Item {idx+1}")
-            status_tag = " (A4 Converted)" if item_was_converted else " (Original A4)"
-            frappe.publish_realtime(
-                progress_event,
-                {"progress": progress, "message": f"Completed {item_name}{status_tag} ({idx + 1}/{num_items})", "status": "completed", "total": num_items, "current": idx + 1},
-                user=frappe.session.user
-            )
+        progress = int(((idx + 1) / num_items) * 100)
+        item_name = item.get('tds_item_name', f"Item {idx+1}")
+        status_tag = " (A4 Converted)" if item_was_converted else " (Original A4)"
+        report({"progress": progress, "message": f"Completed {item_name}{status_tag} ({idx + 1}/{num_items})", "status": "completed", "total": num_items, "current": idx + 1})
     
     # Output merged PDF
     try:
-        if progress_event:
-            frappe.publish_realtime(
-                progress_event,
-                {"progress": 100, "message": "Finalizing PDF...", "total": num_items, "current": num_items},
-                user=frappe.session.user
-            )
+        report({"progress": 100, "message": "Finalizing PDF...", "total": num_items, "current": num_items})
         output = io.BytesIO()
         writer.write(output)
         writer.close()

@@ -4,8 +4,10 @@ import { useUserData } from "@/hooks/useUserData";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
+import React, { Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
+import { FrappeContext, useDocTypeEventListener, useSWRConfig } from "@/lib/frappe";
+import { PAYMENT_SUMMARY_API, PAYMENT_SUMMARY_SWR_KEY } from "./config/paymentSummaryKey";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
@@ -66,9 +68,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
         countsDebounceRef.current = setTimeout(() => { mutateQueueCounts(); }, 500);
     }, [mutateQueueCounts]);
-    useFrappeDocTypeEventListener("Project Payments", scheduleCountsRefresh);
-    useFrappeDocTypeEventListener("Project Expenses", scheduleCountsRefresh);
-    useFrappeDocTypeEventListener("Non Project Expenses", scheduleCountsRefresh);
+    useDocTypeEventListener("Project Payments", scheduleCountsRefresh);
+    useDocTypeEventListener("Project Expenses", scheduleCountsRefresh);
+    useDocTypeEventListener("Non Project Expenses", scheduleCountsRefresh);
     useEffect(() => () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
     }, []);
@@ -112,7 +114,18 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         "GST Payment Request", [["status", "=", "Pending"]], false,
         canDecideGst ? "gst-requests-pending-count" : null,
     );
-    useFrappeDocTypeEventListener("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
+    useDocTypeEventListener("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
+    // A GST approval creates an Approved payment, which moves the Payment Summary's figures. The summary is READ
+    // on the decision and put in the cache, so its cards are current the moment another tab opens (they showed the
+    // figures from before the approval for a second). A bare mutate(key) would not do it: the cards are not on
+    // screen here, and SWR re-reads only hooks on screen. The SDK's own SWR cache, not "swr"'s.
+    const { mutate: mutateSwr } = useSWRConfig();
+    const frappe = useContext(FrappeContext);
+    const onGstDecided = useCallback(() => {
+        mutateQueueCounts();
+        mutateGstWaiting();
+        if (frappe) void mutateSwr(PAYMENT_SUMMARY_SWR_KEY, frappe.call.get(PAYMENT_SUMMARY_API), { revalidate: false });
+    }, [mutateQueueCounts, mutateGstWaiting, mutateSwr, frappe]);
 
     const initialTab = useMemo(() => getUrlStringParam("tab", tabSet.defaultTab), [tabSet.defaultTab]);
 
@@ -255,7 +268,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         )
                     ) : tab === PP_TABS.GST_REQUESTS ? (
                         // Rows only, no Approve / Reject, for anyone who reaches it by a hand-edited URL.
-                        <GstRequestsTab canDecide={canDecideGst} onDecided={() => { mutateQueueCounts(); mutateGstWaiting(); }} />
+                        <GstRequestsTab canDecide={canDecideGst} onDecided={onGstDecided} />
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} refetchRef={listRefetchRef} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (

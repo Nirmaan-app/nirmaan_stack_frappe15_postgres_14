@@ -170,8 +170,8 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
    - Downloads run outside the line's transaction, because saving a file commits. A bill is attached only after locking the Expense and re-checking that it still has no invoice and no No invoice mark.
 4. **Every Cashbook spend without a bill waits** in Vendor Invoice Recon → Pending Invoices Upload → *Cashbook*, Project and Non-Project alike. It waits until an invoice is attached or an Admin or Accountant Lead marks it *No invoice* with a reason (the Credit Card rules). Only Expenses made by this import wait; Expenses made by earlier imports do not.
 5. **A bill that arrives later is attached later.** A repeat line that now carries a link attaches its bill to the existing Expense, old or new, when that Expense has no invoice and is not marked No invoice. A file of only repeats is no longer refused when some bring new links.
-6. **A Collect Payment is decided by a person.** It is kept open and highlighted on Review, with two choices: Create expense (pre-filled, with its bill copied at import) or Skip by hand.
-7. **Refunds and Wallet Credits follow the card rules.** A refund of a whole spend on the same statement skips both lines, each naming the other. Any other refund, and every Wallet Credit, is an open line with the choices an unpaired card credit has.
+6. ~~**A Collect Payment is decided by a person.** It is kept open and highlighted on Review, with two choices: Create expense (pre-filled, with its bill copied at import) or Skip by hand.~~ *Replaced by Amendment C (2026-11-18): a Collect Payment is created like any wallet spend.*
+7. **Refunds and Wallet Credits follow the card rules.** A refund of a whole spend on the same statement skips both lines, each naming the other. ~~Any other refund, and every Wallet Credit, is an open line with the choices an unpaired card credit has.~~ *Amended by Amendment D (2026-11-18): any other refund is a negative Expense where its spend is booked. Amended by Amendment E (2026-11-18): every Wallet Credit is a negative Expense too.*
 8. **Lines an earlier import skipped as "own balances" are re-opened** when a new statement carries them and they are a Collect Payment, a refund or a Wallet Credit.
 
 **Considered options.**
@@ -181,3 +181,85 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
 - *Leave old wrong skips alone.* Rejected: real money left the company and was never looked at.
 
 **Open.** The financial year's older Expenses still lack invoices. Decision 5 attaches what each new upload brings; a dedicated catch-up import is future work.
+
+
+## Amendment C — a Collect Payment is created like any wallet spend (2026-11-18, #1708, owner)
+
+**Status:** Accepted (owner grill, 2026-11-18, spec #1711). Replaces Amendment B decision 6. Terms: `GLOSSARY.md` § *Collect payment*.
+
+**Why.** A Collect Payment is a shop-requested payment the employee approved (Zomato, Urban Company, Blinkit). It is real money that left the wallet, like a Wallet Spend. Holding each one open for a person added a step nobody needed. After the 18 Nov 2026 Cashbook reset, 9 lines sat open in import `OFI-26-00337` (₹4,001.41, 15 Jul to 31 Aug 2026). No other import that creates records holds a line kind back for a person: every card spend becomes an Expense (ADR-0039 decision 1), and Porter's check is on a whole invoice (ADR-0032).
+
+**Decision.**
+
+1. **A successful Collect Payment that passes the spend skip tests is created by the import**, exactly as a Wallet Spend is: placed by its remark (ledger, project, expense type), created by the import's job with the Cashbook marker, `payment_by` = the statement's From and `payment_ref` = its Txn Id, and its bills copied onto the Expense as its invoice. It waits in Pending Invoices Upload → Cashbook when it has no bill. Review lists it with the spends; the "shop-requested payments" box is gone.
+2. **Nothing about a Collect Payment line is special on the main table any more.** Link, Allocate, Split and Skip by hand are offered on it as on any money-out line, to every user who may use them.
+3. **Refund pairing is unchanged.** A full refund of a Collect Payment on the same statement still skips both lines as a *Paired wallet refund*.
+4. **A Collect Payment an earlier import skipped as "own balances" is re-opened to be created** (decision 8 of Amendment B). It is written back onto that earlier line at *Pending match run*, and the job of the import that holds the line creates its Expense; the re-opening import queues that job.
+5. **The lines already open are created by a one-off patch** (`patches/v3_0/create_open_collect_payment_expenses`). Each open Collect Payment line with no live match and no hand decision gets its Expense as the job writes one. A bill already stored on the line becomes its invoice, and its Bill check is read again on the new Expense bill; otherwise the Expense waits like any spend without a bill. A line someone already decided by hand is left alone. A second run creates nothing.
+
+**Considered options.**
+
+- *Keep the person's step only for large Collect Payments.* Rejected: no line kind in any other import is held back by amount.
+- *Keep the bill check made on the line at import and carry it to the Expense bill.* Rejected for the patch: 9 bills read once more is cheaper than keeping that path for one run.
+
+**Kept.** Every Cashbook line still stores its statement Type (`Outflow Import Row.row_kind`), and an Expense created by hand from any line this import staged still gets the Cashbook marker, so it waits for its invoice like the job's. The line fields that held an open Collect Payment's bill and its check (`stored_bill`, `bill_check`, the `read_*` fields) stay on the doctype as history; nothing new writes them.
+
+
+## Amendment D — an unpaired wallet refund is a negative Expense where its spend is booked (2026-11-18, #1709, owner)
+
+**Status:** Accepted (owner grill, 2026-11-18, spec #1711; reader questions answered the same day). Amends Amendment B decision 7 for refunds; Wallet Credits are unchanged. Terms: `GLOSSARY.md` § *Unpaired wallet refund*, *Wallet refund expense*. The card import's counterpart is ADR-0039 Amendment D.
+
+**Why.** A refund line (*Refund to Wallet*, *Credit Adjustment*) gives back money a wallet spend already took. A refund of the whole spend on the same statement already pairs with it, and both lines are skipped. Any other refund (a part refund, or the refund of a spend on another statement) stayed open on the main table, so its spend stayed booked in full. After the 18 Nov 2026 reset one such line was open on production: a ₹11,248 Credit Adjustment on 22 Jun 2026 against a ₹17,446 MakeMyTrip ticket. A card refund cannot be tied to one spend, so ADR-0039 Amendment D books it as a Non-Project Expense. A wallet refund can: it names its spend as `REF-<Txn Id>`. So it is booked where that spend is booked.
+
+**Decision.**
+
+1. **The spend has an Expense.** An unpaired refund is a *Paid* Expense of minus its Credit on that Expense's ledger (Project or Non-Project Expenses), project and expense type, as the Expense is when the statement is planned. "Has an Expense" is the only test, whatever the spend's date (a spend before 1 Apr 2026 included). It covers an Expense the spend's line was Linked to by hand (Amendment A), an Expense keyed in by hand with the spend's Txn Id as its reference, and a Collect Payment's Expense (Amendment C). A spend on the same statement that the import creates counts too: the refund goes where that spend is placed.
+2. **The spend has no Expense, or the refund names no spend.** *Changed by Amendment E decision 3: placed from its remark as a spend is, on a project when the remark names one.* ~~The refund is a Non-Project Expense of minus its Credit, typed from its own remark by the Non-Project rules, else *Petty Cash*. It never goes on a project: a project whose spend was never booked would read too low and could release a CEO Hold.~~
+3. **The import's job writes it** with no approval: `payment_ref` = the refund's own Txn Id, `payment_date` = the refund's date, the Cashbook marker, Paid by = the wallet holder, and the description "Wallet refund of {spend Txn Id} from {merchant}". Its `Outflow Row Match` carries the negative amount.
+4. **It needs no bill.** It is kept out of Pending Invoices Upload → Cashbook, Bill check's Cashbook pill and so All Invoices, and the Payment Done tab offers it no Upload / Edit Inv button. That button is hidden on every refund row, card or wallet (owner, 2026-11-18).
+5. **Review lists the refunds in their own list**, each with the spend it reduces, apart from the spends' groups and total. Review offers no way to send a refund to the main table.
+6. **Unreconcile of the refund's line deletes its Expense and reopens the line**, like a spend's.
+7. **Every reader of the amount takes the refund as it is** (the reader list was checked twice before the build):
+   - Project outflow and the cashflow gap go down on the refund's date, which may release a CEO Hold. Accepted.
+   - The payments dashboard: its amounts include the refund, and its counts include only amounts above zero. That covers card refunds too (ADR-0039 Amendment D).
+   - The Approve Payments queue keeps the refund as a row: its Paid count includes it and its total is net of it (owner, 2026-11-18).
+   - The Project and Non-Project Expenses summary cards keep it too: Total is net of it, Entries counts it, and Avg and the top-5 types follow from those (owner, 2026-11-18).
+   - The lists show it green as "−₹…", and the Outflow Report lists it as a minus line.
+   - A re-upload of the statement creates no second refund: the line is an exact repeat, and the "already booked" check finds its Expense by its Txn Id at minus its Credit.
+8. **The open refund lines are booked by a one-off patch** (`patches/v3_0/create_open_cashbook_refund_expenses`). Each open refund line with no live match and no hand decision gets its Expense as the job writes one. A line someone already decided by hand is left alone. A second run creates nothing.
+
+**Considered options.**
+
+- *Always a Non-Project Expense, as for a card refund.* Rejected: a wallet refund names its spend, so the spend's own project and type are known, and reducing them is more accurate.
+- *Follow the Expense as it was created.* Rejected: the Expense as it is now is what the reports read.
+- *Keep the refund open when its spend has no Expense.* Rejected: the money came back; leaving it open leaves wallet spend overstated.
+- *A Review action to send the refund to the main table.* Rejected, as on the card import.
+
+**Kept.** Wallet Credits stay open lines (most are top-ups or income). Refund pairing is unchanged. *Superseded for Wallet Credits by Amendment E.*
+
+
+## Amendment E — a Wallet Credit is a negative Expense, on a project when its remark names one (2026-11-18, #1720, owner)
+
+**Status:** Accepted (owner grill, 2026-11-18, #1720). Amends Amendment B decision 7 for Wallet Credits (they no longer stay open) and Amendment D decision 2 (an unpaired refund whose spend has no Expense). Terms: `GLOSSARY.md` § *Wallet credit*, *Wallet credit expense*, *Wallet refund expense*.
+
+**Why.** A Wallet Credit is money paid into a wallet from outside the company: a staff repayment, a shop refund that names no spend, scrap money, a vendor payback. Every one stayed open on the main table until a person decided it. The owner wants it booked like an unpaired refund (Amendment D): money back lowers what the wallet spent. Company top-ups are not Wallet Credits; they are Internal Transfers already. After the 18 Nov 2026 reset 11 such lines were open on production (₹22,214, 10 Apr to 9 Nov 2026).
+
+**Decision.**
+
+1. **A Wallet Credit is a *Paid* Expense of minus its Credit**, written by the import's job as it writes a *Wallet refund expense* (Amendment D decision 3): `payment_ref` = its Txn Id, `payment_date` = its date, the Cashbook marker, Paid by = the wallet holder, no approval, the description "Wallet credit from {who paid it in}". It needs no bill, and the approval queue shows it at the SYSTEM tier, as every Expense an import created.
+2. **It is placed from its remark the way a spend is:** a remark naming exactly one project makes it a Project Expense on that project, typed by the project rules; any other remark makes it a Non-Project Expense typed by the Non-Project rules, else *Petty Cash*.
+3. **One rule for both kinds of money in.** An unpaired refund whose spend has no Expense, or that names no spend, is placed by decision 2 too. A refund whose spend has an Expense still goes where that Expense is (Amendment D decision 1).
+4. **Review lists the credits in their own group**, each with where it goes, apart from the spends' groups and total. The header counts spends only.
+5. **A re-upload creates nothing new:** the line is an exact repeat, and the "already booked" check finds its Expense by its Txn Id at minus its Credit. **Unreconcile** of its line deletes its Expense and reopens the line.
+6. **A one-off patch books the open Wallet Credit lines** (`patches/v3_0/create_open_wallet_credit_expenses`): each open line with no live match and no hand decision gets its Expense by decision 2. A Txn Id already booked at minus its Credit is left open and counted. A second run creates nothing.
+
+The owner accepted that a negative Project Expense lowers that project's spend and cashflow gap and may release a CEO Hold, as for refunds (Amendment D decision 7). Every reader of a negative amount listed in Amendment D decision 7 reads a Wallet Credit the same way.
+
+**Considered options.**
+
+- *Keep Wallet Credits open.* Rejected (owner): the money came in; leaving the line open leaves wallet spend overstated.
+- *Always Non-Project.* Rejected (owner): the same remark that places a spend can place the money back on that project.
+- *Refunds with no spend Expense stay Non-Project.* Rejected: two rules for the two kinds of money in.
+
+**Consequence seen on the data of 17 Nov 2026.** The project match reads a word of a remark as a project name: two of the 11 open credits ("Sent using Paytm UPI", "Paytm site scrap amount", ₹17,000) match the project *Paytm Bangalore* and become negative Project Expenses there, though the ticket expected all 11 to be Non-Project. The same match places spends.
+

@@ -27,7 +27,7 @@
  * - Section 2 reshape: Single/Multi toggle + stacked text boxes.
  */
 import {
-  useState, useEffect, useMemo, useRef,
+  useState, useEffect, useLayoutEffect, useMemo, useRef,
   type Dispatch, type SetStateAction,
 } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -694,11 +694,11 @@ export function SheetConfigPanel({
   const displayOrderRef = useRef<string[]>([]);
   const renameRef = useRef<{ from: string; to: string } | null>(null);
   // Idempotent if React renders twice (StrictMode): the second pass finds the same order.
-  const sortedMappedCols = useMemo(() => {
-    const next = stableOrder(displayOrderRef.current, Object.keys(columnRoleMap), renameRef.current, sortColLetters);
-    displayOrderRef.current = next;
-    return next;
-  }, [columnRoleMap]);
+  const sortedMappedCols = useMemo(
+    () => stableOrder(displayOrderRef.current, Object.keys(columnRoleMap), renameRef.current, sortColLetters),
+    [columnRoleMap],
+  );
+  useLayoutEffect(() => { displayOrderRef.current = sortedMappedCols; }, [sortedMappedCols]);
   // The rename hint is used by the render above, then dropped once that render is committed.
   useEffect(() => { renameRef.current = null; }, [columnRoleMap]);
 

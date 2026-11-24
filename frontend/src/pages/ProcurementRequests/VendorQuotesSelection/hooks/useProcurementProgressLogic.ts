@@ -6,7 +6,8 @@ import {
 import { useProcurementActions } from './useProcurementActions';
 import { useTargetRatesForItems } from './useTargetRatesForItems';
 import { useUsersForLookup } from './useUsersForLookup';
-import { useFrappeDocumentEventListener ,useFrappeGetDocList} from 'frappe-react-sdk'; // Only this for events
+import { useFrappeGetDocList} from 'frappe-react-sdk';
+import { useDocumentEventListener } from '@/lib/frappe'; // Only this for events
 import { VendorOption, ProgressDocument, getItemListFromDocument, ProcurementProgressLogicReturn,getAdditionalChargesTemplates, ProgressItem } from '../types';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
@@ -127,7 +128,7 @@ export const useProcurementProgressLogic = ({
     } = useProcurementActions({ docId, docMutate: documentMutate, projectId: initialDocument?.project });
 
     // Real-time document updates & viewers
-    const { viewers } = useFrappeDocumentEventListener(
+    const { viewers } = useDocumentEventListener(
         initialDocument?.doctype || "Procurement Requests", // This needs to be stable or based on initialDocument
         docId,
         (event) => {

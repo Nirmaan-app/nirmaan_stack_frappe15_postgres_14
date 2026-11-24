@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { canManageMTC } from "@/constants/roles";
+import { canEditMTC, canManageMTC } from "@/constants/roles";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { isPoOpenForMTC } from "@/utils/mtc";
 import type { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -28,8 +28,9 @@ interface MTCCardProps {
  *
  * Shown to everyone who sees the DC & MIR card, on Billable POs only (owner rulings Q6/Q35).
  * Upload (`UploadMTCButton`, also in the PO summary) / Edit / Delete: Procurement, PMO, Admin,
- * on any PO that is not Merged, Cancelled or Inactive (owner ruling Q39). The server enforces
- * both; this decides what renders.
+ * on any PO that is not Merged, Cancelled or Inactive (owner ruling Q39). Project Managers and
+ * Project Leads upload too, and edit only the MTCs they uploaded; they never delete (owner,
+ * 2026-11-19). The server enforces all of it; this decides what renders.
  */
 export const MTCCard = ({ po, className }: MTCCardProps) => {
   const { toast } = useToast();
@@ -51,8 +52,11 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
 
   const list = mtcs ?? [];
   const isOpen = isPoOpenForMTC(po?.billing_status, po?.status);
-  const canManage = canManageMTC(role, user_id);
-  const canChange = canManage && isOpen;
+  const canDelete = isOpen && canManageMTC(role, user_id);
+  const canEditRow = useCallback(
+    (mtc: MaterialTestCertificate) => isOpen && canEditMTC(role, user_id, mtc.owner),
+    [isOpen, role, user_id]
+  );
   const poDisplayName = po?.name ? `PO-${po.name.split("/")[1]}` : "";
 
   const handleDelete = async (mtc: MaterialTestCertificate) => {
@@ -89,7 +93,8 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
             mtcs={list}
             getUserName={getUserName}
             poItems={po.items}
-            canChange={canChange}
+            canEdit={canEditRow}
+            canDelete={canDelete}
             onEdit={setEditing}
             onDelete={handleDelete}
             deletingName={deletingName}
@@ -103,7 +108,7 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
         </div>
       </CardContent>
 
-      {canChange && (
+      {list.some(canEditRow) && (
         <UploadMTCDialog
           open={!!editing}
           onOpenChange={(open) => !open && setEditing(null)}

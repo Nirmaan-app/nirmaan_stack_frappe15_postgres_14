@@ -1,8 +1,7 @@
-import os
-import re
-import uuid
-import json
 import io
+import json
+import os
+
 import frappe
 import requests
 from pypdf import PdfWriter, PdfReader
@@ -10,6 +9,7 @@ from nirmaan_stack.api.pdf_helper.po_print import merge_pdfs
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 from nirmaan_stack.api.material_test_certificates.mtc_api import mtc_allowed_projects
 from nirmaan_stack.api.pdf_helper.porter_invoices import porter_invoice_files
+from nirmaan_stack.services import background_ops
 from nirmaan_stack.services.role_profiles import assert_reports_bulk_download_access
 from PIL import Image
 
@@ -90,43 +90,6 @@ def _fetch_attachment_content(original_url):
 
 
 
-@frappe.whitelist()
-def fetch_temp_file(token, filename):
-    """
-    Fetches a temporary file by token and deletes it immediately after reading.
-    """
-    if not token:
-        frappe.throw("Invalid download token")
-
-    temp_path = frappe.utils.get_site_path("public", "files", "temp_downloads", f"{token}.bin")
-    
-    if not os.path.exists(temp_path):
-        frappe.throw("Download link expired or already used.")
-
-    with open(temp_path, "rb") as f:
-        file_content = f.read()
-
-    # Immediate deletion
-    try:
-        os.remove(temp_path)
-    except Exception as e:
-        frappe.log_error(f"Failed to delete temp file {temp_path}: {e}")
-
-    frappe.local.response.filename = filename
-    frappe.local.response.filecontent = file_content
-    frappe.local.response.type = "download"
-
-
-def get_temp_path(token):
-    return frappe.utils.get_site_path("public", "files", "temp_downloads", f"{token}.bin")
-
-
-def ensure_temp_dir():
-    temp_dir = frappe.utils.get_site_path("public", "files", "temp_downloads")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-
-
 # A bulk download covers one project (the project page's tab), one vendor (the vendor page's tab)
 # or -- for the "Selected" endpoints only -- EVERY project the user may read (Reports > Bulk
 # Download, `all_scope=1`). Every endpoint takes `project` and `vendor` and needs exactly one of
@@ -151,8 +114,8 @@ PORTER_INVOICES = "Porter Invoices"
 READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS, PORTER_INVOICES)
 
 # A generated voucher takes ~1.6 s, so the biggest project's 451 paid PO payments take ~12 min: too
-# close to the `long` queue's 25-minute limit on a busy server. A job killed at the limit publishes
-# nothing, and the progress window would spin. Other types keep the queue's default.
+# close to the `long` queue's 25-minute limit on a busy server. Other types keep that limit.
+DEFAULT_TIMEOUT_SECONDS = 25 * 60
 JOB_TIMEOUT_SECONDS = {PO_PAYMENT_VOUCHERS: 60 * 60}
 
 # Which documents a "download all" takes. (The wizard's lists differ in places: it keeps PO
@@ -288,29 +251,19 @@ def _check_doc_type(field, doc_type):
         frappe.throw("Client Invoices belong to a project, not a vendor.")
 
 
-# Each download carries its own id -- the browser makes one per click and sends it -- and every
-# event the job publishes carries it back, so two downloads of one user (a project tab and a vendor
-# tab, or two vendor tabs) each react only to their own events. Deliberately NOT named `job_id`:
-# `frappe.enqueue` takes that keyword for itself, and the job would receive None.
-DOWNLOAD_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+# A download is a background operation (ADR 0047): the browser makes its id, the screen follows its
+# status record and collects the file by that id, and only the user who started it can do either.
 CANCEL_TTL_SECONDS = 6 * 60 * 60
 
 
-def _download_id(value):
-    """The browser's id for this download, or a fresh one when it sent none (or a malformed one)."""
-    if value and DOWNLOAD_ID_RE.match(str(value)):
-        return str(value)
-    return frappe.generate_hash(length=16)
+def _cancel_key(op_id):
+    return f"bulk_download_cancel:{op_id}"
 
 
-def _cancel_key(user, download_id):
-    return f"bulk_download_cancel:{user}:{download_id}"
-
-
-def _is_cancelled(user, download_id):
+def _is_cancelled(op_id):
     # `exists` asks Redis every time. `get_value` would keep its first answer in frappe.local.cache
     # for the whole job and never see a cancel that arrives later.
-    return bool(download_id) and bool(frappe.cache.exists(_cancel_key(user, download_id)))
+    return bool(op_id) and bool(frappe.cache.exists(_cancel_key(op_id)))
 
 
 def _require_selection(value, noun, scope=None):
@@ -330,170 +283,162 @@ def _require_selection(value, noun, scope=None):
         )
 
 
-def _enqueue(scope, doc_type, file_part, download_id=None, **job_kwargs):
+def _start(scope, doc_type, file_part, op_id, **work_kwargs):
+    """Start one download as a background operation; returns its record."""
     field, value, label = scope
-    download_id = _download_id(download_id)
-    frappe.enqueue(
-        "nirmaan_stack.api.pdf_helper.bulk_download.run_bulk_download_job",
-        doc_type=doc_type,
-        user=frappe.session.user,
-        custom_filename=f"{label}_{file_part}.pdf",
-        download_id=download_id,
-        queue="long",
+    return background_ops.start(
+        "bulk_pdf_download",
+        "nirmaan_stack.api.pdf_helper.bulk_download.bulk_download_op",
+        op_id=op_id,
         # The all scope can carry 500 heavy documents of any type, so it always gets the long timeout.
-        timeout=ALL_SCOPE_TIMEOUT_SECONDS if field is None else JOB_TIMEOUT_SECONDS.get(doc_type),
+        timeout=ALL_SCOPE_TIMEOUT_SECONDS if field is None else JOB_TIMEOUT_SECONDS.get(doc_type, DEFAULT_TIMEOUT_SECONDS),
+        doc_type=doc_type,
+        custom_filename=f"{label}_{file_part}.pdf",
         **({field: value} if field else {"all_scope": 1}),
-        **job_kwargs,
+        **work_kwargs,
     )
-    return {"message": "Job enqueued", "download_id": download_id}
 
 
 @frappe.whitelist(methods=["POST"])
-def cancel_bulk_download(download_id):
-    """Stop one of the CALLER's own downloads (the progress window's Cancel). The job checks
-    between documents, so it ends after the one in hand; a job still waiting in the queue ends as
-    soon as it starts. Keyed by user, so nobody can cancel another user's download."""
-    if not DOWNLOAD_ID_RE.match(str(download_id or "")):
-        frappe.throw("Invalid download id.")
-    frappe.cache.set_value(_cancel_key(frappe.session.user, download_id), 1, expires_in_sec=CANCEL_TTL_SECONDS)
+def cancel_bulk_download(op_id=None):
+    """Stop one of the CALLER's own downloads (the progress window's Cancel). The work checks
+    between documents, so it ends after the one in hand; one still waiting in the queue ends as
+    soon as it starts. Only the user who started the download may cancel it."""
+    if not background_ops.read_own(op_id):
+        frappe.throw("This download is not running.")
+    frappe.cache.set_value(_cancel_key(op_id), 1, expires_in_sec=CANCEL_TTL_SECONDS)
     return {"message": "Cancelled"}
 
 
-@frappe.whitelist()
-def download_selected_pos(names, with_rate=1, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_pos(names, with_rate=1, project=None, vendor=None, op_id=None, all_scope=None):
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "PO", scope)
-    return _enqueue(scope, "PO", "Selected_POs", download_id, names=names, with_rate=with_rate)
+    return _start(scope, "PO", "Selected_POs", op_id, names=names, with_rate=with_rate)
 
 
-@frappe.whitelist()
-def download_selected_wos(names, with_rate=1, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_wos(names, with_rate=1, project=None, vendor=None, op_id=None, all_scope=None):
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "WO", scope)
-    return _enqueue(scope, "WO", "Selected_WOs", download_id, names=names, with_rate=with_rate)
+    return _start(scope, "WO", "Selected_WOs", op_id, names=names, with_rate=with_rate)
 
 
-@frappe.whitelist()
-def download_selected_dns(names, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_dns(names, project=None, vendor=None, op_id=None, all_scope=None):
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "DN", scope)
-    return _enqueue(scope, "DN", "Selected_DNs", download_id, names=names)
+    return _start(scope, "DN", "Selected_DNs", op_id, names=names)
 
 
-@frappe.whitelist()
-def download_selected_wo_payment_vouchers(names, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_wo_payment_vouchers(names, project=None, vendor=None, op_id=None, all_scope=None):
     # Takes PAYMENT names, not file URLs: the job reads each voucher back itself (`_wo_voucher_files`).
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "payment", scope)
-    return _enqueue(scope, WO_PAYMENT_VOUCHERS, "Selected_WO_Payment_Vouchers", download_id, names=names)
+    return _start(scope, WO_PAYMENT_VOUCHERS, "Selected_WO_Payment_Vouchers", op_id, names=names)
 
 
-@frappe.whitelist()
-def download_selected_po_payment_vouchers(names, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_po_payment_vouchers(names, project=None, vendor=None, op_id=None, all_scope=None):
     # Takes PAYMENT names: the job keeps the Paid PO payments in scope (`_po_voucher_payments`)
     # and generates each one's voucher.
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "payment", scope)
-    return _enqueue(scope, PO_PAYMENT_VOUCHERS, "Selected_PO_Payment_Vouchers", download_id, names=names)
+    return _start(scope, PO_PAYMENT_VOUCHERS, "Selected_PO_Payment_Vouchers", op_id, names=names)
 
 
-@frappe.whitelist()
-def download_selected_mtcs(names, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_mtcs(names, project=None, vendor=None, op_id=None, all_scope=None):
     # Takes MTC names (keys only, never shown to users), not file URLs: the job reads each
     # certificate back itself (`_mtc_files`).
     scope = _scope(project, vendor, all_scope)
     _require_selection(names, "certificate", scope)
-    return _enqueue(scope, MTCS, "Selected_MTCs", download_id, names=names)
+    return _start(scope, MTCS, "Selected_MTCs", op_id, names=names)
 
 
-@frappe.whitelist()
-def download_selected_porter_invoices(names, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_porter_invoices(names, op_id=None, all_scope=None):
     # Report Bulk Download only (Porter invoices belong to no project or vendor). Takes INVOICE NUMBERS: the
     # job reads each invoice's PDF back itself (`porter_invoice_files`), never a file link from the browser.
     if not _is_all_scope(all_scope):
         frappe.throw("Porter invoices are downloaded from Report Bulk Download only.")
     scope = _scope(all_scope=all_scope)
     _require_selection(names, "invoice", scope)
-    return _enqueue(scope, PORTER_INVOICES, "Selected_Porter_Invoices", download_id, names=names)
+    return _start(scope, PORTER_INVOICES, "Selected_Porter_Invoices", op_id, names=names)
 
 
-@frappe.whitelist()
-def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, download_id=None, all_scope=None):
+@frappe.whitelist(methods=["POST"])
+def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, op_id=None, all_scope=None):
     scope = _scope(project, vendor, all_scope)
     _check_doc_type(scope[0], doc_type)
     if doc_type in READ_BACK_TYPES:
         frappe.throw(f"{doc_type} are downloaded by record, not by file link.")
     _require_selection(attachment_names, "document", scope)
-    return _enqueue(scope, doc_type, f"Selected_{doc_type.replace(' ', '_')}", download_id, attachment_names=attachment_names)
+    return _start(scope, doc_type, f"Selected_{doc_type.replace(' ', '_')}", op_id, attachment_names=attachment_names)
 
 
-@frappe.whitelist()
-def download_all_pos(with_rate=1, project=None, vendor=None, download_id=None):
+@frappe.whitelist(methods=["POST"])
+def download_all_pos(with_rate=1, project=None, vendor=None, op_id=None):
     scope = _scope(project, vendor)
     names = _all_doc_names("PO", scope[0], scope[1])
-    return _enqueue(scope, "PO", "All_POs", download_id, names=json.dumps(names), with_rate=with_rate)
+    return _start(scope, "PO", "All_POs", op_id, names=json.dumps(names), with_rate=with_rate)
 
 
-@frappe.whitelist()
-def download_all_wos(with_rate=1, project=None, vendor=None, download_id=None):
+@frappe.whitelist(methods=["POST"])
+def download_all_wos(with_rate=1, project=None, vendor=None, op_id=None):
     scope = _scope(project, vendor)
     names = _all_doc_names("WO", scope[0], scope[1])
-    return _enqueue(scope, "WO", "All_WOs", download_id, names=json.dumps(names), with_rate=with_rate)
+    return _start(scope, "WO", "All_WOs", op_id, names=json.dumps(names), with_rate=with_rate)
 
 
-@frappe.whitelist()
-def download_all_dns(project=None, vendor=None, download_id=None):
+@frappe.whitelist(methods=["POST"])
+def download_all_dns(project=None, vendor=None, op_id=None):
     scope = _scope(project, vendor)
     names = _all_doc_names("DN", scope[0], scope[1])
-    return _enqueue(scope, "DN", "All_DNs", download_id, names=json.dumps(names))
+    return _start(scope, "DN", "All_DNs", op_id, names=json.dumps(names))
 
 
-@frappe.whitelist()
-def download_project_attachments(doc_type, project=None, vendor=None, download_id=None):
+@frappe.whitelist(methods=["POST"])
+def download_project_attachments(doc_type, project=None, vendor=None, op_id=None):
     # Enqueue with doc_type, the worker will resolve names if not provided
     scope = _scope(project, vendor)
     _check_doc_type(scope[0], doc_type)
-    return _enqueue(scope, doc_type, f"All_{doc_type.replace(' ', '_')}", download_id)
+    return _start(scope, doc_type, f"All_{doc_type.replace(' ', '_')}", op_id)
 
 
-def run_bulk_download_job(doc_type, project=None, vendor=None, names=None, attachment_names=None, with_rate=1, user=None, custom_filename=None, download_id=None, all_scope=None):
+def bulk_download_op(doc_type, project=None, vendor=None, names=None, attachment_names=None, with_rate=1, custom_filename=None, all_scope=None):
+    """The work of every download endpoint, run as its owner: one merged PDF, kept for the owner.
+
+    Refusals end the operation failed in their own words (`frappe.throw`); a cancel ends it failed too, and
+    the screen that cancelled has already let it go. Returns `{included, total}`: a document that failed is
+    left out of the file, and `included` < `total` lets the window say so.
     """
-    Worker: build one merged PDF and announce it. It never ends silently -- every way out
-    publishes `bulk_download_failed` (or the file), stamped with `download_id`, so the progress
-    window can always close. A cancelled download simply stops.
-    """
-    frappe.set_user(user or "Administrator")
-
-    def publish(event, data):
-        frappe.publish_realtime(event, {**data, "download_id": download_id}, user=user)
-
     try:
-        _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id, all_scope)
+        return _build(doc_type, project, vendor, names, attachment_names, with_rate, custom_filename, all_scope)
     except frappe.PermissionError:
-        publish("bulk_download_failed", {"message": f"You do not have access to these {doc_type}."})
-    except Exception:
-        # A DB error leaves the PostgreSQL transaction aborted; roll back so the Error Log can be written.
-        frappe.db.rollback()
-        frappe.log_error(title=f"Bulk download failed: {doc_type}")
-        publish("bulk_download_failed", {"message": "The download failed. Please try again."})
+        # Not a bare re-raise: Frappe's own refusal names one record, or says nothing the window can show.
+        frappe.throw(f"You do not have access to these {doc_type}.", frappe.PermissionError)
 
 
-def _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id, all_scope=None):
-    ensure_temp_dir()
+def _stop_if_cancelled():
+    if _is_cancelled(frappe.local.background_op_id):
+        frappe.throw("The download was cancelled.")
+
+
+def _build(doc_type, project, vendor, names, attachment_names, with_rate, custom_filename, all_scope):
     field, value, label = _scope(project, vendor, all_scope)
 
     if isinstance(names, str): names = json.loads(names)
     if isinstance(attachment_names, str): attachment_names = json.loads(attachment_names)
     if isinstance(with_rate, str): with_rate = with_rate.lower() in ("true", "1", "yes")
 
-    if _is_cancelled(user, download_id):
-        return
+    _stop_if_cancelled()
 
     # The all scope only ever downloads a selection: with no list, the resolution below would mean
     # every document of every project.
     if field is None and names is None and attachment_names is None:
-        publish("bulk_download_failed", {"message": "Select the documents to download."})
-        return
+        frappe.throw("Select the documents to download.")
 
     # Resolve the document list. Only a "download all" leaves both lists out; an explicit empty
     # list means nothing, never everything.
@@ -518,8 +463,7 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
     items_to_process = attachment_names if attachment_names else names
     if not items_to_process:
-        publish("bulk_download_failed", {"message": f"No {doc_type} items found."})
-        return
+        frappe.throw(f"No {doc_type} items found.")
 
     total_items = len(items_to_process)
     # A PO / WO number means something in the progress window; a file link or a payment id does not.
@@ -530,22 +474,14 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
     # Unified Single-Flow Processing
     for i, item in enumerate(items_to_process):
-        if _is_cancelled(user, download_id):
-            return
+        _stop_if_cancelled()
         try:
-            # Sent BEFORE each document: `done` counts the FINISHED ones, so the bar never runs ahead
+            # Reported BEFORE each document: `done` counts the FINISHED ones, so the bar never runs ahead
             # of the work, and `current` names the one starting now.
-            abs_index = i + 1
-            publish(
-                "bulk_download_progress",
-                {
-                    "progress": int((i / total_items) * 100),
-                    "done": i,
-                    "total": total_items,
-                    "current": item if shows_current else None,
-                    "message": f"Processing {doc_type} {abs_index} of {total_items}...",
-                    "label": doc_type,
-                },
+            background_ops.set_progress(
+                int((i / total_items) * 100),
+                f"Processing {doc_type} {i + 1} of {total_items}...",
+                detail={"done": i, "total": total_items, "current": item if shows_current else None},
             )
 
             if attachment_names:
@@ -560,7 +496,7 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
                     content = _fetch_attachment_content(item)
                 else:
                     content = _fetch_attachment_content_by_name(item)
-                
+
                 if content:
                     success, pdf_bytes = _merge_content(final_merger, content, item)
                     if success:
@@ -574,40 +510,32 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
                 # A voucher renders without letterhead, exactly as the PO page's voucher download does.
                 pdf_content = frappe.get_print(dt, item, print_format=pf, as_pdf=True, no_letterhead=int(doc_type == PO_PAYMENT_VOUCHERS))
-                
+
                 if doc_type == "PO":
                     doc_attachment = frappe.db.get_value(dt, item, "attachment")
                     if doc_attachment:
                         pdf_content = merge_pdfs(pdf_content, [doc_attachment])
-                
+
                 if pdf_content:
                     final_merger.append(io.BytesIO(pdf_content))
                     count += 1
         except Exception as e:
             print(f"Error processing {doc_type} {item}: {e}")
 
-    if _is_cancelled(user, download_id):
-        return
+    _stop_if_cancelled()
 
-    # Final Save and Notify
-    if count > 0:
-        # Writing one large PDF takes a while: the window says so instead of sitting at 100%.
-        publish(
-            "bulk_download_progress",
-            {"stage": "merging", "progress": 100, "done": total_items, "total": total_items, "label": doc_type},
-        )
-        final_token = str(uuid.uuid4())
-        final_path = get_temp_path(final_token)
-        with open(final_path, "wb") as f:
-            final_merger.write(f)
-        final_merger.close()
+    if not count:
+        frappe.throw("Failed to generate any documents.")
 
-        filename = custom_filename or f"{label}_All_{doc_type}.pdf"
-
-        # A document that failed is left out of the file: `included` < `total` lets the window say so.
-        publish("bulk_download_all_ready", {"token": final_token, "filename": filename, "included": count, "total": total_items})
-    else:
-        publish("bulk_download_failed", {"message": "Failed to generate any documents."})
+    # Writing one large PDF takes a while: the window says so instead of sitting at 100%.
+    background_ops.set_progress(
+        100, "Combining into one PDF...", detail={"stage": "merging", "done": total_items, "total": total_items}
+    )
+    buf = io.BytesIO()
+    final_merger.write(buf)
+    final_merger.close()
+    background_ops.write_result_file(buf.getvalue(), custom_filename or f"{label}_All_{doc_type}.pdf")
+    return {"included": count, "total": total_items}
 
 
 def _fetch_attachment_content_by_name(attachment_record_name):

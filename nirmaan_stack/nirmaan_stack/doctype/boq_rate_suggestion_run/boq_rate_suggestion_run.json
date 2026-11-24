@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
- "autoname": "BRSR-.YY.-.#####",
- "creation": "2026-07-29 00:00:00.000000",
+ "autoname": "hash",
+ "creation": "2026-07-29 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -138,12 +137,12 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "istable": 0,
  "links": [],
- "modified": "2026-07-29 00:00:00.000000",
+ "modified": "2026-11-18 20:03:23.067989",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Rate Suggestion Run",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
@@ -180,6 +179,5 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 0
+ "states": []
 }

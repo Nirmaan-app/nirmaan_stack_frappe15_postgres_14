@@ -3,11 +3,16 @@ import { parseJson } from "@/lib/parseJson";
 // SLICE SR-1 C9 (2026-11-17): THE one typed accessor for the text of a failed frappe whitelisted call (a frappe.throw),
 // so a page never parses frappe's error shape inline (frontend CODING_STANDARDS rule F2).
 
+/** What frappe-js-sdk puts in `message` when the failed reply carried none: its words, not the server's. */
+const SDK_PLACEHOLDER_MESSAGE = "There was an error.";
+
 /** PURE (SR-1 C9). The server's OWN refusal text from a failed whitelisted call (a frappe.throw), so the error modal
- *  says WHY instead of the generic "could not complete" line. Reads `_server_messages` (a JSON list of JSON strings
- *  holding `message`), else `message` / `exception`; HTML stripped. null when there is nothing readable. */
+ *  says WHY instead of the generic "could not complete" line. Takes what frappe-js-sdk rejects with, or a fetch
+ *  reply's parsed body. Reads `_server_messages` (a JSON list of JSON strings holding `message`), else `message`
+ *  (not the SDK's placeholder) / `exception`; HTML stripped. null when there is nothing readable, and for a
+ *  client-side `Error` (the SDK throws a TypeError when no reply came). */
 export function serverRefusalText(err: unknown): string | null {
-  if (!err || typeof err !== "object") return null;
+  if (!err || typeof err !== "object" || err instanceof Error) return null;
   const e = err as { _server_messages?: unknown; message?: unknown; exception?: unknown };
   const clean = (s: string) => s.replace(/<[^>]*>/g, "").trim();
   if (typeof e._server_messages === "string") {
@@ -29,7 +34,7 @@ export function serverRefusalText(err: unknown): string | null {
       /* fall through to message / exception */
     }
   }
-  if (typeof e.message === "string" && clean(e.message)) return clean(e.message);
+  if (typeof e.message === "string" && clean(e.message) && e.message !== SDK_PLACEHOLDER_MESSAGE) return clean(e.message);
   if (typeof e.exception === "string" && clean(e.exception)) {
     return clean(e.exception).replace(/^[\w.]+(Error|Exception):\s*/, "");
   }

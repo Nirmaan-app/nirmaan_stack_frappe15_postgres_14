@@ -108,7 +108,7 @@ src/pages/customers/
 ```
 
 **Features**:
-- Real-time updates via `useFrappeDocumentEventListener`
+- Real-time updates via `useDocumentEventListener`
 - URL state sync for tab navigation (browser back/forward works)
 - Lazy loads Overview and Financials components
 
@@ -221,7 +221,7 @@ Customer
 | Store/Context | Usage |
 |---------------|-------|
 | `useFrappeGetDoc` | Single customer data |
-| `useFrappeDocumentEventListener` | Real-time updates |
+| `useDocumentEventListener` | Real-time updates |
 | `useStateSyncedWithParams` | URL-synced tab state |
 | `useSWRConfig.mutate` | Cache invalidation after CUD |
 

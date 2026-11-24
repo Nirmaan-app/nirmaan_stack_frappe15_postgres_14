@@ -1,6 +1,6 @@
 {
  "actions": [],
- "autoname": "OFM-.YY.-.######",
+ "autoname": "hash",
  "creation": "2026-08-06 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -189,10 +189,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-03 01:35:00.565074",
+ "modified": "2026-11-18 23:04:27.103682",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Row Match",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {

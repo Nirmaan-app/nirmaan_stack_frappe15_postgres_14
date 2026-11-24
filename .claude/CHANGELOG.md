@@ -4,6 +4,91 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-20: PMO may view cheques (Vendor page Cheques tab)
+
+**Summary** (branch `feat/audit-view`, `c94d7f84a`): the Vendor page's new Cheques tab is for everyone with a Vendors
+link in the sidebar, so PMO may now READ cheques (owner, 2026-11-20). A second role list,
+`role_profiles.CHEQUE_VIEW_PROFILES` = `CHEQUE_ACCESS_PROFILES` + PMO Executive, gates the three read endpoints through
+the new `assert_cheque_view_access`. Everything that changes a cheque keeps its old check: `save_cheque` and `pickers`
+on `assert_cheque_access` (`CHEQUE_ACCESS_PROFILES`), cancel on `CHEQUE_ACCOUNTS_PROFILES`. Project Managers stay
+refused. No schema change, no migrate.
+
+| File | Change |
+|---|---|
+| `services/role_profiles.py` | `CHEQUE_VIEW_PROFILES`, `can_view_cheques`, `assert_cheque_view_access` |
+| `api/cheques/list_cheques.py` | `get_cheques`, `get_cheque_facets` read through the view check |
+| `api/cheques/cheque_detail.py` | `get_cheque` reads through the view check |
+| `api/cheques/test_list_cheques.py` | PMO reads list, facets and detail; PMO cannot record / edit / cancel; a PM still cannot open a detail; the vendor filter lists only that vendor's cheques |
+| `services/test_role_mirrors.py` | `CHEQUE_VIEW_PROFILES` pinned to `frontend/src/constants/roles.ts` |
+
+Tests run on the restored copy `cachetest.localhost`, not live localhost: `test_list_cheques` 27 OK,
+`test_role_mirrors` 4 OK.
+
+## 2026-11-19: Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
+
+**Summary** (branch `feat/vendor-wo-pdf`, 5 commits `0d5dc3f8e`..`c13dda255`, unpushed): five owner asks on one
+branch. **Owner owes `bench migrate`** on every other site: the print formats "Vendor Work Orders" (new), "PO Orders"
+and "PO Orders Without Rate" (fixture, `modified` 2026-11-19 18:00), and three new Vendors fields (`vendors.json`
+`modified` 2026-11-19 23:00). No patch: the MSME fields start empty. Test record: artifact "Vendor WO Branch
+Walkthrough".
+
+| Commit | Change |
+|---|---|
+| `0d5dc3f8e` | Print format "Vendor Work Orders" (doctype Vendors): the Vendor page's Work Orders tab prints All / Approved / Finalized (`wo_view`), without Vendor / Categories / Status / Remarks, with a total row (`domain/service-requests.md`) |
+| `d1412bcd2` | Project and Vendor link icons in the three WO lists (frontend only) |
+| `f2c31c5c6` | MTC: Project Manager / Project Lead upload on their assigned projects, edit only their own, never delete. `role_profiles.MTC_UPLOAD_PROFILES`, `can_upload_mtc`, `can_edit_mtc`; controller checks the stored owner and the project; new `mtc_api.create_mtc`; managers keep Frappe's write check in `update_mtc`. 52 MTC tests (`domain/material-test-certificates.md`) |
+| `e96d53014` | "Revised PO Date" = latest Approved PO Revision `approval_date` in the PO preview and both PO print formats; else "PO Date" (`frontend/.claude/context/domain/po-revisions.md`) |
+| `c13dda255` | Vendors `msme_id`, `msme_attachment`, `autofill_all_entities_json` (Long Text); `services/vendor_msme.py` (Udyam rules); extraction `doc_kind="msme_certificate"`; `api/vendor/msme_autofill.py` (`extract_msme_fields`, `msme_duplicates`); `Vendors._validate_msme` (Udyam format; ID and certificate both or neither, only when either changes) and `_attach_msme_file`; `create_vendor_and_address` passes the fields; `test_msme_autofill.py` (`domain/invoice-autofill.md`, `doctypes.md`) |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+**Verification:** WO PDF 20 render cases equal to direct queries; Revised PO Date 5 POs × 2 formats; MTC 52 tests on a
+restored copy; browser walks on a backup copy (32 checks) and on localhost (MSME A–G). Not yet run: the real Gemini
+read (no API key on localhost or the copies) and `test_msme_autofill` on a migrated site.
+
+---
+
+## 2026-11-18: GST Payment Request approval makes the payment ready to pay (ADR-0030 Amendment B, step 1)
+
+**Summary** (`develop`, uncommitted): an approved GST Payment Request's payment is born **Approved** at every amount
+and whoever raised it: no L1, no CEO. Owner decisions B1–B3 in ADR-0030 Amendment B; B2 (patch) and B3 (raise rule)
+are not built yet. No schema change, nothing to migrate.
+
+- `services/gst_payment_requests.approved_payment_route()` → `(False, "Approved", True, True)`;
+  `api/payments/project_payments.insert_requested_payment` uses it instead of `tier_new_payment` when `gst_request`
+  is given (both approval dates stamped, `auto_approved` 0, owner = requester as before) and skips the "approved at
+  request" comment; the approval's own comment now says no L1 or CEO is needed.
+- `integrations/controllers/project_payments._auto_approved_note` (extracted from `_notify_admins_auto_approved`):
+  a GST-specific admins' note naming the decider and the request, cut by `fit_bell_description` (renamed from
+  `_fit` in `Notifications/gst_payment_request_notify`). **Bug found in the browser walk-through:** the first text
+  was 150 characters; `Nirmaan Notifications.description` allows 140, so the insert failed and rolled back the
+  whole approval. The tests had muted that note.
+- **A bell can no longer fail a payment save:** `_insert_bell` (same controller) now saves every recipient's
+  note for `_notify_accountants_payment_ready` and `_notify_admins_auto_approved`: text cut to 140, insert behind
+  a savepoint, and a refusal rolled back to it alone, written to the Error Log ("Payment notification skipped:
+  <payment> to <user>") and skipped. Test `test_a_bell_that_cannot_be_saved_never_fails_the_approval` (bell to a
+  recipient that does not exist): fails with `LinkValidationError` when the savepoint/except is removed, passes
+  with it.
+- **B2 patch** `patches/v3_0/gst_payments_waiting_to_approved` (in patches.txt; runs in `bench migrate`, owner
+  runs it): every GST payment at Requested / CEO Pending whose GST Payment Request is Approved and reviewed →
+  Approved, `approval_date` = `ceo_approval_date` = the request's `reviewed_on` date, `modified` untouched
+  (`set_value(update_modified=False)`; the docstring names every skipped hook and why), one Comment each, no
+  bell. Rejected, settled, request-less and base payments untouched; request-less waiting ones are listed in the
+  report. Proved on `gsttest.localhost` with 5 planted cases: dry run diff 0; real run moved exactly the
+  Requested and CEO Pending ones (dates = review day 2026-11-12); second run moved 0; all 5 `modified` identical.
+  Localhost dry run: 0 to move. Test `test_b2_patch_moves_only_waiting_gst_payments_with_an_approved_request`
+  (scoped to its own fixture payments; `find_waiting` / `find_left_alone` / `move`, never `run()`): fails when the
+  patch moves `modified`, passes as written.
+- Tests: `api/payments/test_gst_payment_requests.py` 36/36 (`test_approval_routes_by_amount` replaced by
+  `test_every_amount_is_ready_to_pay`; new: requester level, B1 deciders, base payment keeps the amount rule, no
+  L1/CEO bell, admins' note fits 140); the 28 modules importing the changed code, 553 tests, all green. Run on a
+  restored copy of localhost (`gsttest.localhost`), not localhost.
+- Browser walk-through on localhost (Procurement Lead raises ₹10,000 / ₹15,000 / ₹30,000 / ₹70,000, Accountant
+  approves, Admin checks his queue): all four Approved in Payment need to paid, none in Payment Pending Approval.
+  Left real rows GPR-26-00003..00006 → PAY-00058-303..306 on SR-00058-000314.
+
+---
+
 ## 2026-11-12: Rejection reason on Project Payments; the 30-day rule
 
 **Summary** (branch `feat/payment-reject-reason`, uncommitted): every reject of a PO / WO payment saves its reason

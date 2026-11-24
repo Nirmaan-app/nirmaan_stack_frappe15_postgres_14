@@ -83,7 +83,7 @@ def queue_reading(bill: str, job_id: str | None = None) -> None:
 
 def queue_after_commit(job: str, job_id: str, doctype: str, name: str, **kwargs) -> None:
     """Queue a reading `job` on the `long` queue once the caller's transaction commits, de-duplicated by `job_id`.
-    A queue that refuses leaves record `doctype` `name` (an Expense bill, or a Collect payment line, #1642) Not read
+    A queue that refuses leaves record `doctype` `name` (an Expense bill) Not read
     with `NOT_QUEUED`, and the error logged."""
     frappe.db.after_commit.add(lambda: _enqueue(job, job_id, doctype, name, kwargs))
 
@@ -185,9 +185,8 @@ def read_or_fail(file_url: str, what: str) -> Reading:
 
 
 def claim(doctype: str, name: str, columns: str, still_open=None) -> frappe._dict | None:
-    """THE ONE CLAIM, so one record is read once: take record `name` of `doctype` (an Expense bill, or a Collect
-    payment line, `line_check`) under its row lock while it is Checking, unclaimed and `still_open(row)` (when
-    given), mark it claimed (raw, committed) and give back its row with `columns`. None otherwise, the lock
+    """THE ONE CLAIM, so one record is read once: take record `name` of `doctype` (an Expense bill) under its row
+    lock while it is Checking, unclaimed and `still_open(row)` (when given), mark it claimed (raw, committed) and give back its row with `columns`. None otherwise, the lock
     released."""
     rows = frappe.db.sql(
         f"""SELECT name, {columns}, bill_check, read_claimed_at FROM "tab{doctype}" WHERE name = %s FOR UPDATE""",
@@ -240,8 +239,7 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
 
 def read_fields(reading: Reading) -> dict:
     """What the reader found, as the fields an Expense bill keeps it in (`read_total`, `read_invoice_no`,
-    `read_invoice_date`, `reader_output`), the same names a Collect payment line keeps it in (#1642,
-    `line_check`). A failed reading gives only its (empty) output."""
+    `read_invoice_date`, `reader_output`). A failed reading gives only its (empty) output."""
     fields = {"reader_output": frappe.as_json(reading.output) if reading.output else None}
     if isinstance(reading.read, BillRead):
         fields.update(

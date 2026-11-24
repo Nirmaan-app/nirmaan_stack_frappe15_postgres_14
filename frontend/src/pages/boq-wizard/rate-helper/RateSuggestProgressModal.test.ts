@@ -264,10 +264,10 @@ describe("SR-1 K3/K4 the page passes the whole done payload to the modal", () =>
     // the old field-by-field copy is gone (it began with `status: msg.status,`)
     expect(src).not.toContain("status: msg.status,");
   });
-  it("the status response type declares first_selected_run and pass_attempted_count", async () => {
+  it("the suggest result type declares first_selected_run and pass_attempted_count", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
-    const block = src.slice(src.indexOf("interface SuggestStatusResponse {"), src.indexOf("interface PartialSuggestRun"));
+    const block = src.slice(src.indexOf("interface SuggestRunResult {"), src.indexOf("interface PartialSuggestRun"));
     expect(block).toContain("first_selected_run?: boolean;");
     expect(block).toContain("pass_attempted_count?: number;");
   });

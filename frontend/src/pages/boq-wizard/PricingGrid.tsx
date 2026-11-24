@@ -3990,7 +3990,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // from re-recording a replay's writes (a re-record loop).
   const [history, setHistory] = useState<HistoryState>(emptyHistory);
   const historyRef = useRef<HistoryState>(history);
-  historyRef.current = history;
+  useLayoutEffect(() => {
+    historyRef.current = history;
+  }, [history]);
   const isReplayingRef = useRef(false);
   // Flip-gate for onHistoryChange: the last {canUndo, canRedo} emitted to the page, so the effect
   // fires only when a boolean actually changes (init {false,false} = the page default + empty start).
@@ -4079,7 +4081,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // re-anchor -- a ref so those closures always read the current mode without re-registering.
   const twoPaneRef = useRef(false);
   // V2 (nav/search to unmounted rows): focusCell / jumpToRow are defined BEFORE the virtualizer, so
-  // they reach it through refs (assigned right after useVirtualizer, synced each render). virtualizedRef
+  // they reach it through refs (synced after each commit by a layout effect beside useVirtualizer). virtualizedRef
   // mirrors the `virtualized` prop; scrollRowIntoWindowRef scrolls the window to a row index so an
   // OFF-window nav/jump target mounts before we focus it. Refs keep both closures reference-stable
   // (deps [] / [onRevealRow]) -> the row memo (focusCell / onJumpToRow props) is untouched.
@@ -4092,10 +4094,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
   // Latest draftRates + a latest-state "commit one cell" fn, so a debounced fire / flush
-  // reads CURRENT state at fire time (a captured value would be stale). Synced each render.
+  // reads CURRENT state at fire time (a captured value would be stale). Synced after each commit (layout effect).
   const draftRatesRef = useRef<Record<string, string>>({});
   const autoSaveCellRef = useRef<(rowIndexField: number, col: string) => void>(() => {});
-  // Latest rows snapshot (synced each render) -- the post-save propagation trigger reads
+  // Latest rows snapshot (synced after each commit by a layout effect) -- the post-save propagation trigger reads
   // it to check a corresponding cell's CURRENT priced state at save-resolve time.
   const rowsRef = useRef<PricedRow[]>(rows);
   // BCS-S3a -- the cost layer's twin plumbing, kept in its OWN maps/refs throughout so a cost
@@ -4199,28 +4201,25 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // the previous render's slices so an unchanged row's slice identity is stable; on a cursor
   // move draftRates is unchanged -> useMemo returns the cached structure -> no row re-renders.
   const draftSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
-  const draftSlicesByRow = useMemo(() => {
-    const next = groupDraftsByRow(draftRates, draftSlicesRef.current);
-    draftSlicesRef.current = next;
-    return next;
-  }, [draftRates]);
+  const draftSlicesByRow = useMemo(() => groupDraftsByRow(draftRates, draftSlicesRef.current), [draftRates]);
+  useLayoutEffect(() => {
+    draftSlicesRef.current = draftSlicesByRow;
+  }, [draftSlicesByRow]);
   const proposedSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
-  const proposedSlicesByRow = useMemo(() => {
-    const next = groupDraftsByRow(proposedRates, proposedSlicesRef.current);
-    proposedSlicesRef.current = next;
-    return next;
-  }, [proposedRates]);
+  const proposedSlicesByRow = useMemo(() => groupDraftsByRow(proposedRates, proposedSlicesRef.current), [proposedRates]);
+  useLayoutEffect(() => {
+    proposedSlicesRef.current = proposedSlicesByRow;
+  }, [proposedSlicesByRow]);
   // BCS-S3a: the cost layer's OWN draft slices. `groupDraftsByRow` is generic over the
   // `${rowIndex}:${key}` shape and is reused VERBATIM -- but over a SEPARATE state map, which is
   // the load-bearing half: merging cost values into draftRates would give every rate cell of the
   // row a new slice on a cost keystroke, defeating shallowEqualStrMap for edits that have
   // nothing to do with each other.
   const bcsSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
-  const bcsSlicesByRow = useMemo(() => {
-    const next = groupDraftsByRow(draftBcsRates, bcsSlicesRef.current);
-    bcsSlicesRef.current = next;
-    return next;
-  }, [draftBcsRates]);
+  const bcsSlicesByRow = useMemo(() => groupDraftsByRow(draftBcsRates, bcsSlicesRef.current), [draftBcsRates]);
+  useLayoutEffect(() => {
+    bcsSlicesRef.current = bcsSlicesByRow;
+  }, [bcsSlicesByRow]);
 
   // Commit a rate cell (blur / Enter). No-op when unchanged or a duplicate of the last
   // attempt (blur+Enter). Blank/NaN -> 0 (the endpoint coerces blank -> 0.0, still priced).
@@ -4322,11 +4321,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     [onSaveRate, displayDescriptors],
   );
   const applyRateRef = useRef(applyRate);
-  applyRateRef.current = applyRate;
+  useLayoutEffect(() => {
+    applyRateRef.current = applyRate;
+  }, [applyRate]);
   // BCS-S4: the % Margin reading the range filter tests. Same ref pattern as undo/redo/applyRate --
   // the handle delegates to the LATEST closure, so it need not rebuild when rows/descriptors/drafts
   // change, and a reading taken at any moment sees the values on screen at that moment. Assigned
-  // below, after `bcsQtyFor` exists (it is declared beside renderRow).
+  // below, after `bcsQtyFor` exists (above the empty-grid early return).
   const computeMarginsRef = useRef<(rowsToMeasure: PricedRow[]) => Map<number, number | null>>(
     () => new Map(),
   );
@@ -4384,7 +4385,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     [],
   );
   const gatherBcsForRowRef = useRef(gatherBcsForRow);
-  gatherBcsForRowRef.current = gatherBcsForRow;
+  useLayoutEffect(() => {
+    gatherBcsForRowRef.current = gatherBcsForRow;
+  }, [gatherBcsForRow]);
 
   // Commit ONE cost box. Mirrors commitRate exactly -- cancel this cell's debounce, no-op when
   // unchanged, dedupe blur+Enter, drop the draft on success, KEEP it on failure -- except that
@@ -4567,7 +4570,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   }, []);
 
   // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
-  // excelRow -> array index (rowsRef is synced each render), then focuses + centers that row's
+  // excelRow -> array index (rowsRef is synced after each commit), then focuses + centers that row's
   // col-0 cell (registered in cellRefs, a stable ref); a target not in the rendered set is a
   // safe no-op. Reference-stable (deps []: only refs are read) -> memo-safe as a row prop. The
   // imperative scrollToRow (search / review-strip) delegates here so there is ONE jump path.
@@ -5276,8 +5279,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   };
   // Keep refs to the latest closures so the (stable) imperative handle always calls the fresh
   // undo/redo (which close over the current rows/override/etc.) without rebuilding the handle.
-  undoRef.current = undo;
-  redoRef.current = redo;
+  useLayoutEffect(() => {
+    undoRef.current = undo;
+    redoRef.current = redo;
+  });
 
   // ── Slice A: right-click CONTEXT MENU -- a SECOND trigger for the SAME doX fns ────
   // A pure alternate trigger: every item calls the EXISTING doCopy/doCut/doPaste/doFillDown, so a
@@ -5573,7 +5578,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       // cell; onFocus sets activeCell, giving a visible landing. Safe no-op if not rendered.
       scrollToRow: (excelRow) => jumpToRow(excelRow),
       // Slice B (undo/redo): the ribbon buttons call these; they delegate to the LATEST closures
-      // via refs (synced each render), so the handle need not rebuild when rows/override change.
+      // via refs (synced after each commit), so the handle need not rebuild when rows/override change.
       undo: () => undoRef.current(),
       redo: () => redoRef.current(),
       // U1 rate-helper: delegate to the latest applyRate via a ref (like undo/redo) so the handle
@@ -5685,8 +5690,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // twoPane so focusCell / jumpToRow retarget the correct scroll pane in either mode.
   const twoPane =
     selectRenderPath({ rowCount: rows.length, virtualized, frozen, split }) === "twoPane";
-  splitRef.current = twoPane;
-  twoPaneRef.current = twoPane;
+  // Synced in a layout effect declared BEFORE useVirtualizer, so it runs ahead of the virtualizer's
+  // own layout effect (_willUpdate), the one place getScrollElement is called.
+  useLayoutEffect(() => {
+    splitRef.current = twoPane;
+    twoPaneRef.current = twoPane;
+  }, [twoPane]);
   // ONE virtualizer = the single row-window authority for BOTH panes (scrolling pane is the scroll
   // authority in two-pane; containerRef in single). estimateSize seeds from the applied (manual /
   // freeze-measured) height when known, else a default; measureElement refines it per mounted row.
@@ -5719,11 +5728,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     },
   });
   // V2: sync the refs the (earlier-defined) focusCell / jumpToRow read to reach the virtualizer for
-  // an off-window nav/jump target. Assigned each render -- the virtualizer instance is stable, so
+  // an off-window nav/jump target. Synced after each commit (layout effect) -- the virtualizer instance is stable, so
   // these never destabilize those useCallbacks (which read the refs, not these values).
-  virtualizedRef.current = virtualized;
-  scrollRowIntoWindowRef.current = (idx) =>
-    rowVirtualizer.scrollToIndex(idx, { align: "center" });
+  useLayoutEffect(() => {
+    virtualizedRef.current = virtualized;
+    scrollRowIntoWindowRef.current = (idx) =>
+      rowVirtualizer.scrollToIndex(idx, { align: "center" });
+  }, [virtualized, rowVirtualizer]);
   // V2 (overlay close-on-scroll-out): the remark popover lives INSIDE the row, so a scroll-out unmount
   // already tears down its Radix portal (no orphan) -- but the grid-level open-state would otherwise
   // linger and RE-OPEN on scroll-back. Clear it once the open row leaves the mounted window. Keyed on
@@ -5965,6 +5976,68 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     rowResizeRef.current = null;
   }, []);
+
+  // BCS-S3a: THIS row's Total Quantity, resolved from the CONFIRMED columns. Done here (once per
+  // RENDERED row -- ~40 under virtualization) so the memoized row receives a plain number|null
+  // scalar and never the qty source itself. `bcsRowQuantity` sums the stored entries whatever
+  // the mode; the entry and a ColumnDescriptor are the same six fields, which is exactly what
+  // resolveDescriptorValue walks.
+  //
+  // ⚠️ THE `as ColumnDescriptor` CAST WAS REMOVED AT BCS-S3a-fix and must not come back. The two
+  // types ARE structurally identical today, so this compiles without it -- which means the cast
+  // bought nothing and cost the only warning we would ever get. Let `ColumnDescriptor` gain a
+  // seventh required field and the cast would silently hand `resolveDescriptorValue` an entry
+  // missing it; without the cast that is a compile error, which is the whole point. Same defect
+  // class as the draft key space this slice fixed: two shapes pinned separately, never jointly.
+  const bcsQtyFor = (row: PricedRow): number | null =>
+    bcsKinds.length === 0
+      ? null
+      // `columnDescriptors` is the S12b fallback: with no stored confirmation the sheet's OWN
+      // quantity column is used. Without it every post-S12 sheet resolved quantity to null and
+      // rendered a blank BCS Total. See bcsQuantityColumns.
+      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e), columnDescriptors);
+
+  // ── BCS-S4: every row's % Margin, for the BCS-S13 range filter ────────────────
+  // Every given row's % Margin RIGHT NOW, through the SAME `computeBcsRowCells` the cost cells
+  // render from -- so the filter and the column can never disagree about a row's margin.
+  //
+  // It reads the drafts through their REFS, so a cost or rate typed a second ago and not yet saved
+  // is in the reading. `lookupOperandValue` and `bcsDraftsForRow` both key on the FULL
+  // `${row_index}:...` form, which is why the whole draft maps can be passed where the row render
+  // passes one row's slice -- the slices exist for the memo, not for the lookup.
+  //
+  // ⚠️ IT TAKES THE ROWS. `rows` here is the DISPLAYED set -- already filtered and collapsed -- and
+  // a range decided over that would narrow itself every time it was re-applied. The page passes
+  // the whole sheet.
+  //
+  // ⚠️ THIS RUNS O(rows x amount columns) AND IS THEREFORE CALLED ON AN EXPLICIT FILTER APPLY AND
+  // NOWHERE ELSE. Never from a render, an effect or a keystroke -- both for the cost and because
+  // rows leaving the grid under a focused cell slides a different row beneath the cursor
+  // (`activeCell` is array-index addressed).
+  // Declared above the empty-grid early return below: a hook may not follow a return, and the
+  // imperative computeMargins handle must keep working when a filter empties the grid.
+  useLayoutEffect(() => {
+    computeMarginsRef.current = (rowsToMeasure: PricedRow[]) => {
+      const out = new Map<number, number | null>();
+      if (bcsKinds.length === 0) return out; // no cost block on this sheet -> no margins at all
+      for (const r of rowsToMeasure) {
+        const { marginCell } = computeBcsRowCells({
+          row: r,
+          bcsRow: bcsRatesByExcelRow.get(r.source_row_number),
+          rowBcsDrafts: draftBcsRatesRef.current,
+          bcsKinds,
+          bcsQty: bcsQtyFor(r),
+          bcsAmountSource,
+          columnDescriptors,
+          columnFormulas,
+          rowDraftRates: draftRatesRef.current,
+          reconChoiceMap,
+        });
+        out.set(r.row_index, marginCell.kind === "value" ? marginCell.value : null);
+      }
+      return out;
+    };
+  });
 
   /**
    * ⚠️ THIS EARLY RETURN IS A TRAP DOOR, AND IT SHUT ON THE % MARGIN CONTROLS (owner report
@@ -6512,63 +6585,6 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       selectionAnchor.colIndex !== activeCell.colIndex)
       ? selectionRect(selectionAnchor, activeCell)
       : null;
-  // BCS-S3a: THIS row's Total Quantity, resolved from the CONFIRMED columns. Done here (once per
-  // RENDERED row -- ~40 under virtualization) so the memoized row receives a plain number|null
-  // scalar and never the qty source itself. `bcsRowQuantity` sums the stored entries whatever
-  // the mode; the entry and a ColumnDescriptor are the same six fields, which is exactly what
-  // resolveDescriptorValue walks.
-  //
-  // ⚠️ THE `as ColumnDescriptor` CAST WAS REMOVED AT BCS-S3a-fix and must not come back. The two
-  // types ARE structurally identical today, so this compiles without it -- which means the cast
-  // bought nothing and cost the only warning we would ever get. Let `ColumnDescriptor` gain a
-  // seventh required field and the cast would silently hand `resolveDescriptorValue` an entry
-  // missing it; without the cast that is a compile error, which is the whole point. Same defect
-  // class as the draft key space this slice fixed: two shapes pinned separately, never jointly.
-  const bcsQtyFor = (row: PricedRow): number | null =>
-    bcsKinds.length === 0
-      ? null
-      // `columnDescriptors` is the S12b fallback: with no stored confirmation the sheet's OWN
-      // quantity column is used. Without it every post-S12 sheet resolved quantity to null and
-      // rendered a blank BCS Total. See bcsQuantityColumns.
-      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e), columnDescriptors);
-
-  // ── BCS-S4: every row's % Margin, for the BCS-S13 range filter ────────────────
-  // Every given row's % Margin RIGHT NOW, through the SAME `computeBcsRowCells` the cost cells
-  // render from -- so the filter and the column can never disagree about a row's margin.
-  //
-  // It reads the drafts through their REFS, so a cost or rate typed a second ago and not yet saved
-  // is in the reading. `lookupOperandValue` and `bcsDraftsForRow` both key on the FULL
-  // `${row_index}:...` form, which is why the whole draft maps can be passed where the row render
-  // passes one row's slice -- the slices exist for the memo, not for the lookup.
-  //
-  // ⚠️ IT TAKES THE ROWS. `rows` here is the DISPLAYED set -- already filtered and collapsed -- and
-  // a range decided over that would narrow itself every time it was re-applied. The page passes
-  // the whole sheet.
-  //
-  // ⚠️ THIS RUNS O(rows x amount columns) AND IS THEREFORE CALLED ON AN EXPLICIT FILTER APPLY AND
-  // NOWHERE ELSE. Never from a render, an effect or a keystroke -- both for the cost and because
-  // rows leaving the grid under a focused cell slides a different row beneath the cursor
-  // (`activeCell` is array-index addressed).
-  computeMarginsRef.current = (rowsToMeasure: PricedRow[]) => {
-    const out = new Map<number, number | null>();
-    if (bcsKinds.length === 0) return out; // no cost block on this sheet -> no margins at all
-    for (const r of rowsToMeasure) {
-      const { marginCell } = computeBcsRowCells({
-        row: r,
-        bcsRow: bcsRatesByExcelRow.get(r.source_row_number),
-        rowBcsDrafts: draftBcsRatesRef.current,
-        bcsKinds,
-        bcsQty: bcsQtyFor(r),
-        bcsAmountSource,
-        columnDescriptors,
-        columnFormulas,
-        rowDraftRates: draftRatesRef.current,
-        reconChoiceMap,
-      });
-      out.set(r.row_index, marginCell.kind === "value" ? marginCell.value : null);
-    }
-    return out;
-  };
 
   const renderRow = (
     row: PricedRow,

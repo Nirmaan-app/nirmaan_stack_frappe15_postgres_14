@@ -134,6 +134,17 @@ describe("canUploadInvoiceRow — a Paid expense, for Admin, Accounts and HR (ow
       expect(canUploadInvoiceRow(row("Project Expenses", "Paid"), role)).toBe(false);
     }
   });
+
+  it("never a refund (amount below zero): a card or wallet refund needs no bill (#1709, owner 2026-11-18)", () => {
+    type UploadRow = Parameters<typeof canUploadInvoiceRow>[0];
+    const paid = (doctype: UploadRow["doctype"], amount: number): UploadRow => ({ doctype, status: "Paid", amount });
+    for (const role of PAID_INVOICE_PROFILES) {
+      for (const ledger of ["Project Expenses", "Non Project Expenses"] as const) {
+        expect(canUploadInvoiceRow(paid(ledger, -11248), role)).toBe(false);
+        expect(canUploadInvoiceRow(paid(ledger, 17446), role)).toBe(true);
+      }
+    }
+  });
 });
 
 describe("isHeldQueueRow", () => {

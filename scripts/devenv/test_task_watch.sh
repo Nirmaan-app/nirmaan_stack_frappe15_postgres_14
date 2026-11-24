@@ -101,7 +101,7 @@ report "$AH" b1 "BLOCKED. The owner must pick the rate source."
 report "$AH" x1 "TODO: DONE or BLOCKED, then one line on the outcome"
 
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/landed.sh" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/landed.sh" "$HERE/develop.sh" "$L/scripts/devenv/"
 git -C "$L" init -q -b master
 git -C "$L" add -A
 git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
@@ -118,6 +118,12 @@ watch --every soon
 rc_is 1 "--every with a word is a usage error"
 watch now
 rc_is 1 "an unknown argument is a usage error"
+watch --clean --clean
+rc_is 1 "--clean twice is a usage error"
+watch --every 5 --clean --every 5
+rc_is 1 "--every twice is a usage error"
+watch --clean --install
+rc_is 1 "--install takes no --clean (the job always cleans)"
 [ ! -e "$STATE" ] || [ -z "$(ls "$STATE")" ] || fail "a usage error saves no state"; pass "a usage error saves no state"
 
 # ---- the first pass: every row of the classification table
@@ -257,5 +263,145 @@ git config -f "$R" devbox.order "air"
 pick
 rc_is 1 "pick exits 1 when no box in the order has a free agent"
 line '^STOP  no box in devbox.order \(air\) has a free agent' "the refusal says why and what to do"
+
+# core.hooksPath of a box checkout: anything but .githooks warns on every pass and alerts when it changes
+git -C "$AH/work/y/variants/master" init -q
+git -C "$AH/work/y/variants/master" config core.hooksPath /elsewhere/dev/.githooks
+git config -f "$R" devbox.order "air contabo"
+git config -f "$R" box.air.agents 3
+: > "$OSA_LOG"
+watch
+line '^WARN  air: core.hooksPath is /elsewhere/dev/.githooks, not .githooks' "a box hooksPath other than .githooks warns"
+line '^ALERT air: core.hooksPath .githooks -> /elsewhere/dev/.githooks$' "a hooksPath that changed away from .githooks alerts"
+same "$(grep -c hooksPath "$OSA_LOG" || true)" 1 "the hooksPath alert raises one notification"
+no_line '^WARN  contabo' "a box checkout that is not a git checkout is not judged"
+watch
+line '^WARN  air: core.hooksPath' "the warning repeats while the path is wrong"
+no_line '^ALERT air: core.hooksPath' "an unchanged wrong path alerts once only"
+pick
+line '^  air: 2 of 3 agents working$' "pick does not count the hooksPath row as an agent"
+git -C "$AH/work/y/variants/master" config core.hooksPath .githooks
+watch
+no_line '^WARN  air' "a box back on .githooks does not warn"
+line '^ALERT air: core.hooksPath /elsewhere/dev/.githooks -> .githooks$' "a hooksPath set back alerts too"
+
+# ---- a task's base rewound out of its ref (#1698: another chat reset master under box/1698; found at merge by reflog)
+BASE="$(git -C "$L" rev-parse master)"
+git -C "$L" config devbox-task.w1.from master; git -C "$L" config devbox-task.w1.base "$BASE"
+git -C "$L" config devbox-task.m1.from gone-ref; git -C "$L" config devbox-task.m1.base "$BASE"
+: > "$OSA_LOG"
+watch
+no_line '^WARN  w1' "a base still in its ref does not warn"
+no_line '^WARN  m1' "a task whose from-ref is gone is not judged"
+no_line '^WARN  f1' "a task with no base record (started before the record) is not judged"
+same "$(alerts)" 0 "a base in place raises no alert"
+REWOUND="$(git -C "$L" commit-tree -m rewound 'master^{tree}')"; git -C "$L" update-ref refs/heads/master "$REWOUND"
+watch
+line "^WARN  w1: its base ${BASE:0:9} is no longer in master \(reset or rebased\): rebase box/w1 onto master before merging" "a base that left its ref warns, with the fix"
+line "^ALERT w1: base ${BASE:0:9} left master$" "a base leaving its ref alerts"
+same "$(grep -c 'left master' "$OSA_LOG" || true)" 1 "the base alert raises one notification"
+no_line '^WARN  m1' "a gone from-ref still does not warn"
+watch
+line '^WARN  w1: its base' "the warning repeats while the base is out"
+no_line '^ALERT w1: base' "an unchanged rewound base alerts once only"
+git -C "$L" update-ref refs/heads/master "$BASE"
+watch
+no_line '^WARN  w1' "a base back in its ref does not warn"
+line "^ALERT w1: base ${BASE:0:9} is back in master$" "a base back in its ref alerts too"
+git -C "$L" config --unset devbox-task.w1.box
+watch
+[ ! -e "$STATE/.base-w1" ] || fail "the base state of a task whose record is gone is removed"; pass "the base state of a task whose record is gone is removed"
+git -C "$L" config devbox-task.w1.box contabo
+
+# ---- stalled: alive, not finished, and nothing written to its session log for DEVBOX_STALL_SECONDS (#1698: the
+# agent sat an hour at "Not logged in" while watch said working). The log is ~/.claude/projects/<the env worktree's
+# path with every non-alphanumeric character as ->/, subagent logs in <session>/subagents/ below it.
+project() { echo "$1/.claude/projects/$(wt "$2" "$3" | sed 's/[^A-Za-z0-9]/-/g')"; }
+# To the second: a minute-precision touch adds up to 59 s, so 30 min could read as 31.
+ago() { date -v-"$1"M '+%Y%m%d%H%M.%S' 2>/dev/null || date -d "$1 minutes ago" '+%Y%m%d%H%M.%S'; }
+PM="$(project "$AH" "$AROOT" m1)"; PF="$(project "$CH" "$CROOT" f1)"
+mkdir -p "$PM/s1/subagents" "$PF"
+echo '{}' > "$PM/s1.jsonl"; touch -t "$(ago 30)" "$PM/s1.jsonl"
+echo '{}' > "$PF/s1.jsonl"; touch -t "$(ago 30)" "$PF/s1.jsonl"
+: > "$OSA_LOG"
+watch
+line '^m1 +air +stalled +quiet for 30 min$' "an alive, unfinished agent quiet for 30 min is stalled, with how long"
+line '^ALERT m1 on air: working -> stalled$' "working -> stalled alerts"
+same "$(grep -c 'working -> stalled' "$OSA_LOG" || true)" 1 "the stalled alert raises one notification"
+line '^f1 +contabo +finished' "a finished agent quiet that long is still finished"
+line '^m2 +air +working *$' "an alive agent with no session log is working"
+git config -f "$R" box.air.agents 2
+pick
+line '^  air: 2 of 2 agents working$' "pick counts a stalled agent as busy: it still holds the box"
+line '^box +contabo ' "a box full of stalled and working agents passes the task on"
+git config -f "$R" box.air.agents 3
+echo '{}' > "$PM/s1/subagents/a1.jsonl"
+watch
+line '^m1 +air +working *$' "a fresh subagent log below the session makes the agent working again"
+line '^ALERT m1 on air: stalled -> working$' "stalled -> working alerts"
+touch -t "$(ago 30)" "$PM/s1/subagents/a1.jsonl"
+DEVBOX_STALL_SECONDS=3600 watch
+line '^m1 +air +working *$' "DEVBOX_STALL_SECONDS sets the quiet time that counts as stalled"
+watch
+line '^m1 +air +stalled +quiet for 30 min$' "back at the default it is stalled again"
+grep -v '^5101 ' "$AH/.stub/procs" > "$T/p" && mv "$T/p" "$AH/.stub/procs"
+watch
+line '^m1 +air +crashed *$' "a stalled agent that dies is crashed, not stalled"
+echo "5101 claude.exe $(wt "$AROOT" m1)" >> "$AH/.stub/procs"
+
+# ---- watch --install: a launchd user agent runs the pass every 300 s, so no chat has to keep a loop alive (#1698:
+# the chat's background watch died with the chat when the laptop ran low on memory). Fake HOME, stub launchctl.
+cat > "$T/bin/launchctl" <<'EOF'
+#!/bin/bash
+echo "launchctl $*" >> "$LAUNCHCTL_LOG"
+EOF
+printf '#!/bin/bash\n' > "$T/bin/orca"
+chmod +x "$T/bin/launchctl" "$T/bin/orca"
+export LAUNCHCTL_LOG="$T/launchctl.log"; : > "$LAUNCHCTL_LOG"
+H="$T/home"; mkdir -p "$H" "$T/home-linux/.stub"; echo Linux > "$T/home-linux/.stub/uname"
+PLIST="$H/Library/LaunchAgents/app.nirmaan.task-watch.plist"; LOG="$T/state/devbox/watch.log"; UID_="$(id -u)"
+inst() { run env HOME="$H" /bin/bash "$L/scripts/devenv/task.sh" watch "$@"; }
+inst --install now
+rc_is 1 "--install with an extra argument is a usage error"
+run env HOME="$T/home-linux" /bin/bash "$L/scripts/devenv/task.sh" watch --install
+rc_is 1 "--install off macOS is refused"; line 'macOS only' "the refusal says macOS only"
+[ ! -e "$T/home-linux/Library" ] || fail "the refusal writes nothing"; pass "the refusal writes nothing"
+inst --install
+rc_is 0 "--install exits 0"
+[ -f "$PLIST" ] || fail "--install writes the plist under ~/Library/LaunchAgents"; pass "--install writes the plist under ~/Library/LaunchAgents"
+plutil -lint -s "$PLIST" || fail "the plist is valid"; pass "the plist is valid"
+P="$(cat "$PLIST")"
+case "$P" in *"<string>app.nirmaan.task-watch</string>"*) pass "the label is app.nirmaan.task-watch" ;; *) fail "the label is app.nirmaan.task-watch" ;; esac
+SELF="$(cd "$L/scripts/devenv" && pwd -P)/task.sh"
+case "$P" in *"<string>/bin/bash</string>"*"<string>-c</string>"*"<string>\"$SELF\" watch --clean &gt; \"$LOG\" 2&gt;&amp;1</string>"*) pass "the job runs this task.sh watch --clean with its log at devbox/watch.log" ;; *) fail "the job runs this task.sh watch --clean with its log at devbox/watch.log" ;; esac
+case "$P" in *"<key>StartInterval</key>"*"<integer>300</integer>"*) pass "the job runs every 300 s" ;; *) fail "the job runs every 300 s" ;; esac
+case "$P" in *"<key>RunAtLoad</key>"*"<true/>"*) pass "the job runs at load" ;; *) fail "the job runs at load" ;; esac
+case "$P" in *"<key>PATH</key>"*"<string>$T/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"*) pass "the job's PATH has orca's folder and the usual bins" ;; *) fail "the job's PATH has orca's folder and the usual bins" ;; esac
+case "$P" in *"<key>XDG_STATE_HOME</key>"*"<string>$T/state</string>"*) pass "the job keeps the installer's XDG_STATE_HOME" ;; *) fail "the job keeps the installer's XDG_STATE_HOME" ;; esac
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch
+launchctl bootstrap gui/$UID_ $PLIST" "--install boots out any old job, then bootstraps the plist"
+line "^ok +installed .*app.nirmaan.task-watch" "--install says what it installed"
+line "watch.log" "--install names the log"
+: > "$LAUNCHCTL_LOG"
+inst --install
+rc_is 0 "a second --install exits 0"
+same "$(cat "$PLIST")" "$P" "a second --install writes the same plist"
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch
+launchctl bootstrap gui/$UID_ $PLIST" "a second --install boots out the first, then bootstraps again"
+mkdir -p "$T/bin-no-orca"; cp "$T/bin/launchctl" "$T/bin-no-orca/"
+run env HOME="$H" PATH="$T/bin-no-orca:/usr/bin:/bin" /bin/bash "$L/scripts/devenv/task.sh" watch --install
+rc_is 0 "--install with no orca on PATH exits 0"
+case "$(cat "$PLIST")" in *"<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"*) pass "with no orca on PATH the job's PATH is the usual bins alone" ;; *) fail "with no orca on PATH the job's PATH is the usual bins alone" ;; esac
+inst --install
+: > "$LAUNCHCTL_LOG"
+inst --uninstall
+rc_is 0 "--uninstall exits 0"
+same "$(cat "$LAUNCHCTL_LOG")" "launchctl bootout gui/$UID_/app.nirmaan.task-watch" "--uninstall boots the job out"
+[ ! -e "$PLIST" ] || fail "--uninstall moves the plist aside"; pass "--uninstall moves the plist aside"
+[ -f "$PLIST.off" ] || fail "the plist is kept as .off"; pass "the plist is kept as .off"
+inst --uninstall
+rc_is 0 "--uninstall with nothing installed exits 0"; line "nothing installed" "and says so"
+run env HOME="$T/home-linux" /bin/bash "$L/scripts/devenv/task.sh" watch --uninstall
+rc_is 1 "--uninstall off macOS is refused"
 
 echo; echo "all $N checks passed"

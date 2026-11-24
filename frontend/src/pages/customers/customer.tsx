@@ -2,7 +2,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CustomersDocType } from "@/types/doctypes/Customers";
-import { useFrappeDocumentEventListener, useFrappeGetDoc } from "@/lib/frappe";
+import { useDocumentEventListener, useFrappeGetDoc } from "@/lib/frappe";
 import { BookOpen, FilePenLine, LayoutDashboard } from "lucide-react";
 // Financials tab temporarily disabled: import { Receipt } from "lucide-react";
 import React, { Suspense, useCallback, useState } from "react";
@@ -54,7 +54,7 @@ const CustomerPage : React.FC<{ customerId: string }> = ({ customerId }) => {
     }
   );
 
-  useFrappeDocumentEventListener("Customers", customerId, (event) => {
+  useDocumentEventListener("Customers", customerId, (event) => {
           console.log("Customers document updated (real-time):", event);
           toast({
               title: "Document Updated",

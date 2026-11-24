@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -457,7 +457,10 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
   });
   const hasLoadedOnce = useHasLoadedOnce(isLoading);
 
-  refetchRef.current = refetch;
+  // Read only by the row menu's onChanged handler, never during render.
+  useLayoutEffect(() => {
+    refetchRef.current = refetch;
+  });
 
   // Merged sub-tab: the names of the Won projects these rows went into, in one read.
   const mergedIntoIds = useMemo(

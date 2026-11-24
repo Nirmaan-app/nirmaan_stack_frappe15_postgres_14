@@ -102,9 +102,12 @@ function serve(params: Params) {
     };
 }
 
-vi.mock("frappe-react-sdk", async () => {
+vi.mock("frappe-react-sdk", async (importOriginal) => {
     const { default: useSWR } = await import("swr");
     return {
+        // The real SDK under the mocks: the components reach `@/lib/frappe` (its safe listeners, #1670), which reads
+        // every SDK hook when it loads. vitest loads the SDK's CommonJS build, whose exports sit under `default`.
+        ...(await importOriginal<{ default: object }>()).default,
         useFrappeGetCall: (_method: string, params: Params, key: string | null, options?: object) =>
             useSWR(
                 key,

@@ -34,6 +34,8 @@ export interface ProjectPaymentsDocType {
 	payment_date?: string | null
 	/** Status : Data */
 	status?: string | null
+	/** Rejection Reason : Small Text */
+	rejection_reason?: string | null
 	/** GST Payment : Check */
 	is_gst_payment?: 0 | 1
 	/** On Hold : Check */

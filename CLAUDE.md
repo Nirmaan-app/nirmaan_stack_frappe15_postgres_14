@@ -22,7 +22,8 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Cast a bound `SUBSTRING` offset:** `SUBSTRING(col FROM %s::integer)`. An uncast `%s` arrives as text and
   selects the regex overload, so the predicate quietly never matches.
 - **Generated and append-only paths are never hand-edited:** doctype JSON, existing files in `patches/`,
-  `www/frontend.html`, `frontend/src/components/ui/`, `frontend/src/types/doctypes/`, `nirmaan_stack/public/`.
+  `www/frontend.html`, the shadcn-generated files of `frontend/src/components/ui/`, `frontend/src/types/doctypes/`,
+  `nirmaan_stack/public/`.
   Change the source or use the tool instead; the sanctioned doctype-JSON exceptions are in `CODING_STANDARDS.md`
   § Don't touch.
 
@@ -60,12 +61,14 @@ Three standards fail silently when broken, so they are summarised here too (full
   worktree-creating skill stand down.
 
 **Docs discipline — DOCS-UPDATE RULE.** Per-commit as-built detail (hashes, test counts, build logs, dated
-narratives) goes to the on-demand reference docs only: `frontend/.claude/plans/boq-upload-plan.md` (live status,
-source of truth), `.claude/context/domain/boq-backend.md`, `frontend/.claude/context/domain/boq-frontend.md`.
+narratives) goes in the commit message and in no doc. Where BoQ work stands now goes in
+`frontend/.claude/plans/boq-status.md`, which is rewritten in place and stays under 200 lines.
+`frontend/.claude/plans/boq-upload-plan.md` is a closed record and takes no new text.
 Touch a `CLAUDE.md` only when a stable convention or an owner-locked invariant changes. A domain rule goes in that
 domain doc's Load-bearing invariants section, with at most a pointer row in Domain docs; a coding rule goes in
 `CODING_STANDARDS.md` (frontend: `frontend/CODING_STANDARDS.md`). The `.claude/hooks/guard_claude_md.py`
-PreToolUse hook enforces this and redirects changelog-style text to the reference docs (patterns: `.claude/hooks/README.md`).
+PreToolUse hook refuses changelog-style text in a `CLAUDE.md`, and an Edit or Write tool call on the closed
+record; it does not see a shell write (patterns: `.claude/hooks/README.md`).
 
 ## Commands
 
@@ -116,12 +119,13 @@ stale, read-only DB inspect): `BoQ_Environment_Testing_Runbook_v1_0.md` in proje
 Read the doc for the area you touch before writing code; where it has a Load-bearing invariants section, read
 that first. Paths are under `.claude/context/domain/` unless given in full.
 
-The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-plan.md` (~3 MB), `boq-backend.md`
+The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-plan.md` (~4 MB), `boq-backend.md`
 (~250 KB), `boq-rate-master.md`. List the headings with `grep -n '^#' <file>`, then read only that range.
 
 | Touching… | Read |
 |---|---|
-| **BoQ status**: the active phase or slice, the design spec, as-built records | `frontend/.claude/plans/boq-upload-plan.md` |
+| **BoQ status**: the active phase or slice | `frontend/.claude/plans/boq-status.md` |
+| **BoQ history**: the design spec and the as-built records (closed, read by heading) | `frontend/.claude/plans/boq-upload-plan.md` |
 | **BoQ wizard**: upload, parser, review tree, AI-assist prompts, commit, BoQ doctypes, a wizard-vs-app-wide scope fork | `boq-backend.md` § Load-bearing invariants |
 | **Reading an uploaded file's bytes** (BoQ upload worker, any upload code) | `CODING_STANDARDS.md` § Writing backend Python |
 | **BoQ classification**: `BoQ Row Category`, engines, rules runner, routing, AI voter, truth snapshots | `boq-classification.md` |
@@ -169,3 +173,4 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   Stop hook keeps it from finishing until `dod.py check` passes. See `docs/agents/definition-of-done.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).
+- **Big reviews (over 40 files):** run `/code-review` once per folder group, not once over the whole diff: `frontend/` and docs; `nirmaan_stack/api/`; the rest of `nirmaan_stack/`. Pass each run its group as `git diff <base>...HEAD -- <paths>` and say another review covers the rest. On spec #1711 with 8 defects hidden in its own commits, one Opus review over the whole branch reported 4; the three folder reviews together reported all 8, at about 2.5 times the cost ($7.24 against $2.95).

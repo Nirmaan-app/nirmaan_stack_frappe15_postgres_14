@@ -44,12 +44,12 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { SimpleTable as AntTable, PassThrough as ConfigProvider } from "@/components/ui/simple-table";
 import {
   useFrappeCreateDoc,
-  useFrappeDocumentEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import {
   ArrowBigUpDash,
   ArrowLeft,
@@ -72,7 +72,7 @@ const SelectServiceVendor: React.FC = () => {
   const navigate = useNavigate()
 
   const { data: sr_data, isLoading: sr_data_loading, error: sr_data_error, mutate: sr_data_mutate } = useFrappeGetDoc("Service Requests", id);
-  useFrappeDocumentEventListener("Service Requests", id, (event) => {
+  useDocumentEventListener("Service Requests", id, (event) => {
     console.log("Service Requests document updated (real-time):", event);
     toast({
       title: "Document Updated",

@@ -4,6 +4,95 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-20 — Vendor page: Payments sub-tabs and a Cheques tab
+
+**Payments tab split into three sub-tabs** (`4ba6c8caa`). The Vendor page's Payments tab listed every payment in one
+table. It now has **Paid** (status Paid, online or a cleared cheque), **Cheque Pending** (a cheque payment at
+Reconciliation Pending: its cheque is Issued, not cleared) and **Other Pending Payments** (Requested, CEO Pending,
+Approved, an online Reconciliation Pending, Rejected). A payment is in exactly one. Each sub-tab has its own columns,
+sort and search; Reference Doc links to the PO / WO and reads (PO) or (WO); on Paid, the UTR opens its receipt, or
+shows a paperclip that opens the upload dialog when there is none (no separate Receipt column, no Payment ID line);
+Export is on. Counts and ₹ totals cover all the vendor's payments (Rejected are counted but left out of the total).
+
+| File | Change |
+|---|---|
+| `utils/vendorPayments/paymentGroups.ts` (new) + test | The group rule, each sub-tab's filters, the totals, Issued On and days waiting |
+| `pages/vendors/components/VendorPaymentsTabs.tsx` (new) | Sub-tab bar with counts, the total line |
+| `pages/vendors/components/VendorPaymentsTable.tsx` | Per-sub-tab columns; receipt kept in the UTR cell (link, or paperclip → `PaymentScreenshotDialog`) |
+| `pages/vendors/vendor.tsx` | The Payments tab shows `VendorPaymentsTabs` |
+
+**Cheques tab** (`c94d7f84a`). A new Vendor page tab: the Cheque Tracker narrowed to that vendor (Vendor / Payee
+column hidden). Shown to `CHEQUE_VIEW_PROFILES` (the cheque users + PMO, view only; owner 2026-11-20). The Cheque
+Tracker page itself is unchanged.
+
+| File | Change |
+|---|---|
+| `pages/cheque-tracker/components/ChequeTrackerTabs.tsx` (new) | Tab bar + table, shared by the page and the vendor tab (`tabParam`, `vendorId`) |
+| `pages/cheque-tracker/ChequeTrackerPage.tsx` | Heading + `ChequeTrackerTabs` |
+| `pages/cheque-tracker/components/ChequeTrackerTable.tsx` | `vendorId`: vendor filter, own URL keys, export name, no Vendor / Payee column |
+| `pages/cheque-tracker/config/useChequeTabCounts.ts` | Badges take the vendor filter |
+| `utils/cheques/chequeTabs.ts` + test | `chequeTabFiltersFor(tab, vendorId)` |
+| `constants/roles.ts` | `CHEQUE_VIEW_PROFILES` |
+| `pages/vendors/vendor.tsx` | The Cheques tab |
+
+Browser-tested 2026-11-20 as Accountant, Accountant Lead, Procurement and PMO (PMO: list and detail, no Edit / Cancel).
+
+## 2026-11-19 — Vendor WO PDF, WO links, MTC for PM / PL, Revised PO Date, MSME on vendors
+
+Branch `feat/vendor-wo-pdf` (5 commits, unpushed). Backend, schema and print formats: `../../.claude/CHANGELOG.md`
+(same date).
+
+- **Vendor page → Work Orders:** "Download PDF" before Export on All / Approved / Finalized, only under `for_vendor`
+  (`ServiceRequests/hooks/useVendorWorkOrdersPdf.ts` + test).
+- **WO lists:** Project / Vendor link icons via the new shared `components/helpers/NameWithLinkIcon.tsx` (+ DOM test);
+  no Vendor link under `for_vendor`.
+- **MTC:** `constants/roles.ts` `MTC_UPLOAD_PROFILES`, `canUploadMTC`, `canEditMTC`; `UploadMTCButton` on
+  `canUploadMTC`; `MTCCard` / `MTCTable` per-row Edit (`canEditMTC`) and Delete (managers only); `useMTCMutations`
+  creates through `create_mtc`.
+- **PO preview:** `purchase-order/hooks/usePOHeaderDate.ts` (+ test) gives `POPdf.tsx` "Revised PO Date" or "PO Date".
+- **MSME:** `pages/vendors/utils/msme.ts` (Udyam rules, `refineMsmePair` both-or-neither, `msmeValuesToSave` sends
+  the read data as JSON text) + test; `components/VendorMsmeFields.tsx` on New and Edit Vendor (upload, Gemini read,
+  editable ID, warnings; the missing half's message under its own field; Reset clears the picked file and remounts
+  the picker) + DOM test; Vendor Overview MSME ID links to the certificate with an arrow (`VendorOverviewCard.tsx`).
+  Types regenerated (`types/doctypes/Vendors.ts`).
+- Tests: MSME 20/20, vendor form utils 82/82; browser walk on localhost (MSME A–G) passed.
+
+---
+
+## 2026-11-18 — GST Requests: vendor card on the Vendor column; "ready to pay" wording (ADR-0030 Amendment B)
+
+On `develop`, uncommitted. Backend: `../../.claude/CHANGELOG.md` (same date).
+
+- **Vendor card:** `gst-requests/GstRequestsTab.tsx` wraps the Vendor column's name in
+  `components/DetailPopovers.VendorDetailPopover`, the same click-to-open card the Payments queue
+  (`config/approvalColumns.tsx`) and Project Expenses use: GST, contact, phone, and the vendor's Payee account
+  (A/c No, IFSC, Bank), with "Open vendor". The GSTIN line under the name stays outside the trigger. The card's
+  reads stay lazy (nothing is fetched until it is opened).
+- **Wording (Amendment B):** the Request Payment dialog's GST note ("Once approved, it is ready to pay: no L1 or
+  CEO approval."), the GST Requests tab's intro, and a new line in the Approve dialog (`GstDecisionDialog.tsx`,
+  shown only while the request still fits: "The payment goes straight to Payment need to paid. No L1 or CEO
+  approval.").
+- **Fixed: names flash as ids.** `useLookup` in `GstRequestsTab.tsx` keyed its query on the exact ids on screen, so
+  any change of rows (a decision, another status pill) started an empty query and Project / Vendor / Raised By fell
+  back to raw ids and the vendor line to "No GSTIN" for about a second. It now keeps every record it has read
+  (`onSuccess` adds to `known`, merged with the current read), and a cell whose record is not read yet shows a
+  pulse placeholder, never the id or "No GSTIN". The rule is pure and tested: `utils/gstPaymentRequests`
+  `mergeLookup` / `lookupCell` (+6 vitest cases in `gstPaymentRequests.test.ts`).
+- **Fixed: Payment Summary late after a GST approval.** The summary is cached under one SWR key and shown from
+  cache when a tab opens, then refetched, so after approving in GST Requests the cards showed the old figures for
+  a moment. A bare `mutate(key)` was tried first and did NOT work (SWR re-reads only hooks on screen; the cards are
+  not on screen in GST Requests). `RenderProjectPaymentsComponent.onGstDecided` now READS the summary
+  (`call.get(PAYMENT_SUMMARY_API)`) and puts it in the cache (`mutate(PAYMENT_SUMMARY_SWR_KEY, read,
+  { revalidate: false })`), with `FrappeContext` / `useSWRConfig` from `@/lib/frappe`. Key and method live in
+  `config/paymentSummaryKey.ts` so the lazy `PaymentSummaryCards` is not pulled in. Browser-checked: after a ₹500
+  approval the cards opened at once on (7) ₹1,29,500 / Approved But not Paid (20). Owner (2026-11-18): an
+  Accountant's GST approval stays counted in the L1 / CEO Approval cards (both dates are stamped on purpose).
+- **Seen in the browser walk-through, not fixed (pre-existing):** Transaction Details on the Work Order does not
+  refetch GST requests after "Send to Accountant" (shows on reload); the Approve dialog's "GST already paid /
+  Other GST requests waiting" can be one approval stale. Its "GST left after this approval" was right each time.
+
+---
+
 ## 2026-11-12 — L1 single reject no longer stamps `approval_date`
 
 `approve-payments/ApprovePayments.tsx`: the L1 dialog's update writes `approval_date` only on an approve. A reject

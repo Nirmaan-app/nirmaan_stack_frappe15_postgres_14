@@ -1,13 +1,11 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A person decides each Collect payment (#1595, spec #1585 "Phase 2 stages new open lines away from the job",
-"A Collect payment's bill", "Open Cashbook lines", "If someone picks Create expense on a Collect payment").
+"""A Collect payment becomes an Expense like any wallet spend (#1708, ADR-0015 Amendment C; was #1595).
 
 Seam 1: the Cashbook import (preview, staging, the job run inline) on the real-file fixture
-(`cashbook_statement.xlsx`), with the bill downloader (`cashbook_bills.fetch_bill`) faked. Seam 2: the main-table
-endpoints a person decides the open line with (`expenses.create_expense`, `review.skip_row`), and the Cashbook
-invoice queue the Expense waits in. No test touches the network.
+(`cashbook_statement.xlsx`), with the bill downloader (`cashbook_bills.fetch_bill`) faked. The Expense then waits in
+the Cashbook invoice queue like any wallet spend without a bill. No test touches the network.
 
 Run: DEVENV test --module nirmaan_stack.api.outflow_import.test_cashbook_collect_payments
 """
@@ -23,8 +21,6 @@ from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_qu
 from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
-from nirmaan_stack.api.outflow_import.expenses import create_expense
-from nirmaan_stack.api.outflow_import.review import skip_row
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import PORTRAIT_JPEG, STATEMENT, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY, _post
@@ -33,11 +29,11 @@ from nirmaan_stack.services.outflow_import.parser import parse_statement
 
 COLLECT_WITH_LINK = "OBO9000000000001CPLINK"  # Rs 480, one bill (1.jpeg)
 COLLECT_NO_LINK = "OBO9000000000002CPNONE"  # Rs 199, no bill
-HIGHLIGHT = "Shop-requested payment, check it."
+COLLECT_PAID_BY = "Asha Menon"  # the statement's From on both
 
 
 class CollectPaymentCase(FrappeTestCase):
-    """Stages the fixture with per-test Txn Ids (the dev DB is a copy of production) and runs the job inline."""
+    """Stages the fixture with per-test Txn Ids (the dev DB is a copy of production); `_run` runs the job inline."""
 
     def setUp(self):
         super().setUp()
@@ -88,98 +84,58 @@ class CollectPaymentCase(FrappeTestCase):
             fields=["target_doctype", "target_name"],
         )
 
+    def _expense_of(self, txn: str):
+        [match] = self._expenses_of(txn)
+        return frappe.get_doc(match.target_doctype, match.target_name)
 
-class TestTheImportLeavesCollectPaymentsOpen(CollectPaymentCase):
-    def test_each_unpaired_collect_payment_is_an_open_line_the_job_never_creates(self):
-        self._run()
-        for txn in (COLLECT_WITH_LINK, COLLECT_NO_LINK):
-            line = self._line(txn)
-            self.assertEqual(line.row_status, "Mismatched", txn)
-            self.assertEqual(line.outcome_note, HIGHLIGHT, txn)
-            self.assertEqual(self._expenses_of(txn), [], txn)
-        self.assertEqual(frappe.db.count("Outflow Import Row", {"import_batch": self.batch, "row_status": "Error"}), 0)
 
-    def test_an_open_collect_payment_carries_the_wallet_spend_placement_for_create(self):
+class TestTheJobCreatesEachCollectPayment(CollectPaymentCase):
+    def test_each_collect_payment_is_staged_for_the_job_with_its_placement(self):
         line = self._line(COLLECT_NO_LINK)
-        self.assertEqual(line.suggested_doctype, "Non Project Expenses")
-        self.assertEqual(line.suggested_expense_type, "Petty Cash")
+        self.assertEqual(line.row_status, "Pending match run")
+        self.assertEqual((line.suggested_doctype, line.suggested_expense_type), ("Non Project Expenses", "Petty Cash"))
         self.assertEqual(line.row_kind, "Collect Payment")
+        self.assertFalse(line.outcome_note)
 
-    def test_the_linked_collect_payment_has_its_bill_copied_onto_the_line_at_import(self):
+    def test_the_job_creates_its_expense_as_it_creates_any_wallet_spend(self):
         self._run()
-        line = self._line(COLLECT_WITH_LINK)
-        self.assertTrue(line.stored_bill)
-        stored = frappe.get_doc("File", {"file_url": line.stored_bill})
+        for txn, amount in ((COLLECT_WITH_LINK, 480.0), (COLLECT_NO_LINK, 199.0)):
+            with self.subTest(txn=txn):
+                self.assertEqual(self._line(txn).row_status, "Settled")
+                expense = self._expense_of(txn)
+                self.assertEqual(float(expense.amount), amount)
+                self.assertEqual(expense.cashbook_batch, self.batch)
+                self.assertEqual(expense.payment_ref, txn + self.suffix)
+
+    def test_its_bills_are_copied_onto_the_expense_as_its_invoice(self):
+        self._run()
+        expense = self._expense_of(COLLECT_WITH_LINK)
+        self.assertTrue(expense.invoice_attachment)
+        stored = frappe.get_doc("File", {"file_url": expense.invoice_attachment})
         self.assertEqual(stored.get_content(), PORTRAIT_JPEG)
-        self.assertEqual((stored.attached_to_doctype, stored.attached_to_name), ("Outflow Import Row", line.name))
-        self.assertTrue(stored.is_private)
-        self.assertFalse(self._line(COLLECT_NO_LINK).stored_bill)
+        self.assertFalse(self._line(COLLECT_WITH_LINK).stored_bill)
 
-    def test_a_failed_download_leaves_the_line_open_with_no_bill_and_named_in_the_summary(self):
-        fetch = _fake_bills({(COLLECT_WITH_LINK, "1.jpeg"): BillRefused("the server answered 403")})
-        self._run(fetch)
-        line = self._line(COLLECT_WITH_LINK)
-        self.assertEqual(line.row_status, "Mismatched")
-        self.assertFalse(line.stored_bill)
-        named = {
-            entry["transfer_id"]: entry["reason"]
-            for entry in cb.get_cashbook_status(self.batch)["bills_not_copied"]
-        }
-        self.assertEqual(named[COLLECT_WITH_LINK + self.suffix], "Bill not copied: the server answered 403.")
-
-
-class TestReviewHighlightsCollectPayments(FrappeTestCase):
-    def test_review_lists_each_unpaired_collect_payment_highlighted(self):
-        with patch.object(cb, "_utc_now", return_value=EARLIEST_EXPIRY - timedelta(days=3)):
-            preview = _post(cb.preview_cashbook_statement, STATEMENT.read_bytes(), "statement.xlsx")
-        highlighted = {line["transfer_id"]: line for line in preview["collect_payments"]}
-        self.assertEqual(set(highlighted), {COLLECT_WITH_LINK, COLLECT_NO_LINK})
-        self.assertEqual(highlighted[COLLECT_WITH_LINK]["reason"], HIGHLIGHT)
-        self.assertEqual(highlighted[COLLECT_WITH_LINK]["amount"], 480.0)
-        created = {row["transfer_id"] for group in preview["groups"] for row in group["rows"]}
-        self.assertFalse(created & set(highlighted))
-
-
-class TestAPersonDecidesACollectPayment(CollectPaymentCase):
-    def _create(self, txn: str):
-        line = self._line(txn)
-        return create_expense(
-            row=line.name, doctype=line.suggested_doctype, expense_type=line.suggested_expense_type
-        )
-
-    def test_create_expense_gives_the_expense_the_stored_bill_as_its_invoice(self):
+    def test_one_without_a_bill_waits_in_the_cashbook_tab(self):
         self._run()
-        stored = self._line(COLLECT_WITH_LINK).stored_bill
-        self._create(COLLECT_WITH_LINK)
-        [match] = self._expenses_of(COLLECT_WITH_LINK)
-        expense = frappe.get_doc(match.target_doctype, match.target_name)
-        self.assertEqual(expense.invoice_attachment, stored)
-        self.assertEqual(expense.cashbook_batch, self.batch)
-        self.assertEqual(float(expense.amount), 480.0)
-        self.assertNotIn(expense.name, {row["name"] for row in get_cashbook_invoice_queue()})
-        self.assertEqual(self._line(COLLECT_WITH_LINK).row_status, "Settled")
-
-    def test_create_expense_without_a_bill_waits_in_the_cashbook_tab(self):
-        self._run()
-        self._create(COLLECT_NO_LINK)
-        [match] = self._expenses_of(COLLECT_NO_LINK)
-        expense = frappe.get_doc(match.target_doctype, match.target_name)
+        expense = self._expense_of(COLLECT_NO_LINK)
         self.assertFalse(expense.invoice_attachment)
         waiting = {row["name"]: row for row in get_cashbook_invoice_queue()}
-        self.assertIn(expense.name, waiting)
-        self.assertEqual(waiting[expense.name]["paid_by"], "Asha Menon")
+        self.assertEqual(waiting[expense.name]["paid_by"], COLLECT_PAID_BY)
 
-    def test_skip_by_hand_needs_a_reason_and_records_who_and_when(self):
-        self._run()
-        line = self._line(COLLECT_NO_LINK)
-        with self.assertRaises(frappe.ValidationError):
-            skip_row(row=line.name, reason="  ")
-        self.assertEqual(self._line(COLLECT_NO_LINK).row_status, "Mismatched")
+    def test_a_failed_download_is_named_in_the_summary_with_its_expense(self):
+        self._run(_fake_bills({(COLLECT_WITH_LINK, "1.jpeg"): BillRefused("the server answered 403")}))
+        expense = self._expense_of(COLLECT_WITH_LINK)
+        self.assertFalse(expense.invoice_attachment)
+        named = {entry["transfer_id"]: entry for entry in cb.get_cashbook_status(self.batch)["bills_not_copied"]}
+        entry = named[COLLECT_WITH_LINK + self.suffix]
+        self.assertEqual((entry["expense"], entry["reason"]), (expense.name, "Bill not copied: the server answered 403."))
 
-        skip_row(row=line.name, reason="personal, employee repaid")
-        line = self._line(COLLECT_NO_LINK)
-        self.assertEqual(line.row_status, "Skipped")
-        self.assertEqual(line.skip_reason, "personal, employee repaid")
-        self.assertEqual(line.decided_by, "Administrator")
-        self.assertTrue(line.decided_at)
-        self.assertEqual(self._expenses_of(COLLECT_NO_LINK), [])
+
+class TestReviewListsCollectPaymentsWithTheSpends(FrappeTestCase):
+    def test_review_counts_each_unpaired_collect_payment_among_what_it_creates(self):
+        with patch.object(cb, "_utc_now", return_value=EARLIEST_EXPIRY - timedelta(days=3)):
+            preview = _post(cb.preview_cashbook_statement, STATEMENT.read_bytes(), "statement.xlsx")
+        self.assertNotIn("collect_payments", preview)
+        created = {row["transfer_id"] for group in preview["groups"] for row in group["rows"]}
+        self.assertLessEqual({COLLECT_WITH_LINK, COLLECT_NO_LINK}, created)
+        self.assertNotIn("open_lines", preview)  # #1720: the plan opens no line

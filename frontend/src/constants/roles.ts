@@ -194,9 +194,27 @@ export const MTC_MANAGE_PROFILES: readonly string[] = [
   ...PROCUREMENT_PROFILES,
 ];
 
-/** True when `role` (a role PROFILE) may upload / edit / delete an MTC. */
+/** True when `role` (a role PROFILE) may upload, edit any and delete an MTC. */
 export const canManageMTC = (role?: string | null, userId?: string | null): boolean =>
   userId === "Administrator" || (!!role && MTC_MANAGE_PROFILES.includes(role));
+
+/**
+ * May upload an MTC on the PO page: the managers plus Project Manager and Project Lead (owner,
+ * 2026-11-19). Mirrored server-side by `role_profiles.MTC_UPLOAD_PROFILES`; a PM / PL is also
+ * held to their assigned projects there.
+ */
+export const MTC_UPLOAD_PROFILES: readonly string[] = [
+  ...MTC_MANAGE_PROFILES,
+  PROJECT_MANAGER_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+export const canUploadMTC = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && MTC_UPLOAD_PROFILES.includes(role));
+
+/** May edit this MTC: a manager any; a Project Manager / Lead only one they uploaded. Never delete. */
+export const canEditMTC = (role?: string | null, userId?: string | null, owner?: string | null): boolean =>
+  canManageMTC(role, userId) || (!!userId && owner === userId && canUploadMTC(role, userId));
 
 /**
  * The MTC list page and its dashboard card: Project Manager and Project Lead, each seeing
@@ -621,6 +639,19 @@ export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
 ];
 
 /**
+ * Reports > Audit View: every order, approved invoice and paid payment in one date range (All Project
+ * View and Non Project View). Admin, Accountant and Accountant Lead.
+ *
+ * UI gate only. Mirrored server-side by `role_profiles.AUDIT_VIEW_PROFILES`, the enforcement boundary:
+ * both endpoints in `api/reports/audit_view` refuse anyone outside it. Change the two together.
+ */
+export const AUDIT_VIEW_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
  * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
  * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
  * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.
@@ -818,6 +849,12 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
+/**
+ * Who may VIEW cheques (owner, 2026-11-20): the Vendor page's Cheques tab, for everyone with a Vendors link in the
+ * sidebar, so PMO too. Read-only for PMO: its rows offer no Edit or Cancel (`chequeRowActions`). Mirrors
+ * `services/role_profiles.py::CHEQUE_VIEW_PROFILES`, which the read endpoints in `api/cheques/` enforce.
+ */
+export const CHEQUE_VIEW_PROFILES: readonly string[] = [...CHEQUE_ACCESS_PROFILES, PMO_EXECUTIVE_PROFILE];
 
 // ---------------------------------------------------------------------------
 // Reimbursements (owner, 2026-10-21/22). Mirrored server-side by `REIMBURSEMENT_*` in

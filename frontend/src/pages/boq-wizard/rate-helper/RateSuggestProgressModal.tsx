@@ -1,8 +1,9 @@
 /**
  * RM-3 RateSuggestProgressModal -- the async suggest-run's blocking progress modal (cloned from
  * ClassifyProgressModal). NON-dismissable while running (the run cannot be abandoned mid-flight);
- * dismissable ONLY at a terminal state (success | error). Progress is fed from the get_suggest_status
- * poll on SheetPricingPage (the socket is unreliable in some deployments); pure presentation.
+ * dismissable ONLY at a terminal state (success | error). Progress is fed from the suggest's own background
+ * operation (suggestOperation.ts, #1667), which SheetPricingPage follows; pure presentation. "Waiting in the
+ * queue" shows until the operation starts running.
  *
  * Terminal SUCCESS shows how many rows got suggestions + an AI-off warning when the extraction voter
  * was disabled/no_key (fail-closed honesty -- no fallback). This modal is the slice's bundle marker.
@@ -160,7 +161,7 @@ export function suggestCompletionLine(s: SuggestModalSummary | null): string {
   return parts.join(" ");
 }
 
-export type SuggestModalPhase = "starting" | "running" | "success" | "partial" | "error";
+export type SuggestModalPhase = "queued" | "starting" | "running" | "success" | "partial" | "error";
 
 /** PURE: the modal phase. done WINS over a late running poll upstream, so running=false is terminal.
  * SR-1 adds "partial": the run stopped early but KEPT what it extracted and can be resumed -- it is
@@ -169,7 +170,9 @@ export function deriveSuggestModalPhase(
   running: boolean,
   progress: { done: number; total: number } | null,
   summary: { status?: string; run_status?: string } | null,
+  waitingInQueue = false,
 ): SuggestModalPhase {
+  if (running && waitingInQueue) return "queued";
   if (running) return progress && progress.total > 0 ? "running" : "starting";
   if (!summary) return "success";
   if (summary.status === "error") return "error";
@@ -191,7 +194,7 @@ export function suggestAiStatusWarning(aiStatus: string | undefined | null): str
 }
 
 // ── DEV2-B4: the matching phase and the wait estimate ─────────────────────────────────────────────────────────────
-/** The paces get_match_status serves (seconds, measured in dev2 at p90; api/boq/rate_match.PACES). */
+/** The paces get_match_settings serves (seconds, measured in dev2 at p90; api/boq/rate_match.PACES). */
 export interface MatchPaces {
   /** DEV2-B5 S2 (the SAFE estimate, owner 2026-11-03 11:11): Suggest = a fixed part + one part per batch of
    *  `suggest_batch_rows` rows (extraction._BATCH), each fitted at p90 on the stored runs. */
@@ -268,7 +271,8 @@ export function suggestReadRows(
 export { serverRefusalText } from "@/utils/frappeErrorText";
 
 export interface MatchPhaseState {
-  state: "running" | "done" | "failed";
+  /** queued: the match operation waits behind others in the queue (#1667). */
+  state: "queued" | "running" | "done" | "failed";
   done: number;
   total: number;
   elapsedS: number;
@@ -289,7 +293,15 @@ function MatchPhase({ match }: { match: MatchPhaseState }) {
   const pct = suggestPercent({ done: match.done, total: match.total });
   return (
     <div className="space-y-2 border-t pt-3" data-testid="match-phase">
-      {match.state === "running" ? (
+      {match.state === "queued" ? (
+        <>
+          <p className="flex items-center gap-2 text-sm font-medium" data-testid="match-queued">
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            <span>{MATCH_PHASE_LABEL} &mdash; waiting in the queue&hellip;</span>
+          </p>
+          <p className="text-xs text-muted-foreground">Please keep this open &mdash; matching starts when the server is free.</p>
+        </>
+      ) : match.state === "running" ? (
         <>
           <p className="flex items-center gap-2 text-sm font-medium">
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -321,6 +333,8 @@ interface Props {
   running: boolean;
   sheetName: string;
   progress: { done: number; total: number } | null;
+  /** The suggest operation waits in the queue (not yet running). */
+  waitingInQueue?: boolean;
   summary: SuggestModalSummary | null;
   onClose: () => void;
   /** SR-1: resume the partial run. Absent => no resume affordance is offered. */
@@ -329,10 +343,12 @@ interface Props {
   match?: MatchPhaseState | null;
 }
 
-export function RateSuggestProgressModal({ open, running, sheetName, progress, summary, onClose, onResume, match }: Props) {
-  const phase = deriveSuggestModalPhase(running, progress, summary);
-  // DEV2-B4: the modal stays open while the matching phase runs (absent `match` -> exactly as before)
-  const dismissable = !running && match?.state !== "running";
+export function RateSuggestProgressModal({
+  open, running, sheetName, progress, waitingInQueue = false, summary, onClose, onResume, match,
+}: Props) {
+  const phase = deriveSuggestModalPhase(running, progress, summary, waitingInQueue);
+  // DEV2-B4: the modal stays open while the matching phase waits or runs (absent `match` -> exactly as before)
+  const dismissable = !running && match?.state !== "running" && match?.state !== "queued";
   const pct = suggestPercent(progress);
   // SELROW: what actually RAN this pass -- never `results.length`, which is the whole document.
   const outcomeLine = suggestCompletionLine(summary);
@@ -372,7 +388,9 @@ export function RateSuggestProgressModal({ open, running, sheetName, progress, s
         {running && (
           <div className="space-y-2">
             {/* SELROW: "wiring" dropped here too -- the population spans seven categories. */}
-            {phase === "starting" ? (
+            {phase === "queued" ? (
+              <p className="text-sm text-muted-foreground" data-testid="suggest-queued">Waiting in the queue&hellip;</p>
+            ) : phase === "starting" ? (
               <p className="text-sm text-muted-foreground">Starting&hellip; extracting row attributes.</p>
             ) : (
               <>

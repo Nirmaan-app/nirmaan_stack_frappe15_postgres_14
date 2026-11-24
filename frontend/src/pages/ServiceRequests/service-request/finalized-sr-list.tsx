@@ -19,10 +19,12 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info } from "lucide-react";
+import { FileDown, Info, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useVendorWorkOrdersPdf } from "../hooks/useVendorWorkOrdersPdf";
 import {
   FacetDeclaration,
   FacetOverrides,
@@ -40,6 +42,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { NameWithLinkIcon } from "@/components/helpers/NameWithLinkIcon";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
@@ -269,13 +272,14 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           <DataTableColumnHeader column={column} title="Project" />
         ),
         cell: ({ row }) => {
-          const project = projectOptions.find(
-            (p) => p.value === row.original.project
-          );
+          const projectId = row.original.project;
+          const project = projectOptions.find((p) => p.value === projectId);
           return (
-            <div className="font-medium truncate" title={project?.label}>
-              {project?.label || row.original.project}
-            </div>
+            <NameWithLinkIcon
+              label={project?.label || projectId || "--"}
+              to={projectId ? `/projects/${projectId}?page=overview` : undefined}
+              hint="View Project"
+            />
           );
         },
         enableColumnFilter: true,
@@ -295,12 +299,11 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           <DataTableColumnHeader column={column} title="Vendor" />
         ),
         cell: ({ row }) => (
-          <div
-            className="font-medium truncate"
-            title={getVendorName(row.original.vendor)}
-          >
-            {getVendorName(row.original.vendor)}
-          </div>
+          <NameWithLinkIcon
+            label={getVendorName(row.original.vendor)}
+            to={row.original.vendor && !for_vendor ? `/vendors/${row.original.vendor}` : undefined}
+            hint="View Vendor"
+          />
         ),
         enableColumnFilter: true,
         size: 200,
@@ -513,6 +516,17 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
     // standalone Service Requests page keeps the default.
   });
 
+  // Vendor page only: the "Vendor Work Orders" PDF of what this table shows.
+  const { downloadPdf, isDownloadingPdf } = useVendorWorkOrdersPdf({
+    table,
+    vendorId: for_vendor,
+    vendorName,
+    view: "finalized",
+    searchTerm,
+    selectedSearchField,
+    searchableFields: srSearchableFields,
+  });
+
   // --- Static Faceted Filter Options ---
   // `project` + `vendor` migrated to the self-fetching facet path (meta.facet +
   // facetDoctype/facetOverrides). `gst` stays a static (non-self-fetching) facet.
@@ -595,6 +609,14 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
             isExporting={isExporting}
             exportFileName={
               vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+            }
+            toolbarActions={
+              for_vendor ? (
+                <Button onClick={downloadPdf} variant="outline" size="sm" className="h-9" disabled={isDownloadingPdf}>
+                  {isDownloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                  Download PDF
+                </Button>
+              ) : undefined
             }
             getRowClassName={getRowClassName}
           />

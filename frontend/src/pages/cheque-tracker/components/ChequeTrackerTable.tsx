@@ -20,7 +20,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { useFrappeEventListener } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 import { Info, ShieldCheck } from "lucide-react";
 
 import { useChequeEdit } from "@/components/cheques/useChequeEdit";
@@ -35,7 +35,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { chequeRowActions } from "@/utils/cheques/chequeRowActions";
 import { canCancelCheques } from "@/utils/cheques/chequeStatus";
-import { CHEQUE_TRACKER_TAB, chequeTabFilters, type ChequeTrackerTab } from "@/utils/cheques/chequeTabs";
+import { CHEQUE_TRACKER_TAB, chequeTabFiltersFor, type ChequeTrackerTab } from "@/utils/cheques/chequeTabs";
 
 import {
     getChequePaymentColumns,
@@ -72,16 +72,20 @@ const DEFAULT_SORT: Record<ChequeTrackerTab, string> = {
 
 interface ChequeTrackerTableProps {
     tab: ChequeTrackerTab;
+    /** Only this vendor's cheques (the Vendor page's Cheques tab); its Vendor / Payee column is then hidden. */
+    vendorId?: string;
     /** Called after this tab changed a Cheque, so the page can refresh its tab counts. */
     onChanged: () => void;
 }
 
-export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) {
+export function ChequeTrackerTable({ tab, vendorId, onChanged }: ChequeTrackerTableProps) {
     const { role, user_id } = useUserData();
     const canAct = canCancelCheques(role);
     const isIssuedTab = tab === CHEQUE_TRACKER_TAB.ISSUED;
     const isDepositsTab = tab === CHEQUE_TRACKER_TAB.DEPOSITS;
-    const tabFilters = useMemo(() => chequeTabFilters(tab), [tab]);
+    const tabFilters = useMemo(() => chequeTabFiltersFor(tab, vendorId), [tab, vendorId]);
+    // Inside a vendor, each tab keeps its own URL state apart from the Cheque Tracker page's.
+    const urlKey = vendorId ? `vendor_${URL_KEY[tab]}` : URL_KEY[tab];
     const { target: editing, openEdit, closeEdit } = useChequeEdit();
     const [detail, setDetail] = useState<string | null>(null);
     const [cancelling, setCancelling] = useState<string | null>(null);
@@ -93,9 +97,14 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
             onEdit: (row) => void openEdit(row.name),
             onCancel: (row) => setCancelling(row.name),
         };
-        if (isIssuedTab) return getIssuedChequeColumns(actions);
-        return isDepositsTab ? getDepositChequeColumns(actions) : getChequePaymentColumns(actions);
-    }, [isIssuedTab, isDepositsTab, role, user_id, openEdit]);
+        const all = isIssuedTab
+            ? getIssuedChequeColumns(actions)
+            : isDepositsTab
+              ? getDepositChequeColumns(actions)
+              : getChequePaymentColumns(actions);
+        // Every row is the same vendor inside the Vendor page, so its Vendor / Payee column says nothing.
+        return vendorId ? all.filter((col) => col.id !== "vendor") : all;
+    }, [isIssuedTab, isDepositsTab, role, user_id, openEdit, vendorId]);
 
     const {
         table,
@@ -120,7 +129,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
         fetchFields: CHEQUE_FETCH_FIELDS,
         searchableFields: CHEQUE_SEARCHABLE_FIELDS,
         defaultSort: DEFAULT_SORT[tab],
-        urlSyncKey: URL_KEY[tab],
+        urlSyncKey: urlKey,
         additionalFilters: tabFilters,
         getRowId: (row) => row.name,
     });
@@ -131,7 +140,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
     };
 
     // Another user's save shows up without a reload.
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
 
     const { facetOptions, onFacetOpen } = useChequeFacets({
         baseFilters: tabFilters,
@@ -206,7 +215,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
                 onExport="default"
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
-                exportFileName={URL_KEY[tab]}
+                exportFileName={vendorId ? `${URL_KEY[tab]}_${vendorId}` : URL_KEY[tab]}
             />
             <EditChequeDialog edit={editing} onClose={closeEdit} onSaved={refresh} />
             <ChequeDetailDialog

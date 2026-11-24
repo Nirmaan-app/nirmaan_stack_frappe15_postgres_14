@@ -42,10 +42,10 @@ const SelectProject = () => {
                 <div className="border-b border-gray-200 w-15/16 mx-auto mb-4"></div>
                 {/* <button className="bg-white text-gray-600 text-sm shadow-inner border hover:bg-gray-100 px-4 py-2 rounded-lg mb-4"><Link to="/confirmation3">Pending Orders</Link></button> */}
                 <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-4">
-                    {projects.map((project, index) => (
-                        <Link to="/projects/category">
+                    {projects.map((project) => (
+                        <Link key={project.title} to="/projects/category">
                             {
-                                <div key={index} className="bg-white shadow-md hover:bg-gray-100 rounded-lg overflow-hidden">
+                                <div className="bg-white shadow-md hover:bg-gray-100 rounded-lg overflow-hidden">
                                     <div className="relative w-full h-1/2 md:h-40">
                                         <img
                                             src={image}

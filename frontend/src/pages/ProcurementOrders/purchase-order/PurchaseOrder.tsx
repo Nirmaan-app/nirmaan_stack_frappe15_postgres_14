@@ -59,12 +59,12 @@ import {
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
-  useFrappeDocumentEventListener,
   useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc,
   useFrappeGetDoc,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import {
   AlertTriangle,
   CheckCheck,
@@ -177,7 +177,7 @@ export const PurchaseOrder = () => {
 
 
 
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Procurement Orders",
     poId,
     (event) => {

@@ -28,7 +28,7 @@ export const WPSelection = () => {
                         let wp_arr = JSON.parse(project?.project_work_packages || "[]")?.work_packages?.map((item) => item.work_package_name)
                         if (item.work_package_name === "Tool & Equipments" || wp_arr?.includes(item.work_package_name)) return true
                     }).map((item) => (
-                        <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => navigate(`${item?.work_package_name}`)}>
+                        <Card key={item.work_package_name} className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => navigate(`${item?.work_package_name}`)}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                 <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
                                     <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />

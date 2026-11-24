@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, PlannedRow
-from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
+from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, kept_period
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -85,12 +85,12 @@ class InvoiceCounts:
 
 
 def invoice_counts(plan: CashbookPlan) -> InvoiceCounts:
-    """Count the create lines of `plan` by their bill links. `plan.split.kept` and `plan.rows` are the same
-    lines in the same order (`CashbookPlan`)."""
+    """Count the spends `plan` creates by their bill links; a refund or credit expense needs no bill (#1709, #1720).
+    `plan.split.kept` and `plan.rows` are the same lines in the same order (`CashbookPlan`)."""
     links = [
         len(getattr(kept.row, "bill_links", ()) or ())
         for kept, planned in zip(plan.split.kept, plan.rows, strict=True)
-        if planned.creates
+        if planned.creates and not planned.money_in
     ]
     return InvoiceCounts(
         one_file=sum(1 for n in links if n == 1),
@@ -110,16 +110,18 @@ def preview_payload(
     """
     groups = group_plan(plan)
     invoices = invoice_counts(plan)
+    period_from, period_to = kept_period(parsed.rows)
     return {
         "preview": True,
         "source": CASHBOOK_SOURCE,
         "original_filename": filename,
-        "period_from": str(parsed.period_from) if parsed.period_from else None,
-        "period_to": str(parsed.period_to) if parsed.period_to else None,
+        "period_from": str(period_from) if period_from else None,
+        "period_to": str(period_to) if period_to else None,
         "total_rows": len(parsed.rows),
         "creating": len(plan.creating),
+        # The spends among them: the count Review's headline shows beside `total_value`, which sums the same rows.
+        "spending": len(plan.spending),
         "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
         "total_value": float(plan.total_value),
         # The Cashfree preview's duplicate keys, with the same meanings (ADR-0031): `duplicate_rows`
         # is the exact repeats that will NOT be saved, `new_rows` what will be. `refused` means the
@@ -130,6 +132,11 @@ def preview_payload(
         "refused": verdict.refuse,
         "warn": verdict.warn,
         "duplicate_of_batch": verdict.earliest_batch,
+        # #1707: the lines dated before 1 Apr 2026, left out and not saved; a file of only those is refused with
+        # `before_cutoff_message` (then also `duplicate_message`, which the repeat notice does not show at 0 repeats).
+        "before_cutoff": plan.before_cutoff,
+        "before_cutoff_note": before_cutoff_note(plan.before_cutoff, plan.undated),
+        "before_cutoff_message": verdict.message if verdict.refuse and plan.before_cutoff == len(parsed.rows) else "",
         "warnings": list(parsed.warnings),
         # #1591: the spends that will create an Expense, by their bills -- 1 file (the invoice as it is),
         # 2 or more (merged into one PDF), none (the Expense waits for an invoice).
@@ -171,17 +178,23 @@ def preview_payload(
         "pairs": [
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
-        # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits). A Collect
-        # payment is listed under `collect_payments` instead, highlighted.
-        "open_lines": [_preview_line(row) for row in plan.opening if row.row_kind != COLLECT_ROW_KIND],
-        # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
-        "collect_payments": [
-            {**_preview_line(row), "spent_by": row.spent_by} for row in plan.opening if row.row_kind == COLLECT_ROW_KIND
+        # #1709 (ADR-0015 Amendment D): each unpaired refund, booked at minus its Credit where its spend is booked, with
+        # the spend it reduces (`refund_of`, its Txn Id; `reduces`, its existing Expense, blank when it has none yet).
+        "refunds": [
+            {
+                **_money_in_line(row),
+                "refund_of": row.refund_of,
+                "reduces": row.reduces,
+                "spend_on_statement": row.spend_on_statement,
+            }
+            for row in plan.refunding
         ],
+        # #1720 (ADR-0015 Amendment E): each Wallet Credit, booked at minus its Credit where its remark places it.
+        "credits": [_money_in_line(row) for row in plan.crediting],
         # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
         # with the import that holds it. Each is also listed above under what it becomes.
         "reopened": [
-            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": "open" if row.opens else "paired"}
+            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": _becomes(row)}
             for row in plan.reopening
         ],
         # #1593: the existing Expenses that will get a bill from a repeat line, which is itself not saved.
@@ -191,8 +204,23 @@ def preview_payload(
     }
 
 
+def _becomes(row: PlannedRow) -> str:
+    """What a re-opened line becomes (#1596): "created" (#1708, #1709, #1720) or "paired"."""
+    return "created" if row.creates else "paired"
+
+
+def _money_in_line(row: PlannedRow) -> dict:
+    """A refund or credit the plan books at minus its Credit, with where it goes (#1709, #1720)."""
+    return {
+        **_preview_line(row),
+        "ledger": row.ledger,
+        "project_name": row.project_name or row.project or "",
+        "expense_type": row.expense_type,
+    }
+
+
 def _preview_line(row) -> dict:
-    """One statement line as Review lists it outside the groups: a skip, a pair's line or an open line."""
+    """One statement line as Review lists it outside the groups: a skip, a pair's line, a refund or a credit."""
     return {
         "row_number": row.row_number,
         "transfer_id": row.transfer_id,

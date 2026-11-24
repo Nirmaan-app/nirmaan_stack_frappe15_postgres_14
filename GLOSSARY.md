@@ -43,6 +43,11 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Provider** — an LLM backend that produces AI suggestions. Two exist: *Claude* (Anthropic; a **corrector** — it sees the parser's verdict and returns only the rows it would change) and *Gemini* (Google; an **independent second opinion** — it never sees the parser's verdict and re-classifies every row from raw facts).
 
+- **AI check (of a parsed sheet)** — the *Claude* provider's AI pass over one sheet that a parse started (or a
+  person started by hand): one background operation per sheet, shown on the hub's sheet card and the sheet's review
+  screen as waiting, checking, then its counts. A failed or lost check never undoes the parse. *Avoid*: AI status,
+  Claude job. (Spec #1654, #1668.)
+
 - **Assignable classification** — the subset of classifications a human (or an accepted suggestion) may *set* on a row: *line item*, *preamble*, *note*, *spacer*. *Subtotal marker* and *header repeat* are **detection-only** — the parser (or a Provider) may *detect* them and they display as such, but they cannot be hand-assigned or accepted onto a row. A Provider suggestion of a detection-only class is informational, never acceptable.
 
 ## Vendor credit & adjustment application
@@ -129,6 +134,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   *Avoid*: total paid, spend (for this figure); "outflow" for any other figure.
 
 - **Auto-approval (of a small Expense)** — a positive Expense of less than ₹15,000 is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount of ₹15,000 or more follows the full *Requested → Approved → Paid* path. (2026-09-04: threshold raised from ₹5,000 to ₹10,000, inclusive. 2026-09-15: raised to ₹15,000 and made exclusive — exactly ₹15,000 needs approval — matching every payment and expense's amount tiers.)
+
+- **Tier (of an Approve Payments row)** — the approvals a payment's or Expense's amount calls for, shown as a chip on Approve Payments and in its export: **AUTO** (above zero and under ₹15,000), **L1** (₹15,000 to ₹50,000, and a refund down to −₹50,000) or **L1+L2** (above ₹50,000, or a refund below −₹50,000). An Expense an import created from a Cashbook or Credit Card Statement line reads **SYSTEM** instead, at any amount, refunds included: it was recorded *Paid* and went through no approval. An Expense a person created by hand from a line the Cashbook import staged counts as the import's. The Tier is only shown; it never decides where a record goes. (Owner, 2026-11-18, #1710.)
+  *Avoid*: approval level, for a SYSTEM row (nobody approved it).
 
 - **Office Rent bill** — what a landlord bills for one month's office rent: the **base rent** plus **18% GST** on it. Every landlord is taken to have a GST number, so every Office Rent bill carries GST. The raiser enters the **bill total** (incl. GST); the base rent (the bill ÷ 1.18, to the paisa) and the GST (the bill less the base rent) are worked out from it, so the two always add up to the bill exactly. The landlord is paid the bill total less the *TDS withheld* on the base rent: a bill of ₹1,18,000 is base ₹1,00,000 + GST ₹18,000; the tax is 10% × ₹1,00,000 = ₹10,000; the landlord gets ₹1,18,000 − ₹10,000 = ₹1,08,000. The approvals it needs are decided on the bill total. Office Rent Expenses approved before this existed carry no GST, and Office Rent rows the imports create carry neither GST nor tax. *Avoid*: rent incl. tax, gross rent (for the bill total). (Owner, 2026-11-05, spec #1613.)
 - **TDS withheld (on an Office Rent expense)** — rent tax (section 194-I) kept back from the landlord: always **10% of the base rent** of an *Office Rent bill*, never of its GST, whatever its size, and no other expense type. The raiser enters the bill total and is shown, before submitting, the base rent, the GST, what the tax will be and what the landlord gets. The tax is withheld **once, when the Expense is approved from an earlier step**, exactly as for a *Work Order payment* (see *TDS withheld (on a Work Order payment)*), so the approvals it needs are decided on the bill total. From then on the Expense's amount is the **net** (bill less tax) — what leaves the bank — the base rent survives on the tax record and the GST on the Expense; that amount can no longer be changed (except by the few rupees a bank line corrects it by, which leaves the tax as it was), the Expense cannot be deleted once its tax is paid under a challan, and tax withheld is never removed, not even by a rejection. The approvers are shown the bill total, the base rent, the GST, the tax and what the landlord gets. The tax is **not** spend while it is withheld: it counts only once it is paid to the government, as an Expense of its own, so no total counts it twice. That tax is paid to the department under the same challans as Work Order tax, each record naming its section. The raiser names the month and year the rent is for, the office, the landlord and the landlord's PAN, which become part of the Expense's description, and picks the landlord's bank account as who gets paid; the landlord is not a record of its own. An Office Rent Expense without the landlord's name and PAN is not approved until they are given, so no tax is withheld that cannot be filed; and once an Expense is approved, its type cannot be changed to or from Office Rent. Office Rent Expenses approved before this existed carry no tax. *Avoid*: rent deduction, TDS on rent payment. (Owner, 2026-10-20; GST added 2026-11-05, spec #1613.)
@@ -244,7 +252,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 
-- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
+- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. It lowers the payments dashboard's amounts but counts as no payment there (owner, 2026-11-18). (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
   *Avoid*: unpaired card credit, card credit, card inflow.
 
 ## Petty-cash wallet (Cashbook)
@@ -252,30 +260,37 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
   *Avoid*: wallet statement, Obopay report, cashbook upload.
 
-- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. (Owner, 2026-11-02; this financial year, 2026-11-07.)
+- **Line before 1 Apr 2026 (a Cashbook line)** — wallet spends are tracked only from 1 April 2026, so a Cashbook Statement line dated earlier is **left out**: it is not saved, becomes no record, and is not a skipped line. The import keeps only a count of them, shown as "N lines before 1 Apr 2026 left out" on the preview and in the import's history. A statement holding nothing else is refused, and nothing is created. A line whose date cannot be read is left out too, because nothing shows it is from 1 April 2026; the preview then says "or with no date". Such a line counts toward nothing else either: the import's period runs from its first to its last kept line, and a left-out top-up gives no old Internal Transfer record its amount. The date is fixed, not a setting, and applies to the Cashbook import only. (Owner, 2026-11-18, #1707; period and records, 2026-11-19, #1715.)
+  *Avoid*: pre-April skip, cutoff skip (nothing is skipped: the line is never kept).
 
-- **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app. Money left the company, so it is never treated as a move between the company's own balances. It may not be a company spend, so it is never recorded on its own: it is kept as an open line, shown for checking, until someone records it as an Expense or skips it by hand with a reason. One refunded in full on the same statement needs no decision (see *Paired wallet refund*). (Owner, 2026-11-02.)
+- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet, a *Collect payment* included (since 2026-11-18). Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. No new wallet spend is dated earlier (see *Line before 1 Apr 2026*). (Owner, 2026-11-02; this financial year, 2026-11-07.)
+
+- **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app (Zomato, Urban Company, Blinkit). Money left the company, so it is never treated as a move between the company's own balances. It is a *Wallet spend* like any other: the import records it as one Expense, with its bills as the invoice, and it waits for its invoice when it has none. One refunded in full on the same statement is not recorded (see *Paired wallet refund*). (Owner, 2026-11-02; recorded on its own since 2026-11-18, [ADR-0015 Amendment C](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept open for a person to record or skip.)
 
 - **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported (a **late bill**) arrives with a later statement and is attached then. Each becomes an *Expense bill* with its *Bill check*, a late bill too; one of several pages is Not checked. (Owner, 2026-11-02; Bill check, 2026-11-07.)
 
-- **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend on the same statement. Both lines are skipped, each naming the other. (Owner, 2026-11-02.)
+- **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend (exactly its amount) that the same statement records, a *Collect payment* included. Both lines are skipped, each naming the other, so neither becomes a record. A spend an earlier import already recorded never pairs: its refund is a *Wallet refund expense*. (Owner, 2026-11-02; 2026-11-18, #1709.)
 
 - **Unknown Cashbook type** — the Skip Type of a Cashbook line whose Type the app does not know yet. Nothing is
   recorded for it, and it stays skipped, like every skip the Cashbook import makes, until the app learns that Type.
   A Cashbook move between the company's own balances that the wallet did not complete is not one of these: it is
   skipped as refused by the bank. (Owner, 2026-11-07.)
-  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, no longer given).
+  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, retired with seven others in 2026-11, #1628: their lines are Internal Transfers).
 
-- **Unpaired wallet refund** — a refund that gives back only part of a spend, or a spend from an earlier statement. It is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+- **Unpaired wallet refund** — a refund that is not a *Paired wallet refund*: it gives back only part of a spend, or a spend from an earlier statement or already recorded, or it names no spend. It is recorded as a *Wallet refund expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment D](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 
-- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+- **Wallet refund expense** — the *Paid* Expense of minus an *Unpaired wallet refund*'s amount. It goes where the spend it names is booked: that Expense's ledger, project and expense type as they are now, an Expense a person linked the spend to included. When the spend has no Expense, or the refund names no spend, it goes where its own remark places it, as a *Wallet credit expense* does. It needs no bill, and it counts as no payment. (Owner, 2026-11-18; placed by its remark since #1720, before that always Non-Project.)
+  *Avoid*: negative spend, reversal.
+
+- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, and a company top-up is never one (that is an Internal Transfer). It is recorded as a *Wallet credit expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment E](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
+- **Wallet credit expense** — the *Paid* Expense of minus a *Wallet credit*'s amount. It goes on a project when its remark names exactly one, typed from the remark; otherwise it is a Non-Project Expense typed from the remark, else Petty Cash. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
 
 ## Expense bills
 
 - **Expense bill** — the bill attached to a wallet spend or a card spend, kept as its own record with its own approval. A replaced or rejected bill stays as history; only the latest one counts. Expense bills are kept apart from *Vendor Invoices* for now and are meant to join them in one place later (ADR-0045). (Owner, 2026-11-07.)
   *Avoid*: expense invoice, wallet invoice, card invoice.
 
-- **Bill check** — the reading of an expense bill to see whether its total (incl. GST) equals the amount on the statement line that recorded the spend. Its result is **Matched** (within ₹1), **Mismatched**, **Not read** (the bill could not be read; the reason is kept), or **Not checked** (the spend carries several bills, so its total is taken as the line amount). While the reading runs, the bill is **Checking**. A Bill check never stops a bill from being attached. The bill's number and date are taken from the bill only when it is Matched, and never over what a person typed. (Owner, 2026-11-07.) A *Collect payment*'s bill gets its Bill check while the line is still open, against the line's amount; recording the line as an Expense carries a finished result to its expense bill without reading the bill again, and skipping the line makes no expense bill. (#1642.) A line still Checking, or whose reading stopped, has no result to carry: its expense bill is read afresh. (Spec #1637 review.)
+- **Bill check** — the reading of an expense bill to see whether its total (incl. GST) equals the amount on the statement line that recorded the spend. Its result is **Matched** (within ₹1), **Mismatched**, **Not read** (the bill could not be read; the reason is kept), or **Not checked** (the spend carries several bills, so its total is taken as the line amount). While the reading runs, the bill is **Checking**. A Bill check never stops a bill from being attached. The bill's number and date are taken from the bill only when it is Matched, and never over what a person typed. (Owner, 2026-11-07.)
   *Avoid*: invoice validation, autofill (that is the Vendor Invoice upload's form filling), AI check.
 
 - **Expense bill approval** — an expense bill is *Pending*, *Approved* or *Rejected*, as a Vendor Invoice is. A Matched bill is approved by the system when its Bill check ends (**auto-approved**); any other result waits in Pending Approval for Admin or an Accountant. A bill an Admin or Accountant Lead puts on a paid Expense from Payment Done is approved in that person's name. A rejected bill keeps its reason, and its Expense waits for a new bill again. (Owner, 2026-11-07.) Only an Expense's latest bill, once its Bill check has a result, waits for a decision; whoever approves it may first correct its number and date, which the Expense then carries too. (#1644.) A bill put on a paid Expense from Payment Done by anyone else waits like any other. The one an Admin or Accountant Lead puts there is still read, and its Bill check is kept beside the approval; it never replaces the number and date they typed. Changing only the number or date there is not a new bill. (#1643.) Who approved or rejected a bill, and when, is recorded on the bill; the rejecter's fields are the Expense bill's own, since a Vendor Invoice records no rejecter. (Story 35, spec #1637 review.)
@@ -339,7 +354,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **GST payment (on a Work Order)** — a Work Order payment that pays GST only, never base value. A payment is either a GST payment or a base payment, never a mix. No TDS is withheld from a GST payment, because TDS is only ever taken on base value. Every payment made before GST payments existed is a base payment. A GST payment is drawn from the Work Order as a whole, not from any one invoice. Since 2026-11-04 it exists only once a *GST Payment Request* is approved. ([ADR-0030](docs/adr/0030-wo-gst-paid-as-its-own-payment.md).)
 
-- **GST Payment Request** — a request to pay a Work Order's GST, made from Request Payment ("Send to Accountant") **before any payment exists**. Its life: *Pending* → *Approved* (an Accountant, Accountant Lead or Admin approves the amount asked, which creates the *GST payment*) or *Rejected* (with a reason of at most 250 characters; nothing is created). An Approved request turns *Paid* when its payment is Paid, and back if the payment is not. Everyone's GST goes this way, the deciders' own included; only a split, a decider's Paid entry and the `Administrator` account record a GST payment directly, with its request written beside it already decided. A *Pending* request holds its amount in the *Work Order payment limit*; a *Rejected* one holds nothing. Deciders delete a Pending or Rejected request; an Approved or Paid one goes only with its payment. *Avoid*: GST approval (for the record), GST payment (before it is approved). ([ADR-0030 Amendment A](docs/adr/0030-wo-gst-paid-as-its-own-payment.md).)
+- **GST Payment Request** — a request to pay a Work Order's GST, made from Request Payment ("Send to Accountant") **before any payment exists**. Its life: *Pending* → *Approved* (an Accountant, Accountant Lead or Admin approves the amount asked, which creates the *GST payment* already Approved and ready to pay, at any amount, with no L1 or CEO step (ADR-0030 Amendment B, 2026-11-18)) or *Rejected* (with a reason of at most 250 characters; nothing is created). An Approved request turns *Paid* when its payment is Paid, and back if the payment is not. Everyone's GST goes this way, the deciders' own included; only a split, a decider's Paid entry and the `Administrator` account record a GST payment directly, with its request written beside it already decided. A *Pending* request holds its amount in the *Work Order payment limit*; a *Rejected* one holds nothing. Deciders delete a Pending or Rejected request; an Approved or Paid one goes only with its payment. *Avoid*: GST approval (for the record), GST payment (before it is approved). ([ADR-0030 Amendment A](docs/adr/0030-wo-gst-paid-as-its-own-payment.md).)
 
 - **GST Invoiced (of a Work Order)** — the GST a vendor has billed on a Work Order **and we have accepted**: the sum of the *Invoice GST Amount* over its **Approved** invoices only. It is the GST twin of *Total Amount Invoiced*, derived from the invoices and never kept by hand, so it falls again when an approved invoice is rejected, edited or deleted. It measures GST billed, not GST paid. *Avoid*: approved GST payment amount, GST pool.
 
@@ -375,17 +390,17 @@ Two separate holds sit on a Vendor. They share the word "hold" and nothing else 
 
 ## Reimbursements
 
-- **Reimbursement** — a Nirmaan user's claim to be repaid money they spent for work: a type (Travel, Food or Others), a title, a description (required above ₹2,000), an amount, the receipts (PDFs and pictures merged into one PDF, other files kept as they are) and the **pay-to account** copied from the **claimant**'s **own bank account**. It is never an Expense Request. It is *Pending Approval* until decided, then *Approved* (for the full amount, recording who approved it) or *Rejected* (final, with a reason). Approving it creates the Non-Project Expense that pays it (with no Expense Type: its link to the claim marks it); Accounts pays that expense from Project Payments & Expenses, and the claim turns *Paid* when the expense is paid, or *Rejected* if the expense is rejected there ([ADR-0040](docs/adr/0040-an-approved-reimbursement-becomes-a-non-project-expense.md), superseding [ADR-0041](docs/adr/0041-reimbursement-is-money-outside-the-ledgers.md)). The claimant may edit a claim only while it is Pending Approval, and delete it while it is Pending Approval or Rejected; a claim rejected in Payments takes its Rejected expense with it (owner, 2026-10-27). *Avoid*: expense claim, reimbursement request, expense request (that is a different thing). (Owner, 2026-10-22; paid through a Non-Project Expense 2026-10-23.)
+- **Reimbursement** — a Nirmaan user's claim to be repaid money they spent for work: a type (Travel, Food or Others), a title, a description (required above ₹2,000), an amount, the receipts (PDFs and pictures merged into one PDF, other files kept as they are) and the **pay-to account** copied from the **claimant**'s **own bank account**. It is never an Expense Request. It is *Pending Approval* until HR or Admin decide it (approved for the full amount, recording who approved it, or *Rejected*, final, with a reason). Approving it creates the Non-Project Expense that pays it (with no Expense Type: its link to the claim marks it), and from then on the claim carries that expense's status by the same name: *Requested* (waiting for L1), *CEO Pending*, *Approved* (waiting to be paid), *Reconciliation Pending* (marked as paid, waiting for the UTR and proof), *Paid*, or *Rejected* if the expense is rejected at a later approval (owner, 2026-11-19). Every later step happens on the Reimbursements page, on that expense. Reimbursement expenses are not listed in Project Payments & Expenses ([ADR-0040](docs/adr/0040-an-approved-reimbursement-becomes-a-non-project-expense.md) and its Amendment C, superseding [ADR-0041](docs/adr/0041-reimbursement-is-money-outside-the-ledgers.md)). The claimant may edit a claim only while it is Pending Approval, and delete it while it is Pending Approval or Rejected; a claim rejected after its first approval takes its Rejected expense with it (owner, 2026-10-27). *Avoid*: expense claim, reimbursement request, expense request (that is a different thing). (Owner, 2026-10-22; paid through a Non-Project Expense 2026-10-23.)
 
 - **Claimant** — the person who raised a Reimbursement, always the person it repays. Taken from the login, never typed. Their name and role profile are saved on the claim when it is raised, so the claim still names them, and still goes to the right approver, if they are later renamed, move role or are deleted. *Avoid*: requester, raiser (for this record), employee. (Owner, 2026-10-22.)
 
-- **Month total** — what a **claimant** is being reimbursed in one calendar month: the claim in hand plus their other Approved and Paid claims raised in that month. Pending and Rejected claims don't count. A claim belongs to the month it was raised in, not the month it is approved. (Owner, 2026-10-28.)
+- **Month total** — what a **claimant** is being reimbursed in one calendar month: the claim in hand plus their other approved claims (Requested, CEO Pending, Approved or Reconciliation Pending) and Paid claims raised in that month. Pending and Rejected claims don't count. A claim belongs to the month it was raised in, not the month it is approved. (Owner, 2026-10-28.)
 
 - **Monthly reimbursement limit** — ₹2,000 of **month total** per claimant. Under it (₹1,999 or less), HR's approval of a claim finishes it. Once the month total reaches it (exactly ₹2,000 included), a claim HR approves also needs L1 in Payments, and the CEO above ₹50,000; every approver (HR, Admin, L1, the CEO) is warned how much the person has already been reimbursed that month and ticks to confirm before approving. It never blocks an approval. HR may approve a claim of any amount whose claimant is not in HR; Admin decides every claim raised by someone in HR, and may decide their own, and an Admin's approval counts as L1. Unrelated to the Expense and Payment amount tiers (₹15,000 / ₹50,000). Replaces the *HR approval limit* (owner, 2026-10-22), which capped what HR could approve on one claim ([ADR-0040 Amendment B](docs/adr/0040-an-approved-reimbursement-becomes-a-non-project-expense.md)). *Avoid*: HR approval limit, HR limit. (Owner, 2026-10-28.)
 
 ## Module residence
 
-- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
+- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The residence rules (amended 2026-11-18) and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
 
 - **Deep module** — a module whose interface is much smaller than its implementation: it owns a concept behind a narrow seam, so callers depend on the seam, not the internals. A *shallow* module (interface nearly as large as its implementation) leaks its concept to every caller. The codebase spans both: BoQ / ITM / PO-Adjustments are deep; Service Requests / Procurement are shallow.
 
@@ -665,8 +680,12 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 ## Background operations
 
 - **Background operation** — a unit of work the system carries out after the screen that started it already has its
-  answer back: a TDS export, a BoQ upload's parse, a sheet's classification, a rate suggestion, a daily check. It waits
-  in a queue, runs, and ends *finished*, *failed* or *lost* (the server stopped while running it). One started from a
+  answer back: a TDS export, a BoQ upload's parse, one engine's classification of a sheet (a Classify click
+  with two engines starts two), a rate suggestion, a sheet's AI check, a daily check. It waits
+  in a queue (*queued*, shown to the user as "waiting in the queue"), runs, and ends *finished*, *failed* or *lost*
+  (the server stopped while running it, dropped it from the queue, or no longer has its status record). *Lost* is
+  the server's best guess: when the operation's worker does end it after all, its finished or failed outcome replaces
+  *lost*. Nothing replaces finished or failed. One started from a
   screen belongs to the user who started it, and only that user follows it or collects its result. A **run** (such as a
   BoQ AI Run Log or a Rate Suggestion Run) is the business record; one run can span several background operations
   (suggest, then match). *Avoid*: job (a construction project), task (the Task records and Action Center tasks),
@@ -674,9 +693,35 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
   (Owner, 2026-11-08.)
 
+- **Status record** — the record of one background operation that its owner's screen reads to follow it: its state,
+  its progress, and once it ends its result or the server's words on why it failed. Only the user who started the
+  operation may read it; it expires after a day. A live message only tells the screen to read it now. *Avoid*: job
+  status, task status. ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
+  (Spec #1654.)
+
+- **Finished file** — the file a finished background operation leaves for its owner (a TDS export, the handover
+  binder, a commission or bulk PDF download, a Snag List PDF). Only that user can collect it, by the operation, for a day after it is
+  made; no link to it works for anyone else. *Avoid*: download token, temp file. (Spec #1654.)
+
+- **One at a time per user** — the rule that a user may have only one background operation of a given kind waiting
+  in the queue or running (a commission reports download, a handover binder, one handover document's download, a Snag
+  List PDF), so one user cannot hold every worker. A second start of that kind is refused with words naming the one
+  still being prepared; once that one ends, however it ends, the user may start again. Different kinds do not hold
+  each other back: a handover binder waiting in the queue never holds back one document's download. *Avoid*: lock,
+  per-user lock. (Spec #1654, follow-up on #1663 and #1664, 2026-11-19; the document's own kind, #1671.)
+
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
   (Owner, 2026-11-08.)
+
+- **Calls at once** — how many AI calls one background operation (a rate match's judge, the spec cards) may have
+  waiting on the AI provider at the same moment; set in the BoQ AI settings. *Avoid*: concurrency, parallelism.
+
+- **Site-wide AI call limit** — how many AI calls every background operation on the site, on every worker, may have
+  waiting on the AI provider together ("Calls at once, whole site" in the BoQ AI settings). An operation's own
+  *calls at once* still applies; the lower of the two holds. An operation that finds the site full waits for a free
+  place; it does not stop. A place held by a worker that died is freed after a short while. *Avoid*: quota, rate
+  limit (the provider's own limit). (#1718, 2026-11-18.)
 
 ## Pasted links
 
@@ -690,3 +735,40 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Cut link** — a pasted link stored shortened by the old 140-character limit, so it no longer opens. It cannot be
   rebuilt from what was stored; its owner pastes it again. A link that looks long is not cut: Google's own share links
   end in `&rtpof=true&sd=true`. (#1680, 2026-11-10.)
+
+## PR walks
+
+- **PR walk** — a run through every change a pull request claims, on screen, as each role that uses it, once on the
+  PR's head (*after*) and once on its merge base (*before*). A rerun is a new walk. *Avoid*: demo, screen test, verify
+  run (one proof of one screen). (#1734, 2026-11-23.)
+
+- **Walk page** — the one page a reviewer reads for a PR walk: its verdict, its problems, and every step's screen.
+  *Avoid*: report, PR walk HTML. (#1734, 2026-11-23.)
+
+- **Claimed change** — one thing a PR's description says it does, walked as a unit. It ends *seen*, *failed* or *not
+  walked*, with the reason. *Avoid*: feature, item. (#1734, 2026-11-23.)
+
+- **Click box** — the box on a step's screen around the control the walk clicks next. *Avoid*: highlight, target.
+  (#1734, 2026-11-23.)
+
+- **Pin** — a numbered note placed on a step's screen where something wrong, odd or worth noting shows, ranked
+  *must*, *should*, *nit* or *info*, and marked *seen* or *guess*. *Avoid*: comment, annotation, finding.
+  (#1734, 2026-11-23.)
+
+- **Box sheet** — every screen of a walk in one image with its click box and pins drawn, to check by eye that each
+  box sits on the control its step names. *Avoid*: contact sheet, thumbnail grid. (#1734, 2026-11-23.)
+
+- **Least limited login** — for one role profile, the enabled login limited to the fewest projects. It may still be
+  locked out of the app. *Avoid*: best user, test user. (#1734, 2026-11-23.)
+
+- **Graduation** — after a walked PR merges, turning each of its claimed changes into a *graduated walk*, or writing
+  down why it has none. Check W1 refuses a commit or merge that brings in a walked PR with a claim not graduated.
+  *Avoid*: porting, promoting the walk. (Owner, 2026-11-23.)
+
+- **Graduated walk** — a verify walk of one feature, built from the *after* half of a PR walk: it takes the env as
+  an argument, picks its records and users by query, and writes `Last walked (<walk>): <date> UTC at <commit>,
+  passed.` into its feature file when a full run passes. It outlives the PR and is rerun on later code. *Avoid*:
+  PR walk (that one compares before and after, once). (Owner, 2026-11-23.)
+
+- **Graduation ledger** — `.claude/skills/verify/features/graduated.json`: for each merged walked PR, each claimed
+  change mapped to its graduated walk or to `skip: <reason>`. (Owner, 2026-11-23.)

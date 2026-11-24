@@ -53,7 +53,7 @@
 
 
 
-// //     useFrappeDocumentEventListener("doc_update", (event) => {
+// //     useDocumentEventListener("doc_update", (event) => {
 // //   if (event.doctype === "Project Payments") {
 // //     refetchPaymentSummary();
 // //   }
@@ -81,7 +81,7 @@
 //   refetchPaymentSummary();
 // }, [totalCount]);
 //   // Corrected logic for listening to ALL updates on the DocType
-// // useFrappeDocTypeEventListener(
+// // useDocTypeEventListener(
 // //     "Project Payments",  // Listen to all documents in this DocType
 // //     handleRefetch
 
@@ -205,7 +205,9 @@
 import React, { useMemo, useEffect, useCallback, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { TailSpin } from "react-loader-spinner";
-import { useFrappeGetCall, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
+import { PAYMENT_SUMMARY_API, PAYMENT_SUMMARY_SWR_KEY } from "./config/paymentSummaryKey";
 import { Info, Wallet, Clock, CheckCircle2, AlertCircle, CreditCard } from "lucide-react";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
@@ -734,9 +736,9 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
         error,
         mutate: refetchPaymentSummary
     } = useFrappeGetCall<PaymentStats>(
-        "nirmaan_stack.api.payments.get_project_payment_summary.get_payment_dashboard_stats",
+        PAYMENT_SUMMARY_API,
         undefined,
-        "payment_dashboard_stats_summary"
+        PAYMENT_SUMMARY_SWR_KEY
     );
 
     // --- EFFECT TO REFETCH ON TOTAL COUNT CHANGE (As requested) ---
@@ -766,10 +768,10 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
         }, 300);
     }, [refetchPaymentSummary]);
 
-    useFrappeDocTypeEventListener("Project Inflows", scheduleRefetch);
-    useFrappeDocTypeEventListener("Project Expenses", scheduleRefetch);
-    useFrappeDocTypeEventListener("Non Project Expenses", scheduleRefetch);
-    useFrappeDocTypeEventListener("Non Project Inflows", scheduleRefetch);
+    useDocTypeEventListener("Project Inflows", scheduleRefetch);
+    useDocTypeEventListener("Project Expenses", scheduleRefetch);
+    useDocTypeEventListener("Non Project Expenses", scheduleRefetch);
+    useDocTypeEventListener("Non Project Inflows", scheduleRefetch);
 
     useEffect(() => () => {
         if (debounceRef.current) clearTimeout(debounceRef.current);

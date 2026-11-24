@@ -16,14 +16,13 @@ PO payments carry no uploaded voucher: the job GENERATES each one. What must hol
      25-minute default. Every other type keeps the default.
   4. A USER HELD TO ONE PROJECT gets only that project's vouchers from a vendor.
 
-⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Read-only on live rows: nothing is enqueued (`frappe.enqueue`
-is replaced), events are captured, and `frappe.get_print` is replaced except in the one test that
+⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Read-only on live rows: nothing is queued (the module's start
+is recorded), the work runs in-process, and `frappe.get_print` is replaced except in the one test that
 renders a real voucher. The restricted user is the scope tests' throwaway (db_insert, never
-committed), and every temp PDF a test writes is removed.
+committed).
 """
 
 import io
-import os
 from unittest.mock import patch
 
 import frappe
@@ -31,6 +30,7 @@ from frappe.tests.utils import FrappeTestCase
 from pypdf import PdfWriter
 
 from nirmaan_stack.api.pdf_helper import bulk_download as bd
+from nirmaan_stack.api.pdf_helper import test_bulk_download_job as job_tests
 # Imported as a module, not the class: the test loader would otherwise run the scope tests here too.
 from nirmaan_stack.api.pdf_helper import test_bulk_download_scope as scope_tests
 
@@ -71,34 +71,16 @@ class TestBulkDownloadPOVouchers(FrappeTestCase):
     def setUp(self):
         if not self.vendor:
             self.skipTest("this site has no vendor with 3+ Paid PO payments in 2+ projects and an unpaid one")
-        self.users, self.enqueued, self.events, self.prints, self.temp_files = [], [], [], [], []
-        for target, attr, fn in (
-            (frappe, "enqueue", lambda method, **kw: self.enqueued.append(kw)),
-            (frappe, "publish_realtime", lambda event, data=None, **kw: event.startswith("bulk_download") and self.events.append((event, data))),
-        ):
-            p = patch.object(target, attr, side_effect=fn)
-            p.start()
-            self.addCleanup(p.stop)
-        self.addCleanup(self._remove_temp_files)
-
-    def _remove_temp_files(self):
-        for token in self.temp_files:
-            path = bd.get_temp_path(token)
-            if os.path.exists(path):
-                os.remove(path)
+        self.users, self.prints = [], []
+        self.enqueued = job_tests.record_starts(self)
 
     def _record_print(self, doctype, name, print_format=None, as_pdf=False, no_letterhead=0, **_):
         self.prints.append((doctype, name, print_format, no_letterhead))
         return _tiny_pdf()
 
     def _run_last_job(self):
-        job = {k: v for k, v in self.enqueued[-1].items() if k not in ("queue", "timeout")}
         with patch.object(frappe, "get_print", side_effect=self._record_print):
-            bd.run_bulk_download_job(**job)
-        for event, data in self.events:
-            if event == "bulk_download_all_ready":
-                self.temp_files.append(data["token"])
-        return job
+            return job_tests.run_work(self.enqueued[-1])
 
     def _project_with_paid(self):
         return frappe.db.sql("""select project from "tabProject Payments" where vendor = %s and document_type = 'Procurement Orders'
@@ -129,21 +111,20 @@ class TestBulkDownloadPOVouchers(FrappeTestCase):
         v = self.vendor
         paid = _sql_list(PAID_PO_PAYMENTS.format(field="vendor", extra=""), v)[:3]
         unpaid = frappe.db.get_value("Project Payments", {"vendor": v, "document_type": "Procurement Orders", "status": ["!=", "Paid"]}, "name")
-        bd.download_selected_po_payment_vouchers(names=frappe.as_json([unpaid, *reversed(paid)]), vendor=v, download_id="po-vouchers-01")
-        job = self._run_last_job()
+        bd.download_selected_po_payment_vouchers(names=frappe.as_json([unpaid, *reversed(paid)]), vendor=v, op_id=job_tests.new_op_id())
+        run = self._run_last_job()
 
         self.assertEqual(self.prints, [("Project Payments", n, "SR Payment", 1) for n in paid])
         self.assertEqual(len(paid), 3)
-        # One event per voucher, one for the merge, then the file.
-        self.assertEqual([e for e, _ in self.events], ["bulk_download_progress"] * 4 + ["bulk_download_all_ready"])
-        self.assertTrue(all(d["download_id"] == "po-vouchers-01" for _, d in self.events))
-        self.assertEqual(self.events[0][1]["message"], "Processing PO Payment Vouchers 1 of 3...")
-        self.assertTrue(job["custom_filename"].endswith("_Selected_PO_Payment_Vouchers.pdf"))
-        self.assertTrue(os.path.exists(bd.get_temp_path(self.events[-1][1]["token"])))
+        # One progress report per voucher, one for the merge, then the file.
+        self.assertEqual(len(run.progress), 4)
+        self.assertEqual(run.progress[0]["message"], "Processing PO Payment Vouchers 1 of 3...")
+        self.assertTrue(run.file[1].endswith("_Selected_PO_Payment_Vouchers.pdf"))
+        self.assertEqual(run.result, {"included": 3, "total": 3})
 
     def test_download_all_generates_every_paid_po_payment_of_the_scope(self):
         p = self._project_with_paid()
-        bd.download_project_attachments(doc_type=bd.PO_PAYMENT_VOUCHERS, project=p)
+        bd.download_project_attachments(doc_type=bd.PO_PAYMENT_VOUCHERS, project=p, op_id=job_tests.new_op_id())
         self._run_last_job()
         self.assertEqual([n for _, n, _, _ in self.prints], _sql_list(PAID_PO_PAYMENTS.format(field="project", extra=""), p))
 
@@ -164,15 +145,16 @@ class TestBulkDownloadPOVouchers(FrappeTestCase):
     # --- 3. an hour for generated vouchers, the default for the rest --------------------------------
 
     def test_po_voucher_jobs_get_an_hour_and_every_other_type_keeps_the_queue_default(self):
-        v = self.vendor
-        bd.download_selected_po_payment_vouchers(names='["PAY-X"]', vendor=v)
-        bd.download_project_attachments(doc_type=bd.PO_PAYMENT_VOUCHERS, vendor=v)
+        v, op = self.vendor, job_tests.new_op_id
+        bd.download_selected_po_payment_vouchers(names='["PAY-X"]', vendor=v, op_id=op())
+        bd.download_project_attachments(doc_type=bd.PO_PAYMENT_VOUCHERS, vendor=v, op_id=op())
         self.assertEqual([j["timeout"] for j in self.enqueued], [3600, 3600])
         self.enqueued.clear()
-        bd.download_selected_pos(names='["PO-X"]', vendor=v)
-        bd.download_selected_wo_payment_vouchers(names='["PAY-X"]', vendor=v)
-        bd.download_project_attachments(doc_type="DC", vendor=v)
-        self.assertEqual([j["timeout"] for j in self.enqueued], [None, None, None])
+        bd.download_selected_pos(names='["PO-X"]', vendor=v, op_id=op())
+        bd.download_selected_wo_payment_vouchers(names='["PAY-X"]', vendor=v, op_id=op())
+        bd.download_project_attachments(doc_type="DC", vendor=v, op_id=op())
+        # The `long` queue's own default, which these types always had.
+        self.assertEqual([j["timeout"] for j in self.enqueued], [1500, 1500, 1500])
 
     # --- 4. user permissions ------------------------------------------------------------------------
 

@@ -1,4 +1,5 @@
-import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 
 import { CHEQUES_CHANGED_EVENT, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { CHEQUE_CHIPS_API } from "@/utils/cheques/chequeChip";
@@ -21,7 +22,7 @@ export const useChequeChips = (cheques: (string | null | undefined)[]) => {
         { cheques: JSON.stringify(names) },
         key ? `cheque-chips-${key}` : null,
     );
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => {
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => {
         if (key) mutate();
     });
     return data?.message ?? {};

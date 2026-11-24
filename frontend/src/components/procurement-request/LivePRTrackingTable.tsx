@@ -1,5 +1,5 @@
 // import {
-//   useFrappeDocTypeEventListener,
+//   useDocTypeEventListener,
 //   useFrappeGetDocList,
 // } from "frappe-react-sdk";
 // import { ClientSideRowModelModule } from "@ag-grid-community/client-side-row-model";
@@ -79,7 +79,7 @@
 //     limit: 10000,
 //   });
 
-//   useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+//   useDocTypeEventListener("Procurement Requests", async (event) => {
 //     await prListMutate();
 //   });
 

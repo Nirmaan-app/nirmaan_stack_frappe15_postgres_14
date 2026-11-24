@@ -5,7 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee,{ formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
@@ -34,7 +35,7 @@ export const ProcurementOrder: React.FC = () => {
   const { data: procurement_request, isLoading: procurement_request_loading, mutate: prMutate, error: procurement_request_error } = useProcurementRequest(orderId)
 
 
-  useFrappeDocumentEventListener("Procurement Requests", orderId, (event) => {
+  useDocumentEventListener("Procurement Requests", orderId, (event) => {
     console.log("Procurement Request document updated (real-time):", event);
     toast({
       title: "Document Updated",

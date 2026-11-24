@@ -8,7 +8,7 @@ import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
-import { FrappeContext, type FrappeConfig } from "frappe-react-sdk";
+import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { describe, expect, it } from "vitest";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,7 +16,8 @@ import { describe, expect, it } from "vitest";
 import { RejectionReasonNote } from "../components/RejectionReasonNote";
 import { useByMeView } from "../hooks/useByMeView";
 import { buildApprovalColumns, type ApprovalColumnCtx } from "./approvalColumns";
-import { BY_ME_VIEW_COLUMNS, BY_ME_VIEW_PARAM, BY_ME_VIEWS, type ApprovalQueueRow } from "./approvalsTable.config";
+import type { ApprovalQueueRow } from "./approvalsTable.config";
+import { BY_ME_VIEW_COLUMNS, BY_ME_VIEW_PARAM, BY_ME_VIEWS } from "./byMeViews.config";
 import { buildApprovalExportColumns } from "./approvalExportColumns";
 import { PP_TABS } from "./ppTabs.constants";
 

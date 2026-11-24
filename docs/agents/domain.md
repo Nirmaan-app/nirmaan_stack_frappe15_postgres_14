@@ -23,8 +23,8 @@ domain knowledge here, and both are worth reading before working in their area:
 
 Also note there are **two** convention files: root `CLAUDE.md` (session workflow + domain-doc index, always
 loaded) and `frontend/CLAUDE.md` (frontend router, loaded for work under `frontend/`). How code is written
-lives in root `CODING_STANDARDS.md` and, for the frontend, `frontend/CODING_STANDARDS.md`. Per-slice changelog detail belongs in the reference docs, never in either
-`CLAUDE.md` — see the DOCS-UPDATE RULE in root `CLAUDE.md`.
+lives in root `CODING_STANDARDS.md` and, for the frontend, `frontend/CODING_STANDARDS.md`. Per-commit as-built detail goes in the commit message and in no doc; a lasting rule goes in
+that domain doc's Load-bearing invariants section — see the DOCS-UPDATE RULE in root `CLAUDE.md`.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 

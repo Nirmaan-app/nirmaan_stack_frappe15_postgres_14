@@ -1,0 +1,17 @@
+[
+ ["BOQ", "Bill of quantities: the client's list of work lines, each with a description, unit and quantity."],
+ ["Selected BOQ", "A BOQ marked as the one the project runs on. Only Selected BOQs show in Estimates."],
+ ["Line item", "One priced work line of a BOQ sheet (not a heading, note or subtotal). Estimates hang on line items."],
+ ["Material estimate", "The materials one BOQ line item needs: items from the Items list, or custom items, each with a quantity."],
+ ["Estimate Items", "The new column in BOQ View, and the third sub-tab that adds materials up across lines and BOQs."],
+ ["Commit / re-commit", "Saving a reviewed BOQ sheet as a new version. The old version's lines are frozen, never deleted."],
+ ["Copy after commit", "A background job queued after each commit. It copies every estimate onto the same unchanged line of the new version."],
+ ["Re-attach", "The manual button for estimates still on an older version: it copies them to the new version now."],
+ ["Settled", "An older estimate that was copied forward or resolved. It stays in its version's history and is not listed again."],
+ ["Background job / worker", "Work the server does after the request returns. A worker process runs queued jobs; this walk started one for its env."],
+ ["NOS", "Numbers: a unit counted in whole pieces. The form refuses decimals on it."],
+ ["Completed project", "A finished project. Estimates there are read-only."],
+ ["Before / After", "Before is the code the PR starts from (develop at 42313959a). After is the PR's own code (3ec7eb84f)."],
+ ["Role check", "A test that one role sees, or does not see, what the PR says it should."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]

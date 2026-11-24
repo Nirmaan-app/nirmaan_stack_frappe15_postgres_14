@@ -5,7 +5,7 @@
  * and the expense's hooks; the claimant is the standard `owner`.
  */
 
-import type { ReimbursementStatus, ReimbursementType } from "@/utils/reimbursements/rules";
+import type { ReimbursementStatus, ReimbursementTab, ReimbursementType } from "@/utils/reimbursements/rules";
 
 export const REIMBURSEMENT_DOCTYPE = "Reimbursement";
 
@@ -40,7 +40,19 @@ export interface Reimbursement {
     rejection_reason?: string | null;
 }
 
-/** A row of `api/reimbursements/claims.get_claim_payments`: the Non-Project Expense paying a claim. */
+/** A row of `api/reimbursements/queue.get_claims`: a claim, with its Non-Project Expense's ID, status and creation
+ *  (all null before the first approval). */
+export interface ClaimRow extends Reimbursement {
+    expense?: string | null;
+    expense_status?: string | null;
+    expense_created?: string | null;
+}
+
+/** `api/reimbursements/queue.get_claim_tab_counts`: each tab's badge, the rows it lists. The CEO's only for the CEO. */
+export type ClaimTabCounts = Partial<Record<ReimbursementTab, number>>;
+
+/** A row of `api/reimbursements/claims.get_claim_payments`: the Non-Project Expense paying a claim, with what the
+ *  claim's view shows of it (ADR-0040 Amendment C point 7). */
 export interface ClaimPayment {
     expense: string;
     /** The expense's status: Requested, CEO Pending, Approved, Reconciliation Pending, Paid or Rejected. */
@@ -48,6 +60,51 @@ export interface ClaimPayment {
     payment_date?: string | null;
     /** The UTR / payment reference, once paid. */
     payment_ref?: string | null;
+    creation?: string | null;
+    amount?: number | null;
+    description?: string | null;
+    invoice_ref?: string | null;
+    invoice_date?: string | null;
+    comment?: string | null;
+    /** L1's approval date, and the CEO's. Both are stamped at creation when the expense was auto-approved. */
+    approval_date?: string | null;
+    ceo_approval_date?: string | null;
+    /** 1 when the expense was born Approved under ₹15,000 (no L1 or CEO step happened). */
+    auto_approved?: number | null;
+    pay_to_account_name?: string | null;
+    pay_to_account_number?: string | null;
+    pay_to_ifsc?: string | null;
+    pay_to_bank_name?: string | null;
+    pay_to_bank_branch?: string | null;
+    /** The statement its bank line was matched from; null before a match. */
+    payment_source?: string | null;
+}
+
+/** One claim's answer in `review.bulk_approve_reimbursements` / `bulk_reject_reimbursements`. */
+export interface BulkClaimResult {
+    name: string;
+    status: string;
+    expense?: string | null;
+    expense_status?: string | null;
+    /** The tab the claim landed in; null = only All (rejected). */
+    tab: ReimbursementTab | null;
+}
+
+/** `review.bulk_*_reimbursements`'s `data`. */
+export interface BulkClaimsReply {
+    succeeded: string[];
+    failed: { name: string; reason: string }[];
+    results: Record<string, BulkClaimResult>;
+    total: number;
+}
+
+/** `api/reimbursements/claims.get_my_month`: the caller's month against the Project Manager cap. */
+export interface MyMonth {
+    capped: boolean;
+    cap: number;
+    used: number;
+    /** What is left this month; null when not capped. */
+    left: number | null;
 }
 
 /** A row of `api/reimbursements/review.get_pending_for_me`. */
@@ -98,4 +155,13 @@ export interface ClaimFile {
     file_name: string;
     file_url: string;
     is_receipts_pdf: boolean;
+}
+
+/** `api/reimbursements/queue.get_claim_month_summary`: the month picker's tiles for one year of Paid or All. */
+export interface ClaimMonthSummary {
+    year: number;
+    /** The earliest year with a claim on the tab; null when there are none. */
+    first_year: number | null;
+    /** By month number "1".."12"; a month with nothing is absent. */
+    months: Record<string, { count: number; total: number }>;
 }

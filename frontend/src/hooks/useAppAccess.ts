@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMyPendingAssetActions } from "@/hooks/useUserAssignments";
 import { useUserData } from "@/hooks/useUserData";
@@ -51,23 +51,30 @@ export function useAppAccess(): AccessResult {
     [user_id, role, has_project, isLoading, declarations, audits, overdueAudits, held]
   );
 
-  // Read once per mount: the last real answer this browser saw.
-  const remembered = useRef<RememberedAccess | null | undefined>(undefined);
-  if (remembered.current === undefined) remembered.current = loadRememberedAccess();
+  // Read once per mount: the last real answer this browser saw. Only a render with no answer of this visit reads
+  // it (`startingAnswer`), so the answers saved below need not reach it.
+  const [remembered] = useState<RememberedAccess | null>(loadRememberedAccess);
+  // What was saved last, read and written only in the effect below.
+  const lastSaved = useRef(remembered);
 
   // The last real answer of this visit, for this person: a recheck never brings the spinner back (`keepSettled`).
-  const settled = useRef<{ userId: string; result: AccessResult } | null>(null);
-  if (current.state !== "loading") settled.current = { userId: user_id, result: current };
-  const previous = settled.current?.userId === user_id ? settled.current.result : null;
+  // Adjusted during render (so this render already uses it), only when a new real answer arrives.
+  const [settled, setSettled] = useState<{ userId: string; result: AccessResult } | null>(null);
+  let latest = settled;
+  if (current.state !== "loading" && (settled === null || settled.userId !== user_id || settled.result !== current)) {
+    latest = { userId: user_id, result: current };
+    setSettled(latest);
+  }
+  const previous = latest?.userId === user_id ? latest.result : null;
 
   // Remember each real answer for the next visit (only when it changes).
   useEffect(() => {
     if (!user_id || current.state === "loading") return;
-    const saved = remembered.current;
+    const saved = lastSaved.current;
     if (saved?.userId === user_id && saved.state === current.state) return;
-    remembered.current = { userId: user_id, state: current.state };
-    saveRememberedAccess(remembered.current);
+    lastSaved.current = { userId: user_id, state: current.state };
+    saveRememberedAccess(lastSaved.current);
   }, [user_id, current.state]);
 
-  return startingAnswer(previous, remembered.current, user_id, current);
+  return startingAnswer(previous, remembered, user_id, current);
 }

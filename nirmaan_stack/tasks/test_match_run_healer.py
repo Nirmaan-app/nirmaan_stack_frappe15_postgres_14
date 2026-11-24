@@ -80,3 +80,26 @@ class TestHeal(FrappeTestCase):
     def test_the_five_minute_cron_lists_it(self):
         cron = frappe.get_hooks("scheduler_events")["cron"]["*/5 * * * *"]
         self.assertIn("nirmaan_stack.tasks.match_run_healer.heal_stale_match_runs", cron)
+
+
+class TestLiveMatchOperations(FrappeTestCase):
+    """Since #1667 a match runs as a background operation: rq holds the wrapper `background_ops.run`, with the work
+    and its arguments inside. A live operation still protects its run."""
+
+    def test_a_match_queued_as_a_background_operation_is_live(self):
+        op = SimpleNamespace(id="localhost::op-a", kwargs={
+            "site": "localhost", "method": "nirmaan_stack.services.background_ops.run",
+            "kwargs": {"op_id": "op-a", "work": H.MATCH_WORKER,
+                       "work_kwargs": {"boq": "B1", "sheet_name": "S1", "run_name": "R1"}}})
+        other = SimpleNamespace(id="localhost::op-b", kwargs={
+            "site": "localhost", "method": "nirmaan_stack.services.background_ops.run",
+            "kwargs": {"op_id": "op-b", "work": "nirmaan_stack.api.boq.rate_master._suggest_worker",
+                       "work_kwargs": {"boq": "B2", "sheet_name": "S2"}}})
+        reg = SimpleNamespace(get_job_ids=lambda: [])
+        queue = SimpleNamespace(job_ids=["x"], started_job_registry=reg, deferred_job_registry=reg, connection=None)
+        with patch("frappe.utils.background_jobs.get_queue", return_value=queue), \
+                patch("rq.job.Job.fetch_many", return_value=[op, other]), \
+                patch.object(frappe.local, "site", "localhost"):
+            ids, keys = H._live_match_jobs()
+        self.assertEqual(ids, {"localhost::op-a"})
+        self.assertEqual(keys, {("B1", "S1")})

@@ -5,9 +5,9 @@
 
 PURE MODULE -- no `frappe`, no database. Spec #1585 "Re-opening old wrong skips", ADR-0015 Amendment B decision 8.
 Earlier imports skipped every Collect payment, refund and wallet credit as "Moves money between our own balances".
-When a new statement carries such a line and the new rules make it an open line or one line of a *Paired wallet
-refund*, the import re-opens THAT earlier line under the new rules (`api.outflow_import.cashbook._reopen_line`); it
-never stages a second line for it, and never creates an Expense.
+When a new statement carries such a line and the new rules act on it (a Collect payment the job creates, #1708; an
+open refund or wallet credit; one line of a *Paired wallet refund*), the import re-opens THAT earlier line under the
+new rules (`api.outflow_import.cashbook_reopen.reopen_lines`); it never stages a second line for it.
 
 HOW AN EARLIER COPY IS FOUND. By Txn Id and date (`duplicates.dates_agree`), and by amount: the same Debit for a
 Collect payment; for a refund or wallet credit its Credit, or 0, because the earlier import read no Credit and
@@ -67,8 +67,9 @@ def claim_wrong_skips(
 ) -> dict[int, EarlierWrongSkip]:
     """`{id(row): the earlier line it re-opens}` for the parsed `rows` of a statement.
 
-    `reopenable(row)` says whether the new rules, before any repeat test, make the row an open line (pairing may
-    then make it a *Paired wallet refund*, which is still a re-open). A row the new rules skip claims nothing.
+    `reopenable(row)` says whether the new rules, before any repeat test, create the row or make it an open line
+    (pairing may then make it a *Paired wallet refund*, which is still a re-open). A row the new rules skip claims
+    nothing.
     """
     by_id: dict[str, list[EarlierWrongSkip]] = {}
     for skip in wrong_skips:

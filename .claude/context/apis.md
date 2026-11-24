@@ -25,6 +25,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 | `data_table/` (new module) | Refactored data aggregation: `search.py`, `facets.py`, `aggregations.py`, `utils.py` |
 | `sidebar_counts.py` | Badge counts for navigation |
 | `get_project_reports.py` | Report generation |
+| `reports/audit_view.py` | Reports → Audit View: `get_audit_view_rows(view, tab, from_date, to_date)` (one tab's rows: `project` / `nonproject` × `orders` / `invoices` / `payments`) and `get_audit_view_summary(view, from_date, to_date)` (count and sums per tab, split by Against). Each tab is dated by its own date (created / invoice / payment). Refuses a profile outside `role_profiles.AUDIT_VIEW_PROFILES` (Admin, Accountant, Accountant Lead), the enforcement boundary; reads with `frappe.get_all`. Payment TDS is all recorded tax (Vendor- and Company-borne) from `payment_tds.paid_borne_tds_sql`, never the legacy `Project Payments.tds` box |
 
 ## Domain-Specific APIs
 
@@ -49,9 +50,10 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs, Material Test Certificates, Client Invoices, PO and WO Payment Vouchers
   - Every endpoint takes `project=` OR `vendor=` (exactly one; `_scope`). Project scope reads with `get_all`;
     vendor scope reads with `get_list` as the user, so User Permission-scoped users get only their projects
-  - Each download carries a browser-made `download_id` (never `job_id`: `frappe.enqueue` keeps that keyword) on
-    every event. An empty selection is refused, any job failure publishes `bulk_download_failed`, and
-    `cancel_bulk_download` stops a running job between documents
+  - Each download is a background operation (ADR 0047): every endpoint (POST) takes the browser-made `op_id` and
+    starts `bulk_download_op` through `services/background_ops`; the screen follows `api/background_ops.get_status`
+    and collects the PDF with `collect_result` (owner only). An empty selection is refused, a refusal fails the
+    operation in its own words, and `cancel_bulk_download(op_id)` (owner only) stops it between documents
   - Payment vouchers travel as PAYMENT names. WO (`download_selected_wo_payment_vouchers`): the uploaded
     `voucher_attachment` of Paid WO payments, read back by the job. PO (`download_selected_po_payment_vouchers`):
     PO payments have no upload, so the job GENERATES each Paid one's voucher from print format "SR Payment" (as the PO
@@ -117,6 +119,13 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
+  - `msme_autofill.extract_msme_fields(file_url, vendor_name, vendor_id)` - Document AI read of a Udyam (MSME)
+    certificate for the vendor form; persists nothing (see `domain/invoice-autofill.md`).
+    `msme_autofill.msme_duplicates(msme_id, vendor_id)` - other vendors with the same MSME ID (a warning).
+    Both need Vendors create or write permission
+- `material_test_certificates/mtc_api.py` - MTC reads (`get_mtcs`, `get_mtc_projects`) and writes
+  `create_mtc(procurement_order, items, attachment, certificate_date)` / `update_mtc`, so a Project Manager / Lead
+  (no create Role) can upload and edit their own; the controller decides (see `domain/material-test-certificates.md`)
 - `customers/` - Customer financials
   - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
     `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
@@ -128,7 +137,7 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 
 ### Master Data
-- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields
+- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields. Also carries the MSME fields (`msme_id`, `msme_attachment`, `autofill_all_entities_json`); `Vendors` validates them and attaches the certificate
 - `bank_details.py` - IFSC lookup (`generate_bank_details`; no caller in the app since #1432, the Payee module uses `services/payees/ifsc`)
 - `users.py` - User management (rename, etc.)
 - `items.py` - Items doctype with `on_update` hook syncing item_name and category to TDS Repository

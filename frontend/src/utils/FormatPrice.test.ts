@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatForReport, formatToRoundedIndianRupee } from "./FormatPrice";
+import { formatForReport, formatToCompactRupee, formatToRoundedIndianRupee } from "./FormatPrice";
 
 describe("rupee figures round to the nearest rupee (#1543, owner ruling Q30-A)", () => {
   it("rounds a figure with paise down when under half a rupee", () => {
@@ -30,5 +30,28 @@ describe("rupee figures round to the nearest rupee (#1543, owner ruling Q30-A)",
     expect(formatForReport(3061.22)).toBe(3061);
     expect(formatForReport(0.3)).toBe(0);
     expect(formatForReport(-0.3)).toBe(0);
+  });
+});
+
+describe("formatToCompactRupee: a short crore / lakh figure (the one owner, residence rule R1)", () => {
+  it("shortens to Cr and L and keeps small amounts whole", () => {
+    expect(formatToCompactRupee(32304860)).toBe("₹3.23 Cr");
+    expect(formatToCompactRupee(427800)).toBe("₹4.28 L");
+    expect(formatToCompactRupee(45000.4)).toBe("₹45,000");
+    expect(formatToCompactRupee(0)).toBe("₹0");
+  });
+  it("switches at exactly a lakh and a crore", () => {
+    expect(formatToCompactRupee(99999)).toBe("₹99,999");
+    expect(formatToCompactRupee(100000)).toBe("₹1.00 L");
+    expect(formatToCompactRupee(10000000)).toBe("₹1.00 Cr");
+  });
+  it("keeps the minus sign of a net-negative figure (credit notes)", () => {
+    expect(formatToCompactRupee(-1500)).toBe("-₹1,500");
+    expect(formatToCompactRupee(-250000)).toBe("-₹2.50 L");
+  });
+  it("treats null, undefined and NaN as 0", () => {
+    expect(formatToCompactRupee(null)).toBe("₹0");
+    expect(formatToCompactRupee(undefined)).toBe("₹0");
+    expect(formatToCompactRupee(Number.NaN)).toBe("₹0");
   });
 });

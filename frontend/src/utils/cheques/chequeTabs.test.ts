@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     CHEQUE_TRACKER_TAB,
     chequeTabFilters,
+    chequeTabFiltersFor,
     chequeTrackerTabOf,
     isInChequeTab,
     RECONCILIATION_PENDING_LEAVES_OUT,
@@ -76,5 +77,29 @@ describe("waitsInChequeTracker", () => {
 
     it("is the filter the Reconciliation Pending tab sends", () => {
         expect(RECONCILIATION_PENDING_LEAVES_OUT).toEqual(["cheque_status", "!=", "Issued"]);
+    });
+});
+
+describe("chequeTabFiltersFor", () => {
+    const TABS = [CHEQUE_TRACKER_TAB.ALL, CHEQUE_TRACKER_TAB.ISSUED, CHEQUE_TRACKER_TAB.DEPOSITS];
+
+    it("is exactly the tab's own filters on the Cheque Tracker page (no vendor)", () => {
+        for (const tab of TABS) expect(chequeTabFiltersFor(tab)).toEqual(chequeTabFilters(tab));
+    });
+
+    it("adds the vendor to every tab on the Vendor page, after the tab's own filters", () => {
+        for (const tab of TABS) {
+            expect(chequeTabFiltersFor(tab, "VEN-1")).toEqual([...chequeTabFilters(tab), ["vendor", "=", "VEN-1"]]);
+        }
+    });
+
+    it("treats a blank vendor as no vendor, so it never sends `vendor = ''` and empties the list", () => {
+        expect(chequeTabFiltersFor(CHEQUE_TRACKER_TAB.ALL, "")).toEqual(chequeTabFilters(CHEQUE_TRACKER_TAB.ALL));
+    });
+
+    it("never changes the tab's shared filter list", () => {
+        const before = JSON.stringify(chequeTabFilters(CHEQUE_TRACKER_TAB.ISSUED));
+        chequeTabFiltersFor(CHEQUE_TRACKER_TAB.ISSUED, "VEN-1").push(["status", "=", "Cleared"]);
+        expect(JSON.stringify(chequeTabFilters(CHEQUE_TRACKER_TAB.ISSUED))).toBe(before);
     });
 });

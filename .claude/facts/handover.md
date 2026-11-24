@@ -77,11 +77,12 @@ trunk-and-fragments plan tree are all GONE. Do not hunt for them.
 | `CLAUDE.md`, `frontend/CLAUDE.md` | 72.0 KB + 106.6 KB | Conventions AND invariants, in one file each. Auto-loaded. |
 | `.claude/context/domain/boq-backend.md` | 187.3 KB | Backend endpoints, doctypes, commit pipeline, slice changelog. On demand. |
 | `frontend/.claude/context/domain/boq-frontend.md` | 287.4 KB | All frontend surfaces in one file. On demand. |
-| `frontend/.claude/plans/boq-upload-plan.md` | 1.45 MB | Design spec + every as-built record, appended in order. The single live plan record. |
+| `frontend/.claude/plans/boq-upload-plan.md` | 4.25 MB | Design spec + every as-built record up to slice DU-3. A closed record: read by heading, never edited. |
+| `frontend/.claude/plans/boq-status.md` | under 200 lines | Where BoQ work stands now. Rewritten in place. |
 
-Both `_index.md` files are authoritative. **A new as-built record is appended to
-`boq-upload-plan.md` as a `## <title>` section** — there is no fragment, no index row and no
-write-once rule any more.
+Both `_index.md` files are authoritative. **No new as-built record is written to any doc:** what a commit built goes in its
+commit message, a lasting rule in the domain doc's Load-bearing invariants section, and current BoQ status in
+`boq-status.md`. `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on `boq-upload-plan.md`; it does not see a shell write.
 
 ### Deferred register — ⚠️ **8 items against a ceiling of 5. It is OVER.**
 

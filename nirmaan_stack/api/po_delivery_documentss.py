@@ -330,21 +330,27 @@ def update_po_delivery_documents(
 
 
 @frappe.whitelist()
-def get_project_po_delivery_documents(project_id):
+def get_project_po_delivery_documents(project_id, include_itm=0):
     """
-    Get all PO-parent delivery documents for a given Project,
-    enriched with attachment URLs and child table items.
+    Get the delivery documents for a given Project, enriched with attachment
+    URLs and child table items.
 
-    PO-only by design: the Material Usage tab and DN > DC reconciliation report
-    operate on POs and would mis-group ITM-parented rows. The
+    PO-only by default: the DN > DC reconciliation report operates on POs and
+    would mis-group ITM-parented rows, so the default
     `parent_doctype = "Procurement Orders"` filter excludes every ITM row.
+    `include_itm=1` (Material Usage tab) also returns ITM-parented rows, filed
+    against the ITM's target project; callers tell them apart by `parent_doctype`.
     Backfill patch ensures every legacy PO PDD has parent_doctype set.
     """
+    parent_doctypes = ["Procurement Orders"]
+    if frappe.utils.cint(include_itm):
+        parent_doctypes.append("Internal Transfer Memo")
+
     docs = frappe.get_all(
         "PO Delivery Documents",
         filters={
             "project": project_id,
-            "parent_doctype": "Procurement Orders",
+            "parent_doctype": ["in", parent_doctypes],
         },
         fields=_PDD_FIELDS,
         order_by="creation desc",

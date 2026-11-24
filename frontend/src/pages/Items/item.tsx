@@ -4,7 +4,8 @@ import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { Items } from "@/types/NirmaanStack/Items"
-import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useDocumentEventListener } from "@/lib/frappe"
 import { FilePenLine } from "lucide-react"
 import { useState } from "react"
 import { useParams, useLocation } from "react-router-dom"
@@ -75,7 +76,7 @@ const ItemView = ({ productId }: { productId: string }) => {
 
 
 
-    useFrappeDocumentEventListener("Items", productId, (event) => {
+    useDocumentEventListener("Items", productId, (event) => {
         console.log("Items document updated (real-time):", event);
         toast({
             title: "Document Updated",

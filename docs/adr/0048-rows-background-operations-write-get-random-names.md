@@ -25,3 +25,20 @@ with random names, the click finishing in 24.9 s against 48.2 s with one worker.
 The cost: these names are no longer in creation order and carry no year; nothing reads them that way today (no
 `order_by name`, no Link field, no screen shows them; the only stored copy, `BoQ Nodes.review_row_name`, is written
 and never read). The change goes through Frappe's doctype tooling, never a hand edit of the doctype JSON. The investigation's evidence is summarised in spec #1654.
+
+The clash needs only two overlapping transactions, so random names remove it for any number of `long` workers. The
+session lock serializes BoQ creation across all workers, so with N workers up to N-1 BoQ-creating operations may
+wait, each holding a worker (2026-11-18 re-triage).
+
+## Amendment (2026-11-19): three more doctypes, and how long a template create waits
+
+#1719 named three more doctypes by `hash` the same way, after the same reader search: Outflow Row Match, Expense Bill
+and Nirmaan Attachments. Their rows are written by background operations and by many web requests, which a lock
+held only by the operations would not cover. Nirmaan Attachments had been named in its controller
+(`ATT-<project>-` through `getseries`); that `autoname()` is gone, and the BoQ upload no longer takes the
+attachment-series lock #1659 had added. Nine doctypes are now named by `hash` in all; residence check N1 lists them.
+
+Creating a BoQ from a template takes the BoQ series lock in the web request, to insert the counted BoQ and start its
+clone operation (`api/boq/wizard/create_from_template`, `_BOQ_LOCK_WAIT_SEC`). An upload holds that lock for its
+whole run, so the request waits at most 15 seconds for it, then refuses with "Another BoQ is being created right
+now. Try again in a minute." A worker waits without limit.

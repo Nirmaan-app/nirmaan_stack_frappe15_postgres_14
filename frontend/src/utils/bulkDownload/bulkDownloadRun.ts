@@ -1,9 +1,33 @@
 /**
  * One bulk download as the progress window shows it -- shared by the Quick Download button and the
- * wizard. Pure: the hooks feed it the server's events, the window renders it.
+ * wizard. Pure: `followRun` turns the download's background operation (ADR 0047) as the shared hook
+ * sees it into what the window renders.
  */
-import { BulkDocType, TYPE_INFO } from "./bulkDownloadTypes";
-import type { BulkDownloadProgressEvent, BulkDownloadReadyEvent } from "./bulkDownloadEvents";
+import { isRecord, parseResultFile, type OpView } from "@/utils/backgroundOps/operationFollower";
+
+import { BULK_DOC_TYPES, BulkDocType, TYPE_INFO } from "./bulkDownloadTypes";
+
+/** The work's progress detail (`bulk_download_op`): `done` = finished documents, `current` = the PO /
+ *  WO starting now; `stage: "merging"` while the file is written. */
+export interface RunProgress {
+    done?: number;
+    total?: number;
+    current?: string | null;
+    stage?: "merging";
+}
+
+/** The finished file. `included` < `total` when some documents could not be added. */
+export interface RunReady {
+    filename: string;
+    included?: number;
+    total?: number;
+}
+
+/** What a download is started with, kept across a reload so the window can be drawn again. */
+export interface BulkRunContext {
+    type: BulkDocType;
+    details: string[];
+}
 
 /** queued: the request was accepted, the job has not started. preparing: documents are being added.
  *  merging: the file is being written. ready / failed: the window shows the outcome until closed. */
@@ -58,7 +82,7 @@ export const runDetails = (
 };
 
 /** A progress event. A finished run ignores a late one, so it never reopens. */
-export const applyProgress = (run: DownloadRun, e: BulkDownloadProgressEvent, now: number): DownloadRun => {
+export const applyProgress = (run: DownloadRun, e: RunProgress, now: number): DownloadRun => {
     if (!isWorking(run.status)) return run;
     const total = typeof e.total === "number" ? e.total : run.total;
     if (e.stage === "merging") {
@@ -75,7 +99,7 @@ export const applyProgress = (run: DownloadRun, e: BulkDownloadProgressEvent, no
     };
 };
 
-export const applyReady = (run: DownloadRun, e: BulkDownloadReadyEvent): DownloadRun => {
+export const applyReady = (run: DownloadRun, e: RunReady): DownloadRun => {
     const total = typeof e.total === "number" ? e.total : run.total;
     return {
         ...run, status: "ready", total, done: total ?? run.done, current: null,
@@ -85,6 +109,50 @@ export const applyReady = (run: DownloadRun, e: BulkDownloadReadyEvent): Downloa
 
 export const applyFailed = (run: DownloadRun, e: { message?: string }): DownloadRun =>
     ({ ...run, status: "failed", current: null, error: e.message || FAILED_FALLBACK });
+
+const numberOrUndefined = (value: unknown) => (typeof value === "number" ? value : undefined);
+
+/** The context a download was started with, or null when it is not one (an older tab's slot). */
+export const parseRunContext = (value: unknown): BulkRunContext | null => {
+    if (!isRecord(value) || !Array.isArray(value.details)) return null;
+    const type = BULK_DOC_TYPES.find((t) => t === value.type);
+    return type ? { type, details: value.details.map(String) } : null;
+};
+
+const progressOf = (detail: Record<string, unknown> | undefined): RunProgress => ({
+    done: numberOrUndefined(detail?.done),
+    total: numberOrUndefined(detail?.total),
+    current: typeof detail?.current === "string" ? detail.current : null,
+    stage: detail?.stage === "merging" ? "merging" : undefined,
+});
+
+/**
+ * The window for the operation the hook follows: `view` and `context` are the hook's, `run` the
+ * window so far (it keeps the clock the time left is read from). Null when no download is followed.
+ */
+export const followRun = (run: DownloadRun | null, view: OpView, context: unknown, now: number): DownloadRun | null => {
+    const ctx = parseRunContext(context);
+    if (view.phase === "idle" || !ctx) return null;
+    const base = view.phase === "starting" || !run || run.type !== ctx.type ? startRun(ctx.type, ctx.details) : run;
+    switch (view.phase) {
+        case "starting":
+        case "queued":
+            return base;
+        case "running":
+            return applyProgress(base, progressOf(view.progress?.detail), now);
+        case "finished": {
+            const result = isRecord(view.result) ? view.result : {};
+            return applyReady(base, {
+                filename: parseResultFile(view.result)?.filename ?? "",
+                included: numberOrUndefined(result.included),
+                total: numberOrUndefined(result.total),
+            });
+        }
+        case "failed":
+        case "lost":
+            return applyFailed(base, { message: view.error });
+    }
+};
 
 /** Documents the file is missing (0 when the server did not say). */
 export const missingCount = (run: DownloadRun): number =>

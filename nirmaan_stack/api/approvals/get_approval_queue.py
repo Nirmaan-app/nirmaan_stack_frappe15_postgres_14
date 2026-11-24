@@ -44,7 +44,7 @@ from nirmaan_stack.services.expense_bills.bill_list import EXPENSE_DOCTYPES, lat
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
-    required_tier,
+    shown_tier,
 )
 
 MAX_PAGE_LENGTH = 500
@@ -71,9 +71,9 @@ SOURCE_NON_PROJECT = "Non-Project"
 # export and the bulk engines all branch on it -- so this is an extra column, not a rename.
 TYPE_PO_PAYMENT = "PO Payment"
 TYPE_SR_PAYMENT = "SR Payment"
-# A Non-Project Expense created from an approved Reimbursement (ADR-0040): its `reimbursement` is set. Its
-# `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
-TYPE_REIMBURSEMENT = "Reimbursement"
+# A Non-Project Expense created from an approved Reimbursement (ADR-0040, `reimbursement` set) is NOT in this
+# queue: every step of a claim is on the Reimbursements page (Amendment C, owner 2026-11-18), so the
+# Non-Project branch leaves it out (`_expense_select`), and with it every tab, count, facet and export here.
 
 # The Type filter's narrower options (owner, 2026-10-31): FILTER values only, never a row's `source_type`.
 # Each is "<type>:<detail>": a WO payment of the GST only (ADR-0030), a PO payment by cheque, a PO payment on
@@ -199,6 +199,9 @@ def _payments_select():
             COALESCE(p."document_type", '')::text AS document_type,
             NULL::date                      AS reconciled_on,
             COALESCE(p."auto_approved", 0)  AS auto_approved,
+            -- No import creates a payment (#1710). ⚠️ POSITIONAL: right after `auto_approved` in
+            -- `_expense_select` too.
+            0                               AS imported,
             -- How many live bank lines settle this payment -- it offers the same
             -- Bank lines card an expense does. The same live-slip join as the
             -- expense ledgers; a part-reconciled split family's members are given the
@@ -299,18 +302,18 @@ def _expense_select(table, source, project_col):
         requested_expr = f'COALESCE(t."bill_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT
-    # `Non Project Expenses.reimbursement` arrives with `bench migrate`, which every deploy runs before this
-    # code serves (code review finding 10: no per-load column check that would hide a failed migrate).
-    source_type_expr = (
-        f"CASE WHEN COALESCE(e.\"reimbursement\", '') <> '' THEN '{TYPE_REIMBURSEMENT}' ELSE '{source}' END"
-        if source == SOURCE_NON_PROJECT
-        else f"'{source}'"
-    )
+    # The import markers (#1710): a Cashbook spend's `cashbook_batch` on both ledgers, a card spend's
+    # `credit_card_statement` on Non-Project only (a Project Expense has no such field).
+    markers = ['"cashbook_batch"', *(['"credit_card_statement"'] if source == SOURCE_NON_PROJECT else [])]
+    imported_expr = f"""CASE WHEN {" OR ".join(f"COALESCE(e.{m}, '') <> ''" for m in markers)} THEN 1 ELSE 0 END"""
+    # A reimbursement's expense is worked on the Reimbursements page only (ADR-0040 Amendment C): left out here,
+    # so every reader of this union (the tabs, `get_approval_queue_counts`, the facets, the export) drops it.
+    only_ordinary = 'WHERE COALESCE(e."reimbursement", \'\') = \'\'' if source == SOURCE_NON_PROJECT else ""
     return f"""
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
-            {source_type_expr}              AS source_type,
+            '{source}'                      AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,
@@ -338,6 +341,9 @@ def _expense_select(table, source, project_col):
             ''::text                        AS document_type,
             NULL::date                      AS reconciled_on,
             COALESCE(e."auto_approved", 0)  AS auto_approved,
+            -- 1 when an import created this Expense (#1710): it carries its import's marker, so its Tier reads
+            -- SYSTEM (`approval_tiers.shown_tier`).
+            {imported_expr}                 AS imported,
             -- How many live bank lines settle this expense (ADR-0027 R5, #1303).
             -- It decides ONLY whether the Against cell offers the Bank lines card:
             -- an expense no line has reached shows no trigger, so nobody opens a
@@ -376,6 +382,7 @@ def _expense_select(table, source, project_col):
         {tds_join}
         {linked_join}
         {source_join}
+        {only_ordinary}
     """
 
 
@@ -455,8 +462,7 @@ def _type_detail_clause(value):
         return f'(q."source_type" = %s AND q."mode_of_payment" = %s)', [TYPE_PO_PAYMENT, TYPE_DETAIL_CHEQUE]
     if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CREDIT_CHEQUE:
         return '(q."source_type" = %s AND q."credit_payment_cheque" = 1)', [TYPE_PO_PAYMENT]
-    # An expense type. "Non-Project:<type>" leaves the reimbursements out: Non Project – Reimbursement is
-    # their own option.
+    # An expense type.
     if base in (SOURCE_PROJECT_EXPENSE, SOURCE_NON_PROJECT) and detail:
         return '(q."source_type" = %s AND q."expense_type" = %s)', [base, detail]
     frappe.throw(_("Unsupported Type filter: {0}").format(value))
@@ -465,15 +471,12 @@ def _type_detail_clause(value):
 def _type_clause(op, value):
     """A Type filter -> (sql, params): the picked options OR'd together, the whole negated for "not in".
 
-    Naming Non-Project also names Reimbursement: a reimbursement's expense IS a Non-Project Expense (ADR-0040),
-    shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not drop it, and
-    leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims. A narrower
-    option ("SR Payment:GST", "Project Expense:Petty Cash") reads its own columns (`_type_detail_clause`)."""
+    A narrower option ("SR Payment:GST", "Project Expense:Petty Cash") reads its own columns
+    (`_type_detail_clause`). A stale saved "Reimbursement" names no row any more (ADR-0040 Amendment C): it
+    matches nothing, never an error."""
     # A non-string (a stale saved `null`, a number) names no type: dropped, so it matches nothing, never a 500.
     values = [v for v in (value if isinstance(value, (list, tuple)) else [value]) if isinstance(v, str)]
     whole = [v for v in values if TYPE_DETAIL_SEP not in v]
-    if SOURCE_NON_PROJECT in whole and TYPE_REIMBURSEMENT not in whole:
-        whole.append(TYPE_REIMBURSEMENT)
     parts, params = [], []
     if whole:
         parts.append(f'q."source_type" IN ({", ".join(["%s"] * len(whole))})')
@@ -673,7 +676,11 @@ def get_approval_queue(
         # then made a Rs 40,000 expense read `L1` -- "your approval finishes this" --
         # while the approval it triggered forwarded it to the CEO. Keeping the
         # per-source lookup means a future split cannot reopen that gap.
-        r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
+        #
+        # An Expense an import created reads SYSTEM at any amount (#1710): it was born Paid through no gate.
+        r["tier"] = shown_tier(
+            flt(r.get("amount")), _l2_line_for(r.get("source")), imported=bool(cint(r.pop("imported", 0)))
+        )
         r["amount"] = flt(r.get("amount"))
         # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541), from the union.
         r["requested_amount"] = flt(r.get("requested_amount"), 2)
@@ -748,7 +755,7 @@ def get_approval_queue_counts():
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in
 # Python from the amount, not stored, so there is nothing in SQL to group by --
-# and a closed 3-value set needs no server round trip anyway.
+# and a closed 4-value set (the three amount tiers and SYSTEM, #1710) needs no server round trip anyway.
 FACETABLE = {
     "source", "source_type", "status", "vendor", "project", "doctype", "expense_type", "raised_by", "payment_source",
 }
@@ -831,19 +838,7 @@ def _type_facet(union, where, params):
     blank = sum(cint(r["cnt"]) for r in types if not (r["value"] or "").strip())
     return {
         "field": "source_type",
-        "values": _count_reimbursements_as_non_project(values) + details,
+        "values": values + details,
         "blank_count": blank,
     }
 
-
-def _count_reimbursements_as_non_project(values):
-    """The Type facet's Non-Project count includes the reimbursement rows, as its filter does
-    (`_type_clause`); the Reimbursement count stays, a part of it."""
-    claims = sum(v["count"] for v in values if v["value"] == TYPE_REIMBURSEMENT)
-    if not claims:
-        return values
-    if not any(v["value"] == SOURCE_NON_PROJECT for v in values):
-        values = values + [{"value": SOURCE_NON_PROJECT, "count": 0}]
-    values = [{**v, "count": v["count"] + claims} if v["value"] == SOURCE_NON_PROJECT else v for v in values]
-    # Largest first, as the SQL orders them; on a tie Non-Project leads the Reimbursement it contains.
-    return sorted(values, key=lambda v: (-v["count"], v["value"] != SOURCE_NON_PROJECT))

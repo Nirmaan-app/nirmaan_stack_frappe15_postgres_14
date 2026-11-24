@@ -67,7 +67,7 @@ export interface OutflowImportRowDocType {
 	/** Skip Origin : Select */
 	skip_origin?: "" | "System" | "Manual" | null
 	/** Skip Kind : Select */
-	skip_kind?: "" | "Already imported" | "Repeated in same file" | "Bank refused" | "No amount" | "Outflow Already Recorded" | "Inflow Already Recorded" | "Cashfree wallet top-up" | "Cashbook wallet top-up" | "Porter wallet top-up" | "Wallet money returned" | "Bank internal transfer" | "Failed payment bounced back" | "Bank card rounding (₹2)" | "Credit card bill payment" | "Credit card auto-debit" | "Cashbook internal movement" | "Skipped by hand" | "Porter order cancelled" | "Card payment received" | "Card cashback" | "Card refund pair" | "Paired wallet refund" | "Unknown Cashbook type" | null
+	skip_kind?: "" | "Already imported" | "Repeated in same file" | "Bank refused" | "No amount" | "Outflow Already Recorded" | "Inflow Already Recorded" | "Failed payment bounced back" | "Bank card rounding (₹2)" | "Skipped by hand" | "Porter order cancelled" | "Card payment received" | "Card cashback" | "Card refund pair" | "Paired wallet refund" | "Unknown Cashbook type" | null
 	/** Outcome Note : Text */
 	outcome_note?: string | null
 	/** Duplicate Basis : JSON */

@@ -211,9 +211,9 @@ class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
     Batches A and B are staged from one plan (two overlapping confirms that planned together). B's twin of one
     Txn Id is workable by hand, and a person Links it to an existing expense while A's job runs.
 
-    WHERE THE RACE BITES. Every match insert takes the `OFM-.YY.-` naming-series row `FOR UPDATE`, so two
-    transactions that OVERLAP and both insert a match row are serialised by accident: the later one fails with
-    a serialization failure (the two last tests). The double booking needs the Link to commit while the job
+    WHERE THE RACE BITES. Until #1719 every match insert took the `OFM-.YY.-` naming-series row `FOR UPDATE`, so
+    two transactions that OVERLAP and both insert a match row were serialised by accident; match rows are named
+    by `hash` now, and the index alone refuses the later one (the two last tests). The double booking needs the Link to commit while the job
     runs but before the job's transaction for that line begins -- the person acts on a line the job has listed
     and not reached yet (the first test). Before #1601 the job then created a second Expense: the Link's match
     row (`created_by_import` 0) was outside the one-Expense-per-Txn-Id index. #1601: the index covers a
@@ -239,7 +239,8 @@ class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
         self.addCleanup(_purge, self.a)
         pending = frappe.get_all(
             "Outflow Import Row",
-            filters={"import_batch": self.b, "row_status": "Pending match run"},
+            # A spend: a Link takes only a debit, and the sample's wallet credit is created too since #1720.
+            filters={"import_batch": self.b, "row_status": "Pending match run", "direction": ["is", "not set"]},
             fields=["name", "transfer_id"],
             order_by="name asc",
         )

@@ -17,12 +17,17 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
   - An MTC can be uploaded, edited or deleted on a **Billable** PO in any status **except Merged, Cancelled and
     Inactive** (owner ruling Q39, which replaced "Partially Delivered / Delivered only").
   - If only one side changes, the screen offers buttons the server refuses, or hides buttons it would allow.
-- **The controller is the only enforcement**, for every write path: the SDK create, `update_mtc`, Desk and delete.
-  The file is `integrations/controllers/material_test_certificate.py`, with `validate` and `on_trash`.
-  - The role gate is the **profile** check `role_profiles.can_manage_mtc`: Admin, PMO and all four Procurement
-    profiles.
+- **The controller is the only enforcement**, for every write path: `create_mtc`, `update_mtc`, the SDK, Desk and
+  delete. The file is `integrations/controllers/material_test_certificate.py`, with `validate` and `on_trash`.
+  - The role gates are **profile** checks in `role_profiles` (owner, 2026-11-19):
+    - **upload** `can_upload_mtc`: Admin, PMO, all four Procurement profiles, **Project Manager and Project Lead**;
+    - **edit** `can_edit_mtc(user, owner)`: a manager edits any MTC; a PM / PL only one **they uploaded**, judged by
+      the **stored** `owner` (the incoming doc's `owner` is whatever the caller sent);
+    - **delete** `can_manage_mtc`: managers only. A PM / PL never deletes, not even their own.
   - The doctype's Role rows cannot say this: `System Manager` and `Nirmaan Procurement Executive` also ride on the
-    Project Lead profile, which must not change MTCs.
+    Project Lead profile, and PM / PL hold no create Role at all. So a PM / PL upload goes through the `create_mtc`
+    endpoint (`ignore_permissions`, the controller still checks), and a PM / PL edit through `update_mtc`, which keeps
+    Frappe's own write check for managers.
 - **One PO line per MTC per PO.**
   - A line is `(item_id, make)`, built by `mtc_rules.line_key`.
   - `validate` locks the PO row (`SELECT … FOR UPDATE`) before checking other MTCs, so two uploads at the same
@@ -41,9 +46,12 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
     means nothing**, deliberately stricter than Frappe's default of "everything".
   - `has_role_profile` also matches Role names, and Administrator holds every Role, including ones named like the
     PM and PL profiles. Through that helper, Administrator would be scoped down to nothing.
-- **Project assignment does not gate the upload.** Frappe checks create permission before `validate` copies the
-  project from the PO, so a buyer's project restrictions never see it. DC/MIR behaves the same way, because its
-  endpoint skips permissions entirely. The PO page itself is the project gate.
+- **A PM / PL writes only on their assigned projects; managers are not project-gated.**
+  - For a PM / PL, `validate` refuses a PO whose project is not in `mtc_allowed_projects` (no rows means nowhere),
+    on upload and on edit.
+  - For managers, project assignment still does not gate the upload. Frappe checks create permission before
+    `validate` copies the project from the PO, so a buyer's project restrictions never see it. DC/MIR behaves the
+    same way, because its endpoint skips permissions entirely. The PO page itself is their project gate.
 - **Files are never removed from cloud storage by MTC code.**
   - **Delete** does what the DC/MIR delete does: a raw `frappe.db.delete("File", {file_url, attached_to_name: po})`,
     which skips `File.on_trash` and so keeps the cloud object (owner ruling Q34).
@@ -95,19 +103,20 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
 **DocPerm:**
 - Read: every role that reads Procurement Orders.
 - Create, write and delete: System Manager, PMO, Procurement Executive and Procurement Lead roles.
-- The profile check above is what actually decides.
+- The profile checks above are what actually decide. PM / PL have no create or write Role; their writes go
+  through `create_mtc` / `update_mtc`, never the SDK.
 
 ## Where the code lives
 
 | Piece | File |
 |---|---|
 | Line and status rules (pure) | `nirmaan_stack/services/mtc_rules.py` |
-| Role constants and `can_manage_mtc` | `nirmaan_stack/services/role_profiles.py` (`MTC_MANAGE_PROFILES`, `MTC_PROJECT_SCOPED_PROFILES`) |
+| Role constants and gates | `nirmaan_stack/services/role_profiles.py` (`MTC_MANAGE_PROFILES`, `MTC_PROJECT_SCOPED_PROFILES`, `MTC_UPLOAD_PROFILES`; `can_manage_mtc`, `can_upload_mtc`, `can_edit_mtc`) |
 | Controller (`validate`, `on_trash`, `delete_mtcs_for_po`) | `nirmaan_stack/integrations/controllers/material_test_certificate.py`, wired in `hooks.py` |
-| Endpoints `get_mtcs`, `get_mtc_projects`, `update_mtc` | `nirmaan_stack/api/material_test_certificates/mtc_api.py` |
+| Endpoints `get_mtcs`, `get_mtc_projects`, `create_mtc`, `update_mtc` | `nirmaan_stack/api/material_test_certificates/mtc_api.py` |
 | Tests | `nirmaan_stack/nirmaan_stack/doctype/material_test_certificate/test_material_test_certificate.py` |
 | Rules, client copy (+ vitest) | `frontend/src/utils/mtc.ts`, `mtc.test.ts` |
-| Role constants, client copy | `frontend/src/constants/roles.ts` (`MTC_MANAGE_PROFILES`, `canManageMTC`, `MTC_PAGE_PROFILES`) |
+| Role constants, client copy (+ vitest) | `frontend/src/constants/roles.ts` (`MTC_MANAGE_PROFILES`, `MTC_UPLOAD_PROFILES`, `canManageMTC`, `canUploadMTC`, `canEditMTC`, `MTC_PAGE_PROFILES`), `roles.test.ts` |
 | PO page card, dialog, tables | `frontend/src/pages/MaterialTestCertificates/components/` |
 | List page and hooks | `frontend/src/pages/MaterialTestCertificates/` (`MaterialTestCertificates.tsx`, `hooks/useMTCs.ts`, `hooks/useMTCMutations.ts`) |
 | Hook-up points | `DocumentAttachments.tsx` (card), `PODetails.tsx` (`UploadMTCButton` in the action row), `PurchaseOrder.tsx` ("MTCs: n"), `dashboard-pm.tsx`, `dashboard-pl.tsx`, `routesConfig.tsx` (`RoleRoute` for PM and PL) |
@@ -121,9 +130,10 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
 - The PO header count, the card and both Upload buttons share the SWR key `mtcPoKey(po)`, so they make one fetch.
 
 **Writes:**
-- Create: upload the file (attached to the PO, private), then the SDK `createDoc`.
+- Create: upload the file (attached to the PO, private), then the `create_mtc` endpoint (every profile, so a PM /
+  PL without a create Role can upload).
 - Edit: `update_mtc`.
-- Delete: the SDK `deleteDoc`.
+- Delete: the SDK `deleteDoc` (managers only).
 
 ## Screens
 
@@ -135,8 +145,9 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
     `UploadMTCButton`, shown in two places with the same rule: the card header, and the PO summary card's action
     row (`PODetails.tsx`). In the action row it sits outside the DC/MIR/Invoice group, which hides on PO Approved,
     because MTCs are allowed there.
-  - Upload, Edit and Delete appear only for the managing profiles, and only under the status rule. Otherwise the
-    card is read-only.
+  - Everything is under the status rule. Upload appears for `canUploadMTC` (managers, PM, PL). Per row, Edit
+    appears for `canEditMTC` (managers on any row, a PM / PL on rows they uploaded) and Delete only for managers.
+    Anyone else sees the card read-only (View).
   - Columns: S.No · Certificate Date · Uploaded On · Items · Uploaded By · Actions.
   - **Upload / Edit dialog**, in this order:
     - The title, with PO number and vendor under it.

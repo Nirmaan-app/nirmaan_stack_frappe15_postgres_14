@@ -4,7 +4,7 @@
 
     run_match(run_name, *, only_rows=None, resume=False, client=None, card_client=None, progress=None) -> summary
 
-Called by the match job (api/boq/rate_match._match_worker). Steps, each timed:
+Called by the match operation's work (api/boq/rate_match._match_worker). Steps, each timed:
   1. job_pool       THE POOL RULE (DEV2-B8 S1, below): a run NEVER builds the pool and NEVER queues a rebuild. A
                     cached pool file is USED as it is - a stale one too, noted "pool stale" in usage.pool with the
                     stamp it used; with no usable file the run asks nothing and every row says "pool not ready"
@@ -85,9 +85,12 @@ class _Progress:
     """Wraps the judge's client: each landed reply marks its target's rows done (a BoQ's identical rows count as
     one call). The content -> rows map is built from the requests; no model call happens here.
 
-    ⚠️ It only COUNTS. It runs on the call runner's own threads, where frappe.local (frappe.db, the cache, realtime)
-    is not bound: touching it there raised "object is not bound", which the runner read as a connection error and
-    stopped the run (DEV2-B4 S4 attempt 1). The job's main thread reads `done` and reports it (_judge_with_progress)."""
+    ⚠️ It only COUNTS. `create` runs on the call runner's per-call threads (call_runner._Run._send), which start with
+    a fresh context, so frappe.local (frappe.db, the cache, realtime) is not bound there. (The judge thread that
+    starts them runs in a copy of the RQ job's context, see _judge_with_progress; the per-call threads do not inherit
+    it.) Touching frappe.local there raised "object is not bound", which the runner read as a connection error and
+    stopped the run (DEV2-B4 S4 attempt 1). The RQ job's main thread reads `done` and reports it
+    (_judge_with_progress)."""
 
     def __init__(self, client, rows_by_content, done_before):
         import threading
@@ -103,8 +106,10 @@ class _Progress:
 
 
 def _judge_with_progress(judge, wrapped, report, every_s=2.0):
-    """Run `judge()` (which touches no frappe state) on its own thread; the CALLER's thread - the one frappe is bound
-    to - reports wrapped.done as it moves. Re-raises the judge's error."""
+    """Run `judge()` on its own thread; the CALLER's thread - the one frappe is bound to - reports wrapped.done as it
+    moves. Re-raises the judge's error. The judge thread runs in a copy of the caller's context, so it can read the
+    site's cache key for the site-wide AI call slots (#1718); it touches no other frappe state."""
+    import contextvars
     import threading
     box = {}
 
@@ -114,7 +119,7 @@ def _judge_with_progress(judge, wrapped, report, every_s=2.0):
         except BaseException as exc:  # noqa: BLE001 -- re-raised on the caller's thread below
             box["err"] = exc
 
-    th = threading.Thread(target=go, daemon=True)
+    th = threading.Thread(target=contextvars.copy_context().run, args=(go,), daemon=True)
     th.start()
     last = None
     while th.is_alive():
@@ -133,7 +138,7 @@ POOL_NOT_READY = "pool not ready"   # the prefix the page maps to "Earlier BoQs 
 
 def job_pool(path=None):
     """THE POOL RULE for a user's match run. DEV2-B8 S1 (owner 2026-11-06 12:41 "can we also do this at 6Am everyday
-    rather than run time"; 12:42 "yes"; production runs ONE worker for every queue, and a build there takes ~20 min)
+    rather than run time"; 12:42 "yes"; a build on production takes ~20 min and holds one of its N `long` workers)
     REPLACES DEV2-B6's "queue ONE background rebuild": a user's run NEVER builds the pool and NEVER queues a rebuild.
       fresh and current   used as is.
       STALE               its pricing stamp is no longer current, or the file is older than 24 h: USED as it is; the

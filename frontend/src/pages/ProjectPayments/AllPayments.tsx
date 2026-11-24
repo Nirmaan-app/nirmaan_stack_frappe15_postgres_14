@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener, useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -24,13 +25,15 @@ import {
     ApprovalTab,
     TAB_COLUMNS,
     TAB_DEFAULT_SORT,
+} from "./config/approvalsTable.config";
+import {
     BY_ME_VIEWS,
     BY_ME_VIEW_COLUMNS,
     BY_ME_VIEW_SORT,
     ByMeView,
     byMeViewFilters,
     byMeViewStateTab,
-} from "./config/approvalsTable.config";
+} from "./config/byMeViews.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "./config/approvalColumns";
 import { useApprovalQueueExport } from "./hooks/useApprovalQueueExport";
 import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./update-payment/UpdatePaymentDialog";
@@ -161,6 +164,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     // "Payment Raised By Me" → All / Paid / Rejected (2026-11-12). Every other tab is unaffected.
     const isByMe = tab === PP_TABS.PAYMENT_BY_ME;
+    const approvalTab = tab as ApprovalTab;
     const view: ByMeView = isByMe ? (byMeView ?? BY_ME_VIEWS.ALL) : BY_ME_VIEWS.ALL;
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
@@ -376,7 +380,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     }, [projectMap, vendorLabelMap, togglePaymentDialog]);
 
     const columnCtx = useMemo<ApprovalColumnCtx>(() => ({
-        tab: tab as ApprovalTab,
+        tab: approvalTab,
         projectLabels: projectMap,
         vendorLabels: vendorLabelMap,
         userLabels: userLabelMap,
@@ -408,7 +412,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     ]);
 
     const columns = useMemo(() => {
-        const ids = isByMe ? BY_ME_VIEW_COLUMNS[view] : TAB_COLUMNS[tab as ApprovalTab];
+        const ids = isByMe ? BY_ME_VIEW_COLUMNS[view] : TAB_COLUMNS[approvalTab];
         // On the settled and mixed-status tabs the Actions column holds ONLY the expense Edit
         // pencil (plus, on the Paid tab, Upload Invoice -- Admin, Accounts and HR, `canUploadInvoiceRow`),
         // so for anyone who cannot edit it would be an empty column with a header. Drop it
@@ -457,7 +461,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         fetchFields: APPROVAL_FETCH_FIELDS,
         searchableFields: APPROVAL_SEARCHABLE_FIELDS,
         urlSyncKey: urlSyncKey,
-        defaultSort: isByMe ? BY_ME_VIEW_SORT[view] : TAB_DEFAULT_SORT[tab as ApprovalTab],
+        defaultSort: isByMe ? BY_ME_VIEW_SORT[view] : TAB_DEFAULT_SORT[approvalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
@@ -491,7 +495,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
     //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
+    // `useServerDataTable` ends with `useDocTypeEventListener(doctype, ...)`
     // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
     // changed EXPENSE never reaches it, even though expense rows are in this table.
     // These two listeners close that gap for both expense ledgers.
@@ -499,8 +503,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // (An earlier attempt invalidated by SWR key instead. That was dead code: this
     // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
     // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+    useDocTypeEventListener("Project Expenses", () => refetch());
+    useDocTypeEventListener("Non Project Expenses", () => refetch());
     usePublishRefetch(refetchRef, refetch);
 
     const handleConfirmDelete = useCallback(async () => {

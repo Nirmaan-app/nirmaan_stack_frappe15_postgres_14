@@ -1,33 +1,38 @@
 {
   "b1_pure_module_purity": {
     "count": 0,
-    "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
+    "description": "Database reads through frappe (db, qb, get_all, get_doc, get_cached_value, ...) inside declared PURE_MODULES (a pure module must have none).",
     "rule": "B1"
-  },
-  "b2_predicate_literal_scatter": {
-    "count": 7,
-    "description": "Files hardcoding the \"Vendor Selected\" state literal instead of importing the shared predicate.",
-    "rule": "B2"
   },
   "b3_workflow_state_writers": {
     "count": 40,
     "description": "Lines that assign workflow_state in api/ + integrations/ (state should be derived, not written ad-hoc).",
     "rule": "B3"
   },
-  "f2_inline_json_parse_pages": {
-    "count": 168,
-    "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
-    "rule": "F2"
-  },
-  "f5_raw_updatedoc_files": {
-    "count": 89,
-    "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
-    "rule": "F5"
+  "d1_disable_comments_unfrozen": {
+    "count": 0,
+    "description": "Frontend files and rules with more lint disable comments for an ADR-0049 rule (or naming no rule) than frozen in frontend/disable-comment-suppressions.json.",
+    "rule": "D1"
   },
   "j1_json_calls_unfrozen": {
     "count": 0,
     "description": "Frontend files whose .json() calls differ from their frozen count in frontend/json-call-suppressions.json.",
     "rule": "J1"
+  },
+  "l1_raw_listener_hooks": {
+    "count": 0,
+    "description": "Frontend lines naming the SDK's useFrappeEventListener, useFrappeDocumentEventListener or useFrappeDocTypeEventListener outside src/lib/frappe.ts.",
+    "rule": "L1"
+  },
+  "l2_socket_listeners_unfrozen": {
+    "count": 0,
+    "description": "Frontend files whose raw socket listeners (socket.on / socket.off for an event other than the connection's own) outside frontend/src/hooks/useBackgroundOperation.ts, frontend/src/lib/frappe.ts, frontend/src/services/socketListeners.ts differ from their frozen count in frontend/socket-listener-suppressions.json.",
+    "rule": "L2"
+  },
+  "n1_counted_names_on_background_doctypes": {
+    "count": 0,
+    "description": "Doctypes in BACKGROUND_WRITTEN_DOCTYPES that take a counted name (a tabSeries number from the doctype's autoname or its controller's getseries / make_autoname) and are not in COUNTED_NAME_WAITING.",
+    "rule": "N1"
   },
   "p1_payment_sum_copies": {
     "count": 2,
@@ -39,13 +44,18 @@
     "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
     "rule": "P1"
   },
+  "q1_raw_enqueues_unfrozen": {
+    "count": 0,
+    "description": "Backend files whose raw job enqueues (frappe.enqueue / enqueue_doc, RQ's enqueue_call) outside nirmaan_stack/services/background_ops.py differ from their frozen count in scripts/raw-enqueue-suppressions.json.",
+    "rule": "Q1"
+  },
   "r1_rupee_formatters": {
     "count": 9,
     "description": "Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
     "rule": "R1"
   },
   "s1_oversized_files": {
-    "count": 319,
+    "count": 318,
     "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
     "rule": "S1"
   },
@@ -58,5 +68,10 @@
     "count": 0,
     "description": "Lines in test_*.py calling freeze_time( (FrappeTestCase.freeze_time needs freezegun, which the dev bench does not install).",
     "rule": "T2"
+  },
+  "w1_walks_not_graduated": {
+    "count": 0,
+    "description": "Gaps in the graduation of merged PR walks (.claude/skills/pr-walk/bin/walk_pr_<n>.py): a claimed change with no walk or skip reason in .claude/skills/verify/features/graduated.json, or a named walk that is missing, unlisted in the features README, bound to a PR env, or without a passing Last walked stamp in its feature file.",
+    "rule": "W1"
   }
 }

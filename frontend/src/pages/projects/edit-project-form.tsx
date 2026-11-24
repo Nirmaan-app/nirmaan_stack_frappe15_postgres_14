@@ -15,9 +15,7 @@ import { formatToLocalDateTimeString } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import {
-  useFrappeDocTypeEventListener,
-} from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import {
   Building2,
   CalendarIcon,
@@ -313,7 +311,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
   const { gstOptions, isLoading: gst_isLoading, error: gst_error } = useGstOptions();
 
-  useFrappeDocTypeEventListener("Project Types", async () => {
+  useDocTypeEventListener("Project Types", async () => {
     await project_types_mutate();
   });
 

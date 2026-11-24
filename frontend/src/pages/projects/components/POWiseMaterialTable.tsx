@@ -83,12 +83,18 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
   // --- Sort & Filter State (self-contained) ---
   const [sortKey, setSortKey] = React.useState<POWiseSortKey | null>(null);
   const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc'>('asc');
+  const [typeFilter, setTypeFilter] = React.useState<Set<string>>(new Set());
   const [vendorFilter, setVendorFilter] = React.useState<Set<string>>(new Set());
   const [deliveryStatusFilter, setDeliveryStatusFilter] = React.useState<Set<string>>(new Set());
   const [paymentStatusFilter, setPaymentStatusFilter] = React.useState<Set<string>>(new Set());
   const [billingCategoryFilter, setBillingCategoryFilter] = React.useState<Set<string>>(new Set());
 
   // --- Filter Option Lists (derived from data) ---
+  const typeOptions = React.useMemo(() => {
+    const unique = new Set(items.map(i => i.type));
+    return (["PO", "ITM"] as const).filter(t => unique.has(t)).map(t => ({ label: t, value: t }));
+  }, [items]);
+
   const vendorOptions = React.useMemo(() => {
     const unique = new Set(items.map(i => i.vendorName).filter(Boolean));
     return Array.from(unique).sort().map(v => ({ label: v, value: v }));
@@ -138,7 +144,12 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
       );
     }
 
-    // 2. Vendor filter
+    // 2. Type (PO / ITM) filter
+    if (typeFilter.size > 0) {
+      result = result.filter(item => typeFilter.has(item.type));
+    }
+
+    // 2b. Vendor filter
     if (vendorFilter.size > 0) {
       result = result.filter(item => vendorFilter.has(item.vendorName));
     }
@@ -172,7 +183,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     }
 
     return result;
-  }, [items, searchTerm, vendorFilter, deliveryStatusFilter, paymentStatusFilter, billingCategoryFilter, sortKey, sortDirection]);
+  }, [items, searchTerm, typeFilter, vendorFilter, deliveryStatusFilter, paymentStatusFilter, billingCategoryFilter, sortKey, sortDirection]);
 
   const toggleExpand = React.useCallback((poNumber: string) => {
     setExpandedPOs(prev => {
@@ -205,7 +216,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     }
 
     const headers = [
-      'PO Number', 'Vendor', 'Category', 'Item Name', 'Unit',
+      'PO / ITM Number', 'Type', 'Vendor', 'Category', 'Item Name', 'Unit',
       'Billing Category',
       'Ordered Qty', 'Delivery Note Qty', 'DC Qty', 'MIR Qty',
       'Rate', 'Delivery Status', 'Payment Status'
@@ -215,7 +226,8 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     for (const po of processedItems) {
       for (const item of po.items) {
         rows.push({
-          'PO Number': po.poNumber,
+          'PO / ITM Number': po.poNumber,
+          'Type': po.type,
           'Vendor': po.vendorName,
           'Category': item.categoryName,
           'Item Name': item.itemName || 'N/A',
@@ -225,7 +237,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
           'Delivery Note Qty': item.deliveredQuantity.toFixed(2),
           'DC Qty': item.dcQuantity.toFixed(2),
           'MIR Qty': item.mirQuantity.toFixed(2),
-          'Rate': item.quote.toFixed(2),
+          'Rate': po.type === "ITM" ? '-' : item.quote.toFixed(2),
           'Delivery Status': po.deliveryStatus,
           'Payment Status': po.paymentStatus,
         });
@@ -237,7 +249,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
       rows,
       headers.map(h => ({ header: h, accessorKey: h }))
     );
-    toast({ title: "Export Successful", description: `${rows.length} items across ${processedItems.length} POs exported.`, variant: "success" });
+    toast({ title: "Export Successful", description: `${rows.length} items across ${processedItems.length} POs / ITMs exported.`, variant: "success" });
   }, [processedItems, projectId]);
 
   React.useImperativeHandle(ref, () => ({
@@ -251,7 +263,13 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
         <TableHeader className="bg-background sticky top-0 z-[40]">
           <TableRow>
             <TableHead className="w-[40px]"></TableHead>
-            <TableHead className="min-w-[180px]">PO Number</TableHead>
+            <TableHead className="min-w-[180px]">PO / ITM Number</TableHead>
+            <TableHead className="min-w-[90px]">
+              <div className="flex items-center gap-1">
+                <SimpleFacetedFilter title="Type" options={typeOptions} selectedValues={typeFilter} onSelectedValuesChange={setTypeFilter} />
+                <span>Type</span>
+              </div>
+            </TableHead>
             <TableHead className="min-w-[150px]">
               <div className="flex items-center gap-1">
                 <SimpleFacetedFilter title="Vendor" options={vendorOptions} selectedValues={vendorFilter} onSelectedValuesChange={setVendorFilter} />
@@ -288,7 +306,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
         </TableHeader>
         <TableBody>
           {flatRows.length === 0 && (
-            <TableRow><TableCell colSpan={14} className="h-24 text-center">No POs found.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={15} className="h-24 text-center">No POs or ITMs found.</TableCell></TableRow>
           )}
 
           {flatRows.map((row: any) => {
@@ -313,16 +331,38 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </TableCell>
                   <TableCell className="py-2 px-3 font-medium">
-                    <Link
-                      to={`po/${po.poNumber.replace(/\//g, "&=")}`}
-                      relative="path"
-                      className="text-blue-600 hover:underline text-xs font-mono"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {po.poNumber}
-                    </Link>
+                    {po.type === "ITM" ? (
+                      <Link
+                        to={`/internal-transfer-memos/${po.poNumber}`}
+                        className="text-blue-600 hover:underline text-xs font-mono"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {po.poNumber}
+                      </Link>
+                    ) : (
+                      <Link
+                        to={`po/${po.poNumber.replace(/\//g, "&=")}`}
+                        relative="path"
+                        className="text-blue-600 hover:underline text-xs font-mono"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {po.poNumber}
+                      </Link>
+                    )}
                   </TableCell>
-                  <TableCell className="py-2 px-3 text-sm text-muted-foreground">{po.vendorName}</TableCell>
+                  <TableCell className="py-2 px-3">
+                    <Badge
+                      variant="outline"
+                      className={po.type === "ITM" ? "bg-blue-50 text-blue-600 border-blue-300" : "bg-gray-50 text-gray-700 border-gray-300"}
+                    >
+                      {po.type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                    {po.type === "ITM"
+                      ? (po.vendorName ? `From ${po.vendorName}` : "-")
+                      : po.vendorName}
+                  </TableCell>
                   <TableCell className="text-center py-2 px-3 font-mono text-sm">{po.items.length}</TableCell>
                   <TableCell className="py-2 px-3 text-sm">
                     <Badge variant={po.billingCategory === "Billable" ? "default" : "secondary"}
@@ -383,7 +423,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
             return (
               <TableRow key={`item-${po.poNumber}-${row.itemIndex}`} className={item.isOrphanDCItem ? 'bg-amber-50/50 border-l-2 border-l-amber-400' : 'bg-muted/30'}>
                 <TableCell className="py-1.5 px-2"></TableCell>
-                <TableCell className="py-1.5 px-3 text-xs pl-8" colSpan={2}>
+                <TableCell className="py-1.5 px-3 text-xs pl-8" colSpan={3}>
                   <span className="text-muted-foreground">{item.categoryName} / </span>
                   <span className="font-medium">{item.itemName || "N/A"}</span>
                   <span className="text-muted-foreground ml-2">({item.unit || "-"})</span>
@@ -400,7 +440,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.dcQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.mirQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">
-                  {formatToIndianRupee(item.quote)}
+                  {po.type === "ITM" ? <span className="text-muted-foreground">-</span> : formatToIndianRupee(item.quote)}
                 </TableCell>
                 <TableCell className="py-1.5 px-3"></TableCell>
                 <TableCell className="text-center py-1.5 px-3" onClick={(e) => e.stopPropagation()}>

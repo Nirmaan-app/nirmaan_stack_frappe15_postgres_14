@@ -162,6 +162,11 @@ AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
 MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# The Audit View report (Reports → Audit View): Admin and Accountants. Read-only, but it reads every
+# order, invoice and payment with `frappe.get_all`, so this is the ENFORCEMENT boundary for
+# `api/reports/audit_view`. Mirrored client-side by `frontend/src/constants/roles.ts::AUDIT_VIEW_PROFILES`.
+AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
@@ -301,6 +306,12 @@ def assert_amount_paid_mismatch_access(user: str) -> None:
         raise frappe.PermissionError(_("Only an Admin or Accountant Lead may use the Amount Paid Mismatch report."))
 
 
+def assert_audit_view_access(user: str) -> None:
+    """Refuse a user outside `AUDIT_VIEW_PROFILES`. Both of the Audit View report's endpoints start with it."""
+    if not has_role_profile(user, AUDIT_VIEW_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or an Accountant may use the Audit View report."))
+
+
 BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"
 BILLING_LEAD_PROFILE = "Nirmaan Billing Lead Profile"
 
@@ -418,8 +429,25 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 
 
 def can_manage_mtc(user: str) -> bool:
-    """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
+    """True when `user` may upload, edit any and delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# May upload an MTC (owner, 2026-11-19): the managers plus Project Manager and Project Lead.
+# A PM / PL edits only the MTCs they uploaded, never deletes, and works only on the projects
+# assigned to them (`mtc_api.mtc_allowed_projects`). ENFORCEMENT boundary: the MTC controller.
+# Mirrored client-side by `frontend/src/constants/roles.ts::MTC_UPLOAD_PROFILES`.
+MTC_UPLOAD_PROFILES = MTC_MANAGE_PROFILES + MTC_PROJECT_SCOPED_PROFILES
+
+
+def can_upload_mtc(user: str) -> bool:
+    """True when `user` may upload an MTC. Administrator always passes."""
+    return has_role_profile(user, MTC_UPLOAD_PROFILES)
+
+
+def can_edit_mtc(user: str, owner: str | None) -> bool:
+    """True when `user` may edit an MTC uploaded by `owner`: a manager any, an uploader their own."""
+    return can_manage_mtc(user) or (bool(owner) and owner == user and can_upload_mtc(user))
 
 
 # Generate and void a generated invoice on a GST-off Work Order, and upload its signed copy (#1546 /
@@ -489,6 +517,25 @@ def assert_cheque_access(user: str) -> None:
     endpoint starts with it."""
     if not can_use_cheques(user):
         raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+
+
+# Viewing cheques (owner, 2026-11-20): the Vendor page's Cheques tab is for everyone with a Vendors link in the
+# sidebar, so PMO may READ the cheque list, its facets and a cheque's detail. Only the read endpoints use this;
+# recording, editing and cancelling stay on `assert_cheque_access` / the accounts checks. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_VIEW_PROFILES`.
+CHEQUE_VIEW_PROFILES = CHEQUE_ACCESS_PROFILES + (PMO_EXECUTIVE_PROFILE,)
+
+
+def can_view_cheques(user: str) -> bool:
+    """True when `user` may read the cheque list and a cheque's detail. Administrator passes."""
+    return has_role_profile(user, CHEQUE_VIEW_PROFILES)
+
+
+def assert_cheque_view_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_VIEW_PROFILES` (Project Managers included). The read-only cheque endpoints
+    start with it."""
+    if not can_view_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view cheques."))
 
 
 def assert_cheque_form_access(user: str) -> None:

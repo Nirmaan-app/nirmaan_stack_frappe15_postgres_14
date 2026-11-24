@@ -297,8 +297,8 @@ class TestAttachingInTheCashbookTab(CashbookInvoiceCase):
 class TestABillUrlOfRealLength(CardBillCase):
     """The cloud storage app's bill URLs run 200 to 270 characters (spec #1637 review: every Project Expenses bill
     link in the 2026-10-28 data is over 140, the longest 269). An Expense bill keeps the whole of one however the
-    bill lands: attached by hand, copied by the Cashbook import, approved at once from Payment Done, a Collect
-    payment's with its kept reading, or a file merged from several bills."""
+    bill lands: attached by hand, copied by the Cashbook import, approved at once from Payment Done, a bill
+    stored on a line before #1708 that stays there, or a file merged from several bills."""
 
     def setUp(self):
         super().setUp()
@@ -332,13 +332,10 @@ class TestABillUrlOfRealLength(CardBillCase):
         bill = self._kept_whole()
         self.assertEqual((bill.status, bill.approved_by, bill.invoice_no), ("Approved", self.user, "TYPED-5"))
 
-    def test_a_collect_payments_bill_with_the_reading_kept_on_its_line(self):
-        kept = reading.Reading(BillRead(Decimal("1180.00"), "SHOP-5", date(2026, 9, 20)), {"entities": []})
+    def test_a_bill_whose_file_stays_on_its_line(self):
+        receive_bill(self._spend(), self.url, None, None, self.user, file_stays=True)
 
-        receive_bill(self._spend(), self.url, None, None, self.user, kept=kept, file_stays=True)
-
-        bill = self._kept_whole()
-        self.assertEqual((bill.bill_check, bill.status, bill.invoice_no), ("Matched", "Approved", "SHOP-5"))
+        self.assertEqual(self._kept_whole().bill_check, "Checking")
         self.assertEqual(frappe.db.count("File", {"attached_to_doctype": NPE, "attached_to_name": self.spend}), 0)
 
     def test_a_file_merged_from_several_bills(self):

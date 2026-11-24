@@ -26,7 +26,7 @@ import {
   type ColumnFilterOption,
 } from "./GridColumnFilter";
 import { CLS_LABELS } from "./reviewRender";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
@@ -139,21 +139,26 @@ import {
 } from "./CrossBoqCarryDialog";
 import { CategoryVerdictPicker, buildEngineGroups, labelFor } from "./CategoryVerdictPicker";
 import {
-  acceptClassifyEvent,
-  addRunningDisciplines,
   buildSheetEngineCatalogs,
-  removeRunningDiscipline,
   resolvedToSheetCategoryRow,
   summariseResolvedOutcome,
   unionScopes,
   type ScopeUnion,
 } from "./sheetCategoryResolve";
-import { ClassifyProgressModal, aiStatusWarning } from "./ClassifyProgressModal";
+import { ClassifyProgressModal, aiStatusWarning, engineOutcomeLines } from "./ClassifyProgressModal";
+import { ClassifySheetDialog, skipRollupText } from "./ClassifySheetDialog";
 import {
-  ClassifySheetDialog,
-  reduceProgress,
-  skipRollupText,
-} from "./ClassifySheetDialog";
+  foldEngineView,
+  launchRunSet,
+  runSetDone,
+  runSetProgress,
+  runSetWaitingInQueue,
+  summariseRunSet,
+  type ClassifyRunSet,
+  type EngineLaunch,
+} from "./classifyRunSet";
+import { useBackgroundOperation, type BackgroundOperation } from "@/hooks/useBackgroundOperation";
+import type { OpView } from "@/utils/backgroundOps/operationFollower";
 import {
   PricingGrid,
   buildOptimisticVerdict,
@@ -219,12 +224,18 @@ import {
 import {
   RateSuggestProgressModal,
   confirmEstimateLine,
-  serverRefusalText,
   suggestReadRows,
   type MatchPaces,
-  type MatchPhaseState,
   type SuggestModalSummary,
 } from "./rate-helper/RateSuggestProgressModal";
+import {
+  START_SUGGEST_METHOD,
+  matchHandoffOf,
+  matchPhaseOf,
+  matchSlot,
+  suggestSlot,
+  suggestViewOf,
+} from "./rate-helper/suggestOperation";
 // Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
 // fetcher, the config map, the items fetch) moved OUT of this page into ONE shared module so the
 // Calculator tab mounts the same helper on the same data. A move, not a redesign -- same methods,
@@ -287,35 +298,6 @@ const REVIEW_ENTRY_META: Record<
   },
 };
 
-// CL-2: the classify-sheet realtime payloads + the get_classify_status poll shape. The done event
-// carries the full ClassifySummary plus the run identity (boq_name / sheet_name / discipline).
-interface ClassifyProgressPayload {
-  boq: string;
-  sheet_name: string;
-  discipline: string;
-  done: number;
-  total: number;
-}
-interface ClassifyDonePayload extends ClassifySummary {
-  status: string;
-  boq_name: string;
-  sheet_name: string;
-  discipline: string;
-}
-interface ClassifyStatusResponse {
-  state: string; // "running" | "done" | ... (backend-authoritative)
-  done?: number;
-  total?: number;
-  status?: string;
-  total_in_range?: number;
-  eligible_classified?: number;
-  needs_review?: number;
-  auto_accepted?: number;
-  skipped_total?: number;
-  skipped_by_reason?: Record<string, number>;
-  committed_version?: number | null;
-  sheet_warnings?: string[];
-}
 // HV-10: a stable empty catalog record for the default (no catalogs fetched) case.
 const EMPTY_CATALOGS: Record<string, EngineCatalog> = {};
 // SELECTED-ROW runs: a module-level empty selection so a reset cannot mint a new identity per
@@ -351,38 +333,38 @@ function EngineCatalogFetcher({
 // EA-2: RATE_MASTER_CONFIG_TARGETS + RateConfigFetcher now live in ./rate-helper/rateHelperPlumbing
 // (calculator slice 2) and are imported above; they are rendered unchanged further down.
 
+const START_CLASSIFY_METHOD = "nirmaan_stack.api.boq.wizard.classify.start_classify";
+const noFinishedHandler = () => undefined;
+
 /**
- * HV-10: poll ONE discipline's classify status. Rendered once per (ran UNION running) discipline.
- * `running` gates the 3s refresh; a non-running instance still fetches ONCE on mount (the recovery
- * read). Reports every status up via the stable `onStatus`. Renders no DOM. N-generic.
+ * One classify engine's background operation on this sheet (spec #1654, #1666): the shared hook, one per available
+ * engine, so each engine of a Classify click follows its own status record (and a reload in this tab picks it up
+ * again from its own slot). It hands its `start` up through `register` and reports every view up through
+ * `onView`; the page folds the views into the click's run set (`classifyRunSet`). Renders no DOM.
  */
-function ClassifyStatusPoller({
+function ClassifyEngineOperation({
   boq,
   sheetName,
   discipline,
-  running,
-  onStatus,
+  onView,
+  register,
 }: {
   boq: string;
   sheetName: string;
   discipline: string;
-  running: boolean;
-  onStatus: (discipline: string, msg: ClassifyStatusResponse) => void;
+  onView: (discipline: string, view: OpView, context: unknown) => void;
+  register: (discipline: string, start: BackgroundOperation["start"]) => () => void;
 }) {
-  const { data } = useFrappeGetCall<{ message: ClassifyStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.classify.get_classify_status",
-    { boq, sheet_name: sheetName, discipline },
-    `boq-classify-status::${boq}::${sheetName}::${discipline}`,
-    { refreshInterval: running ? 3000 : 0 },
-  );
-  const msg = data?.message;
-  useEffect(() => {
-    if (msg) onStatus(discipline, msg);
-  }, [msg, discipline, onStatus]);
+  const op = useBackgroundOperation({
+    storageKey: `boq_classify:${boq}::${sheetName}::${discipline}`,
+    onFinished: noFinishedHandler, // the finished view carries the result; the run set reads it there
+  });
+  useEffect(() => onView(discipline, op.view, op.context), [discipline, op.view, op.context, onView]);
+  useEffect(() => register(discipline, op.start), [discipline, op.start, register]);
   return null;
 }
 
-// RM-3: the suggest-run status shape (get_suggest_status), mirroring the classify poll.
+// RM-3: a suggest run's row results.
 interface SuggestRunResultRow {
   excel_row: number;
   description?: string;
@@ -390,10 +372,8 @@ interface SuggestRunResultRow {
   /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
   items?: Array<{ attributes: Record<string, { value: string | number | null; confidence?: number }> }>;
 }
-interface SuggestStatusResponse {
-  state: "running" | "done" | "idle";
-  done?: number;
-  total?: number;
+/** The finished suggest operation's result (`rate_master._suggest_worker`, #1667): the run's outcome. */
+interface SuggestRunResult {
   status?: string;
   ai_status?: string;
   run_id?: string;
@@ -405,15 +385,15 @@ interface SuggestStatusResponse {
   halt_reason?: string | null;
   attempted_count?: number;
   population_count?: number;
-  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
-   *  it to report what RAN rather than the population. Already published by the worker. */
+  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). */
   scoped_row_count?: number | null;
   /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). */
   first_selected_run?: boolean;
-  /** Rows THIS pass attempted (the worker publishes it; the modal's halted-scoped split needs it). */
+  /** Rows THIS pass attempted (the modal's halted-scoped split needs it). */
   pass_attempted_count?: number;
-  /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
-  match?: { queued: boolean; run?: string; reason?: string } | null;
+  /** SR-1's reply keys, now in the result (#1667): the accepted selection and the run a resume continued. */
+  only_rows?: number[] | null;
+  resumed_run_id?: string | null;
 }
 
 /** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
@@ -424,75 +404,6 @@ interface PartialSuggestRun {
   status: string;
   halt_reason?: string | null;
   attempted_count?: number;
-}
-
-/** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
- * gates the 3s refresh; a non-running instance fetches once on mount (recovery). Renders no DOM. */
-function SuggestStatusPoller({
-  boq,
-  sheetName,
-  running,
-  onStatus,
-}: {
-  boq: string;
-  sheetName: string;
-  running: boolean;
-  onStatus: (msg: SuggestStatusResponse) => void;
-}) {
-  const { data } = useFrappeGetCall<{ message: SuggestStatusResponse }>(
-    "nirmaan_stack.api.boq.rate_master.get_suggest_status",
-    { boq, sheet_name: sheetName },
-    `boq-suggest-status::${boq}::${sheetName}`,
-    { refreshInterval: running ? 3000 : 0 },
-  );
-  const msg = data?.message;
-  useEffect(() => {
-    if (msg) onStatus(msg);
-  }, [msg, onStatus]);
-  return null;
-}
-
-/** DEV2-B4: the match phase's status (get_match_status). Switch OFF -> {match_enabled: false} and nothing else. */
-interface MatchStatusResponse {
-  match_enabled: boolean;
-  paces?: MatchPaces;
-  state?: "running" | "done" | "idle";
-  phase?: string;
-  done?: number;
-  total?: number;
-  seconds?: number;
-  estimate_left_s?: number;
-  run?: string;
-  status?: string;
-  halt_reason?: string | null;
-  rows_done?: number;
-  rows_total?: number;
-}
-
-/** DEV2-B4: poll the match phase for one sheet (as SuggestStatusPoller): once on mount (which tells the page whether
- *  matching is ON, and its paces), every 3 s while a match runs. Renders no DOM. */
-function MatchStatusPoller({
-  boq,
-  sheetName,
-  running,
-  onStatus,
-}: {
-  boq: string;
-  sheetName: string;
-  running: boolean;
-  onStatus: (msg: MatchStatusResponse) => void;
-}) {
-  const { data } = useFrappeGetCall<{ message: MatchStatusResponse }>(
-    "nirmaan_stack.api.boq.rate_match.get_match_status",
-    { boq, sheet_name: sheetName },
-    `boq-match-status::${boq}::${sheetName}`,
-    { refreshInterval: running ? 3000 : 0 },
-  );
-  const msg = data?.message;
-  useEffect(() => {
-    if (msg) onStatus(msg);
-  }, [msg, onStatus]);
-  return null;
 }
 
 /** DEV2-B5 S4 (G14 (a)): the `?row=` value as an Excel row, or null (absent, not a whole number, or below 1). Pure. */
@@ -756,9 +667,6 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.rate_master.get_suggestion_events",
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     rmEnabled ? undefined : null,
-  );
-  const { call: startSuggestCall } = useFrappePostCall(
-    "nirmaan_stack.api.boq.rate_master.start_suggest",
   );
   const { call: recordSuggestEventCall } = useFrappePostCall(
     "nirmaan_stack.api.boq.rate_master.record_rate_suggestion_event",
@@ -1061,13 +969,15 @@ const SheetPricingPage = () => {
     typeof window !== "undefined" &&
     window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
   // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
-  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Synced after each commit (layout effect).
   const lockCtxRef = useRef<{
     boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
   }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
-  lockCtxRef.current = {
-    boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
-  };
+  useLayoutEffect(() => {
+    lockCtxRef.current = {
+      boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
+    };
+  });
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -1080,18 +990,21 @@ const SheetPricingPage = () => {
   const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
 
   // ── CL-2: classify-sheet state (per-sheet per-session; reset on a tab switch below) ──
-  // The dialog open flag; the running flag (a run is in flight -> disables the ribbon button +
-  // shows the progress bar); the live {done,total} progress; the completion summary; and the
-  // "show only needs-review rows" view filter. classifyRunningRef mirrors classifyRunning so the
-  // stable socket/poll callbacks read the CURRENT running state without re-registering.
+  // The dialog open flag; the click's run set (one background operation per engine, #1666) from
+  // which "running" (disables the ribbon button) and the summed {done,total} progress derive; the
+  // completion summary; and the "show only needs-review rows" view filter. classifyRunSetRef
+  // mirrors the run set so the stable per-engine view callback folds into the CURRENT one.
   const [classifyOpen, setClassifyOpen] = useState(false);
-  const [classifyRunning, setClassifyRunning] = useState(false);
+  const [classifyRunSet, setClassifyRunSet] = useState<ClassifyRunSet | null>(null);
+  const classifyRunSetRef = useRef<ClassifyRunSet | null>(null);
+  const classifyRunning = classifyRunSet !== null && !runSetDone(classifyRunSet);
+  const classifyProgress = runSetProgress(classifyRunSet);
+  const classifyWaitingInQueue = runSetWaitingInQueue(classifyRunSet);
+  // Each available engine's `start` (its ClassifyEngineOperation registers it), keyed by discipline.
+  const classifyStartersRef = useRef(new Map<string, BackgroundOperation["start"]>());
   // The blocking progress modal stays open from run-start THROUGH the terminal state (so the
   // completion/error line + Close button show); it closes only when the user acknowledges.
   const [classifyModalOpen, setClassifyModalOpen] = useState(false);
-  const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
   const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
   const [showNeedsReview, setShowNeedsReview] = useState(false);
   // U1 -- the two header column filters. PAGE-LEVEL state holding sets of stable IDS (never labels:
@@ -1102,39 +1015,25 @@ const SheetPricingPage = () => {
   const [categoryFilter, setCategoryFilter] = useState<ReadonlySet<string>>(() => new Set<string>());
   const onRowTypeFilterChange = useCallback((next: ReadonlySet<string>) => setRowTypeFilter(next), []);
   const onCategoryFilterChange = useCallback((next: ReadonlySet<string>) => setCategoryFilter(next), []);
-  const classifyRunningRef = useRef(false);
-  // HV-10: a ref mirror of classifySummary so the stable per-discipline status callback can read
-  // "is a terminal summary showing?" without re-registering the pollers.
-  const classifySummaryRef = useRef<ClassifySummary | null>(null);
-  classifySummaryRef.current = classifySummary;
-  // HV-10: the disciplines with a run IN FLIGHT this session (set on onStarted, each removed when
-  // its own done arrives). One status poller is rendered per running discipline; the modal
-  // completes when the set empties. Single-engine sheets (all sheets today) keep length <= 1, so
-  // this degenerates to the pre-HV-10 single poll. A ref mirrors it for the stable callbacks.
-  const [runningDisciplines, setRunningDisciplines] = useState<string[]>([]);
-  const runningDisciplinesRef = useRef<string[]>([]);
-  runningDisciplinesRef.current = runningDisciplines;
-  const ranDisciplinesRef = useRef<string[]>([]);
-  ranDisciplinesRef.current = ranDisciplines;
   // HV-10b: the row-range union of the CURRENT run set (owner condition 1). Set fresh on each
   // onStarted -- a new run set REPLACES it, so it never carries across run sets (the reset
   // semantics); a whole-sheet or unknown-scope run collapses it to {mode:"sheet"}. The COMBINED
-  // EFFECTIVE completion summary is scoped to this union. Default {sheet} covers a run recovered
-  // from the status poll (started elsewhere -> scope unknown -> whole sheet).
+  // EFFECTIVE completion summary is scoped to this union. An engine picked up after a reload brings
+  // the scope it was started with (its operation's context); an unknown one counts as whole sheet.
   const scopeUnionRef = useRef<ScopeUnion>({ mode: "sheet" });
-  // HV-11: per-discipline ai_status accumulated over the CURRENT run set (reset on each onStarted,
-  // one entry recorded per engine as its done arrives). At all-done it is mirrored into
-  // classifyAiStatusByDiscipline so the modal + toast render the AI-off warning (naming the off
+  // HV-11: per-discipline ai_status of the CURRENT run set, set when every engine has ended
+  // (summariseRunSet). The modal + toast render the AI-off warning from it (naming the off
   // discipline[s]); the healthy path (all "ran") yields an empty warning, so the text is unchanged.
-  const aiStatusByDisciplineRef = useRef<Record<string, string | null | undefined>>({});
   const [classifyAiStatusByDiscipline, setClassifyAiStatusByDiscipline] = useState<
     Record<string, string | null | undefined>
   >({});
   // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
   // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
-  // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
+  // is unavailable. Synced after each commit by a layout effect (cheap; the value is already memo-stable per fetch).
   const catDataRef = useRef<{ message: GetSheetCategoriesResolvedResponse } | undefined>(undefined);
-  catDataRef.current = catData;
+  useLayoutEffect(() => {
+    catDataRef.current = catData;
+  }, [catData]);
 
   // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
   // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
@@ -1150,7 +1049,7 @@ const SheetPricingPage = () => {
     null,
   );
   // Mirrors classification_frozen so the STABLE onCategoryClick can short-circuit while frozen
-  // without becoming a new callback (which would defeat the grid's row memo). Set during render.
+  // without becoming a new callback (which would defeat the grid's row memo). Synced after each commit (layout effect).
   const classificationFrozenRef = useRef(false);
   const onCategoryClick = useCallback(
     (excelRow: number, cellEl: HTMLElement) => {
@@ -1310,17 +1209,20 @@ const SheetPricingPage = () => {
   // session's Uses), applied when the badge map is (re)built so a rebuild never loses a check.
   const [suggestRun, setSuggestRun] = useState<{ runId: string; committedVersion: number; results: SuggestRunResultRow[] } | null>(null);
   const [suggestModalOpen, setSuggestModalOpen] = useState(false);
-  const [suggestRunning, setSuggestRunning] = useState(false);
-  const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
   // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
   // attempted_count) stay declared in ONE place rather than drifting between page and modal.
   const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
-  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_status; OFF -> all inert)
-  const [matchEnabled, setMatchEnabled] = useState(false);
-  const [matchPaces, setMatchPaces] = useState<MatchPaces | null>(null);
-  const [matchRunning, setMatchRunning] = useState(false);
-  const [matchPhase, setMatchPhase] = useState<MatchPhaseState | null>(null);
-  const matchRunRef = useRef<string | null>(null);
+  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_settings; OFF -> all inert)
+  const { data: matchSettingsData } = useFrappeGetCall<{ message: { match_enabled: boolean; paces?: MatchPaces } }>(
+    "nirmaan_stack.api.boq.rate_match.get_match_settings",
+    undefined,
+    RATE_HELPER_ENABLED ? "boq-match-settings" : null,
+  );
+  const matchEnabled = !!matchSettingsData?.message?.match_enabled;
+  const matchPaces = matchSettingsData?.message?.paces ?? null;
+  // #1667: the suggest and the match it queues are each a background operation the page follows through its own
+  // status record (one slot per sheet each), so no other run's outcome can reach this screen. The match's id comes in
+  // the finished suggest's result (the server starts it); a match waiting in the queue shows as queued.
   // DEV2-B4: the sheet's stored matches (the active match run), fetched only while matching is ON and refetched when a
   // match run ends. DEV2-B5: they feed the "Previously priced" card (the closure below); with matching OFF the fetch is
   // off and the card is the static stub, as before.
@@ -1329,6 +1231,57 @@ const SheetPricingPage = () => {
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     rmEnabled && matchEnabled ? undefined : null,
   );
+  const matchOp = useBackgroundOperation({
+    storageKey: matchSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: () => void mutateMatchResults(),
+    onFailed: () => void mutateMatchResults(),
+  });
+  const matchPhase = useMemo(() => matchPhaseOf(matchOp.view), [matchOp.view]);
+  const matchRunning = matchPhase?.state === "queued" || matchPhase?.state === "running";
+  // A match the finished suggest could not start (another match holds the sheet): its reason, shown as failed.
+  const [matchNotStarted, setMatchNotStarted] = useState<string | null | undefined>(undefined);
+  // The finished suggest operation's result (#1667): handled once, for the operation this sheet's slot follows.
+  const onSuggestFinished = useCallback(
+    (raw: unknown) => {
+      const msg = (raw ?? {}) as SuggestRunResult;
+      // SR-1 K3/K4: pass the WHOLE result through. A field-by-field copy dropped first_selected_run (AC5 C2) and
+      // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
+      // modal reads named keys only; the extra keys (committed_version, match, only_rows) are harmless there.
+      setSuggestSummary({ ...msg });
+      // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
+      // complete run was already there (it never superseded it server-side either), so the
+      // badges + "Use this value" keep reflecting a trustworthy, whole run.
+      if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
+        usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
+        setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
+      }
+      // DEV2-B4: a COMPLETE run with matching ON hands over to the match operation it queued (the result names it;
+      // without the key -- switch OFF -- nothing changes). A match that did not start shows its reason.
+      const handoff = matchHandoffOf(msg);
+      if (handoff && "opId" in handoff) {
+        matchOp.followStarted(handoff.opId, { run: handoff.run });
+      } else if (handoff) {
+        setMatchNotStarted(handoff.reason);
+      }
+      // Refetch either way: a partial still needs the resume affordance to appear.
+      void mutateActiveRun();
+      void mutateSuggestEvents();
+    },
+    [mutateActiveRun, mutateSuggestEvents, matchOp.followStarted],
+  );
+  const suggestOp = useBackgroundOperation({
+    storageKey: suggestSlot(boqId ?? "", sheetName ?? ""),
+    onFinished: onSuggestFinished,
+    onFailed: () => {
+      void mutateActiveRun(); // a failed run keeps its checkpoints and stays resumable
+    },
+  });
+  const suggestView = useMemo(() => suggestViewOf(suggestOp.view), [suggestOp.view]);
+  const suggestRunning = suggestView.running;
+  const shownMatchPhase = matchNotStarted !== undefined
+    ? { state: "failed" as const, done: 0, total: 0, elapsedS: 0, leftS: null, reason: matchNotStarted }
+    : matchPhase;
+
   // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
   // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
   // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
@@ -1341,8 +1294,6 @@ const SheetPricingPage = () => {
   // the ticks it depends on.
   const [showOnlyTicked, setShowOnlyTicked] = useState(false);
   const onToggleTicked = useCallback(() => setShowOnlyTicked((v) => !v), []);
-  const suggestRunningRef = useRef(false);
-  suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
   // Idempotent run-adoption: the last adopted run key (run_id::cv, or null). Guards the persistence
   // effect from re-creating a NEW suggestRun object on every SWR reference churn (which loops).
@@ -1423,10 +1374,10 @@ const SheetPricingPage = () => {
   // change, so the grid memo holds and only the edited row re-renders after the inline mutate()
   // refetch. sourceSigRef guards against merging across DIFFERENT data sources (current <-> a viewed
   // version): on a source switch the committed base can differ, so prev is reset (no cross-source
-  // reuse). Refs (not state) -- read/written in render, like collapsedRef below; no extra render.
+  // reuse). Refs (not state) -- read in render, written in a layout effect after commit; no extra render.
   const prevRowsRef = useRef<PricedRow[]>([]);
   const rowsSourceSigRef = useRef<string>("");
-  // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
+  // Refs synced after each commit (layout effect below) so the toggle + reveal callbacks stay reference-stable
   // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
   const collapsedRef = useRef(collapsed);
   const byRowIndexRef = useRef<Map<number, CollapseRow>>(new Map());
@@ -1506,6 +1457,10 @@ const SheetPricingPage = () => {
     // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
     // active run (version-keyed) and its Use events after the fetches land.
     setSuggestRun(null);
+    // #1667: the suggest and match operations are per-sheet slots (the new sheet's pick up its own); the last
+    // outcome shown belongs to the sheet it ran on.
+    setSuggestSummary(null);
+    setMatchNotStarted(undefined);
     // SELECTED-ROW runs: ticks are per-sheet AND session-only (they clear on reload because they
     // live in component state and are never persisted).
     setSelectedRows(EMPTY_SELECTION);
@@ -1515,21 +1470,16 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
-    // CL-2: classify state is per-sheet -- a tab switch starts clean (the socket/poll below
-    // re-recovers a genuinely in-flight run from get_classify_status on the new sheet).
+    // CL-2: classify state is per-sheet -- a tab switch starts clean (the new sheet's engine
+    // operations, keyed by sheet, pick up an operation this tab started there from their own slots).
     setClassifyOpen(false);
-    setClassifyRunning(false);
-    classifyRunningRef.current = false;
+    setClassifyRunSet(null);
+    classifyRunSetRef.current = null;
     setClassifyModalOpen(false);
-    setClassifyProgress(null);
     setClassifySummary(null);
     // HV-11: the per-discipline ai_status warning is per-run-set -- a tab switch starts clean.
     setClassifyAiStatusByDiscipline({});
-    aiStatusByDisciplineRef.current = {};
     setShowNeedsReview(false);
-    // HV-10: the running set is per-sheet (the pollers re-derive from the new sheet's ran set).
-    setRunningDisciplines([]);
-    runningDisciplinesRef.current = [];
     // CL-3: the verdict picker + optimistic overrides are per-sheet -- a tab switch starts clean.
     setPickerState(null);
     setCategoryOverrides(new Map());
@@ -1605,67 +1555,21 @@ const SheetPricingPage = () => {
     setSearchCurrentIdx(0);
   }, [searchQuery]);
 
-  // ── CL-2: classify-sheet completion handling (socket + poll fallback) ─────────────
-  // Apply a done outcome from EITHER the boq:classify_sheet_done event or the get_classify_status
-  // poll. Guards on boq / sheet_name (VERBATIM #152) / discipline so a broadcast for another sheet
-  // never mutates this one. Clears the running/progress state, stores the summary, and refetches
-  // the category verdicts so the grid's Category column repaints.
-  const applyClassifyDone = useCallback(
-    (p: Partial<ClassifyDonePayload> & { boq_name: string; sheet_name: string; discipline: string }) => {
-      if (p.boq_name !== (boqId ?? "")) return;
-      if (p.sheet_name !== (sheetName ?? "")) return;
-      // HV-10: accept a done for ANY discipline this sheet ran or is running (membership, not the
-      // old `=== CLASSIFY_DISCIPLINE` equality that discarded every non-Electrical event).
-      if (!acceptClassifyEvent(p.discipline, ranDisciplinesRef.current, runningDisciplinesRef.current))
-        return;
-      // Drop this discipline from the running set; the run is fully done only when the set empties.
-      const nextRunning = removeRunningDiscipline(runningDisciplinesRef.current, p.discipline);
-      runningDisciplinesRef.current = nextRunning;
-      setRunningDisciplines(nextRunning);
-      // HV-11: record THIS engine's ai_status for the run set's AI-off warning -- on EVERY done, not
-      // just all-done, so a per-discipline map accumulates even when an engine finishes mid-run.
-      aiStatusByDisciplineRef.current[p.discipline] = p.ai_status ?? null;
-      const allDone = nextRunning.length === 0;
-      if (!allDone) {
-        // A mid-run engine finished; repaint the grid but WAIT for the rest before summarising --
-        // the completion summary is the COMBINED outcome, so it is composed only once every engine
-        // in the run set has terminated (HV-10b).
+  // ── CL-2: classify-sheet completion handling (one background operation per engine, #1666) ──
+  // Each engine's view folds into the click's run set. A view of an engine operation the run set
+  // did not launch (picked up after a reload) joins it, or starts a new one, and opens the modal.
+  // Each engine that ends repaints the grid's Category column. When every engine has ended, the
+  // summary is composed from EVERY engine's outcome: an engine that failed or was lost, first or
+  // last, makes it an error that names it (the old summary read only the last engine's message).
+  const finishClassifyRunSet = useCallback(
+    (set: ClassifyRunSet) => {
+      const summary = summariseRunSet(set);
+      setClassifyAiStatusByDiscipline(summary.ai_status_by_discipline);
+      if (summary.status === "error") {
+        setClassifySummary(summary);
         void mutateCategories();
         return;
       }
-      setClassifyRunning(false);
-      classifyRunningRef.current = false;
-      setClassifyProgress(null);
-      // HV-11: publish the accumulated per-discipline ai_status so the modal + toast render the
-      // AI-off warning (silent when every ran discipline had AI on).
-      setClassifyAiStatusByDiscipline({ ...aiStatusByDisciplineRef.current });
-
-      // Non-count fields carried from the terminal payload. HV-10b changes ONLY the NUMBERS' source
-      // (per-engine denominator -> combined effective); the wording, skip rollup and ai_status note
-      // are unchanged, carried as the last-completing engine reported them.
-      const carry = {
-        auto_accepted: p.auto_accepted ?? 0,
-        skipped_total: p.skipped_total ?? 0,
-        skipped_by_reason: p.skipped_by_reason ?? {},
-        committed_version: p.committed_version ?? null,
-        sheet_warnings: p.sheet_warnings ?? [],
-        ai_status: p.ai_status ?? null,
-        status: p.status,
-        error_code: p.error_code,
-      };
-
-      if (p.status === "error") {
-        // Error path unchanged -- the error modal reads status/error_code, not the counts.
-        setClassifySummary({
-          total_in_range: 0,
-          eligible_classified: 0,
-          needs_review: 0,
-          ...carry,
-        });
-        void mutateCategories();
-        return;
-      }
-
       // SUCCESS, all engines done: the completion summary is the COMBINED EFFECTIVE outcome over the
       // resolved read (the grid's source of truth), scoped to this run set's row range union
       // (HV-10b). Computed from the FRESH resolved rows (post-refetch) so the message == the
@@ -1677,93 +1581,84 @@ const SheetPricingPage = () => {
           fresh?.message?.categories ?? catDataRef.current?.message?.categories ?? [];
         const { categorised, review } = summariseResolvedOutcome(rows, union);
         setClassifySummary({
-          ...carry,
+          ...summary,
           eligible_classified: categorised,
           needs_review: review,
           total_in_range: categorised + review,
         });
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boqId, sheetName, mutateCategories],
+    [mutateCategories],
   );
-
-  // Socket for boq:classify_sheet_progress / boq:classify_sheet_done (mirrors the BoqHubPage
-  // parse-run pattern -- SCREEN-SCOPED via FrappeContext, NOT socketListeners.ts). Reconnect
-  // self-heals by refetching the categories; the poll below covers a missed done event.
-  // (Reuses the `socket` bound above by the concurrency-lock realtime layer -- same FrappeContext.)
-  useEffect(() => {
-    if (!socket) return;
-    const onProgress = (p: ClassifyProgressPayload) => {
-      if (
-        p.boq !== (boqId ?? "") ||
-        p.sheet_name !== (sheetName ?? "") ||
-        // HV-10: accept progress for any discipline this sheet ran or is running (membership).
-        !acceptClassifyEvent(p.discipline, ranDisciplinesRef.current, runningDisciplinesRef.current)
-      )
-        return;
-      setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
-    };
-    const onDone = (p: ClassifyDonePayload) => applyClassifyDone(p);
-    // NOTE (T1): the reconnect self-heal (refetch categories) moved to the consolidated,
-    // reconnect-GATED + debounced effect below -- it no longer fires on every connect (incl. the
-    // initial mount connect). The progress/done handlers here are unchanged.
-    socket.on("boq:classify_sheet_progress", onProgress);
-    socket.on("boq:classify_sheet_done", onDone);
-    return () => {
-      socket.off("boq:classify_sheet_progress", onProgress);
-      socket.off("boq:classify_sheet_done", onDone);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, boqId, sheetName, applyClassifyDone]);
-
-  // HV-10: PER-RUNNING-DISCIPLINE status handling. Each engine's marker/status is independent
-  // server-side, so one <ClassifyStatusPoller> is rendered per discipline in (ran UNION running):
-  // the ran set gives on-mount recovery (a single read recovers an in-flight run started elsewhere
-  // / before navigation); the running set polls every 3s. A "done" funnels through applyClassifyDone
-  // (which drops that discipline and completes the modal only when ALL running clear); a "running"
-  // recovers/advances the bar. Single-engine sheets poll exactly one discipline -- identical to
-  // the pre-HV-10 single poll. This callback is stable so the pollers never re-register.
-  const statusPollDisciplines = useMemo(() => {
-    const s = new Set<string>(ranDisciplines);
-    runningDisciplines.forEach((d) => s.add(d));
-    return [...s];
-  }, [ranDisciplines, runningDisciplines]);
-  const handleClassifyStatus = useCallback(
-    (discipline: string, msg: ClassifyStatusResponse) => {
-      if (msg.state === "done") {
-        if (!classifyRunningRef.current) return; // only a done we were waiting on
-        applyClassifyDone({
-          boq_name: boqId ?? "",
-          sheet_name: sheetName ?? "",
-          discipline,
-          ...msg,
-        });
-      } else if (msg.state === "running") {
-        // PRECEDENCE: done WINS -- a terminal summary awaiting Close ignores a stale running poll.
-        if (!classifyRunningRef.current && classifySummaryRef.current) return;
-        if (!classifyRunningRef.current) {
-          setClassifyRunning(true);
-          classifyRunningRef.current = true;
-          setClassifyModalOpen(true);
-        }
-        // Recover a discipline running but not yet in our set (started elsewhere).
-        if (!runningDisciplinesRef.current.includes(discipline)) {
-          const next = addRunningDisciplines(runningDisciplinesRef.current, [discipline]);
-          runningDisciplinesRef.current = next;
-          setRunningDisciplines(next);
-          // HV-10b: a run recovered from the poll has no captured scope, so the summary cannot be
-          // range-scoped precisely -- degrade the union to whole-sheet (never UNDER-report a run).
-          scopeUnionRef.current = { mode: "sheet" };
-        }
-        if (typeof msg.done === "number" && typeof msg.total === "number") {
-          setClassifyProgress({ done: msg.done, total: msg.total });
-        }
+  const handleEngineView = useCallback(
+    (discipline: string, view: OpView, context: unknown) => {
+      const prev = classifyRunSetRef.current;
+      const next = foldEngineView(prev, discipline, view, context);
+      if (!next || next === prev) return;
+      classifyRunSetRef.current = next;
+      setClassifyRunSet(next);
+      const joined = next.engines.some((e) => !prev?.engines.some((p) => p.discipline === e.discipline));
+      if (joined) {
+        scopeUnionRef.current = unionScopes(next.engines.map((e) => e.scope ?? { mode: "sheet" }));
+        setClassifySummary(null);
+        setClassifyModalOpen(true);
       }
+      const ended = (set: ClassifyRunSet | null) =>
+        set?.engines.find((e) => e.discipline === discipline)?.outcome ?? null;
+      if (!ended(next) || ended(prev) === ended(next)) return;
+      if (runSetDone(next)) finishClassifyRunSet(next);
+      else void mutateCategories(); // a mid-run engine ended: repaint, and wait for the rest
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [applyClassifyDone, boqId, sheetName],
+    [finishClassifyRunSet, mutateCategories],
   );
+  const registerClassifyStarter = useCallback(
+    (discipline: string, start: BackgroundOperation["start"]) => {
+      classifyStartersRef.current.set(discipline, start);
+      return () => {
+        if (classifyStartersRef.current.get(discipline) === start) classifyStartersRef.current.delete(discipline);
+      };
+    },
+    [],
+  );
+  // The engines whose operations this sheet follows: every available engine (the dialog offers only those).
+  const classifyEngines = useMemo(
+    () => (enginesData?.message ?? []).filter((e) => e.available).map((e) => e.discipline),
+    [enginesData],
+  );
+  // A Classify click: one background operation per launched engine, each started through its own hook.
+  const startClassifyRunSet = (launches: EngineLaunch[]) => {
+    const set = launchRunSet(launches);
+    classifyRunSetRef.current = set;
+    setClassifyRunSet(set);
+    // HV-10b: a FRESH run set REPLACES the scope union with just this run set's scopes (the
+    // reset-between-run-sets semantics); multiple engines in one launch fold via unionScopes
+    // (whole-sheet dominates a mixed union). The completion summary is scoped to it.
+    scopeUnionRef.current = unionScopes(launches.map((l) => l.scope));
+    setClassifyAiStatusByDiscipline({});
+    setClassifySummary(null);
+    setClassifyModalOpen(true); // open the blocking progress modal for this run
+    for (const launch of launches) {
+      const start = classifyStartersRef.current.get(launch.discipline);
+      if (!start) {
+        handleEngineView(
+          launch.discipline,
+          { phase: "failed", opId: `not-started:${launch.discipline}`, error: "This engine could not be started." },
+          launch,
+        );
+        continue;
+      }
+      void start(
+        START_CLASSIFY_METHOD,
+        {
+          boq: boqId ?? "",
+          sheet_name: sheetName ?? "", // VERBATIM (#152)
+          discipline: launch.discipline,
+          scope: JSON.stringify(launch.scope),
+        },
+        launch,
+      );
+    }
+  };
 
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
@@ -1974,8 +1869,10 @@ const SheetPricingPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawRows, rowsSourceSig],
   );
-  prevRowsRef.current = rows;
-  rowsSourceSigRef.current = rowsSourceSig;
+  useLayoutEffect(() => {
+    prevRowsRef.current = rows;
+    rowsSourceSigRef.current = rowsSourceSig;
+  }, [rows, rowsSourceSig]);
   const columnDescriptors = activeMessage?.column_descriptors ?? [];
   const columnFormulas = activeMessage?.column_formulas ?? []; // F3: per-column amount formulas
   const dismissals = activeMessage?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
@@ -2001,7 +1898,9 @@ const SheetPricingPage = () => {
   const categoryGateOverride = activeMessage?.category_gate_override ?? false;
   const categoryOverrideBy = activeMessage?.category_override_by ?? null;
   const categoryOverrideAt = activeMessage?.category_override_at ?? null;
-  classificationFrozenRef.current = classificationFrozen;
+  useLayoutEffect(() => {
+    classificationFrozenRef.current = classificationFrozen;
+  }, [classificationFrozen]);
   // ── PE-SPIN-1: what this page may honestly claim about its own data ──────────────────────────
   // Tracks the ACTIVE source (the history fetch while in history mode), as before -- but from
   // SWR's REAL signals (`data` + `error`) rather than from the payload alone. The retired rule was
@@ -3049,7 +2948,7 @@ const SheetPricingPage = () => {
     return makePreviouslyPricedHelper({
       run: matchRunForVersion,
       running: matchRunning,
-      failedReason: matchPhase?.state === "failed" ? (matchPhase.reason ?? "the match run stopped") : null,
+      failedReason: shownMatchPhase?.state === "failed" ? (shownMatchPhase.reason ?? "the match run stopped") : null,
       boq: boqId,
       sheetName,
       unitByExcelRow,
@@ -3070,7 +2969,7 @@ const SheetPricingPage = () => {
         },
       },
     });
-  }, [matchEnabled, boqId, sheetName, matchRunForVersion, matchRunning, matchPhase, unitByExcelRow, locked, role, currentUser,
+  }, [matchEnabled, boqId, sheetName, matchRunForVersion, matchRunning, shownMatchPhase, unitByExcelRow, locked, role, currentUser,
       matchDetailCall, markNotAMatchCall, undoNotAMatchCall, mutateMatchResults]);
   const helperList = useMemo(() => buildHelperList(pricingSheetHelper, previouslyPricedHelper), [pricingSheetHelper, previouslyPricedHelper]);
   // SLICE 2 (J5, owner P-a / P-d): BEFORE a run, the panel shows the "Pricing sheet" decline card
@@ -3154,71 +3053,6 @@ const SheetPricingPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList, suggestEventsKey]);
 
-  // The suggest status handler (poll + socket funnel here). done WINS; on success adopt the run.
-  const onSuggestStatus = useCallback(
-    (msg: SuggestStatusResponse) => {
-      if (msg.state === "running") {
-        if (typeof msg.done === "number" && typeof msg.total === "number") {
-          setSuggestProgress({ done: msg.done, total: msg.total });
-        }
-        return;
-      }
-      if (msg.state === "done") {
-        setSuggestRunning(false);
-        // SR-1 K3/K4: pass the WHOLE done payload through. A field-by-field copy dropped first_selected_run (AC5 C2) and
-        // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
-        // modal reads named keys only; the extra keys (state, committed_version, match) are harmless there.
-        setSuggestSummary({ ...msg });
-        // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
-        // complete run was already there (it never superseded it server-side either), so the
-        // badges + "Use this value" keep reflecting a trustworthy, whole run.
-        if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
-          usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
-          setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
-        }
-        // DEV2-B4: a COMPLETE run with matching ON hands over to the matching phase (the payload says whether a
-        // match run was queued; without the key -- switch OFF -- nothing changes).
-        if (msg.status === "success" && msg.match) {
-          if (msg.match.queued && msg.match.run) {
-            matchRunRef.current = msg.match.run;
-            setMatchPhase({ state: "running", done: 0, total: 0, elapsedS: 0, leftS: null });
-            setMatchRunning(true);
-          } else {
-            setMatchPhase({ state: "failed", done: 0, total: 0, elapsedS: 0, leftS: null, reason: msg.match.reason ?? null });
-          }
-        }
-        // Refetch either way: a partial still needs the resume affordance to appear.
-        void mutateActiveRun();
-        void mutateSuggestEvents();
-      }
-    },
-    [mutateActiveRun, mutateSuggestEvents],
-  );
-
-  // DEV2-B4: the match status handler (poll). Learns the switch and the paces; drives the phase of THIS run only.
-  const onMatchStatus = useCallback(
-    (msg: MatchStatusResponse) => {
-      setMatchEnabled(!!msg.match_enabled);
-      if (!msg.match_enabled) return;
-      if (msg.paces) setMatchPaces(msg.paces);
-      const mine = matchRunRef.current;
-      if (!mine || msg.run !== mine) return;
-      if (msg.state === "running") {
-        setMatchPhase({ state: "running", done: msg.done ?? 0, total: msg.total ?? 0, elapsedS: msg.seconds ?? 0,
-          leftS: typeof msg.estimate_left_s === "number" ? msg.estimate_left_s : null });
-      } else if (msg.state === "done") {
-        matchRunRef.current = null;
-        setMatchRunning(false);
-        setMatchPhase(msg.status === "success"
-          ? { state: "done", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null }
-          : { state: "failed", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null,
-            reason: msg.halt_reason ?? null });
-        void mutateMatchResults();
-      }
-    },
-    [mutateMatchResults],
-  );
-
   // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
   // The SERVER's run-eligible rows. Reference-stable per fetch (a Set built from the payload), so
   // handing it to the memoized grid does not churn it.
@@ -3291,26 +3125,18 @@ const SheetPricingPage = () => {
   const runSuggestRates = useCallback(async (resumeRunId?: string, onlyRows?: number[]) => {
     setHelperPanel(null);
     setSuggestSummary(null);
-    setSuggestProgress(null);
-    matchRunRef.current = null;
-    setMatchRunning(false);
-    setMatchPhase(null);
-    setSuggestRunning(true);
+    setMatchNotStarted(undefined);
+    matchOp.reset();
     setSuggestModalOpen(true);
-    try {
-      await startSuggestCall({
-        boq: boqId,
-        sheet_name: sheetName,
-        ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
-        ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
-      });
-    } catch (err) {
-      setSuggestRunning(false);
-      // SR-1 C9: show the server's OWN refusal (e.g. "Rows not eligible ... reload and try again") instead of the
-      // generic line -- every refusal used to be invisible. null -> the modal keeps its generic text.
-      setSuggestSummary({ status: "error", halt_reason: serverRefusalText(err) });
-    }
-  }, [startSuggestCall, boqId, sheetName]);
+    // #1667: started as this sheet's suggest operation. A refusal (SR-1 C9: "Rows not eligible ... reload and try
+    // again") ends it failed in the server's own words, which the modal shows.
+    await suggestOp.start(START_SUGGEST_METHOD, {
+      boq: boqId,
+      sheet_name: sheetName,
+      ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
+      ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
+    });
+  }, [suggestOp.start, matchOp.reset, boqId, sheetName]);
 
   // The confirmed press. NOTHING is sent until the user accepts the dialog -- this is the ONLY
   // path from the "Suggest rates" button to an AI call.
@@ -3532,9 +3358,11 @@ const SheetPricingPage = () => {
   );
   const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
   const childrenByParent = useMemo(() => buildChildrenByParent(rows), [rows]);
-  collapsedRef.current = collapsed;
-  byRowIndexRef.current = byRowIndex;
-  byExcelRowRef.current = byExcelRow;
+  useLayoutEffect(() => {
+    collapsedRef.current = collapsed;
+    byRowIndexRef.current = byRowIndex;
+    byExcelRowRef.current = byExcelRow;
+  });
   // BCS-S14: collapse is SUSPENDED while a margin SORT is on, and that suspension is the view's
   // own, inherited for the same reason -- once rows are re-ordered, a collapsed parent hides
   // rows from scattered places on screen, and nothing in a sorted list gives any clue that a
@@ -3697,7 +3525,9 @@ const SheetPricingPage = () => {
   );
 
   const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
 
   /**
    * BCS-S13 -- APPLY the % Margin range: take a fresh reading of every row's margin and freeze
@@ -3762,7 +3592,9 @@ const SheetPricingPage = () => {
    * It reads everything current through refs.
    */
   const marginSortDirRef = useRef(marginSortDir);
-  marginSortDirRef.current = marginSortDir;
+  useLayoutEffect(() => {
+    marginSortDirRef.current = marginSortDir;
+  }, [marginSortDir]);
   const cycleMarginSort = useCallback(() => {
     const next = nextMarginSort(marginSortDirRef.current);
     setMarginSortDir(next);
@@ -4818,39 +4650,27 @@ const SheetPricingPage = () => {
         running={classifyRunning}
         sheetName={(sheetName ?? "").trim()}
         progress={classifyProgress}
+        waitingInQueue={classifyWaitingInQueue}
         summary={classifySummary}
         aiStatusByDiscipline={classifyAiStatusByDiscipline}
-        onClose={() => {
-          setClassifyModalOpen(false);
-          setClassifyProgress(null);
-        }}
+        onClose={() => setClassifyModalOpen(false)}
       />
-      {/* RM-3: the suggest-run modal + status poller (recovery on mount; 3s poll while running). */}
-      {RATE_HELPER_ENABLED && boqId && sheetName && (
-        <SuggestStatusPoller
-          boq={boqId}
-          sheetName={sheetName}
-          running={suggestRunning}
-          onStatus={onSuggestStatus}
-        />
-      )}
-      {RATE_HELPER_ENABLED && boqId && sheetName && (
-        <MatchStatusPoller boq={boqId} sheetName={sheetName} running={matchRunning} onStatus={onMatchStatus} />
-      )}
+      {/* RM-3: the suggest-run modal, fed by the suggest and match operations the page follows (#1667). */}
       {RATE_HELPER_ENABLED && (
         <RateSuggestProgressModal
           open={suggestModalOpen}
           running={suggestRunning}
           sheetName={(sheetName ?? "").trim()}
-          progress={suggestProgress}
-          summary={suggestSummary}
+          progress={suggestView.progress}
+          waitingInQueue={suggestView.waitingInQueue}
+          summary={suggestView.failure ?? suggestSummary}
           onClose={() => {
             setSuggestModalOpen(false);
-            setSuggestProgress(null);
-            setMatchPhase(null);
+            setMatchNotStarted(undefined);
+            matchOp.reset();
           }}
           onResume={partialSuggestRun ? resumeSuggestRun : undefined}
-          match={matchEnabled ? matchPhase : null}
+          match={matchEnabled ? shownMatchPhase : null}
         />
       )}
       {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the
@@ -4919,9 +4739,11 @@ const SheetPricingPage = () => {
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="flex-1">
             <span className="font-medium">Classification could not complete.</span>
+            {engineOutcomeLines(classifySummary).map((line) => (
+              <span key={line} className="mt-0.5 block opacity-90">{line}</span>
+            ))}
             <span className="mt-0.5 block opacity-90">
-              The run failed{classifySummary.error_code ? ` (${classifySummary.error_code})` : ""} -- nothing
-              was saved. Please try again; if the AI was on, check the AI settings/key.
+              Please try again; if the AI was on, check the AI settings/key.
             </span>
           </div>
           <button
@@ -4988,45 +4810,23 @@ const SheetPricingPage = () => {
           ))
         : null}
       {boqId && sheetName
-        ? statusPollDisciplines.map((d) => (
-            <ClassifyStatusPoller
-              key={`status-${d}`}
+        ? classifyEngines.map((d) => (
+            <ClassifyEngineOperation
+              key={`classify-op-${boqId}::${sheetName}::${d}`}
               boq={boqId}
               sheetName={sheetName}
               discipline={d}
-              running={runningDisciplines.includes(d)}
-              onStatus={handleClassifyStatus}
+              onView={handleEngineView}
+              register={registerClassifyStarter}
             />
           ))
         : null}
 
-      {/* CL-2: the classify-sheet launcher dialog (fetches engines + fires start_classify). */}
+      {/* CL-2: the classify-sheet launcher dialog (fetches engines; the page starts each engine's operation). */}
       <ClassifySheetDialog
         open={classifyOpen}
-        boqId={boqId ?? ""}
-        sheetName={sheetName ?? ""}
         onClose={() => setClassifyOpen(false)}
-        onStarted={(launches) => {
-          // HV-10: capture the launched disciplines so the pollers/filters accept their events.
-          const next = addRunningDisciplines(
-            runningDisciplinesRef.current,
-            launches.map((l) => l.discipline),
-          );
-          runningDisciplinesRef.current = next;
-          setRunningDisciplines(next);
-          // HV-10b: a FRESH run set REPLACES the scope union with just this run set's scopes (the
-          // reset-between-run-sets semantics); multiple engines in one launch fold via unionScopes
-          // (whole-sheet dominates a mixed union). The completion summary is scoped to it.
-          scopeUnionRef.current = unionScopes(launches.map((l) => l.scope));
-          // HV-11: a fresh run set RESETS the per-discipline ai_status accumulation.
-          aiStatusByDisciplineRef.current = {};
-          setClassifyAiStatusByDiscipline({});
-          setClassifyRunning(true);
-          classifyRunningRef.current = true;
-          setClassifyProgress(null);
-          setClassifySummary(null);
-          setClassifyModalOpen(true); // open the blocking progress modal for this run
-        }}
+        onStarted={startClassifyRunSet}
       />
 
       {/* CL-3: the category verdict picker -- a Popover anchored to the clicked Category grid cell

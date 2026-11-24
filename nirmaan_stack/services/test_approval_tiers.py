@@ -229,3 +229,30 @@ class TestRaiserLevel(unittest.TestCase):
 
         self.assertEqual(initial_status_for_raiser(80_000, 50000.0, "accountant"), "Requested")
         self.assertEqual(steps_cleared_by_raiser(80_000, 50000.0, "accountant"), (False, False))
+
+
+class TestShownTier(unittest.TestCase):
+    """The Tier a queue row SHOWS (#1710): an Expense an import created went through no gate, so it reads SYSTEM at
+    any amount, refunds included; every other row shows the amount's tier."""
+
+    def test_an_imported_expense_reads_system_at_any_amount(self):
+        from nirmaan_stack.services.approval_tiers import TIER_SYSTEM, shown_tier
+
+        for amount in (500, 17_446, 75_000, -11_248, -60_000, 0):
+            with self.subTest(amount=amount):
+                self.assertEqual(shown_tier(amount, TIER_L2_ABOVE_EXPENSES, imported=True), TIER_SYSTEM)
+
+    def test_a_row_no_import_made_keeps_the_amount_rule(self):
+        from nirmaan_stack.services.approval_tiers import shown_tier
+
+        self.assertEqual(shown_tier(9_000, TIER_L2_ABOVE_EXPENSES, imported=False), TIER_AUTO)
+        self.assertEqual(shown_tier(17_446, TIER_L2_ABOVE_EXPENSES, imported=False), TIER_L1)
+        self.assertEqual(shown_tier(75_000, TIER_L2_ABOVE_EXPENSES, imported=False), TIER_L1_L2)
+        self.assertEqual(shown_tier(-11_248, TIER_L2_ABOVE_EXPENSES, imported=False), TIER_L1)
+
+    def test_system_is_no_routing_answer(self):
+        """No gate reads SYSTEM: `required_tier` never returns it."""
+        from nirmaan_stack.services.approval_tiers import TIER_SYSTEM
+
+        for amount in (500, 17_446, 75_000, -11_248, -60_000, 0):
+            self.assertNotEqual(required_tier(amount), TIER_SYSTEM)

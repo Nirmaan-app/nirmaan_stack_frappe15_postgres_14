@@ -15,14 +15,17 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
+from nirmaan_stack.api.cheques.cheque_detail import get_cheque
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import cancel_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
+PMO = "Nirmaan PMO Executive Profile"
 PROCUREMENT = (
     "Nirmaan Procurement Executive Profile",
     "Nirmaan Procurement Lead Profile",
@@ -143,6 +146,47 @@ class TestListCheques(FrappeTestCase):
         result = self._as(user, self._search, number)
 
         self.assertEqual(result["total_count"], 1)
+
+    # The Vendor page's Cheques tab (owner, 2026-11-20): PMO, who has a Vendors link, may VIEW cheques.
+
+    def test_pmo_can_read_the_list_its_facets_and_a_cheques_detail(self):
+        name, number = self._save()
+        pmo = self._user((PMO,))
+
+        listed = self._as(pmo, self._search, number)
+        facets = self._as(pmo, get_cheque_facets, "status", filters=json.dumps([["vendor", "=", self.vendor]]))
+        detail = self._as(pmo, get_cheque, name)
+
+        self.assertEqual([r["name"] for r in listed["data"]], [name])
+        self.assertIn("Issued", [v["value"] for v in facets["values"]])
+        self.assertEqual(detail["name"], name)
+
+    def test_pmo_still_cannot_record_edit_or_cancel_a_cheque(self):
+        name, _ = self._save()
+        pmo = self._user((PMO,))
+
+        with self.assertRaises(frappe.PermissionError):
+            self._as(pmo, assert_cheque_access, pmo)  # what recording and editing start with
+        with self.assertRaises(frappe.PermissionError):
+            self._as(pmo, cancel_cheque, name, "PMO must not cancel a cheque")
+        self.assertEqual(frappe.db.get_value("Cheques", name, "status"), "Issued")
+
+    def test_a_project_manager_still_cannot_open_a_cheques_detail(self):
+        name, _ = self._save()
+        pm = self._user((PROJECT_MANAGER,))
+        with self.assertRaises(frappe.PermissionError):
+            self._as(pm, get_cheque, name)
+
+    def test_the_vendor_filter_lists_only_that_vendors_cheques(self):
+        mine, _ = self._save()
+        payee_only, _ = self._save(vendor=None, payee_name="Tata Power")
+
+        rows = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]), limit_page_length=500)["data"]
+
+        names = {r["name"] for r in rows}
+        self.assertIn(mine, names)
+        self.assertNotIn(payee_only, names)
+        self.assertEqual({r["vendor"] for r in rows}, {self.vendor})
 
 
 class TestChequeReportFiltersAndSummary(FrappeTestCase):

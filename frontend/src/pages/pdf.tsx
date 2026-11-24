@@ -85,8 +85,10 @@ export const PDF = () => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {orderData?.order_list?.list.map((item) => {
-                                return <tr className="">
+                            {/* Index key: the PO's lines are shown once, in stored order, never sorted or filtered,
+                                and a legacy line has no field guaranteed unique within the list. */}
+                            {orderData?.order_list?.list.map((item, index: number) => {
+                                return <tr key={index} className="">
                                     <td className="px-6 py-4 text-sm whitespace-nowrap">{item.item}</td>
                                     <td className="px-6 py-4 text-sm whitespace-nowrap">
                                         {item.quantity}
@@ -139,7 +141,7 @@ export const PDF = () => {
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {quotation_request_list?.map((item) => {
-                                return <tr className="">
+                                return <tr key={item.name} className="">
                                     <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">
                                         {item.category}

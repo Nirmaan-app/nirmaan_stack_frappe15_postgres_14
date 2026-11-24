@@ -5,14 +5,16 @@
 
 A GST payment (ADR-0030, `Project Payments.is_gst_payment`) is no longer created straight from Request
 Payment. The raiser makes a `GST Payment Request` (Pending); an Accountant, an Accountant Lead or an Admin
-(`PAYMENT_SETTLE_PROFILES`) approves it, which creates the payment through the ordinary request path, routed
-by amount as any payment is, or rejects it, which creates nothing. Project Payments' statuses are untouched.
+(`PAYMENT_SETTLE_PROFILES`) approves it, which creates the payment through the ordinary request path, born
+Approved and ready to pay at any amount (no L1, no CEO: `approved_payment_route`, ADR-0030 Amendment B), or
+rejects it, which creates nothing. Project Payments' statuses are untouched.
 
     Pending  -> Approved   the decider, through `api/payments/gst_payment_requests.approve_gst_payment_request`
     Pending  -> Rejected   the decider, with a reason, through `reject_gst_payment_request`
     Approved <-> Paid      its payment, by itself: Paid while the payment is Paid (reconciled), Approved
-                           otherwise (`sync_with_payment`, the Project Payments `on_update`); a payment L1 or
-                           the CEO rejects leaves it Approved
+                           otherwise (`sync_with_payment`, the Project Payments `on_update`); a payment
+                           rejected afterwards (an Admin's correction, or an older one at L1 / the CEO)
+                           leaves it Approved
     anything else          refused
 
 DELETING. A decider deletes a Pending or Rejected request (`delete_gst_payment_request`); an Approved or
@@ -61,6 +63,8 @@ FROM_GST_REQUEST = "from_gst_request"
 PAYMENT_DELETE_FLAG = "deleting_gst_payment"
 #: The payment status that makes its request Paid: reconciled, as Paid means everywhere.
 PAYMENT_PAID = "Paid"
+#: The status an approved request's payment is born at, whatever its amount (Amendment B).
+PAYMENT_APPROVED = "Approved"
 
 #: The fields only the endpoints write.
 _GUARDED_FIELDS = (
@@ -135,6 +139,17 @@ def delete_problem(doc, user: str) -> str | None:
         return _("An {0} GST request goes only with its payment: delete {1} instead.").format(
             doc.status.lower(), doc.project_payment or _("the payment"))
     return None
+
+
+def approved_payment_route() -> tuple[bool, str, bool, bool]:
+    """`(auto_approve, status, l1_cleared, ceo_cleared)` for the payment an approved request creates.
+
+    The decider's approval in GST Requests is a GST payment's ONLY approval (ADR-0030 Amendment B, owner
+    2026-11-18): it is born Approved, ready to pay, at every amount and whoever raised the request, with
+    no L1 and no CEO step. Both steps are dated as cleared so every "is it approved?" reader agrees; it is
+    not `auto_approved`, because a person approved it. Base payments keep the amount rule.
+    """
+    return False, PAYMENT_APPROVED, True, True
 
 
 def status_for_payment(payment_status: str | None) -> str:

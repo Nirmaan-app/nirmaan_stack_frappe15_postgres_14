@@ -11,6 +11,8 @@ export const REPORTS_TABS = {
   PAYMENT_TDS: 'payment_tds',
   // Every project's documents as one merged PDF (the project / vendor Bulk Download, unscoped).
   BULK_DOWNLOAD: 'bulk_download',
+  // Orders / Invoices / Payments in one date range, for the auditors (Admin + Accountants).
+  AUDIT_VIEW: 'audit_view',
 } as const; // Use "as const" for stricter typing
 
 // export const INVOICE_TASK_TYPE = "po_invoice_approval";

@@ -13,7 +13,6 @@ its own gemini_* surface alongside them.
 
 Public API (whitelisted endpoints):
   run_gemini_pass(boq_name, sheet_name, mode="resume") -> dict
-  get_gemini_pass_status(boq_name, sheet_name)         -> dict
   accept_gemini_suggestion(boq_name, sheet_name, row_index,
                            accept_classification=False, accept_parent=False) -> dict
   reject_gemini_suggestion(boq_name, sheet_name, row_index) -> dict
@@ -22,7 +21,10 @@ Public API (whitelisted endpoints):
 Internal:
   _run_gemini_pass_worker(boq_name, sheet_name, user)   background worker
   _apply_gemini_suggestions(...)                        set_value scalar-bypass write-back
-  _publish_gemini_event(...)                            boq:gemini_pass_done choke-point
+  _end_gemini_pass(...)                                 clears gemini_in_progress on every exit path
+
+No screen calls run_gemini_pass since ADR-0034, so a pass keeps no status record and sends no socket message
+(#1671): its sheet's gemini_in_progress flag is its only state.
 
 KEY DUAL-AI INVARIANTS (ADR-0003 secs 4, 5, 7; REVISED by ADR-0006):
   - EXACTLY ONE accepted Source per row, enforced by BLOCK-THEN-REVERT (ADR-0006). An AI
@@ -74,18 +76,11 @@ from nirmaan_stack.api.boq.wizard.ai_assist import (
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
 from nirmaan_stack.services import boq_gemini_assist
-from nirmaan_stack.services.boq_gemini_assist import _NonRetryable
 
 logger = frappe.logger("boq_gemini")
 
 _REVIEW_ROW = "BoQ Review Row"
 _SHEET_DRAFT = "BoQ Sheet Draft"
-
-# Per-sheet status fallback (Redis). NB: unlike Claude there is NO result cache here
-# (a re-run is cheap to re-enqueue and the dual-AI spec does not ask for one) -- only
-# the missed-socket status fallback, mirroring _AI_STATUS_PREFIX.
-_GEMINI_STATUS_PREFIX = "boq_gemini_status"
-_GEMINI_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
 
 # Defaults that mean "no Gemini suggestion" on a BoQ Review Row (mirrors _AI_DEFAULTS;
 # gemini_suggested_parent / _level use the -1 sentinel, status/suggestion None/0).
@@ -125,13 +120,8 @@ _ACCEPTABLE_CLASSES = frozenset({"line_item", "preamble", "note", "spacer"})
 
 
 # ---------------------------------------------------------------------------
-# Status keys + sheet-draft helpers (mirror ai_assist)
+# Sheet-draft helpers (mirror ai_assist)
 # ---------------------------------------------------------------------------
-
-def _gemini_status_key(boq_name: str, sheet_name: str) -> str:
-    """Missed-socket status fallback key (per sheet -- the pass is per-sheet)."""
-    return f"{_GEMINI_STATUS_PREFIX}::{boq_name}::{sheet_name}"
-
 
 def _draft_name(boq_name: str, sheet_name: str):
     """Resolve the BoQ Sheet Draft child name (sheet_name VERBATIM #152)."""
@@ -347,41 +337,7 @@ def run_gemini_pass(boq_name: str = None, sheet_name: str = None, mode: str = "r
     _set_gemini_in_progress(boq_name, sheet_name, 1)
     frappe.db.commit()
 
-    # Invalidate any PRIOR run's terminal status payload (the Redis missed-socket fallback set
-    # by _publish_gemini_event) so the frontend's Layer-2 poll resolves THIS pass, not the last
-    # one's outcome. Without this, re-running after a failure re-shows the old error banner: the
-    # poll reads get_gemini_pass_status -> stale cached {status:"error"} while the new run is
-    # still in flight. Best-effort (Redis, outside the DB txn) -- must never fail the enqueue.
-    try:
-        frappe.cache().delete_value(_gemini_status_key(boq_name, sheet_name))
-    except Exception:
-        pass
-
     return {"ok": True, "enqueued": True, "job_id": job.id if job else None}
-
-
-@frappe.whitelist()
-def get_gemini_pass_status(boq_name: str = None, sheet_name: str = None) -> dict:
-    """Missed-socket recovery: the terminal Gemini-pass outcome for a sheet, if recorded.
-
-    Mirrors get_ai_pass_status. _publish_gemini_event records its outcome in the Redis
-    fallback keyed by (boq, sheet); this returns it, else the idle shape with the live
-    gemini_in_progress flag.
-
-    URL: /api/method/nirmaan_stack.api.boq.wizard.gemini_assist.get_gemini_pass_status
-    """
-    if not boq_name:
-        frappe.throw("boq_name is required.", title="Missing field: boq_name")
-    if not sheet_name:
-        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-
-    cached = frappe.cache().get_value(_gemini_status_key(boq_name, sheet_name))
-    if cached:
-        return cached
-    return {
-        "status": "idle_or_unknown",
-        "gemini_in_progress": _get_gemini_in_progress(boq_name, sheet_name),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -781,15 +737,10 @@ def revert_gemini_acceptance(
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> None:
-    """Background worker: fetch rows -> build payloads -> Gemini service -> write-back ->
-    publish. Mirrors _run_ai_pass_worker structure.
+    """Background worker: fetch rows -> build payloads -> Gemini service -> write-back.
 
-    gemini_in_progress is CLEARED inside _publish_gemini_event (the choke-point), NOT here,
-    so every exit path clears it. On failure: log + rollback + publish error + RAISE.
-
-    Event published (user-targeted): 'boq:gemini_pass_done'
-      success: {status, boq_name, sheet_name, rows_done, token_total}
-      error:   {status, boq_name, sheet_name, error_code}   (gemini_failed | internal)
+    gemini_in_progress is CLEARED inside _end_gemini_pass, NOT here, so every exit path clears
+    it. On failure: log + rollback + clear + RAISE.
     """
     if user:
         frappe.set_user(user)
@@ -805,20 +756,16 @@ def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) ->
 
         payloads = [boq_gemini_assist.build_row_payload(dict(r)) for r in rows]
         # EA-6b: chunk cuts ride a PARALLEL flag list, never the payload (WIRE independence).
-        suggestions, token_total = boq_gemini_assist.classify_sheet(
+        suggestions, _token_total = boq_gemini_assist.classify_sheet(
             client, model, settings, payloads, _section_flags(rows)
         )
 
-        written = _apply_gemini_suggestions(boq_name, sheet_name, rows, suggestions)
+        _apply_gemini_suggestions(boq_name, sheet_name, rows, suggestions)
 
-        # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids races).
         frappe.db.commit()
-        _publish_gemini_event(
-            boq_name, sheet_name, "success", user=user,
-            rows_done=written, token_total=token_total,
-        )
+        _end_gemini_pass(boq_name, sheet_name)
 
-    except Exception as exc:
+    except Exception:
         frappe.log_error(
             title=f"BoQ Gemini pass worker: failed for {boq_name} / {sheet_name}",
             message=frappe.get_traceback(),
@@ -827,44 +774,16 @@ def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) ->
             frappe.db.rollback()
         except Exception:
             pass
-        error_code = "gemini_failed" if isinstance(exc, _NonRetryable) else "internal"
-        _publish_gemini_event(boq_name, sheet_name, "error", user=user, error_code=error_code)
+        _end_gemini_pass(boq_name, sheet_name)
         raise
 
 
 # ---------------------------------------------------------------------------
-# Publish (choke-point: clears gemini_in_progress + commits, on EVERY exit path)
+# End of a pass
 # ---------------------------------------------------------------------------
 
-def _publish_gemini_event(
-    boq_name: str,
-    sheet_name: str,
-    status: str,
-    user: str | None = None,
-    **kwargs: Any,
-) -> None:
-    """Publish boq:gemini_pass_done targeted to the enqueueing user (if known).
-
-    Every completion path funnels through here so one choke-point clears
-    gemini_in_progress uniformly. The error path calls frappe.db.rollback() BEFORE this;
-    the set_value + commit below starts a fresh transaction not subject to it (mirrors
-    _publish_ai_event)."""
+def _end_gemini_pass(boq_name: str, sheet_name: str) -> None:
+    """Clear the sheet's gemini_in_progress flag and commit. The error path calls frappe.db.rollback()
+    BEFORE this; the set_value + commit below starts a fresh transaction not subject to it."""
     _set_gemini_in_progress(boq_name, sheet_name, 0)
     frappe.db.commit()
-
-    payload = {"status": status, "boq_name": boq_name, "sheet_name": sheet_name, **kwargs}
-
-    # Missed-socket fallback (best-effort, Redis -- survives the error-path rollback,
-    # must never fail the job). Keyed per sheet so get_gemini_pass_status can recover it.
-    try:
-        frappe.cache().set_value(
-            _gemini_status_key(boq_name, sheet_name), payload,
-            expires_in_sec=_GEMINI_STATUS_TTL_SEC,
-        )
-    except Exception:
-        pass
-
-    publish_kwargs: dict[str, Any] = {}
-    if user:
-        publish_kwargs["user"] = user
-    frappe.publish_realtime("boq:gemini_pass_done", payload, **publish_kwargs)

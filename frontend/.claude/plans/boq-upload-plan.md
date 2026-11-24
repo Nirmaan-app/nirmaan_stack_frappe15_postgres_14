@@ -1,5 +1,9 @@
 # BoQ Upload & Management — Implementation Plan
 
+> **CLOSED RECORD.** This file takes no new text, and `.claude/hooks/guard_claude_md.py` refuses an Edit or Write tool call on it.
+> Where BoQ work stands now: `boq-status.md` beside this file. What a change built goes in its commit message.
+> The **Status** paragraph below is old; the last record here is slice DU-3.
+
 **Status:** Phases 0-2 (parser, 589 tests) + Phase 3 (wizard) + Phase 4 (AI assist) COMPLETE; Phase 5 (commit + pricing
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the

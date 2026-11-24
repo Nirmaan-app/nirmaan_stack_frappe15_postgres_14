@@ -413,3 +413,53 @@ class TestThePreviewListsInternalTransfersUnderTheirOwnHeading(FrappeTestCase):
               "Internal Transfer from ICICI Current Account to Cashbook Virtual Account.")],
         )
         self.assertEqual([line["transfer_id"] for line in preview["skipped"]], [f"VALOAD-{tag}2"])
+
+
+class TestALineBeforeTheCutoffFillsNoRecord(CashbookStageCase):
+    """#1715, owner decision 2 (2026-11-19): a Bank → VA line dated before 1 Apr 2026, or undated, is left out like
+    any other early line. It fills no ₹0 Internal Transfer record, so a file of nothing else is refused."""
+
+    _confirm = TestAReuploadFillsAZeroRecord._confirm
+
+    def _zero_record(self, txn: str) -> str:
+        old = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
+                                             "SUCCESS", txn)]))[0]
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": old["name"]}, "amount", 0)
+        frappe.db.commit()
+        return old["name"]
+
+    def test_an_early_line_fills_nothing_and_its_file_is_refused(self):
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        txn = f"VALOAD-{frappe.generate_hash(length=6).upper()}"
+        old = self._zero_record(txn)
+        early = _xlsx([_line("25/03/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS", txn)])
+
+        preview = _post(cb.preview_cashbook_statement, early, "test-it-early-fill.xlsx")
+        self.assertEqual((preview["records_to_fill"], preview["refused"], preview["before_cutoff"]), (0, True, 1))
+        with self.assertRaises(frappe.ValidationError):
+            self._confirm(early)
+        self.assertEqual(float(self._record(old)["amount"]), 0.0)
+
+    def test_an_early_line_beside_kept_lines_fills_nothing(self):
+        tag = frappe.generate_hash(length=6).upper()
+        old = self._zero_record(f"VALOAD-{tag}1")
+        result = self._confirm(_xlsx([
+            _line("25/03/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS", f"VALOAD-{tag}1"),
+            _line("02/08/2026", "Wallet → VA", "Test Employee B", "Virtual Account", "300", "", "SUCCESS",
+                  f"C2B-{tag}2"),
+        ]))
+        self.assertEqual((result["records_filled"], result["internal_transfers"]), (0, 1))
+        self.assertEqual(float(self._record(old)["amount"]), 0.0)
+
+    def test_an_undated_line_fills_nothing(self):
+        """Owner decision 2 (#1715): a line with no readable date is left out like an early one."""
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        txn = f"VALOAD-{frappe.generate_hash(length=6).upper()}"
+        old = self._zero_record(txn)
+        undated = _xlsx([_line("", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS", txn)])
+
+        preview = _post(cb.preview_cashbook_statement, undated, "test-it-undated-fill.xlsx")
+        self.assertEqual((preview["records_to_fill"], preview["refused"], preview["before_cutoff"]), (0, True, 1))
+        self.assertEqual(float(self._record(old)["amount"]), 0.0)

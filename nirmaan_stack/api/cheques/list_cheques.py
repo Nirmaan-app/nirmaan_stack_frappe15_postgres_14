@@ -27,7 +27,7 @@ Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = P
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 
-Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
+Who: `CHEQUE_VIEW_PROFILES`: the cheque users and PMO, read-only (Project Managers are refused).
 """
 
 import json
@@ -37,7 +37,7 @@ from frappe import _
 from frappe.utils import add_days, cint, flt, nowdate
 
 from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_TYPE_PAYMENT, CLEARED, ISSUED, PENDING
-from nirmaan_stack.services.role_profiles import assert_cheque_access
+from nirmaan_stack.services.role_profiles import assert_cheque_view_access
 
 MAX_PAGE_LENGTH = 500
 #: The hook asks for every row with `for_export=true` plus `limit_page_length=0`.
@@ -274,7 +274,7 @@ def get_cheques(
     When `filters` name PO/WOs (`record_name`), each row's `record_amount` is what its lines put on them: a
     multi-PO Payment cheque's share of one PO, 0 for a deposit (its lines carry no amount). Otherwise it is None.
     """
-    assert_cheque_access(frappe.session.user)
+    assert_cheque_view_access(frappe.session.user)
 
     where, params = _where(filters, search_term, current_search_fields)
     order = _build_order(order_by)
@@ -330,7 +330,7 @@ def get_cheque_facets(field, filters=None, search_term=None, current_search_fiel
     ticking one value would hide its siblings). Blank values are not offered. Returns
     `{field, values: [{value, label, count}]}`, most common first.
     """
-    assert_cheque_access(frappe.session.user)
+    assert_cheque_view_access(frappe.session.user)
     if field not in _HEADER_FACETS and field not in _LINE_FACETS:
         frappe.throw(_("Unsupported facet field: {0}").format(field))
 

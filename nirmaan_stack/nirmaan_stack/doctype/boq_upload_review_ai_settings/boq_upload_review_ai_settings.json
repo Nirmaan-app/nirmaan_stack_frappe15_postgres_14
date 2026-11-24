@@ -19,6 +19,7 @@
   "match_card_model",
   "match_judge_model",
   "match_calls_at_once",
+  "match_site_calls_at_once",
   "match_reply_max_tokens",
   "match_card_reply_max_tokens",
   "match_retry_wait_s",
@@ -190,13 +191,20 @@
    "fieldname": "match_judge_price_out",
    "fieldtype": "Float",
    "label": "Judge model price out (USD / million tokens)"
+  },
+  {
+   "default": "50",
+   "description": "Most matching calls in flight at the same time across every operation and every worker of this site (#1718). Each operation's own Calls at once stays its ceiling; the lower of the two holds.",
+   "fieldname": "match_site_calls_at_once",
+   "fieldtype": "Int",
+   "label": "Calls at once, whole site"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-03 13:00:00.000000",
+ "modified": "2026-11-18 19:38:25.544112",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQ Upload Review AI Settings",

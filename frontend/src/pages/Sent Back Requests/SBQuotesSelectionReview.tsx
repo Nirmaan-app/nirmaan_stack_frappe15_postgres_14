@@ -22,10 +22,10 @@ import { computeLossPercent, isHighLoss } from "@/utils/lossPercent";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useFrappeCreateDoc,
-  useFrappeDocumentEventListener,
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
+import { useDocumentEventListener } from "@/lib/frappe";
 import memoize from "lodash/memoize";
 import {
   ArrowBigUpDash,
@@ -146,7 +146,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
     mutate: sent_back_mutate,
   } = useSentBackCategory(sbId);
 
-  useFrappeDocumentEventListener(
+  useDocumentEventListener(
     "Sent Back Category",
     sbId,
     (event) => {
@@ -846,7 +846,7 @@ export default SBQuotesSelectionReview;
 // import { parseNumber } from "@/utils/parseNumber";
 // import {
 //   useFrappeCreateDoc,
-//   useFrappeDocumentEventListener,
+//   useDocumentEventListener,
 //   useFrappeUpdateDoc,
 //   useSWRConfig,
 // } from "frappe-react-sdk";
@@ -971,7 +971,7 @@ export default SBQuotesSelectionReview;
 //     mutate: sent_back_mutate,
 //   } = useSentBackCategory(sbId);
 
-//   useFrappeDocumentEventListener(
+//   useDocumentEventListener(
 //     "Sent Back Category",
 //     sbId,
 //     (event) => {

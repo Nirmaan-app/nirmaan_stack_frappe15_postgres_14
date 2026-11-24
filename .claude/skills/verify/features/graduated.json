@@ -1,0 +1,60 @@
+{
+ "1731": {
+  "mu_ordered": "walk_material_usage.py",
+  "mu_numbers": "walk_material_usage.py",
+  "mu_docs": "walk_material_usage.py",
+  "mu_powise": "walk_material_usage.py",
+  "wo_pdf": "walk_vendor_work_orders.py",
+  "wo_links": "walk_vendor_work_orders.py",
+  "mtc": "walk_mtc.py",
+  "po_date": "walk_revised_po_date.py",
+  "msme": "walk_vendor_msme.py",
+  "msme_read": "skip: an env cannot read the certificate: its Document AI key, copied from production, is refused by Google (401 API key not valid), and no one adds a key to an env; walk_vendor_msme.py still tries the read each run and reports it not walked with the server's answer"
+ },
+ "1732": {
+  "audit": "walk_audit_view.py",
+  "payments": "walk_vendor_payments.py",
+  "cheques": "walk_vendor_cheques.py",
+  "pmo": "walk_vendor_cheques.py"
+ },
+ "1736": {
+  "labels": "walk_audit_view.py",
+  "datebox": "walk_audit_view.py",
+  "refresh": "walk_audit_view.py",
+  "cards": "walk_audit_view.py",
+  "columns": "walk_audit_view.py",
+  "reimb": "skip: no data to walk it on: the backup holds no non-project expense with no type and a reimbursement link (0 rows on 2026-11-24), and making one would mean faking a reimbursement claim; test_audit_view.py checks the label at the API",
+  "mu_itm": "walk_material_usage.py",
+  "mu_source": "walk_material_usage.py",
+  "msme": "walk_vendor_msme.py",
+  "cheque": "walk_vendor_cheques.py"
+ },
+ "1737": {
+  "tabs": "walk_reimbursements.py",
+  "hr": "walk_reimbursements.py",
+  "payments": "walk_reimbursements.py",
+  "l1": "walk_reimbursements.py",
+  "ceo": "walk_reimbursements.py",
+  "pay": "walk_reimbursements.py",
+  "reconcile": "walk_reimbursements.py",
+  "month": "walk_reimbursements.py",
+  "status": "walk_reimbursements.py",
+  "cap": "walk_reimbursements.py",
+  "delete": "walk_reimbursements.py",
+  "action": "walk_reimbursements.py",
+  "patch": "skip: a one-time migration (v3_0.reimbursement_status_from_expense) that ran on every env's migrate; a fresh env holds no claim left Approved behind its expense, so there is nothing for a walk to move. The PR walk ran it on such claims in a rolled-back DB script, and test_reimbursements covers it",
+  "race": "skip: two people deciding one claim at the same moment can't be driven from one screen; test_reimbursements' simultaneous-decision tests (lock_claim) cover it"
+ },
+ "1738": {
+  "approve": "walk_gst_requests.py",
+  "lead": "walk_gst_requests.py",
+  "base": "walk_gst_requests.py",
+  "tab": "walk_gst_requests.py",
+  "reject": "walk_gst_requests.py",
+  "errors": "walk_gst_requests.py",
+  "summary": "walk_gst_requests.py",
+  "bell": "walk_gst_requests.py",
+  "patch": "skip: a one-time migration (v3_0.gst_payments_waiting_to_approved) that ran on every env's migrate; a fresh env holds no GST payment an approved request left at Requested / CEO Pending (0 on the 17 Nov 2026 backup), so there is nothing for a walk to move. The PR walk ran it on such payments in a rolled-back DB script, and test_gst_payment_requests covers it",
+  "live": "skip: envs serve no realtime (Socket.IO), so the GST badge's live update across windows cannot be seen on one"
+ }
+}

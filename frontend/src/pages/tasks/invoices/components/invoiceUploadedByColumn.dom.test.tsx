@@ -35,9 +35,12 @@ const entry = (n: number, uploaded_by: string) => ({
 const ENTRIES = [entry(1, "pvr@example.test"), entry(2, NO_NAME_EMAIL)];
 const USERS = [{ name: "pvr@example.test", full_name: LONG_NAME }, { name: NO_NAME_EMAIL, full_name: "" }];
 
-vi.mock("frappe-react-sdk", () => {
+vi.mock("frappe-react-sdk", async (importOriginal) => {
     const idle = { data: undefined, isLoading: false, error: undefined, mutate: () => Promise.resolve() };
     return {
+        // The real SDK under the mocks: the components reach `@/lib/frappe` (its safe listeners, #1670), which reads
+        // every SDK hook when it loads. vitest loads the SDK's CommonJS build, whose exports sit under `default`.
+        ...(await importOriginal<{ default: object }>()).default,
         useFrappeGetCall: (method: string) => method.includes("invoice_data")
             ? { ...idle, data: { message: { message: { invoice_entries: ENTRIES }, status: 200 } } }
             : idle,
@@ -45,8 +48,6 @@ vi.mock("frappe-react-sdk", () => {
         useFrappeGetDoc: () => idle,
         useFrappePostCall: () => ({ call: () => Promise.resolve({}), loading: false }),
         useFrappeFileUpload: () => ({ upload: () => Promise.resolve({}), loading: false }),
-        useFrappeDocTypeEventListener: () => undefined,
-        useFrappeEventListener: () => undefined,
         useFrappeAuth: () => ({ currentUser: "accountant@example.test" }),
         useSWRConfig: () => ({ mutate: () => Promise.resolve() }),
         FrappeContext: { Provider: ({ children }: { children: unknown }) => children },

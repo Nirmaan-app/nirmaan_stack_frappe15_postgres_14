@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 import {
+    AUDIT_VIEW_PROFILES,
     MATERIAL_PROCUREMENT_PROFILES,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
@@ -24,8 +25,11 @@ export type DCMIRReportType = 'DC Report' | 'MIR Report';
 // The "Payment" tab: the Tax Deducted at Source ledger. (Cheques moved to the Cheque Tracker, #1483.)
 export type PaymentTDSReportType = 'TDS Deduction';
 
+// The "Audit View" tab: orders, invoices and payments in one date range, with or without a project.
+export type AuditViewReportType = 'All Project View' | 'Non Project View';
+
 // Combined type for any selectable report
-export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | PaymentTDSReportType | null;
+export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | PaymentTDSReportType | AuditViewReportType | null;
 
 interface ReportState {
     // Keep track of the *type* of report selected for export/filtering
@@ -91,6 +95,8 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
         // Reads the SAME helper as the tab itself and its dropdown, so the default can never
         // name a report the user's own dropdown does not offer.
         return paymentTabReports(userRole)[0] ?? null;
+    } else if (tab === REPORTS_TABS.AUDIT_VIEW) {
+        return AUDIT_VIEW_PROFILES.includes(userRole || "") ? 'All Project View' : null;
     }
     return null; // Default fallback
 };

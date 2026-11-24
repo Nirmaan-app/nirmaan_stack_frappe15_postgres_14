@@ -44,11 +44,11 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { getToken } from "firebase/messaging";
 import {
-  useFrappeDocTypeEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
+import { useDocTypeEventListener } from "@/lib/frappe";
 import Cookies from "js-cookie";
 import {
   BellRing,
@@ -182,7 +182,7 @@ export function NewSidebar() {
 
 
 
-  useFrappeDocTypeEventListener("Nirmaan Notifications", () => {
+  useDocTypeEventListener("Nirmaan Notifications", () => {
     console.log("Refetching Notification data due to socket event...");
     notificationsDataMutate?.(); // Always refetch notifications for the current user
   });

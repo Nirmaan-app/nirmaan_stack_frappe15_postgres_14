@@ -29,8 +29,11 @@ interface ParseRunDialogProps {
   skippedSheetNames: string[];
   /** General-specs sheet names -- shown as "preamble only" informational row. */
   generalSpecsSheetNames: string[];
-  /** True while the parse job is in flight (button shows spinner, nav blocked). */
-  isLoading: boolean;
+  /**
+   * While the parse is in flight (queued or running), the words its button shows with a spinner ("Waiting in the
+   * queue..." until a worker runs it, then "Parsing...", #1668); the buttons are disabled. null = nothing in flight.
+   */
+  inFlightLabel: string | null;
   /**
    * Dialog mode (Force Re-parse slice). "parse" (default) = the normal parse path:
    * tickable source is `reviewedDrafts`, the four informational lists show, no
@@ -73,12 +76,13 @@ export function ParseRunDialog({
   pendingSheetNames,
   skippedSheetNames,
   generalSpecsSheetNames,
-  isLoading,
+  inFlightLabel,
   mode = "parse",
   reparseDrafts = [],
   restrictToSheetName = null,
   downstreamSheets = {},
 }: ParseRunDialogProps) {
+  const isLoading = inFlightLabel !== null;
   const isReparse = mode === "reparse";
 
   // The tickable source. Parse mode = Config Done drafts (the existing behaviour).
@@ -331,7 +335,7 @@ export function ParseRunDialog({
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Parsing...
+                    {inFlightLabel}
                   </>
                 ) : (
                   `${isReparse ? "Re-parse" : "Parse"} ${tickedList.length} sheet${tickedList.length !== 1 ? "s" : ""}`
@@ -411,7 +415,7 @@ export function ParseRunDialog({
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Parsing...
+                    {inFlightLabel}
                   </>
                 ) : (
                   "Re-parse anyway"

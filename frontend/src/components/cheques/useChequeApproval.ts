@@ -1,4 +1,5 @@
-import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useSocketEventListener } from "@/lib/frappe";
 
 import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import {
@@ -18,7 +19,7 @@ export const useChequeApproval = (paymentId: string | null, stage: ChequeApprova
         { payment_id: paymentId, stage },
         paymentId ? `cheque-approval-${stage}-${paymentId}` : null,
     );
-    useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => {
+    useSocketEventListener(CHEQUES_CHANGED_EVENT, () => {
         if (paymentId) mutate();
     });
     return { approval: data?.message ?? null, error, isLoading };

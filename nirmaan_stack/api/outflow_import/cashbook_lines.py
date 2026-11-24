@@ -4,8 +4,8 @@
 """A staged Cashbook line: the values it holds of the plan's decision, and its row lock.
 
 Shared by the import (`cashbook._stage`, the job's `_lock_pending_line`), the re-open of earlier lines
-(`cashbook_reopen`, #1596) and the bill copy (`cashbook_bills`, #1591 / #1595), so none of them reaches into
-another's private names.
+(`cashbook_reopen`, #1596) and the open Collect payments' patch (#1708), so none of them reaches into another's
+private names.
 """
 
 from __future__ import annotations
@@ -14,13 +14,12 @@ from collections.abc import Callable
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_INTERNAL, ACTION_OPEN
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_INTERNAL
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settlement_reference import resolve_settlement_reference
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 from nirmaan_stack.services.outflow_import.status import (
     ROW_INTERNAL_TRANSFER,
-    ROW_MISMATCHED,
     ROW_PENDING_MATCH,
     ROW_SKIPPED,
     SKIP_ORIGIN_SYSTEM,
@@ -40,8 +39,8 @@ def lock_line_if(row_name: str, still: Callable[[dict], bool], columns: str = "*
     says it is no longer what the caller may write.
 
     The one lock-then-check shape every Cashbook writer of a line uses: the job's pending line
-    (`cashbook._lock_pending_line`), a Collect payment's stored bill (`cashbook_bills._set_stored_bill`) and an
-    earlier own-balances skip a new statement re-opens (`cashbook_reopen`). The check is made on the row the lock
+    (`cashbook._lock_pending_line`), an earlier own-balances skip a new statement re-opens (`cashbook_reopen`), and
+    an open Collect payment the #1708 patch hands to the job's write. The check is made on the row the lock
     returned, never on an earlier read. A serialization failure (the line changed after a REPEATABLE READ
     snapshot) propagates; the caller decides what it means.
     """
@@ -55,19 +54,27 @@ def lock_line_if(row_name: str, still: Callable[[dict], bool], columns: str = "*
     return rows[0]
 
 
+def hand_create_marker(line, source: str | None) -> dict:
+    """What a hand Create on the main table (`expenses.create_expense`) adds for a line the Cashbook Statement
+    import staged: the Cashbook marker (`cashbook_batch` = the line's import), so its Expense waits in Pending
+    Invoices Upload -> Cashbook like the job's (an Unreconciled or Error spend line created again by hand). Empty for
+    any other line. Such a line is told apart by its stored statement Type (`row_kind`), which only that import
+    writes: an older Cashbook line has none, and its Expense must never wait (spec #1585 "Which Expenses wait")."""
+    if source == CASHBOOK_SOURCE and (line.get("row_kind") or "").strip():
+        return {"cashbook_batch": line["import_batch"]}
+    return {}
+
+
 def line_values(raw, planned) -> dict:
     """What a staged Cashbook line holds of the plan's decision, whichever batch it is in: `cashbook._stage` writes
     it on a new line, `cashbook_reopen.reopen_lines` on an earlier line it re-opens (#1596)."""
+    # The plan stages no open line since #1720: a refund (#1709), a wallet credit (#1720) and a Collect payment
+    # (#1708) create like a spend.
     creating = planned.action == ACTION_CREATE
-    # An open line (#1594: an unpaired wallet refund, a wallet credit; #1595: an unpaired Collect payment) is
-    # staged at `Mismatched`, a status the job never takes, so it is a person's to decide on the main table from
-    # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
-    # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
-    opening = planned.action == ACTION_OPEN
     # #1623: one of Cashbook's own moves -- an Internal Transfer line; its record is written by the stage.
     internal = planned.action == ACTION_INTERNAL
-    skipping = not creating and not opening and not internal
-    placed = creating or (opening and bool(planned.ledger))
+    skipping = not creating and not internal
+    placed = creating
     return {
         "source": CASHBOOK_SOURCE,
         "transfer_id": raw.transfer_id,
@@ -98,8 +105,6 @@ def line_values(raw, planned) -> dict:
         "row_status": (
             ROW_PENDING_MATCH
             if creating
-            else ROW_MISMATCHED
-            if opening
             else ROW_INTERNAL_TRANSFER
             if internal
             else ROW_SKIPPED
@@ -111,7 +116,7 @@ def line_values(raw, planned) -> dict:
         # #1602: a *Paired wallet refund* keeps the other line's Txn Id, so the Skipped list names it without
         # reading the sentence. Blank on every other line, and cleared on an earlier line a re-open makes open.
         "cashbook_refund_partner": (planned.partner or None) if skipping else None,
-        "outcome_note": planned.reason if opening or internal else None,
+        "outcome_note": planned.reason if internal else None,
         "suggested_doctype": planned.ledger if placed else None,
         "suggested_expense_type": planned.expense_type if placed else None,
         "resolved_project": (
@@ -125,7 +130,6 @@ def line_values(raw, planned) -> dict:
         # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
         # and Frappe refuses to save a document holding a list in a non-table field.
         "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
-        # #1595: the statement's Type. Only this import writes it, so it also marks the line as staged
-        # from a Cashbook Statement (`cashbook_collect.statement_line_create_extras`).
+        # #1595: the statement's Type, as the statement printed it. Only this import writes it.
         "row_kind": (raw.row_kind or "").strip() or None,
     }

@@ -1,6 +1,6 @@
 // src/pages/outflow-import/OutflowMasterPage.tsx
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowRightLeft, Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
@@ -185,9 +185,12 @@ export const OutflowMasterPage = () => {
     const [tab, setTab] = useState<OutflowTab>(() =>
         tabFromCarried((location.state as { outflowTab?: unknown } | null)?.outflowTab)
     );
-    // Read by the import handler, which runs while `tab`'s own setter is still queued.
+    // Read by the import handler, which runs while `tab`'s own setter is still queued. Written after
+    // commit: only handlers read it.
     const tabRef = useRef(tab);
-    tabRef.current = tab;
+    useLayoutEffect(() => {
+        tabRef.current = tab;
+    });
     /**
      * The far-right view, which is NOT one of the tabs.
      *
@@ -356,7 +359,9 @@ export const OutflowMasterPage = () => {
      * `linkButtonState` only looks up ticked names.
      */
     const pageRef = useRef(table.page);
-    pageRef.current = table.page;
+    useLayoutEffect(() => {
+        pageRef.current = table.page;
+    });
     const tickedOnPageRef = useRef(new Map<string, number>());
     /**
      * What each ticked line was ticked AS -- open or Settled (#1319) -- so the tick mode survives paging
@@ -606,9 +611,11 @@ export const OutflowMasterPage = () => {
     const settledMode = tickMode === "settled";
     // Read inside the stable `toggleRow` / `toggleAll` to record what a line is ticked as.
     const settledTickableRef = useRef(false);
-    settledTickableRef.current = settledTicksAllowed(tab, canUndo);
     const rowsRef = useRef(rows);
-    rowsRef.current = rows;
+    useLayoutEffect(() => {
+        settledTickableRef.current = settledTicksAllowed(tab, canUndo);
+        rowsRef.current = rows;
+    });
     const readyToConfirm = useMemo(
         () => decidedRows(rows, selected, decisions),
         [rows, selected, decisions]

@@ -9,7 +9,8 @@ How frontend code is written (data access, state, forms, tables, effects, dates,
 
 | Plan | Feature | Status |
 |------|---------|--------|
-| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. Live status + full per-slice as-built detail. |
+| [boq-status.md](../plans/boq-status.md) | BoQ Upload & Management | Live status: where BoQ work stands now. Rewritten in place. |
+| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Closed record: the design spec and the per-slice as-built detail up to slice DU-3. Read by heading; takes no new text. |
 
 ---
 
@@ -62,10 +63,13 @@ How frontend code is written (data access, state, forms, tables, effects, dates,
 | Remaining Items (Inventory update page) | `src/pages/remaining-items/` | `index.tsx`, `components/RemainingItemsForm.tsx`, `hooks/useRemainingItemsForm.ts`, declaration. Items listed by `hooks/useEligibleItems.ts`. A project with no eligible items still gets the form ("No items to count", Submit 0/0) and saves a report with zero rows, so Pending clears; never bring back a dead-end empty state. When the latest report has zero rows, the "Last Updated" badge (`DateMetadataBar`) adds "No items to count". If the previous report was also empty, the server moves it to today rather than creating a new one, and the toast shows the server's `action` ("updated") |
 | Inventory Item-Wise | `src/pages/inventory/` | `InventoryItemWisePage.tsx`, `hooks/useInventoryItemWise.ts`, `inventory.types.ts` — cross-project aggregation of the latest submitted Remaining Items Reports, estimated cost from max PO quote rates; virtualized expandable table with category/unit facet filters and CSV export. Sidebar access: Admin, PMO, PL, PM, Procurement |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
+| Reports: Audit View | `src/pages/reports/` | `components/AuditViewReport.tsx` (steps, panel; fills the window on lg+ via `hooks/useFillWindowHeight.ts`), `components/audit-view/` (tab bar, summary strip, table, ⓘ tip), `columns/auditViewColumns.tsx`, `hooks/useAuditViewData.ts`, `utils/auditView.ts` (rules, F4). Nothing loads until a date range and a tab are picked |
 | Reports: DCs & MIRs | `src/pages/reports/` | `DCMIRReports.tsx`, `InventoryReport.tsx` sub-types with facet filters, HoverCard item popover, Critical PO column |
 | PO Adjustments | `src/pages/POAdjustment/` | `POAdjustmentButton.tsx`, `POAdjustmentDialog.tsx`, `POAdjustmentHistory.tsx`, `hooks/usePOAdjustment.ts`, `data/usePOAdjustmentQueries.ts` |
 | Vendor Data Hooks | `src/pages/vendors/data/` | `useVendorQueries.ts`, `useVendorMutations.ts` — centralized vendor CRUD with Sentry error capturing |
 | Vendor Financial Dialogs | `src/pages/vendors/` | Vendor WO / Material Orders tables show an Amount Due column; the Total Invoiced and Amount Paid cells open `InvoiceDataDialog` / `PaymentsDataDialog` |
+| Vendor Payments tab | `src/pages/vendors/components/` | `VendorPaymentsTabs.tsx` (sub-tabs Paid / Cheque Pending / Other Pending Payments, counts and ₹ totals from one grouped `get_list`, open tab in `?vendor_payments_group=`) over `VendorPaymentsTable.tsx` (columns, sort and search per sub-tab). The rules are pure in `src/utils/vendorPayments/paymentGroups.ts`: Paid = status Paid; Cheque Pending = a Cheque at Reconciliation Pending (its cheque is Issued); the rest are Other Pending Payments. The list endpoint has no OR, so Other Pending leaves the Cheque Pending payments out by `name not in` |
+| Cheque Tracker tabs | `src/pages/cheque-tracker/components/` | `ChequeTrackerTabs.tsx` is the tab bar and table shared by `/cheque-tracker` (`tabParam="tab"`) and the Vendor page's Cheques tab (`tabParam="cheque_tab"`, `vendorId`). With a vendor, every query (table, badges, summary, facets, export) goes through `utils/cheques/chequeTabs.chequeTabFiltersFor(tab, vendorId)` and the Vendor / Payee column is hidden. Who sees it: `role-access.md` › Cheque Tracker |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 

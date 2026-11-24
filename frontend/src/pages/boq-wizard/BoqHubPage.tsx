@@ -1,6 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
+import type { OpView } from "@/utils/backgroundOps/operationFollower";
 import { BoqPresence } from "./BoqPresence";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
@@ -40,10 +42,19 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedBcsWorkbookResponse, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCheckSummaryResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedBcsWorkbookResponse, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCheckSummaryResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, WorkPackageMap } from "./boqTypes";
 import type { RevisionCarryReport } from "./revisionCarryReport";
 import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
+import {
+  NOTHING_TO_PARSE_MESSAGE,
+  RUN_PARSE_METHOD,
+  checkChipOf,
+  checkSlot,
+  hubParseOf,
+  parseOutcomeOf,
+  parseSlot,
+} from "./hubParseOperation";
 import {
   SUMMARY_TO_CHECK_TITLE,
   anyCheckRunning,
@@ -85,56 +96,36 @@ function isLikelySkipSheet(sheetName: string): boolean {
   return LIKELY_SKIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-// Error message map for "boq:parse_run_done" error events. Module-level (not
-// redefined per socket event). Severity drives modal styling: "neutral" is
-// advisory (no_eligible_sheets), "destructive" is a genuine parse failure.
-const PARSE_ERROR_MSGS: Record<string, { message: string; severity: "destructive" | "neutral" }> = {
-  missing_file: {
-    message:
-      "The source file for this BoQ could not be found. It may have been moved or deleted.",
-    severity: "destructive",
-  },
-  fetch_failed: {
-    message:
-      "Could not retrieve the source file. Please try again; if it persists, the file storage may be unavailable.",
-    severity: "destructive",
-  },
-  no_eligible_sheets: {
-    message:
-      "No sheets were eligible to parse. Mark at least one sheet as Config Done before parsing.",
-    severity: "neutral",
-  },
-  parse_failed: {
-    message:
-      "The parser could not process this workbook. The file may be malformed or in an unexpected format.",
-    severity: "destructive",
-  },
-  internal: {
-    message:
-      "An unexpected error occurred during parsing. Please try again or contact support if it continues.",
-    severity: "destructive",
-  },
-};
-
-const PARSE_ERROR_FALLBACK = {
-  message: "An unknown error occurred during parsing.",
-  severity: "destructive" as const,
-};
-
-// Response shape of get_parse_status (the polling fallback). Mirrors the realtime
-// boq:parse_run_done payload (status/boq_name/sheet lists/error_code) plus a `state`
-// discriminator, so one handler (applyParseOutcome) serves both the socket and poll.
-interface ParseStatusResponse {
-  state: "pending" | "done";
-  status?: ParseRunDonePayload["status"];
-  boq_name?: string;
-  parsed_sheets?: string[];
-  not_parsed_sheets?: string[];
-  failed_sheets?: string[];
-  error_code?: ParseRunDonePayload["error_code"];
-  // W5: the poll reads the SAME cached payload _publish_parse_event published, so the
-  // revision-carry counts ride this path too.
-  revision_carry?: ParseRunDonePayload["revision_carry"];
+/**
+ * One sheet's automatic check, followed as its own background operation (spec #1654, #1668): the shared hook in the
+ * sheet's slot, which the review screen shares, so a reload or a move to that screen in this tab picks it up again.
+ * `opId` is the check the latest parse started for the sheet (its result names it); the component follows it once.
+ * It reports its view up and calls `onEnded` when the check ends, whatever the outcome (the hub then re-reads the
+ * counts). Renders no DOM.
+ */
+function SheetCheckOperation({
+  boq,
+  sheetName,
+  opId,
+  onView,
+  onEnded,
+}: {
+  boq: string;
+  sheetName: string;
+  opId: string | undefined;
+  onView: (sheetName: string, view: OpView) => void;
+  onEnded: () => void;
+}) {
+  const op = useBackgroundOperation({ storageKey: checkSlot(boq, sheetName), onFinished: onEnded, onFailed: onEnded });
+  const followed = op.view.phase === "idle" ? null : op.view.opId;
+  const { followStarted } = op;
+  useEffect(() => {
+    if (opId && opId !== followed) followStarted(opId);
+    // Follow each id the parse names once: `followed` changes as the hook follows it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opId, followStarted]);
+  useEffect(() => onView(sheetName, op.view), [sheetName, op.view, onView]);
+  return null;
 }
 
 const BoqHubPage = () => {
@@ -161,14 +152,10 @@ const BoqHubPage = () => {
   // per-card entry point) pre-filters the dialog to one sheet.
   const [parseDialogMode, setParseDialogMode] = useState<"parse" | "reparse">("parse");
   const [reparseRestrictSheet, setReparseRestrictSheet] = useState<string | null>(null);
-  const [parseInFlight, setParseInFlight] = useState(false);
-  // RQ job id of the in-flight parse, captured from the run_parse response. Drives
-  // the get_parse_status poll fallback (cleared before each new parse so the poll
-  // never reads a previous parse's recorded outcome).
-  const [parseJobId, setParseJobId] = useState<string | null>(null);
-  // Ref mirror of parseInFlight so applyParseOutcome (a stable callback shared by the
-  // socket handler and the poll) reads the current value without being recreated.
-  const parseInFlightRef = useRef(false);
+  // #1668: the check each parse started per sheet (sheet VERBATIM #152 -> op id), and the view of each check this
+  // tab follows (a SheetCheckOperation per sheet reports it), for the cards' queued-or-running chip.
+  const [checkOps, setCheckOps] = useState<Record<string, string>>({});
+  const [checkViews, setCheckViews] = useState<Record<string, OpView>>({});
   const [parseResult, setParseResult] = useState<{
     parsed: string[];
     notParsed: string[];
@@ -316,11 +303,6 @@ const BoqHubPage = () => {
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_general_specs_sheet"
   );
 
-  // Parse-run endpoint (Slice 2b-frontend-i).
-  const { call: callRunParse } = useFrappePostCall(
-    "nirmaan_stack.api.boq.wizard.parse_run.run_parse"
-  );
-
   // A-T6: materialize this committed seed BoQ into the (single) master BoQ Template.
   const { call: callSetMaster, loading: setMasterLoading } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.template_materialize.set_as_master_template"
@@ -344,55 +326,84 @@ const BoqHubPage = () => {
     "nirmaan_stack.api.boq.wizard.parse_run.check_parse_status"
   );
 
-  // Socket for "boq:parse_run_done" (mirrors BoqUploadScreen.tsx pattern).
+  // Socket: only the reconnect self-heal (#147 option-4) -- re-fetch the BoQ doc on (re)connect, so a parse this
+  // tab does not follow (another tab or user) shows from the fresh parse_in_progress. The parse and the checks this
+  // tab started are followed through their own status records (#1668), never through a socket message.
   const { socket } = useContext(FrappeContext) as FrappeConfig;
-
-  // Keep the ref mirror of parseInFlight current for applyParseOutcome's gate.
   useEffect(() => {
-    parseInFlightRef.current = parseInFlight;
-  }, [parseInFlight]);
+    if (!socket) return;
+    const onReconnect = () => { void mutate(); };
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("connect", onReconnect);
+    };
+    // socket is a stable FrappeContext singleton ref; mutate is a stable SWR ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket]);
 
-  // Apply a parse outcome from EITHER the realtime event or the polling fallback.
-  // Guards: (1) only this boq; (2) parseInFlightRef so socket-or-poll, first to
-  // resolve wins and the other no-ops. Reads inflight from a ref (not state) so the
-  // callback stays stable for the one-time socket registration. Setters/mutate are
-  // stable refs; boqId from useParams is stable.
-  const applyParseOutcome = useCallback(
-    (payload: ParseRunDonePayload) => {
-      if (payload.boq_name !== boqId) return;
-      if (!parseInFlightRef.current) return;
-
-      setParseInFlight(false);
+  // #1668: the parse is a background operation, followed through its own status record (the shared hook). Its
+  // finished result opens the summary; a failed or lost parse ends the wait with the server's words.
+  const onParseFinished = useCallback(
+    (result: unknown) => {
       setParseDialogOpen(false);
-
-      if (payload.status === "success") {
-        void mutate();
-        void mutateStale();   // F2: a re-parse that fixed a stale config clears the indicator
-        // S4b (Q-c): hold the summary. The worker queues each parsed sheet's automatic check
-        // BEFORE it publishes this outcome, so one fresh read of the counts already says which
-        // sheets are being checked; the effect below opens the summary when none is.
-        setPendingParse({
-          parsed: payload.parsed_sheets ?? [],
-          notParsed: payload.not_parsed_sheets ?? [],
-          failed: payload.failed_sheets ?? [],
-          // W5: fold the per-sheet carry counts into their sentence HERE (once, at the outcome
-          // seam shared by socket + poll) rather than in the modal body.
-          carry: summarizeRevisionCarry(payload.revision_carry),
-          counts: "stale",
-        });
-        mutateCheckSummary().then(
-          () => setPendingParse((p) => (p ? { ...p, counts: "fresh" } : p)),
-          () => setPendingParse((p) => (p ? { ...p, counts: "failed" } : p)),
-        );
-      } else {
-        setParseError(
-          PARSE_ERROR_MSGS[payload.error_code ?? ""] ?? PARSE_ERROR_FALLBACK
-        );
+      void mutate();
+      const outcome = parseOutcomeOf(result);
+      if (!outcome || outcome.kind === "nothing_to_parse") {
+        setParseError({ message: NOTHING_TO_PARSE_MESSAGE, severity: "neutral" });
+        return;
       }
+      void mutateStale();   // F2: a re-parse that fixed a stale config clears the indicator
+      setCheckOps((prev) => ({ ...prev, ...outcome.checks }));
+      // S4b (Q-c): hold the summary. The parse starts each parsed sheet's automatic check BEFORE it finishes, so
+      // one fresh read of the counts already says which sheets are being checked; the effect below opens the
+      // summary when none is.
+      setPendingParse({
+        parsed: outcome.parsed,
+        notParsed: outcome.notParsed,
+        failed: outcome.failed,
+        // W5: fold the per-sheet carry counts into their sentence HERE (once) rather than in the modal body.
+        carry: summarizeRevisionCarry(outcome.carry),
+        counts: "stale",
+      });
+      mutateCheckSummary().then(
+        () => setPendingParse((p) => (p ? { ...p, counts: "fresh" } : p)),
+        () => setPendingParse((p) => (p ? { ...p, counts: "failed" } : p)),
+      );
+    },
+    // Setters and SWR mutates are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const onParseFailed = useCallback(
+    (ended: Extract<OpView, { phase: "failed" | "lost" }>) => {
+      setParseDialogOpen(false);
+      setParseError({ message: ended.error, severity: "destructive" });
+      // A lost parse's worker never cleared the BoQ's flag: heal it (check_parse_status), then re-read the doc.
+      if (!boqId) return;
+      callCheckParseStatus({ boq_name: boqId })
+        .catch((e: unknown) => { console.error("check_parse_status failed", e); })
+        .finally(() => { void mutate(); });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boqId]
+    [boqId],
   );
+  const parseOp = useBackgroundOperation({
+    storageKey: parseSlot(boqId ?? ""),
+    onFinished: onParseFinished,
+    onFailed: onParseFailed,
+  });
+  const hubParse = hubParseOf(parseOp.view, boq?.parse_in_progress === 1);
+  const parseInFlight = hubParse.inFlight;
+
+  // #1668: each sheet's check ended (whatever its outcome) -> re-read the counts and the per-sheet flags.
+  const onCheckEnded = useCallback(() => {
+    void mutateCheckSummary();
+    void mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const onCheckView = useCallback((sheetName: string, view: OpView) => {
+    setCheckViews((prev) => (prev[sheetName] === view ? prev : { ...prev, [sheetName]: view }));
+  }, []);
 
   // S4b (Q-c): open the held summary once no sheet this parse parsed is still being checked --
   // at once when nothing is. The poll above keeps `checkSheets` moving while a check runs.
@@ -429,67 +440,6 @@ const BoqHubPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boq, location.state]);
 
-  // Fast path: realtime boq:parse_run_done socket event.
-  useEffect(() => {
-    if (!socket) return;
-
-    const handler = (payload: ParseRunDonePayload) => applyParseOutcome(payload);
-    // S4b: a sheet's automatic check ended -> re-read the counts and the per-sheet flags.
-    const onCheckDone = (payload: { boq_name?: string }) => {
-      if (!payload || payload.boq_name !== boqId) return;
-      void mutateCheckSummary();
-      void mutate();
-    };
-
-    // Reconnect self-heal (#147 option-4): re-fetch the BoQ doc on socket (re)connect
-    // so the existing useEffect([boq]) recovery can sync parseInFlight from the fresh
-    // parse_in_progress server value. Also fires on initial connect -- harmless (SWR
-    // deduplicates; the doc is already being fetched on mount).
-    const onReconnect = () => { void mutate(); };
-
-    socket.on("boq:parse_run_done", handler);
-    socket.on("boq:ai_pass_done", onCheckDone);
-    socket.on("connect", onReconnect);
-    return () => {
-      socket.off("boq:parse_run_done", handler);
-      socket.off("boq:ai_pass_done", onCheckDone);
-      socket.off("connect", onReconnect);
-    };
-    // socket is a stable FrappeContext singleton ref; mutate is a stable SWR ref;
-    // applyParseOutcome is stable unless boqId changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, applyParseOutcome]);
-
-  // Fallback path: poll get_parse_status by job id while waiting. The realtime
-  // boq:parse_run_done event is room-targeted and NOT replayed, so a client that
-  // wasn't joined when the worker finished (e.g. right after login) would otherwise
-  // hang on "Parsing..." forever. Socket or poll -- first to resolve wins (both go
-  // through applyParseOutcome, gated on parseInFlightRef). parseJobId is captured
-  // from the run_parse response and cleared before each new parse, so the poll never
-  // reads a previous parse's outcome. swrKey null + refreshInterval 0 stop the poll
-  // once we leave the in-flight state.
-  const shouldPollParse = parseInFlight && !!parseJobId;
-  const { data: parsePollData } = useFrappeGetCall<{ message: ParseStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.parse_run.get_parse_status",
-    { job_id: parseJobId },
-    shouldPollParse ? `boq-parse-status::${parseJobId}` : null,
-    { refreshInterval: shouldPollParse ? 3000 : 0 }
-  );
-
-  useEffect(() => {
-    const msg = parsePollData?.message;
-    if (!msg || msg.state !== "done") return;
-    applyParseOutcome({
-      status: msg.status ?? "error",
-      boq_name: msg.boq_name ?? "",
-      parsed_sheets: msg.parsed_sheets,
-      not_parsed_sheets: msg.not_parsed_sheets,
-      failed_sheets: msg.failed_sheets,
-      error_code: msg.error_code,
-      revision_carry: msg.revision_carry,
-    });
-  }, [parsePollData, applyParseOutcome]);
-
   // Seed/re-sync the checklist ticked set from server state whenever boq changes.
   // mutate() after Save re-fetches boq, which fires this effect so ticks re-sync.
   // Any unsaved local tick edits are overwritten on re-sync -- acceptable since the
@@ -505,15 +455,6 @@ const BoqHubPage = () => {
     );
   }, [boq]);
 
-  // On-mount parse_in_progress recovery (Bucket-2 Slice 2): when the doc loads
-  // or refreshes, sync parseInFlight from the server flag so the hub correctly
-  // reflects running state across navigation and missed socket events. The live
-  // socket event still clears parseInFlight on done; this is the mount fallback.
-  useEffect(() => {
-    if (!boq) return;
-    setParseInFlight(boq.parse_in_progress === 1);
-  }, [boq]);
-
   // #164: on mount / boqId change, ask the backend to self-heal a stuck parse flag
   // (a dead-worker remnant). On a heal ("cleared"/"cleared_stale") re-fetch the doc
   // so the recovery effect above re-reads the now-cleared BoQ + per-sheet flags.
@@ -527,7 +468,7 @@ const BoqHubPage = () => {
         const state = (res?.message as { state?: string } | undefined)?.state;
         if (state === "cleared" || state === "cleared_stale") void mutate();
       })
-      .catch((e) => { console.error("check_parse_status failed", e); });
+      .catch((e: unknown) => { console.error("check_parse_status failed", e); });
     return () => { cancelled = true; };
     // callCheckParseStatus + mutate are stable refs; run once per boqId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -898,30 +839,13 @@ const BoqHubPage = () => {
     // Force Re-parse path adds force_reparse:true; normal Parse omits it entirely
     // (backend default False). The SDK serializes the bool; the backend coerces it.
     const force = parseDialogMode === "reparse";
-    // Clear any stale job id BEFORE starting so the poll (gated on parseInFlight &&
-    // parseJobId) cannot read a previous parse's recorded outcome -- it begins only
-    // once the new job id arrives from the response below.
-    setParseJobId(null);
-    setParseInFlight(true);
-    try {
-      // Enqueue the background worker; result arrives via "boq:parse_run_done" (fast
-      // path) or the get_parse_status poll keyed by this job id (fallback).
-      const res = await callRunParse({
-        boq_name: boqId,
-        sheet_names: sheetNames,
-        ...(force ? { force_reparse: true } : {}),
-      });
-      const newJobId = (res?.message as { job_id?: string | null })?.job_id ?? null;
-      setParseJobId(newJobId);
-    } catch {
-      // Amendment A1 (Update 2026-07-06): force re-parse no longer gates on
-      // BOQ_DOWNSTREAM_ORPHAN. The downstream-pricing warning is surfaced inline in
-      // ParseRunDialog before the user confirms; any error here is a genuine failure.
-      setParseInFlight(false);
-      setParseJobId(null);
-      setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
-      setParseDialogOpen(false);
-    }
+    // #1668: start the parse as a background operation and follow its own status record. A start the server
+    // refuses (a parse already running) ends the operation failed in its words (onParseFailed).
+    await parseOp.start(RUN_PARSE_METHOD, {
+      boq_name: boqId,
+      sheet_names: sheetNames,
+      ...(force ? { force_reparse: true } : {}),
+    });
   };
 
   // ── General-specs checklist handlers (Slice 2b-frontend-ii) ──────────────
@@ -1152,6 +1076,18 @@ const BoqHubPage = () => {
       </div>
       )}
 
+      {/* #1668: each sheet's automatic check, followed through its own background operation (no DOM). */}
+      {allDrafts.map((draft) => (
+        <SheetCheckOperation
+          key={`check-op-${boq.name}::${draft.sheet_name}`}
+          boq={boq.name}
+          sheetName={draft.sheet_name}
+          opId={checkOps[draft.sheet_name]}
+          onView={onCheckView}
+          onEnded={onCheckEnded}
+        />
+      ))}
+
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
       {/* A2: "All Sheets" section header above the card grid. */}
       <div className="flex flex-col gap-0.5">
@@ -1177,6 +1113,7 @@ const BoqHubPage = () => {
             onExportCsv={handleExportCsv}
             // S4b: this sheet's check counts (VERBATIM key, #152); undefined until read.
             checkSummary={checkSheets?.[draft.sheet_name]}
+            checkOpChip={checkChipOf(checkViews[draft.sheet_name])}
             workHeaders={workPackageMap[draft.sheet_name]}
             committedState={committedMap.get(draft.sheet_name)}
             changedSinceCommit={changedSheets.has(draft.sheet_name)}
@@ -1321,7 +1258,7 @@ const BoqHubPage = () => {
                     {parseInFlight ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Parsing...
+                        {hubParse.label}
                       </>
                     ) : (
                       "Parse workbook"
@@ -1487,7 +1424,7 @@ const BoqHubPage = () => {
         pendingSheetNames={pendingDialogSheetNames}
         skippedSheetNames={skippedDialogSheetNames}
         generalSpecsSheetNames={generalSpecsDialogList}
-        isLoading={parseInFlight}
+        inFlightLabel={hubParse.label}
         mode={parseDialogMode}
         reparseDrafts={reparseEligibleDrafts}
         restrictToSheetName={reparseRestrictSheet}
@@ -1705,12 +1642,12 @@ const BoqHubPage = () => {
                   <p className="font-medium">Failed to parse:</p>
                   <ul className="mt-1 space-y-1">
                     {parseResult.failed.map((name) => {
-                      // F3: the per-sheet REASON. The boq:parse_run_done socket payload
+                      // F3: the per-sheet REASON. The parse operation's result
                       // carries names only -- the reason lives in the persisted
                       // parse_failure_* (Slice 1a) on the draft, which rides the BOQs doc
                       // the hub already fetches + mutate()s on parse-done. VERBATIM #152
                       // lookup (same as F2 / the hub). The worker COMMITS the stamp BEFORE
-                      // publishing, so the mutate()'d boq carries it; during the sub-second
+                      // finishing, so the mutate()'d boq carries it; during the sub-second
                       // window before the refetch lands the lookup is undefined -> NAME-ONLY
                       // fallback (never a blank / "undefined"); the next render shows the
                       // name + reason. Language matches the F2 card expand (same reason +

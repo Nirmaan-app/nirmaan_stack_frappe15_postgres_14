@@ -1,0 +1,38 @@
+{
+  "src/pages/CommissionReport/data/useCommissionLock.ts": {
+    "no-socket-listener": {
+      "count": 4,
+      "reason": "commission:editing:started / stopped: who else is editing this report; no background operation."
+    }
+  },
+  "src/pages/HandoverDocuments/HandoverDocumentsTab.tsx": {
+    "no-socket-listener": {
+      "count": 2,
+      "reason": "hod:rows_changed: another user changed this project's handover rows; no background operation."
+    }
+  },
+  "src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts": {
+    "no-socket-listener": {
+      "count": 4,
+      "reason": "pr:editing:started / stopped: who else is editing this PR; no background operation."
+    }
+  },
+  "src/pages/boq-wizard/SheetPricingPage.tsx": {
+    "no-socket-listener": {
+      "count": 2,
+      "reason": "boq:lock_changed: the sheet's pricing lock moved to another user; no background operation."
+    }
+  },
+  "src/pages/boq-wizard/SheetReviewPage.tsx": {
+    "no-socket-listener": {
+      "count": 2,
+      "reason": "boq:lock_changed: the sheet's pricing lock moved to another user; no background operation."
+    }
+  },
+  "src/pages/boq-wizard/SheetSpokePage.tsx": {
+    "no-socket-listener": {
+      "count": 2,
+      "reason": "boq:lock_changed: the sheet's pricing lock moved to another user; no background operation."
+    }
+  }
+}
