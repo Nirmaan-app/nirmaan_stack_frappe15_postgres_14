@@ -112,6 +112,7 @@ def main() -> int:
             check(page.get_by_text("Data Updated").first.is_visible(), "the 'Data Updated' toast")
             save(page, out, "02-refreshed")
             sidebar(page, "Dashboard")
+            check("/customers" not in page.url, f"the list was left for the Dashboard ({page.url})")
             sidebar(page, "Customers")
             check(shows(page, renamed), f"the list reopened from the sidebar still shows {renamed!r}")
             save(page, out, "02b-reopened")
