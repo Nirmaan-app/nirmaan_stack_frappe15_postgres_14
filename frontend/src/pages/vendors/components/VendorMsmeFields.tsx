@@ -37,7 +37,7 @@ interface MsmeFormValues {
 }
 
 interface VendorMsmeFieldsProps {
-  /** The vendor being edited; absent on New Vendor (the file is attached to it on save). */
+  /** The vendor being edited; absent on New Vendor. Either way the file is attached to the vendor on save. */
   vendorId?: string;
 }
 
@@ -92,10 +92,10 @@ export const VendorMsmeFields = ({ vendorId }: VendorMsmeFieldsProps) => {
     if (!selected) return;
     setReading(true);
     try {
-      const uploaded = await upload(selected, {
-        isPrivate: true,
-        ...(vendorId ? { doctype: "Vendors", docname: vendorId, fieldname: "msme_attachment" } : {}),
-      });
+      // Uploaded UNATTACHED, on Edit as on New: the vendor's save attaches it (`Vendors._attach_msme_file`
+      // claims the saver's own unattached File). Attaching here would tie the file to the vendor before
+      // Update, so a Cancel left it on the vendor's attachments and timeline.
+      const uploaded = await upload(selected, { isPrivate: true });
       if (!uploaded?.file_url) throw new Error("The file could not be uploaded. Try again.");
       // Uploaded: it is now the CURRENT certificate (link under the picker). Drop the picked-file
       // chip and remount the picker, so there is no ✕ and the same file can be picked again.

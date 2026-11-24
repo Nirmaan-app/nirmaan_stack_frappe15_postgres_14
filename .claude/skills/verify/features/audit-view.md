@@ -6,7 +6,7 @@ carry a count, and Payments shows Amount Paid + TDS = Net Paid. #1736 renamed th
 and tab across a refresh, replaced "Show details" with summary cards, and matched the columns to the Payments page. The server's `get_audit_view_rows` and
 `get_audit_view_summary` (`nirmaan_stack/api/reports/audit_view.py`) select the rows and enforce the roles.
 
-Last walked (walk_audit_view.py): 2026-11-23 UTC at 4fb4ccdea, passed.
+Last walked (walk_audit_view.py): 2026-11-24 UTC at eb86b4b67, passed.
 
 ## Sub-features
 
