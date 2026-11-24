@@ -45,6 +45,10 @@ export interface ScopeRuleSpec {
   threshold_input: string;
   /** point 4: the model's answer that the item needs no installing, and its reason */
   needs_installing?: { attr: string; no: string; reason_attr: string };
+  /** VAV-2c3 FIX-2 (E, owner 2026-11-24 19:53 "fix anyway"): note B also where the row's NEAREST HEADING starts with installation work
+   *  ("ITC of VAVs ...", "Installation of ... CAV Boxes") and neither the heading nor the row's own text matches these supply words --
+   *  still Supply + installation. ABSENT => note B reads the row's own text only, as before. */
+  install_heading_not?: string;
   /** VAV-2c3 (R5 F4, chat-Claude's call under the owner's 2026-11-23 13:46 word): an INSTALLATION row's own wording of the box-row notes it
    *  carries -- each key one of INSTALL_ROW_TEXT_PATHS, its text in place of that text on an installation row only (`installRowSpec`).
    *  ABSENT => the box-row wording everywhere, as before. */
@@ -148,6 +152,10 @@ export function scopeRuleOf(i: ScopeRuleInput): ScopeRuleOutcome | null {
   // 5. the default
   if (rx(rule.supply_of)?.test(own)) return { value: V.both, note: N.A };
   if (installStart) return { value: V.both, note: N.B };
+  // VAV-2c3 FIX-2 (E): the installation words sit in the nearest heading, and no supply word is in the heading or the row
+  if (rule.install_heading_not && rx(rule.install_start)?.test(i.heading) && !rx(rule.install_heading_not)?.test(`${own} | ${i.heading}`)) {
+    return { value: V.both, note: N.B };
+  }
   return { value: V.both };
 }
 

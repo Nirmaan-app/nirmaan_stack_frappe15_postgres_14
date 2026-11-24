@@ -8,6 +8,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import type { RateCategoryConfig } from "../../pricing/rate-master/rateMasterTypes";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { undoVav2c3c } from "./vav2c3cEdits.harness";
 
 type Edit = { c: string; p: Array<string | number>; from: unknown; to: unknown };
 const EDITS85 = readJsonFixture<{ configs: Edit[] }>(pathToFileURL(path.resolve(__dirname, "__fixtures__/vav2c3bEdits.json")));
@@ -21,7 +22,9 @@ const holds = (cfg: unknown, e: Edit, v: unknown): boolean => {
 };
 
 /** PURE. `cfg` with v85's edits undone; a v84 (or older) config comes back as it is; one holding some but not all of v85's values throws. */
-export function undoVav2c3b(cfg: RateCategoryConfig): RateCategoryConfig {
+export function undoVav2c3b(cfg0: RateCategoryConfig): RateCategoryConfig {
+  // VAV-2c3 FIX-2 (PIN FIX2-B): v86's edits undone first, so a v86 config reads as v84 (and on down the chain)
+  const cfg = undoVav2c3c(cfg0);
   const id = (cfg as unknown as { category_id: string }).category_id;
   const mine = EDITS85.configs.filter((e) => e.c === id);
   if (!mine.length || mine.every((e) => holds(cfg, e, e.from)) || !mine.some((e) => holds(cfg, e, e.to))) return cfg;

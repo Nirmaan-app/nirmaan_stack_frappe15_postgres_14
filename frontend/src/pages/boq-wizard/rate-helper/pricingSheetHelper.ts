@@ -141,6 +141,7 @@ import {
   gaugeLabelOf,
   existingWorkOf,
   LABOUR_ROW_WORDS,
+  applyChainValues,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -251,7 +252,7 @@ export type RowContextWithUnit = RateHelperRowContext & {
    *  here carries `sheet_shares.lines.not_box_row` */
   sheetSharesNotBox?: true;
   /** VAV-2b1 v80: on a BoQ row of a `sheet_shares` config, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
-  sheetWholeRow?: { sheetVavs: number | null; qty: number | null; helperWhole?: string };
+  sheetWholeRow?: { sheetVavs: number | null; qty: number | null; helperWhole?: string; /** VAV-2c3 FIX-2 (B2-2): the row's own words */ text?: string };
   /** VAV-2c2 (R1 / R2): the scope rule's decision on this BoQ row (`scopeRule.ts`), set by `compute` for a config declaring
    *  `pricing.scope.rule`; the scope step reads it in place of the model's answer. Absent everywhere else. */
   scopeRule?: { value: string; note?: string };
@@ -1627,7 +1628,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const claimed = claimCfg && claimRow ? claimedItemsOf(listSpec, claimRow, (ext as ExtractionRowWithItems | undefined)?.items,
         (sec) => { const ds = sec ? itemListPricingSpec(configOf(delegatedSections(listSpec).find((x) => x.id === sec)?.category_id ?? "")) : listSpec; return ds ? familyAttr(ds) : "item"; }) : null;
       const wd = claimed ? null : withdrawnItemsOf(listSpec, ext as ExtractionRowWithItems | undefined, configOf);
-      const extW = claimed ? { ...(ext as ExtractionRowWithItems), items: claimed.items } : wd ? wd.ext : ext;
+      const extW0 = claimed ? { ...(ext as ExtractionRowWithItems), items: claimed.items } : wd ? wd.ext : ext;
+      // VAV-2c3 FIX-2 (A1 / A2 / B2-1): the row's own words set the model's answers `chain_values` names, BEFORE the sheet rules read them
+      // (so a separate integrator row still turns a router-mentioned "Yes" to "No"); no rule -> the same object
+      const extW = listSpec.chain_values && (extW0 as ExtractionRowWithItems | undefined)?.items?.length
+        ? { ...(extW0 as ExtractionRowWithItems), items: applyChainValues(listSpec, (extW0 as ExtractionRowWithItems).items!, rowCtx.chainRows) } : extW0;
       // VAV-2a (B3-B6): the VAV sheet rules settle the model's items first -- only a config declaring their keys, only on a BoQ row
       const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
       // VAV-2b1 (B1 / B2): the sheet's shared items -- only a config declaring `sheet_shares`, only on a BoQ box row
@@ -1653,6 +1658,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const shareDec = !vavSheet?.existing ? boxDec ?? sheetOf?.decision ?? null : null;
       const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
       const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null,
+        text: [withIns.description ?? "", ...(withIns.ownNotes ?? [])].join(" | "),
         ...(claimed?.helperWhole ? { helperWhole: claimed.helperWhole } : {}) } } : {};
       const extR = ruled?.installRow && (boxExt?.items ?? extR0?.items) ? { ...(extR0 ?? {}), items: installRowItems(listSpec as never, (boxExt?.items ?? extR0!.items) as never) } as ExtractionRowWithItems : extR0;
       const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}),
@@ -3524,6 +3530,8 @@ function itemBlockView(
     }
     const dropped = clearedByBlock.get(f.id);
     if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
+    // VAV-2c3 FIX-2 (D1, owner 19:53 "fix"): a ruled default the field shows says so in the config's words ("... (assumed)")
+    if (defaulted && !note && spec.defaults?.[f.skuAttr]?.note) note = spec.defaults[f.skuAttr]!.note;
     const ov = overrideBy.get(f.skuAttr);
     let optionLabels: Record<string, string> | undefined;
     /**
@@ -4405,6 +4413,10 @@ function computeItemListOwn(
       // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
       const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];
       return { tone: "red", title: (own ?? spec.lot_units.bar).replace("{UNIT}", unit.trim().toUpperCase()), lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+    }
+    // VAV-2c3 FIX-2 (B2-3, owner 20:00 "the notes should be a stronger warning"): a row with NO unit that the default unit priced
+    if (spec.blank_unit_bar && unit.trim() === "" && priced.unitClass) {
+      return { tone: "orange", title: spec.blank_unit_bar.title, lines: [spec.blank_unit_bar.line] };
     }
     if (!perSetRow || !spec.per_set) return undefined;
     const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
@@ -7275,7 +7287,9 @@ function computeItemList(
   const ownView = ownRes.itemList!;
   const edits = probe.edits!;
   const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
-  const rowUnit = ownView.unit;
+  // VAV-2c3 FIX-2 (B2-3): a row with NO unit that the item priced in its default unit (Nos) prices its sections in that unit too -- a
+  // config declaring `blank_unit_bar` only (VAV Box); every other category's sections keep the row's own unit, as before
+  const rowUnit = spec.blank_unit_bar && ownView.unit.trim() === "" && ownView.rateUnit ? ownView.rateUnit : ownView.unit;
   // the calculator has no row, so nothing supplies the unit (the helper's one existing test for it)
   const calculator = ownView.unitPickable;
   const ownSectionLabel = (spec.sections ?? []).find((s) => !s.category_id)?.label ?? "item";
@@ -8125,8 +8139,11 @@ export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit
   const isSec = (it: ExtractedListItem) => typeof it.section === "string" && secFam.has(it.section);
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : v === null || v === undefined ? "" : String(v));
   const famOf = (it: ExtractedListItem) => str(it.attributes?.[isSec(it) ? secFam.get(it.section!)! : fa]?.value);
-  const setAttr = (it: ExtractedListItem, a: string, v: string): ExtractedListItem =>
-    ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } }) as ExtractedListItem;
+  // VAV-2c3 FIX-2: a value the sheet rule replaces is no longer the one the row's words set -- its `chain_line` goes with it
+  const setAttr = (it: ExtractedListItem, a: string, v: string): ExtractedListItem => {
+    const { chain_line: _gone, ...keep } = (it.attributes?.[a] ?? { confidence: 1 }) as NonNullable<ExtractedListItem["attributes"][string]>;
+    return ({ ...it, attributes: { ...it.attributes, [a]: { ...keep, value: v } } }) as ExtractedListItem;
+  };
   const qtyOf = (r: number) => { const v = ctx.rowQuantities?.[r]; return typeof v === "number" && Number.isFinite(v) ? v : null; };
   const sumQ = (rows: readonly number[]) => rows.reduce<number | null>((a, r) => (a === null || qtyOf(r) === null ? null : a + (qtyOf(r) as number)), 0);
   const catOf = (r: number) => ctx.sheetCategories?.[r] ?? rowCats?.get(r) ?? null;

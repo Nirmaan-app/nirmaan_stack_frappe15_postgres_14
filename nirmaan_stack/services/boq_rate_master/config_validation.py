@@ -1314,7 +1314,7 @@ def _validate_sheet_shares_whole(wl, ss, loc):
     for w in wl:
         if not isinstance(w, dict) or not {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit"} <= set(w) \
                 or not set(w) <= {"key", "share", "label", "heading", "unit_word", "prefill_line", "per_unit", "fixed", "count_without_vavs", "line",
-                                  "for_count"}:
+                                  "for_count", "fixed_when"}:
             _vthrow(f"{loc} entries need key / share / label / heading / unit_word / prefill_line / per_unit (fixed / count_without_vavs / line optional).")
         if w["share"] not in shares or not _nonempty_str(w["key"]) or w["key"] in shares or w["key"] in keys:
             _vthrow(f"{loc}.share must name a share and key must be a new, unique edit key.")
@@ -1333,6 +1333,17 @@ def _validate_sheet_shares_whole(wl, ss, loc):
             _vthrow(f"{loc}.count_without_vavs must be a positive whole number.")
         if "line" in w and not _nonempty_str(w["line"]):
             _vthrow(f"{loc}.line must be a non-empty sentence.")
+        # VAV-2c3 FIX-2 (B2-2): the row's words that fix more parts of the share (one controller per unit)
+        if "fixed_when" in w:
+            fw = w["fixed_when"]
+            if not isinstance(fw, dict) or not {"words", "fixed"} <= set(fw) or not set(fw) <= {"words", "fixed", "line"}:
+                _vthrow(f"{loc}.fixed_when needs words and fixed (line optional).")
+            _pattern(fw["words"], f"{loc}.fixed_when.words")
+            if not isinstance(fw["fixed"], dict) or not fw["fixed"] or not all(
+                    k in parts and isinstance(v, int) and not isinstance(v, bool) and v > 0 for k, v in fw["fixed"].items()):
+                _vthrow(f"{loc}.fixed_when.fixed must map parts of its share to positive whole numbers.")
+            if "line" in fw and not _nonempty_str(fw["line"]):
+                _vthrow(f"{loc}.fixed_when.line must be a non-empty sentence.")
         # VAV-2b2 (R7, owner 2026-11-21 10:25 "1b"): the last working line when the fixed part's count is not 1 ("for {n} {unit}s")
         if "for_count" in w and (not _nonempty_str(w["for_count"]) or "{n}" not in w["for_count"] or not w.get("fixed")):
             _vthrow(f"{loc}.for_count must name {{n}}, on an entry with a fixed part.")
@@ -2184,6 +2195,15 @@ _SCOPE_RULE_SAID = {"existing", "refix", "by_others", "install_only"}
 # carries; frontend scopeRule.INSTALL_ROW_TEXT_PATHS, each with the placeholders of the text it replaces). Both OPTIONAL.
 _SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"calculator_scope_box_only"}
 _SCOPE_RULE_OPTIONAL = _SCOPE_RULE_OPTIONAL | {"install_row_texts"}
+# VAV-2c3 FIX-2 (owner 2026-11-24 19:53 / 20:00): `defaults.<attr>.note` (D1: the field's "... (assumed)" note when the default is taken),
+# `pricing.chain_values` (A1 / A2 / B2-1: answers set from the row's own words before pricing, `_validate_chain_values`), `pricing.blank_unit_bar`
+# (B2-3: the orange bar on a no-unit row the default unit prices), `scope.rule.install_heading_not` (E: note B where the nearest heading starts
+# with installation work and these supply words are absent), `sheet_shares.whole[].fixed_when` (B2-2: the row's words fix more parts). All OPTIONAL.
+_PRICING_DEFAULT_KEYS = _PRICING_DEFAULT_KEYS | {"note"}
+_PRICING_KEYS = _PRICING_KEYS | {"chain_values", "blank_unit_bar"}
+_SCOPE_RULE_OPTIONAL = _SCOPE_RULE_OPTIONAL | {"install_heading_not"}
+_CHAIN_VALUE_KEYS = {"id", "attr", "words", "when", "value", "line"}
+_CHAIN_VALUE_OPTIONAL = {"families", "section", "unless", "from_attr", "not_if_row_has"}
 _INSTALL_ROW_TEXTS = {"sheet_shares.lines.blank_rows": ("{n}",), "integrator_cabling.lines.priced_separately": ("{rows}", "{prices}", "{that_row}", "{does}"),
                       "sheet_shares.labels.per_box": (), "sheet_shares.labels.typed": ()}
 # VAV-2c2 (R3 h): the Calculator's own "type the number of VAVs" lines (no sheet there)
@@ -2901,12 +2921,54 @@ def _validate_scope_rule(r, w):
     fs = n["F_said"]
     if not isinstance(fs, dict) or set(fs) != _SCOPE_RULE_SAID or not all(_nonempty_str(v) for v in fs.values()):
         _vthrow(f"{w}.notes.F_said needs exactly {', '.join(sorted(_SCOPE_RULE_SAID))} (non-empty strings).")
+    if "install_heading_not" in r:
+        _pattern(r["install_heading_not"], f"{w}.install_heading_not")
     if "install_row_texts" in r:
         it = r["install_row_texts"]
         if not isinstance(it, dict) or not it or not set(it) <= set(_INSTALL_ROW_TEXTS):
             _vthrow(f"{w}.install_row_texts needs one or more of {', '.join(sorted(_INSTALL_ROW_TEXTS))}.")
         for k in it:
             _sentence(it, k, f"{w}.install_row_texts", _INSTALL_ROW_TEXTS[k])
+
+
+def _validate_chain_values(cv, spec, by_id, loc):
+    """VAV-2c3 FIX-2 (owner 2026-11-24 19:53 A1 / A2, 20:00 B2-1) -- `pricing.chain_values`: each rule an id (unique), the attribute it sets
+    (a question of list_spec, or, with `section`, of that delegated section), the words (a pattern) and optional `unless` words, the model
+    answers it replaces (`when`: strings or null), the value and the line (a sentence; {said} / {where} optional); `families` (names of this
+    config's families) or `section` (a delegated section id) -- exactly one; optional `from_attr` (a text attribute read instead of the
+    row's chain) and `not_if_row_has` ({attr, value})."""
+    if not isinstance(cv, list) or not cv:
+        _vthrow(f"{loc} must be a non-empty list.")
+    fams = set(((spec.get("pricing") or {}).get("families") or {}).keys())
+    secs = {x.get("id") for x in spec.get("sections") or [] if isinstance(x, dict)}
+    ids = set()
+    for r in cv:
+        if not isinstance(r, dict) or not _CHAIN_VALUE_KEYS <= set(r) or set(r) - _CHAIN_VALUE_KEYS - _CHAIN_VALUE_OPTIONAL:
+            _vthrow(f"{loc} entries need {', '.join(sorted(_CHAIN_VALUE_KEYS))} ({', '.join(sorted(_CHAIN_VALUE_OPTIONAL))} optional).")
+        w = f"{loc}[{r.get('id')!r}]"
+        if not _nonempty_str(r["id"]) or r["id"] in ids:
+            _vthrow(f"{w}.id must be a new, unique name.")
+        ids.add(r["id"])
+        if ("families" in r) == ("section" in r):
+            _vthrow(f"{w} must carry exactly one of families / section.")
+        if "families" in r and (not isinstance(r["families"], list) or not r["families"] or not set(r["families"]) <= fams):
+            _vthrow(f"{w}.families must name families of this config.")
+        if "section" in r and r["section"] not in secs:
+            _vthrow(f"{w}.section must name a delegated section of this config.")
+        if not _nonempty_str(r["attr"]) or not _nonempty_str(r["value"]) or not _nonempty_str(r["line"]):
+            _vthrow(f"{w}: attr, value and line must be non-empty strings.")
+        if "families" in r and r["attr"] not in by_id:
+            _vthrow(f"{w}.attr must name a question of list_spec.attribute_definitions.")
+        _pattern(r["words"], f"{w}.words")
+        if "unless" in r:
+            _pattern(r["unless"], f"{w}.unless")
+        if not isinstance(r["when"], list) or not r["when"] or not all(x is None or _nonempty_str(x) for x in r["when"]):
+            _vthrow(f"{w}.when must be a non-empty list of answers (strings, or null for not answered).")
+        if "from_attr" in r and not _nonempty_str(r["from_attr"]):
+            _vthrow(f"{w}.from_attr must be a non-empty string.")
+        nr = r.get("not_if_row_has")
+        if nr is not None and (not isinstance(nr, dict) or set(nr) != {"attr", "value"} or not all(_nonempty_str(nr[k]) for k in nr)):
+            _vthrow(f"{w}.not_if_row_has needs exactly attr and value (non-empty strings).")
 
 
 def _validate_scope(sc, loc):
@@ -4496,6 +4558,14 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow("list_spec.pricing.scope.model_attr's question must offer the scope's first three options.")
     if "blank_unit_refuses" in pr and pr["blank_unit_refuses"] is not True:
         _vthrow("list_spec.pricing.blank_unit_refuses must be true, or be omitted.")
+    if "blank_unit_bar" in pr:
+        bb = pr["blank_unit_bar"]
+        if not isinstance(bb, dict) or set(bb) != {"title", "line"} or not all(_nonempty_str(bb[k]) for k in bb):
+            _vthrow("list_spec.pricing.blank_unit_bar needs exactly title and line (non-empty strings).")
+        if pr.get("blank_unit_refuses") is True:
+            _vthrow("list_spec.pricing.blank_unit_bar shows on a priced no-unit row: it cannot sit beside blank_unit_refuses.")
+    if "chain_values" in pr:
+        _validate_chain_values(pr["chain_values"], spec, by_id, "list_spec.pricing.chain_values")
     if "sheet_heading_notes" in pr:
         _validate_sheet_heading_notes(pr["sheet_heading_notes"], "list_spec.pricing.sheet_heading_notes")
     # VRF-3b: `extras` -- PRESENCE, as every key above
@@ -4710,6 +4780,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"{dloc}: only an allow_none choice attribute may carry a default.")
         if not isinstance(d, dict) or set(d) - _PRICING_DEFAULT_KEYS or not isinstance(d.get("rule"), str) or not d["rule"]:
             _vthrow(f"{dloc} must be an object with rule and value / by_family.")
+        if "note" in d and not _nonempty_str(d["note"]):
+            _vthrow(f"{dloc}.note must be a non-empty sentence.")
         vals = by_id[attr]["values"]
         if ("value" in d) == ("by_family" in d):
             _vthrow(f"{dloc} must carry exactly one of value / by_family.")

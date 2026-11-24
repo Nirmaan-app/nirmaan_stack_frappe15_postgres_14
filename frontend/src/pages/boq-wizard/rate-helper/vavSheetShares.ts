@@ -71,6 +71,10 @@ export interface ShareWholeDef {
   unit_word: string;
   /** parts whose count is fixed, not worked out from the VAVs (DDC: the panel inside is always 1, owner 01:22) */
   fixed?: Record<string, number>;
+  /** VAV-2c3 FIX-2 (B2-2, owner 2026-11-24 20:00): on a BoQ row whose own words match `words` ("controller for BACnet integration above VAV
+   *  Boxes") and where NO VAV count is known (none on the sheet, none typed), these parts are FIXED too (one controller per unit of the row)
+   *  and `line` shows under the block; with a VAV count the controller formula decides as before. ABSENT => as before. */
+  fixed_when?: { words: string; fixed: Record<string, number>; line?: string };
   /** the count of each worked-out part while no VAV count is known (BACnet: 1, owner 01:36 "A" -- the user types it) */
   count_without_vavs?: number;
   /** on a BoQ row with a quantity above 1: "{V} VAVs on the sheet / {q} {unit}s on this row = {n} per {unit}" */
@@ -358,7 +362,7 @@ export function sheetSharesView(spec: SheetSharesSpec, decision: SheetShareDecis
   };
 }
 
-type WholeMode = { w: ShareWholeDef; row: { sheetVavs: number | null; qty: number | null; helperWhole?: string } | null; shareOn: boolean };
+type WholeMode = { w: ShareWholeDef; row: { sheetVavs: number | null; qty: number | null; helperWhole?: string; text?: string } | null; shareOn: boolean };
 
 function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | "user", sheetVavs0: number | null, notes0: string[],
   e: ShareEdit, items: readonly RateMasterItem[], inputOf: (id: string) => number | null, whole?: WholeMode,
@@ -379,6 +383,13 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
     }
     if (whole.shareOn && whole.w.line) notes.push(whole.w.line);
   }
+  // VAV-2c3 FIX-2 (B2-2): the row's own words fix more parts -- ONLY while no VAV count is known (none on the sheet, none typed): the
+  // controller formula (the sheet's VAVs / VAVs per controller) still decides wherever it can (a BoQ row only; the Calculator has no row text)
+  const fw = whole?.w.fixed_when;
+  const fwHit = !!fw && !!whole?.row?.text && sheetVavs === null && typedV === null
+    && (() => { try { return new RegExp(fw.words, "i").test(whole.row!.text!); } catch { return false; } })();
+  const fixedMap: Record<string, number> | undefined = fwHit ? { ...(whole?.w.fixed ?? {}), ...fw!.fixed } : whole?.w.fixed;
+  if (fwHit && fw!.line) notes.push(fw!.line);
   const vavs = typedV ?? sheetVavs;
   const fields: ShareFieldView[] = [];
   const srcLabel = (src: ShareFieldView["source"]) => ({ sheet: L.from_sheet, typed: L.typed_by_you, changed: L.changed_by_you,
@@ -392,11 +403,11 @@ function priceShare(spec: SheetSharesSpec, s: SheetShareDef, origin: "helper" | 
     const inputPer = inputOf(p.per_input);
     const per = typedPer ?? inputPer;
     // VAV-2b1 K2b: a part whose count a full-rate block fixes (the DDC panel inside, always 1) shows no "VAVs per" box -- it plays no part
-    if (whole?.w.fixed?.[p.id] === undefined) {
+    if (fixedMap?.[p.id] === undefined) {
       field(`${p.id}_per`, p.per_label, per, typedPer !== null ? "changed" : per !== null ? "input" : "none", set[`${p.id}_per`] !== undefined);
     }
     const typedCount = num(set[`${p.id}_count`]);
-    const fixed = whole?.w.fixed?.[p.id];
+    const fixed = fixedMap?.[p.id];
     const count = typedCount ?? (fixed !== undefined ? fixed : vavs !== null && vavs > 0 && per !== null && per > 0 ? up(vavs / per)
       : whole && whole.w.count_without_vavs !== undefined ? whole.w.count_without_vavs : null);
     field(`${p.id}_count`, `${p.label}${L.count_suffix}`, count, typedCount !== null ? "changed" : count !== null ? "worked_out" : "none", set[`${p.id}_count`] !== undefined);

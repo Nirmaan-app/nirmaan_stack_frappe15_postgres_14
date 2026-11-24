@@ -6,7 +6,7 @@
  *  T3 CALCULATOR CASES: the VAV-D0 D2 case (BOQ-26-00383 r30) and its add / remove variants; the two integrator lines; installation.
  *  T4 LIVE BORROW (block 85, owner 2026-11-13 00:19 "... read these directly ... and not keep a second copy"): a Misc and a Sensors rate
  *     changed in the items -> the VAV section follows with no VAV change; VAV holds no figure of the five borrowed items.
- *  T6 NEGATIVES: "none of these" refuses by name; Lot / Job refuses; a blank unit refuses; a box missing a fact refuses (never a pick);
+ *  T6 NEGATIVES: "none of these" refuses by name; Lot / Job refuses; a blank unit is priced per Nos with the warning (v86); a box missing a fact refuses (never a pick);
  *     a map without hvac_sensors breaks the Sensors cases.
  */
 import { describe, expect, it } from "vitest";
@@ -181,7 +181,9 @@ describe(`VAV-1 T6 negatives on ${LATEST}`, () => {
     const v = view(calc({ items: [blk("none of these", { vav_item_as_written: "VAV software" })] }));
     expect(v?.rowPriced).toBe(false);
   });
-  it("Lot / Job refuses; a blank unit refuses", () => {
+  // VAV-2c3 FIX-2 (PIN FIX2-D; owner 2026-11-24 20:00 "[no unit] price it by number and mention it clearly in notes. the notes should be a stronger
+  // warning"): a blank unit no longer refuses -- HVAC v86 prices it per Nos with the warning bar (`blank_unit_bar`); the Lot / Job half is kept
+  it("Lot / Job refuses; a blank unit is priced per Nos with the warning bar", () => {
     // the calculator's unit choices for VAV Box are Nos and Lot (the lot units' representative): Lot refuses with the config's sentence
     const lot = view(calc(D2, surfaceMap(), ITEMS, "Lot"));
     expect(lot?.rowPriced).toBe(false);
@@ -189,9 +191,10 @@ describe(`VAV-1 T6 negatives on ${LATEST}`, () => {
     // a Job row is a lot unit by the config (the BoQ row's refusal; the calculator cannot pick it)
     const lu = (BY_ID.get(VAV) as unknown as { list_spec: { pricing: { lot_units: { units: string[] } } } }).list_spec.pricing.lot_units.units;
     expect(lu).toEqual(expect.arrayContaining(["Lot", "Job", "LS", "Lumpsum"]));
-    // a blank unit and a unit VAV does not stock refuse on a BoQ row (the calculator offers neither): the config says so
-    const pr = (BY_ID.get(VAV) as unknown as { list_spec: { pricing: { blank_unit_refuses: boolean; unit_classes: Record<string, string[]>; unit_refusal: string } } }).list_spec.pricing;
-    expect(pr.blank_unit_refuses).toBe(true);
+    // a unit VAV does not stock refuses on a BoQ row (the calculator offers none); a blank unit is priced per Nos with the bar: the config says so
+    const pr = (BY_ID.get(VAV) as unknown as { list_spec: { pricing: { blank_unit_refuses?: boolean; blank_unit_bar?: { line: string }; unit_classes: Record<string, string[]>; unit_refusal: string } } }).list_spec.pricing;
+    expect(pr.blank_unit_refuses).toBeUndefined();
+    expect(pr.blank_unit_bar?.line).toBe("WARNING: The BoQ gives no unit for this row. Priced per number (Nos). Check the unit before using this rate.");
     expect(Object.keys(pr.unit_classes)).toEqual(["count"]);
     expect(pr.unit_refusal).toMatch(/is not a VAV unit/);
   });

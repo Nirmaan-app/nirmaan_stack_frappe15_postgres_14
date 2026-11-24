@@ -1992,6 +1992,28 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Installation said higher up beats any supply-type wording: the note quotes both",
         "where installation is said at any level above a nearer wording that reads as supply ('Supply, port clearance, transport of ...', not only 'Supply of'), the row is supply + installation with a note quoting both and where each sits; a row with no supply-type wording anywhere gets no note");
   }
+  // ── 13m. VAV-2c3 FIX-2 (owner 2026-11-24 19:53 A1 / A2, 20:00 B2-1 / B2-3) -- ADDED LAST, each only where its key is (a config without
+  // them adds nothing): an answer set from the row's own words (`chain_values`, one line per rule), a no-unit row priced with the warning bar
+  type ChainLine = { section?: string; attr: string; from_attr?: string; when: Array<string | null>; unless?: string; not_if_row_has?: { value: string };
+    value: string; line: string };
+  for (const r of (Array.isArray(pr.chain_values) ? pr.chain_values : []) as ChainLine[]) {
+    const secLabel = r.section ? String(((ls?.sections ?? []) as Array<{ id?: unknown; label?: unknown }>).find((s) => s?.id === r.section)?.label ?? r.section).toLowerCase() : null;
+    const what = secLabel ? `the ${secLabel}` : `the ${name(String(r.attr))}`;
+    const fromWhere = r.from_attr ? `the ${secLabel ?? "item"}'s own words` : "words in the row, its headings or their notes";
+    const answered = r.when.filter((w) => w !== null).map((w) => `'${w}'`);
+    add(`${fromWhere.charAt(0).toUpperCase()}${fromWhere.slice(1)} set ${what} to ${r.value}`,
+        [`where the model did not answer ${what}${answered.length ? ` or answered ${list(answered)}` : ""}, a match in ${fromWhere} makes it ${r.value}`,
+         r.from_attr ? "" : "the sheet-wide notes are not read",
+         r.unless ? "not where the same text also says the opposite (the rule's 'unless' words)" : "",
+         r.not_if_row_has ? `not where the row already has ${String(r.not_if_row_has.value)}` : "",
+         `the field says: '${String(r.line).replace("{said}", "<the words>").replace("{where}", "<where they sit>")}'`,
+         "a pricer's own pick always wins; the Calculator has no row, so it never fires there"].filter(Boolean).join("; "), "chain_values");
+  }
+  if (pr.blank_unit_bar && typeof pr.blank_unit_bar === "object") {
+    add("A row with no unit is priced per number, with a warning bar",
+        `the item is priced in its own unit (${list(classes.map((c) => String(pr.unit_words?.[c] ?? c)))}) and its delegated sections in the same unit; the row shows the bar '${String(pr.blank_unit_bar.line)}'; with no quantity it carries a rate only`,
+        "blank_unit_bar");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};
