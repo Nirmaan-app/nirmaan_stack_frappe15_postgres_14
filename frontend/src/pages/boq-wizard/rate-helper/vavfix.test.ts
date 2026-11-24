@@ -150,6 +150,12 @@ describe("T2 S2 - a defaulted field says its reason once: the blue box (chat-Cla
       expect(field(v, id).rule, id).toBeUndefined();
     }
   });
+  it("SILENT BoQ: the reason is not restated in the item's working either (one mention: the blue box) -- the working is as on v87", () => {
+    const v = one({ text: "VAV box 501-800 CFM", items: [silentBox()] }), w = one({ text: "VAV box 501-800 CFM", items: [silentBox()] }, C87);
+    const work = (x: ItemListView) => (x.items[0] as ItemBlockView & { working: string[] }).working;
+    expect(work(v).filter((l) => / not mentioned -> /.test(l))).toEqual([]);
+    expect(work(v)).toEqual(work(w));
+  });
   it("NEGATIVE: a field whose ONLY note is the amber line keeps it (VRF: no brand stated - priced as Blue Star)", () => {
     const vrf = cfg88("hvac_vrf") as unknown as { list_spec: { pricing: { defaults: Record<string, { rule: string; note?: string }> } } };
     expect(vrf.list_spec.pricing.defaults.brand.note).toBeUndefined();

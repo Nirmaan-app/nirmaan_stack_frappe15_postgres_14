@@ -3782,7 +3782,9 @@ export function withoutRestatements(
   const fieldOf = (attr: string) => fields.find((f) => f.skuAttr === attr || (f.axes ?? []).includes(attr));
   for (const d of res.defaulted) {
     const f = fieldOf(d.attr);
-    if (f && f.defaulted && f.rule !== undefined) exact.add(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
+    // VAV-FIX (S2): a default the field states by its own blue note (no amber line since S2) is on screen too -- its working copy goes
+    const statedByNote = !!f && f.note !== undefined && f.note === spec.defaults?.[d.attr]?.note;
+    if (f && f.defaulted && (f.rule !== undefined || statedByNote)) exact.add(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
   }
   if (res.familyDefaulted && edit.family === null) exact.add(`${familyAttr(spec)} not mentioned -> ${res.familyDefaulted.value} (${res.familyDefaulted.rule})`);
   for (const o of res.overrides ?? []) if (fieldOf(o.attr)?.note === o.rule) exact.add(o.rule);
