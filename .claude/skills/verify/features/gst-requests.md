@@ -8,7 +8,7 @@ Payment need to paid; Admin-profile users get a for-information bell. Rejecting 
 frees the GST. Base payments, PO payments and expenses keep the amount rule (under ₹15,000 auto, ₹15,000-₹50,000 L1,
 over ₹50,000 L1 then CEO).
 
-Last walked (walk_gst_requests.py): 2026-11-24 UTC at 3f933f9c8, passed.
+Last walked (walk_gst_requests.py): 2026-11-24 UTC at 52f34a5c1, passed.
 
 ## Sub-features
 
@@ -16,10 +16,12 @@ Last walked (walk_gst_requests.py): 2026-11-24 UTC at 3f933f9c8, passed.
   says it goes to the Accountant and then is ready to pay. Over GST left, Send to Accountant stays disabled.
 - Decide: GST Requests › Pending, Approve (dialog: no L1 or CEO approval) or Reject (needs a reason).
 - The tab: status pills Pending / Approved / Paid / Rejected / All; a Reviewed column (who decided, when, also in the
-  CSV) on every pill but Pending; Actions on every pill but Approved, "—" where a row has no button; the vendor name
-  opens the vendor card.
+  CSV) on every pill but Pending, at least 155px wide on All and Approved too; Actions on every pill but Approved,
+  "—" where a row has no button; the vendor name opens the vendor card. Work Order IDs and Status payment IDs stay
+  on one line (#1747).
 - The payment: Approved, `approval_date` and `ceo_approval_date` stamped, `auto_approved` 0; counted at once in
-  Payment Summary's Approved But not Paid; Admins (the CEO included) get "GST payment PAY-… approved by …".
+  Payment Summary's Approved But not Paid; Admins (the CEO included, owner 2026-11-24) get "GST payment PAY-…
+  approved by … from GPR-….", with no "Ready to pay: no L1 or CEO" line (#1747).
 - Patch `v3_0.gst_payments_waiting_to_approved` (B2): a one-time move of GST payments left at Requested / CEO Pending
   by an approved request; dry run with `run --kwargs "{'dry_run': True}"`.
 

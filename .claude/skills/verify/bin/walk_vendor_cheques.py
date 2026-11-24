@@ -1,7 +1,8 @@
 """Walk a vendor's Cheques tab (PR #1732): the Cheque Tracker narrowed to one vendor, its tab badges and summary strip
 held to the env DB, each row's buttons held to the role (Admin, Accountant and Accountant Lead edit and cancel;
 Procurement edits only its own open cheques; PMO only views), PMO reading cheques without the Cheque Tracker, and the
-Cheque Tracker's "Cheque/Payment Date" header staying inside its column (PR #1736).
+Cheque Tracker's "Cheque/Payment Date" header staying inside its column (PR #1736), at 185px with its sort arrow inside
+too, on the Cheque Tracker and on the vendor's Cheques tab (PR #1747).
 
     python3 -I .claude/skills/verify/bin/walk_vendor_cheques.py <env> <out dir> [function ...]
 
@@ -43,7 +44,8 @@ w.change("pmo", "PMO may view cheques",
          "The cheque read endpoints let PMO in (view only). PMO gets no Cheque Tracker in the sidebar, and saving and "
          "cancelling stay closed to it.")
 w.change("cheque_header", "Cheque Tracker › date header",
-         "The \"Cheque/Payment Date\" header's words stay inside their column (width 160, two lines).")
+         "The \"Cheque/Payment Date\" column is 185px (#1747; was 160) on the Cheque Tracker and a vendor's Cheques "
+         "tab: its words and its sort arrow stay inside the cell, clear of Issue Date's filter.")
 users = fw.pick(ROLES)
 facts = fw.db("facts", FACTS_SQL)
 VENDOR, VENDOR_NAME, ROWS = facts["vendor"], facts["vendor_name"], facts["rows"]
@@ -204,22 +206,32 @@ MEASURE = """th => { const r = th.getBoundingClientRect(), rng = document.create
           button: btn ? Math.round(btn.getBoundingClientRect().right) : null}; }"""
 
 
+def check_header(page, role: str, where: str) -> None:
+    """The Cheque/Payment Date header: 185px, its words and its sort arrow inside the cell (#1736, #1747)."""
+    hdr = page.locator("thead th").filter(has_text=re.compile(r"Cheque.Payment"))
+    m = hdr.first.evaluate(MEASURE)
+    w.check("cheque_header", role, f"{where}: Cheque/Payment Date is 185px (#1747)", f"{m['width']} px",
+            m["width"] == 185)
+    w.check("cheque_header", role, f"{where}: the header's words end inside its cell", f"{m['text'] - m['cell']:+d} px",
+            m["text"] <= m["cell"])
+    over = (m["button"] or m["cell"]) - m["cell"]
+    w.check("cheque_header", role, f"{where}: its sort arrow stays inside the cell too (#1747)", f"{over:+d} px",
+            over <= 0)
+    w.step(page, "cheque_header", "after", role, users[role],
+           f"{where}: the Cheque/Payment Date header is {m['width']} px wide, its words {m['cell'] - m['text']} px and "
+           f"its sort arrow {-over} px inside its right edge.", pins=[pin(hdr, "Cheque/Payment Date", "info")])
+
+
 def cheque_header() -> None:
     role = "Accountant"
     with fw.session(users[role]) as page:
         w.step(page, "cheque_header", "after", role, users[role], "Open Cheque Tracker from the sidebar.",
                click=page.locator('[data-sidebar="menu-button"]').get_by_text("Cheque Tracker", exact=True))
         settle(page, 2500)
-        hdr = page.get_by_role("columnheader", name=re.compile(r"Cheque.Payment"))
-        m = hdr.first.evaluate(MEASURE)
-        w.check("cheque_header", role, "the header's words end inside its cell", f"{m['text'] - m['cell']:+d} px",
-                m["text"] <= m["cell"])
-        over = (m["button"] or m["cell"]) - m["cell"]
-        w.check("cheque_header", role, "its sort arrow stays inside the cell too", f"{over:+d} px", over <= 0,
-                kind="nit")
-        w.step(page, "cheque_header", "after", role, users[role],
-               f"The Cheque/Payment Date header: {m['width']} px wide, its words {m['cell'] - m['text']} px inside "
-               "its right edge.", pins=[pin(hdr, "Cheque/Payment Date", "info")])
+        check_header(page, role, "Cheque Tracker")
+        fw.open_vendor(page, "cheque_header", role, VENDOR, VENDOR_NAME)
+        if open_cheques_tab(page, "cheque_header", role, f"{VENDOR_NAME}: open its Cheques tab."):
+            check_header(page, role, "Vendor › Cheques")
 
 
 fw.run([("cheques", cheques_admin), ("cheques", cheques_roles), ("pmo", pmo_view),

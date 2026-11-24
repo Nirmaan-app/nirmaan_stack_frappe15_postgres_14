@@ -8,7 +8,7 @@ Cheques tab shows the Cheque Tracker narrowed to this vendor, read-only for PMO.
 
 Last walked (walk_vendor_payments.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
-Last walked (walk_vendor_cheques.py): 2026-11-24 UTC at eb86b4b67, passed.
+Last walked (walk_vendor_cheques.py): 2026-11-24 UTC at 52f34a5c1, passed.
 
 Last walked (walk_vendor_work_orders.py): 2026-11-23 UTC at 4fb4ccdea, passed.
 
@@ -39,8 +39,8 @@ Last walked (walk_vendor_msme.py): 2026-11-24 UTC at eb86b4b67, passed.
   Approval Pending cheque) Cancel; Procurement gets Edit only on its own open cheque; PMO gets View only.
 - `pmo` PMO opens the Cheques tab and a cheque's details (the read endpoints let it in), with no Edit or Cancel and
   no Cheque Tracker in its sidebar.
-- `cheque_header` Cheque Tracker: the `Cheque/Payment Date` header is 185 px wide on two lines, its words and its sort
-  arrow inside its cell, clear of Issue Date's filter (#1736).
+- `cheque_header` Cheque Tracker and a vendor's Cheques tab: the `Cheque/Payment Date` header is 185 px wide on two
+  lines (#1747; 160 before), its words and its sort arrow inside its cell, clear of Issue Date's filter.
 
 ## How to get to it (user POV)
 
@@ -78,8 +78,6 @@ user.
 - **Picking the certificate uploads it unattached**; Update attaches it to the vendor (`Vendors._attach_msme_file`).
   A cancelled pick leaves an unattached private File behind. Each MSME run uses up two vendors with no MSME ID, no
   certificate and no attached file, newest first.
-- **The sort arrow of `Cheque/Payment Date` still reaches about 16 px into the Issue Date cell** (#1736's walk); the
-  cheque walk reports it as a nit, not a failure.
 - **The vendor's Work Orders table renders only the rows near the viewport.** Count rendered rows, not the
   footer's `of N`, when checking a per-row control; the footer's total is the sub-tab's count.
 - **A Vendors search matches by name**: open the row by its `href` (`/vendors/<id>`), as two vendors can share a name.

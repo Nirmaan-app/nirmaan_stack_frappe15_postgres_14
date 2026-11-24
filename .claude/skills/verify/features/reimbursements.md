@@ -8,7 +8,7 @@ Project Manager may raise at most ₹2,000 of claims in a calendar month. The se
 (`queue.py` for the tabs, `review.py` for HR's decisions, `claims.py` for raise and the cap) and
 `services/reimbursements/`; L1, CEO and Mark as Paid go through Payments' own `decide_expenses`.
 
-Last walked (walk_reimbursements.py): 2026-11-24 UTC at 153adc0d2, passed.
+Last walked (walk_reimbursements.py): 2026-11-24 UTC at 52f34a5c1, passed.
 
 ## Sub-features
 
@@ -27,8 +27,9 @@ Last walked (walk_reimbursements.py): 2026-11-24 UTC at 153adc0d2, passed.
 - `ceo` only the CEO has Pending CEO Approval; their approval makes the claim Approved.
 - `action` the Accountant's Action Center lists the claim's expense tagged Reimbursement and opens Payment need to be
   paid searched to the claim, on all months.
-- `month` the month picker's tiles, and a claim raised last month listed once All is picked. The tab's badge counts
-  every month while the list opens on this month (a "should" check, known since the #1737 walk).
+- `month` the month picker's tiles, and a claim raised last month listed once All is picked. The open tab's badge
+  equals the rows its list shows: on this month, on All, and searched (#1747). Closed tabs keep the server's
+  all-months count (accepted).
 - `pay` Export for Payment reads ICICI - XXXX3327; Mark as Paid moves the claim to Reconciliation Pending.
 - `reconcile` Mark Reconciled takes a receipt, UTR and date and makes the claim Paid, listed on Reconciliation Done /
   Paid.

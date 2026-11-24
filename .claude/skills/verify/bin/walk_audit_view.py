@@ -1,4 +1,4 @@
-"""Walk Reports › Audit View for each role (graduated from PR #1732's and PR #1736's walks).
+"""Walk Reports › Audit View for each role (graduated from PR #1732's, PR #1736's and PR #1747's walks).
 
     python3 -I .claude/skills/verify/bin/walk_audit_view.py <env> <out dir> [audit_admin | audit_steps | audit_roles ...]
 
@@ -28,14 +28,17 @@ w.change("labels", "Audit View › Report Type names",
          "Report Type offers \"Projects Data\" and \"Non Projects Data\".")
 w.change("datebox", "Audit View › date box",
          "The date box reads \"Pick a date range\" until a range is picked, and again after Report Type changes.")
-w.change("refresh", "Audit View › refresh",
-         "A refresh keeps the report type, the date range (ALL included) and the open tab.")
+w.change("refresh", "Audit View › refresh and coming back",
+         "A refresh keeps the report type, the date range (ALL included) and the open tab; so does coming back from "
+         "another report tab (#1747).")
 w.change("cards", "Audit View › summary cards",
          "No \"Show details\". Separate cards above the table; in Projects Data the first is named after the tab and "
-         "splits its amount by type, with no percentages.")
+         "splits its amount by type, with no percentages. In Non Projects Data the expense-type card is named after "
+         "the tab too (#1747).")
 w.change("columns", "Audit View › table columns",
          "Type shows the pill with the expense type under it; Against shows an expense's description, not its record "
-         "name; on Invoices, Invoice No. is the second column.")
+         "name; on Invoices, Invoice No. is the second column. Search finds an expense by its record name, or part "
+         "of it in any case (#1747).")
 
 facts = fw.db("facts", r'''
 from nirmaan_stack.api.reports.audit_view import get_audit_view_summary
@@ -145,12 +148,12 @@ def audit_admin() -> None:
                pins=[pin(page.get_by_role("tablist").first, "Counts for the range", "info")])
         page.get_by_role("tab", name=re.compile("^Invoices")).first.click()
         settle(page)
-        heads = [h.strip() for h in page.get_by_role("columnheader").all_inner_texts()]
+        heads = [h.strip() for h in page.locator("thead th").all_inner_texts()]
         w.check("columns", role, "Invoices: Invoice No. is the second column", " | ".join(heads[:3]),
                 len(heads) > 1 and heads[1] == "Invoice No.")
         w.step(page, "audit", "after", role, user, "Invoices: approved vendor invoices and paid expenses, by invoice "
                "date. Invoice No. is the second column.",
-               pins=[pin(page.get_by_role("columnheader", name="Invoice No.").first, "Second column.", "info")])
+               pins=[pin(page.locator("thead th").filter(has_text=re.compile(r"^\s*Invoice No\.\s*$")).first, "Second column.", "info")])
 
         page.get_by_role("tab", name=re.compile("^Payments")).first.click()
         settle(page)
@@ -191,13 +194,17 @@ def audit_admin() -> None:
         exp = facts["expense"]
         if exp:
             search = page.get_by_placeholder(re.compile(r"^Search by", re.I)).first
-            search.fill(exp["name"])
-            settle(page, 1800)
-            n = page.locator("tbody tr").filter(has_text=re.compile("₹")).count()
-            w.check("columns", role, f"search by ID finds expense {exp['name']}", f"{n} rows", n > 0, kind="should")
-            w.step(page, "columns", "after", role, user, f"Search by ID for the expense {exp['name']}: {n} rows.",
-                   pins=[] if n else [pin(search, "No rows: an expense is not found by its record name (known since "
-                                                  "#1736; a follow-up PR fixes it).", "should")])
+            for label, term in (("record name", exp["name"]), ("part of it, in capitals", exp["name"][:7].upper())):
+                search.fill(term)
+                settle(page, 1800)
+                n = page.locator("tbody tr").filter(has_text=re.compile("₹")).count()
+                hit = page.locator("tbody tr").filter(has_text=exp["description"].split("\n")[0][:30]).first
+                found = hit.count() > 0
+                w.check("columns", role, f"searching its {label} \"{term}\" finds expense {exp['name']} (#1747)",
+                        f"{n} rows; {'its row listed' if found else 'its row not listed'}", found)
+                w.step(page, "columns", "after", role, user, f"Search \"{term}\" ({label} of {exp['name']}): {n} rows.",
+                       pins=[pin(hit, f"{exp['name']}: Against shows its description.", "info")] if found
+                       else [pin(search, f"{n} rows: the expense is not found by its {label}.", "must")])
             search.fill("")
             settle(page)
 
@@ -224,8 +231,18 @@ def audit_steps() -> None:
                pins=[pin(date_box(page), "Back to step 1.", "info")])
 
         pick(page, "ALL")
-        page.get_by_role("tab", name=re.compile("^Payments")).first.click()
-        settle(page, 2500)
+        for t in ("Invoices", "Payments"):
+            page.get_by_role("tab", name=re.compile(rf"^{t}")).first.click()
+            settle(page, 2500)
+            lab = page.locator('[role="tabpanel"]').get_by_text(
+                re.compile(r"^(Top expense types|Invoices|Payments|Orders)$", re.I)).first
+            txt = lab.inner_text().strip() if lab.count() else ""
+            # The heading is upper-cased by CSS, so inner_text reads "INVOICES".
+            w.check("cards", role, f"{TYPES[1]} › {t}: the expense-type card is headed \"{t}\" (#1747)",
+                    txt or "no card", txt.lower() == t.lower())
+            w.step(page, "cards", "after", role, user, f"{TYPES[1]}, ALL, {t}: the expense-type card.",
+                   pins=[pin(lab, f"Headed \"{txt}\".", "info" if txt.lower() == t.lower() else "must")] if txt
+                   else [pin(page.locator('[role="tabpanel"]').first, "No type card found.", "must")])
         w.step(page, "refresh", "after", role, user, f"{TYPES[1]}, ALL, Payments. Refresh the page.")
         page.reload()
         settle(page, 4000)
@@ -240,13 +257,13 @@ def audit_steps() -> None:
         w.step(page, "refresh", "after", role, user, "Open another report, then come back to Audit View.",
                click=page.get_by_role("button", name="Audit View", exact=True))
         settle(page, 3000)
-        box, tab = date_box(page).inner_text().strip(), open_tab(page)
-        stale = tab is not None and box == "ALL"
-        w.check("refresh", role, "coming back from another report asks for the range again",
-                f"date box {box}, tab {tab or 'none'}", not stale, kind="should")
-        w.step(page, "refresh", "after", role, user, f"Back on Audit View: \"{box}\", {tab or 'no tab'} open.",
-               pins=[pin(date_box(page), "Steps 1 and 2 skipped: a leftover audit_range=1 in the URL (known since "
-                                         "#1736; a follow-up PR fixes it).", "should")] if stale else [])
+        rt, box, tab = report_type(page).inner_text().strip(), date_box(page).inner_text().strip(), open_tab(page)
+        kept = (rt, box, tab) == (TYPES[1], "ALL", "Payments")
+        w.check("refresh", role, f"coming back from another report reopens {TYPES[1]}, ALL, Payments (#1747)",
+                f"{rt}, {box}, {tab or 'no tab'}", kept)
+        w.step(page, "refresh", "after", role, user, f"Back on Audit View: {rt}, \"{box}\", {tab or 'no tab'} open.",
+               pins=[pin(report_type(page), f"Report Type: {rt}.", "info" if rt == TYPES[1] else "must"),
+                     pin(date_box(page), f"Date box: {box}.", "info")])
 
 
 def audit_roles() -> None:

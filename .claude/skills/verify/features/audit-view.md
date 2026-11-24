@@ -3,10 +3,11 @@
 Reports -> Audit View (#1732) lists every order, approved invoice and paid payment in a date range, for Admin,
 Accountant and Accountant Lead only. The user picks a range first; then the Orders, Invoices and Payments tabs each
 carry a count, and Payments shows Amount Paid + TDS = Net Paid. #1736 renamed the Report Types, kept the type, range
-and tab across a refresh, replaced "Show details" with summary cards, and matched the columns to the Payments page. The server's `get_audit_view_rows` and
+and tab across a refresh, replaced "Show details" with summary cards, and matched the columns to the Payments page. #1747 keeps the Report Type when you come back from another report
+tab, names the Non Projects Data card after its tab, and lets search find an expense by its record name again. The server's `get_audit_view_rows` and
 `get_audit_view_summary` (`nirmaan_stack/api/reports/audit_view.py`) select the rows and enforce the roles.
 
-Last walked (walk_audit_view.py): 2026-11-24 UTC at eb86b4b67, passed.
+Last walked (walk_audit_view.py): 2026-11-24 UTC at 52f34a5c1, passed.
 
 ## Sub-features
 
@@ -18,10 +19,14 @@ Last walked (walk_audit_view.py): 2026-11-24 UTC at eb86b4b67, passed.
 - `datebox` the date box reads `Pick a date range` until a range is picked, and again after Report Type changes;
   the open tab is cleared with it.
 - `refresh` a refresh keeps the report type, the range (ALL too: `audit_range=1` in the URL) and the open tab.
+  Coming back from another report tab reopens the same report type, range and tab (#1747; the type is remembered
+  while the page stays open, `hooks/useKeptReportForTab.ts`).
 - `cards` no `Show details`. The cards above the table: in Projects Data the first is named after the tab (Orders,
-  Invoices, Payments) and splits its amount by type; in Non Projects Data it is `Top expense types`. No %.
+  Invoices, Payments) and splits its amount by type; in Non Projects Data the expense-type card is named after the
+  tab too (`Invoices`, `Payments`; was `Top expense types` until #1747). No %.
 - `columns` Type is the pill with the expense type under it; Against is the PO / WO number or an expense's
-  description (first line); on Invoices, `Invoice No.` is the second column.
+  description (first line); on Invoices, `Invoice No.` is the second column. Search also matches the row's record
+  name, contains and any case (`auditIdMatches`, #1747), since an expense's name is in no column.
 
 ## How to get to it (user POV)
 
@@ -33,18 +38,16 @@ Last walked (walk_audit_view.py): 2026-11-24 UTC at eb86b4b67, passed.
 
 - **Whole walk.** `python3 -I BIN/walk_audit_view.py <env> <out dir>`. It reads the FY 26-27 summary from the env
   DB first (`<out dir>/db/`), walks the report as an unlocked Admin, then opens Reports as an Accountant, an Accountant
-  Lead, a Procurement Lead and a PMO. `audit_steps` switches Report Type, refreshes with ALL picked, and comes back
-  from another report. Parts: `audit_admin`, `audit_steps`, `audit_roles`; a part run leaves the stamp alone.
+  Lead, a Procurement Lead and a PMO. `audit_steps` switches Report Type, reads the Non Projects Data cards with
+  ALL picked, refreshes, and comes back from another report. Parts: `audit_admin`, `audit_steps`, `audit_roles`; a part run leaves the stamp alone.
 - **Date box.** A button whose text is `Pick a date range`, `ALL`, a preset or a range; `Report Type` is the first
   combobox in `main`.
 - **Tab counts.** `get_by_role("tab")`; each reads `Orders 1,234` at desktop width (a phone shows `1.2K`).
 - **Payments figures.** The page text holds `AMOUNT PAID ₹… + TDS ₹… = NET PAID ₹…`.
+- **Card headings** are upper-cased by CSS: `inner_text` reads `INVOICES`, so compare without case.
 
 ## Gotchas
 
-- **Known since #1736, fixed in a follow-up PR:** searching by ID finds no expense (the ID column holds the
-  description), and coming back to Audit View from another report with `audit_range=1` still in the URL skips
-  steps 1 and 2. The walk checks both as `should`, so they show without failing it.
 - The date picker's Apply stays disabled after a preset: press Escape.
 - The screen rounds Amount Paid, TDS and Net Paid each to the rupee, so the shown sum can be ₹1 off the shown
   Net Paid (for example ₹100.40 + ₹0.40 shows as ₹100 + ₹0 against ₹101). The walk holds the
