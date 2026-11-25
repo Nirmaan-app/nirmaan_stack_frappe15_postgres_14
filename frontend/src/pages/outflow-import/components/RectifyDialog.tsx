@@ -6,6 +6,7 @@
 //   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
 //     the expense type the destination takes; wording in `cashbookRectify.ts`.
+//   * Card lines (#1761): Cashbook's label rule and type choice, and the card line's details (`cardRectify.ts`).
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -24,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { cardDetailRows, type CardPlanLine } from "../cardRectify";
 import {
     CASHBOOK_SOURCE,
     billCheckText,
@@ -34,6 +36,7 @@ import {
     destinationLedger,
     type CashbookPlanLine,
 } from "../cashbookRectify";
+import { CARD_SOURCE } from "../creditCardImport";
 import { describeFrappeError } from "../outflowTableModel";
 import {
     RECTIFY_METHOD,
@@ -51,8 +54,13 @@ import {
 } from "../porterRectify";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
-/** A plan line of either source: Porter's fields, and a Cashbook line's beside them. */
-type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine>;
+/** A plan line of any source: Porter's fields, and a Cashbook or card line's beside them. */
+type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine> & Partial<CardPlanLine>;
+
+/** The sources whose Move picks a ledger and a type, worded by where the expense goes (Cashbook #1757, card #1761);
+ * Porter keeps its own words. */
+const movesBetweenLedgers = (plan: RectifyPlan | undefined): boolean =>
+    plan?.source === CASHBOOK_SOURCE || plan?.source === CARD_SOURCE;
 
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
@@ -60,7 +68,7 @@ let openings = 0;
 /** The title before the plan says the source, and for each source once it has. */
 const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
     if (!plan) return "Move";
-    if (plan.source !== CASHBOOK_SOURCE) return moveDialogTitle(rows.length);
+    if (!movesBetweenLedgers(plan)) return moveDialogTitle(rows.length);
     const ledgers = plan.lines.filter((line) => line.ledger).map((line) => line.ledger);
     return cashbookMoveLabel(ledgers.length ? ledgers : plan.lines.map(() => undefined));
 };
@@ -117,13 +125,16 @@ const RectifyBody = ({
         `rectify-plan-${opening}`,
     );
     const plan = data?.message;
-    const cashbook = plan?.source === CASHBOOK_SOURCE;
+    const ledgerMove = movesBetweenLedgers(plan);
     return (
         <>
             <DialogHeader>
                 <DialogTitle>{titleOf(rows, plan)}</DialogTitle>
                 <DialogDescription>
-                    {cashbook
+                    {plan?.source === CARD_SOURCE
+                        ? "Each expense is replaced by one with the same amount, date, reference, card statement, " +
+                          "bill and Bill check, where you choose. Its old placement is kept as reversed, with your reason."
+                        : ledgerMove
                         ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
                           "where you choose. Its old placement is kept as reversed, with your reason."
                         : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
@@ -163,7 +174,7 @@ const RectifyForm = ({
     const [reason, setReason] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const cashbook = plan.source === CASHBOOK_SOURCE;
+    const ledgerMove = movesBetweenLedgers(plan);
     const lines: PlanLine[] = plan.lines;
 
     const options = useMemo(() => projectOptions(plan.projects ?? []), [plan]);
@@ -182,7 +193,7 @@ const RectifyForm = ({
         ? "Choose where the expenses go."
         : !moving.length
           ? "Nothing here would move."
-          : cashbook && !type
+          : ledgerMove && !type
             ? "Choose an expense type the destination takes."
             : !trimmed
               ? "Type a reason first."
@@ -197,10 +208,10 @@ const RectifyForm = ({
                 rows: JSON.stringify(moving.map((line) => line.row)),
                 project: target.value,
                 reason: trimmed,
-                ...(cashbook ? { expense_type: type } : {}),
+                ...(ledgerMove ? { expense_type: type } : {}),
             });
             const targetName = target.value ? target.label : null;
-            onRan(cashbook ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
+            onRan(ledgerMove ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
         } catch (err) {
             setError(describeFrappeError(err, "Nothing was moved."));
         } finally {
@@ -231,7 +242,8 @@ const RectifyForm = ({
                                     </span>
                                 )}
                             </div>
-                            {cashbook && line.ledger && <CashbookDetails line={line} />}
+                            {plan.source === CASHBOOK_SOURCE && line.ledger && <CashbookDetails line={line} />}
+                            {plan.source === CARD_SOURCE && line.ledger && <CardDetails line={line} />}
                             {line.description_edited && (
                                 <p className="text-xs text-muted-foreground">
                                     Its description was edited by hand, so it is kept as it is.
@@ -259,7 +271,7 @@ const RectifyForm = ({
                 />
             </div>
 
-            {cashbook && target && (
+            {ledgerMove && target && (
                 <div className="space-y-1.5">
                     <Label className="text-xs">Expense type</Label>
                     <PorterProjectSelect
@@ -300,7 +312,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {cashbook
+                    {ledgerMove
                         ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
                         : moveOrdersLabel(moving.length || rows.length)}
                 </Button>
@@ -334,6 +346,20 @@ const CashbookDetails = ({ line }: { line: PlanLine }) => (
             )}
             <span>{billCheckText(line.bill)}</span>
         </span>
+    </div>
+);
+
+/** The card line's details, one compact row (stories 43, 45): holder, merchant, statement and date. */
+const CardDetails = ({ line }: { line: PlanLine }) => (
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
+        {cardDetailRows(line)
+            .filter((row) => row.label !== "Amount")
+            .map((row) => (
+                <span key={row.label}>
+                    <span className="text-muted-foreground">{row.label}: </span>
+                    {row.value}
+                </span>
+            ))}
     </div>
 );
 

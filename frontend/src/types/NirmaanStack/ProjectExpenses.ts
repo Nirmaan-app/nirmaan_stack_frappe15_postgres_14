@@ -34,6 +34,8 @@ export interface ProjectExpenses {
 
     // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
     porter_order?: string | null;
+    // Carried here only by a Move of a card spend to a Won project (#1761): the Credit Card Statement it is on.
+    credit_card_statement?: string | null;
     // Set only by the Cashbook job's Create (#1592): the import batch; it makes the spend wait in the Cashbook queue.
     cashbook_batch?: string | null;
     // A Cashbook spend marked "No invoice" (#1592): why, who and when. Set only by api/expenses/cashbook_invoices.
