@@ -20,7 +20,8 @@ Porter's two whitelisted endpoints are the core with `PORTER`, contract unchange
   * `rectify_porter_rows(rows, project, reason)` -- the write. Every line goes to the ONE placement chosen
     (`project` blank: Non-Project), each line in its own transaction.
 
-EACH LINE, IN ONE SAVEPOINT, COMMITTED BEFORE THE NEXT
+EACH LINE, IN ONE SAVEPOINT, COMMITTED BEFORE THE NEXT -- lines that move together (`RectifySource.partners`: a
+wallet spend and its refund, #1757) commit together, or none of them does
 -----------------------------------------------------
     1. its Settled match -> Reversed, with the reason (`unreconcile.stamp_reversed`)
     2. the replacement Expense, through Create's own writer (`settle.create_expense_from_row`), from the
