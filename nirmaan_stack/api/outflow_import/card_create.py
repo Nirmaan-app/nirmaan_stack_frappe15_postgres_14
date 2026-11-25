@@ -223,6 +223,19 @@ def record_card_match(row: str, batch: str, transfer_id: str, expense, actor: st
     match.insert(ignore_permissions=True)
 
 
+def card_line_of(doctype: str, expense: str) -> dict | None:
+    """The card line whose live Settled match created Expense `expense` (on either ledger: a Move keeps the line):
+    `{import_batch, import_row, transfer_id}`, or `None`. The Cashbook twin is `cashbook_matches.cashbook_line_of`."""
+    match = frappe.db.get_value(
+        MATCH_DOCTYPE,
+        {"target_doctype": doctype, "target_name": expense, "match_kind": MATCH_SETTLED,
+         "source": CARD_STATEMENT_SOURCE, "created_by_import": 1},
+        ["import_batch", "import_row", "transfer_id"],
+        as_dict=True,
+    )
+    return dict(match) if match else None
+
+
 def _mark_error(line: str, note: str) -> None:
     """The line -> Error with its sentence, committed. Raw: `Outflow Import Row` has no doc_events, and the
     batch rollup is recomputed from the rows at the end of the run."""

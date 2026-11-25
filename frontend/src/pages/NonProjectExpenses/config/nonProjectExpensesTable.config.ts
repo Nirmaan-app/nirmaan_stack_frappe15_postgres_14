@@ -25,6 +25,8 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "porter_order",
     // The edit dialog's locked project row and its Move link on a Cashbook expense (#1757).
     "cashbook_batch",
+    // ... and on a card spend, on either ledger (#1761).
+    "credit_card_statement",
     // A card spend marked "No invoice": who, when and why show in the Invoice Ref column (#1570, story 45).
     "no_invoice_reason",
     "no_invoice_by",

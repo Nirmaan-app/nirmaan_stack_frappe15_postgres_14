@@ -20,6 +20,8 @@ As the Accountant Lead:
     Settled, pointing at it, one live Settled match.
  3. Sidebar Vendor Invoice Recon -> Pending Invoices Upload -> Credit Card, searched by the holder: the moved spend is
     still listed, its Holder the card holder. DB: the queue endpoint lists it as a Project Expense.
+ 4. Dashboard -> Project Expenses -> Paid, searched by Comment "Imported from <batch>" -> the spend -> Edit: the
+    Project row is locked and links "Change project" to the line's Move.
 """
 
 import argparse
@@ -152,6 +154,30 @@ with session(a.task, a.lead, a.password) as (page, out):
     check(HOLDER in rows.first.inner_text() and "1,933" in rows.first.inner_text(),
           f"1753-57: its row shows the holder {HOLDER} as Paid by, and its amount")
     save(page, out, "05-credit-card-queue-after-move")
+
+    # 4. Its edit dialog: the project is locked, and links to the line's Move.
+    sidebar(page, "Dashboard")
+    page.get_by_text("Project Expenses", exact=True).first.click()
+    page.wait_for_load_state("networkidle")
+    page.get_by_role("button", name=re.compile(r"^Paid \d+$")).click()
+    page.wait_for_load_state("networkidle")
+    page.get_by_role("combobox").filter(has_text="Description").first.click()
+    page.get_by_role("option", name="Comment", exact=True).click()
+    search(page, f"Imported from {BATCH}")
+    expense_row = page.get_by_role("row").filter(has_text="PARK RESIDENCY")
+    expense_row.first.wait_for(timeout=30_000)
+    check(expense_row.count() == 1, f"Project Expenses -> Paid lists the moved spend {new.get('name')}")
+    pencil = expense_row.first.locator("button:has(svg.lucide-pencil)")
+    if check(pencil.count() > 0, "the moved card spend offers Edit"):
+        pencil.first.click()
+        edit = page.get_by_role("alertdialog")
+        edit.wait_for()
+        page.wait_for_timeout(1500)
+        check(edit.locator("#project_edit").is_disabled(), "1761: the card spend's Project row is locked")
+        check(edit.get_by_role("link", name="Change project").count() == 1,
+              "1761: the locked Project row links \"Change project\" to the line's Move")
+        save(page, out, "06-edit-dialog-project-locked")
+        page.keyboard.press("Escape")
     print(f"evidence: {out}")
 
 print(f"misses: {len(MISSES)}")

@@ -190,6 +190,19 @@ class TestACardSpendMovedToAProject(CardRectifyCase):
         self.assertEqual(recall(["PARK RESIDENCY"]), remembered)
 
 
+class TestTheEditDialogsMoveLink(CardRectifyCase):
+    def test_a_card_spend_names_its_line_on_either_ledger(self):
+        line = self._line(PARK)
+        expected = {"import_batch": self.batch, "import_row": line.name, "transfer_id": line.transfer_id}
+        before = self._expense_of(PARK)
+        self.assertEqual(rectify.get_move_line(before.doctype, before.name), expected)
+
+        self._move([PARK], self.orchid, expense_type=PROJECT_TYPE)
+
+        after = self._expense_of(PARK)
+        self.assertEqual(rectify.get_move_line(after.doctype, after.name), expected)
+
+
 class TestTheCardMovePlan(CardRectifyCase):
     def test_it_shows_the_holder_merchant_statement_amount_and_date(self):
         [line] = self._plan(PARK)["lines"]

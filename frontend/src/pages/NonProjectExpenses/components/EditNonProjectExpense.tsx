@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
-import { isCashbookExpense, isPorterExpense, projectField } from "@/utils/porterExpense";
+import { hasMoveLine, isPorterExpense, projectField } from "@/utils/porterExpense";
 import {
     PorterProjectLock,
     PorterSectionBlock,
@@ -110,7 +110,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     // neither shown as a picker nor required (owner, 2026-10-23).
     const reimbursement = expenseToEdit?.reimbursement || null;
 
-    // A Porter Expense (#1450) or a Cashbook expense (#1757): it shows a locked Project row -- moving it onto a
+    // A Porter Expense (#1450), a Cashbook expense (#1757) or a card spend (#1761): it shows a locked Project row -- moving it onto a
     // project is Move (Rectify) in Bulk Import, which keeps the import's record in step. A Porter Expense also shows
     // its Porter facts, read-only. Any other Non-Project expense shows neither, as before.
     const project = projectField(expenseToEdit, "Non Project Expenses");
@@ -119,7 +119,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const cashbookLine = useCashbookMoveLine(
         "Non Project Expenses",
         expenseToEdit?.name,
-        isCashbookExpense(expenseToEdit) && editNonProjectExpenseDialog,
+        hasMoveLine(expenseToEdit) && editNonProjectExpenseDialog,
     );
 
     // Section toggles. The payment section is Paid-only and cannot be switched off there: unticking
