@@ -344,7 +344,7 @@ def _match_line_at(rows: list[str], index: int) -> re.Match | None:
         ):
             return None
         found = (has_tail and _LINE.match(_joined(rows[index : end + 3]))) or _LINE.match(
-            _joined(rows[index : end + 1])
+            rows[index] if end == index else _joined(rows[index : end + 1])
         )
         if found:
             return found

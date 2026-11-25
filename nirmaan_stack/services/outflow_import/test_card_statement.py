@@ -378,6 +378,10 @@ class TestAnInternationalLine(unittest.TestCase):
         self.assertEqual(line.details, "BLINK COMMERCE PVT LTD BANGALORE IN")
         self.assertEqual(line.amount, Decimal("470.00"))
 
+    def test_a_one_row_line_keeps_its_details_as_printed(self):
+        _, line = self._read_with("01/09/2026 14092030373 FAKE ARTS GIFT  TOYS Bangalore IN 0 470.00\n")
+        self.assertEqual(line.details, "FAKE ARTS GIFT  TOYS Bangalore IN")
+
 
 class TestALineThatNeverCompletes(unittest.TestCase):
     """A row with a date and a SerNo whose points and amount never come within the next two rows is not read,
