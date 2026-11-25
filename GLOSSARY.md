@@ -204,7 +204,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Send back to Mismatched (an Internal Transfer line)** — undoing an Internal Transfer, by an Admin or Accountant
   Lead with a typed reason: the line's Internal Transfer record is deleted and the line becomes an open
   *Mismatched* line again, showing who sent it back, when and why. It takes no other line with it: every Internal
-  Transfer line holds its own record. Sending a line back is the only way a record is deleted. It is neither
+  Transfer line holds its own record. Sending a line back is the only way a record is deleted; a record's proof is
+  kept with the line. It is neither
   *Unskip* (the line was never skipped) nor *Unreconcile* (no record was settled). (Owner, 2026-11-06; one line
   only, 2026-11-07.)
   *Avoid*: unmark, unskip an internal transfer.

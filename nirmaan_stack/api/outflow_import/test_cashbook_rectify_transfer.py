@@ -113,6 +113,12 @@ class TestAMoveToInternalTransferIsRefused(TransferCase):
                 self._to_transfer([ONE_LINK], other_end=other_end)
         self._nothing_moved(ONE_LINK, expense)
 
+    def test_to_a_destination_that_is_none_of_the_three(self):
+        expense = self._expense(ONE_LINK)
+        with self.assertRaises(frappe.ValidationError):
+            rectify.rectify_lines(frappe.as_json([self._line(ONE_LINK).name]), reason=REASON, destination="Internal")
+        self._nothing_moved(ONE_LINK, expense)
+
     def test_without_a_reason(self):
         expense = self._expense(ONE_LINK)
         with self.assertRaises(frappe.ValidationError):
@@ -181,3 +187,23 @@ class TestThePlanOffersInternalTransfer(CashbookRectifyCase):
         # As Mark starts it: the wallet holder who spent it.
         [line] = plan["lines"]
         self.assertEqual(line["transfer_detail"], "Meera Iyer")
+
+
+class TestSentBackTheProofStaysOnTheLine(TransferCase):
+    def test_the_record_goes_and_its_bill_file_is_kept_on_the_line(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+
+        self._to_transfer([ONE_LINK])
+        record = self._record(ONE_LINK)
+        line = self._line(ONE_LINK).name
+
+        send_back_to_mismatched(line, "Not ours after all")
+
+        self.assertFalse(frappe.db.exists(INTERNAL_TRANSFER, record.name))
+        self.assertEqual(self._line(ONE_LINK).row_status, "Mismatched")
+        # The bill is never lost: its File now sits on the line, as an open Collect payment's bill does (#1595).
+        self.assertEqual(
+            frappe.db.count("File", {"file_url": record.proof, "attached_to_doctype": "Outflow Import Row",
+                                     "attached_to_name": line}),
+            1,
+        )

@@ -37,11 +37,13 @@ from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
 from nirmaan_stack.services.outflow_import.internal_transfers import MADE_BY_HAND, PLACES
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
+from nirmaan_stack.services.stored_files import reattach_files
 
 #: The `destination` a Move write names for this one; any other value is a project or Non Project.
 INTERNAL_TRANSFER_DESTINATION = INTERNAL_TRANSFER_DOCTYPE
 
-NO_OWN_PLACE = "Only a line from a Cashbook Statement import can be moved to Internal Transfer."
+NO_OWN_PLACE = "A {source} line cannot be moved to Internal Transfer: its statement is not one of our own places."
+UNKNOWN_DESTINATION = "Move to a project, to No project, or to Internal Transfer; '{destination}' is none of these."
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,7 @@ def refuse_unless_transferable(source: str, transfer: TransferTo) -> None:
     """Refuse the whole write, writing nothing, when `source`'s lines have no own place to move from, or `other_end`
     is not a place other than that one (Mark's own rule, `other_end_refusal`)."""
     if own_place(source) is None:
-        frappe.throw(NO_OWN_PLACE, title="Cannot move to Internal Transfer")
+        frappe.throw(NO_OWN_PLACE.format(source=source or "blank-source"), title="Cannot move to Internal Transfer")
     refusal = other_end_refusal(source, transfer.other_end)
     if refusal:
         frappe.throw(refusal, title="Cannot move to Internal Transfer")
@@ -85,29 +87,17 @@ def move_to_internal_transfer(line, old, transfer: TransferTo, reason: str, acto
     proof = frappe.db.get_value(
         BILL_DOCTYPE, {"expense_doctype": old.doctype, "expense": old.name, "is_latest": 1}, "bill_file"
     )
-    _move_files(old, record, proof, kept_file_url)
+    # Every File of the expense goes to the record before the delete would take it; the bill's is its `proof`.
+    reattach_files(
+        old.doctype, old.name, INTERNAL_TRANSFER_DOCTYPE, record, except_url=kept_file_url, field_url=proof,
+        field="proof",
+    )
+    if proof:
+        # ⚠️ `set_value`, after the insert: the record refuses every save after insert (`NEVER_EDITED`), and a save
+        # would make Frappe's attach hook mint a second File row for it. Nothing is derived from the field.
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "proof", proof, update_modified=False)
     delete_created(old.doctype, old.name, None)
     note = MARKED_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
     save_line(line.name, {"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": note}, actor, now)
     refresh_batch_rollup(line.import_batch)
     return record
-
-
-def _move_files(old, record: str, proof: str | None, kept_file_url: str | None) -> None:
-    """Every File of the expense goes to the record before the delete would take it; the bill's is its `proof`.
-
-    ⚠️ RAW, AND THAT IS THE POINT -- as `rectify_replace._move_attachments`: `frappe.delete_doc` would delete the expense's
-    Files through the document layer, and the storage app's `on_trash` the stored bytes. Re-pointing the `File` row
-    keeps the object and its key; `File` has no hook on these fields. `proof` is written after the insert, by
-    `set_value`, because the record refuses every save after insert (`internal_transfer.NEVER_EDITED`), and a save
-    would make Frappe's attach hook mint a second File row for it. Nothing is derived from either field.
-    """
-    frappe.db.sql(
-        """UPDATE "tabFile" SET attached_to_doctype = %s, attached_to_name = %s,
-               attached_to_field = CASE WHEN file_url = %s THEN 'proof' ELSE attached_to_field END
-           WHERE attached_to_doctype = %s AND attached_to_name = %s
-             AND file_url IS DISTINCT FROM %s""",
-        (INTERNAL_TRANSFER_DOCTYPE, record, proof, old.doctype, old.name, kept_file_url),
-    )
-    if proof:
-        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "proof", proof, update_modified=False)

@@ -19,6 +19,7 @@ from nirmaan_stack.api.outflow_import.porter_records import ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills.receive import move_bills
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
+from nirmaan_stack.services.stored_files import reattach_files
 
 if TYPE_CHECKING:
     from nirmaan_stack.api.outflow_import.rectify_sources import RectifySource, Replacement
@@ -82,12 +83,10 @@ def replace_expense(
 def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -> None:
     """Carry over what a person attached to the old Expense, before the delete would take it.
 
-    ⚠️ RAW, AND THAT IS THE POINT. `frappe.delete_doc` deletes every `File` attached to the old Expense
-    through the document layer, and the storage app's `on_trash` then deletes the stored object -- a photo
-    someone added would be lost. Re-pointing the `File` row keeps the object and its storage key (which is
-    fixed at insert); `File` has no hook on these fields. The `payment_attachment` value is written after
-    the insert for the reason `create_expense_from_row` writes `invoice_attachment` so: a save would make a
-    second `File` row for it. Nothing is derived from either.
+    The `File` rows are re-pointed, raw (`stored_files.reattach_files`): a delete through the document layer would
+    take a photo someone added. The `payment_attachment` value is written after the insert for the reason
+    `create_expense_from_row` writes `invoice_attachment` so: a save would make a second `File` row for it. Nothing
+    is derived from either.
 
     ⚠️ NEVER A ROW FOR `kept_file_url` (Porter: the shared invoice PDF). That PDF's one File is its Porter
     Invoice's (`integrations/controllers/expense_files`); a copy an older save left on the old Expense stays
@@ -95,12 +94,7 @@ def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -
     """
     if old.get("payment_attachment"):
         frappe.db.set_value(doctype, name, "payment_attachment", old.payment_attachment, update_modified=False)
-    frappe.db.sql(
-        """UPDATE "tabFile" SET attached_to_doctype = %s, attached_to_name = %s
-           WHERE attached_to_doctype = %s AND attached_to_name = %s
-             AND file_url IS DISTINCT FROM %s""",
-        (doctype, name, old.doctype, old.name, kept_file_url),
-    )
+    reattach_files(old.doctype, old.name, doctype, name, except_url=kept_file_url)
 
 
 def _follow_on_the_line(row: str, new, project: str | None, expense_type: str, actor: str) -> None:

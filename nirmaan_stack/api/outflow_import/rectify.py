@@ -17,7 +17,11 @@ import frappe
 from nirmaan_stack.api.outflow_import.cashbook_matches import cashbook_line_of
 from nirmaan_stack.api.outflow_import.porter_rectify import move_accepts, plan_rectify, rectify_rows
 from nirmaan_stack.api.outflow_import.rectify_sources import SOURCES, source_of
-from nirmaan_stack.api.outflow_import.rectify_transfer import INTERNAL_TRANSFER_DESTINATION, TransferTo
+from nirmaan_stack.api.outflow_import.rectify_transfer import (
+    INTERNAL_TRANSFER_DESTINATION,
+    UNKNOWN_DESTINATION,
+    TransferTo,
+)
 from nirmaan_stack.services.outflow_import.ledgers import is_expense_doctype
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
@@ -50,9 +54,12 @@ def rectify_lines(
     an Internal Transfer instead, from or to `other_end` with `detail`, as Mark as Internal Transfer asks; `project`
     and `expense_type` are then not read.
     """
+    destination = (destination or "").strip()
+    if destination not in ("", INTERNAL_TRANSFER_DESTINATION):
+        frappe.throw(UNKNOWN_DESTINATION.format(destination=destination), title="Cannot move")
     transfer = (
         TransferTo(other_end=(other_end or "").strip(), detail=(detail or "").strip())
-        if (destination or "").strip() == INTERNAL_TRANSFER_DESTINATION
+        if destination == INTERNAL_TRANSFER_DESTINATION
         else None
     )
     return rectify_rows(source_of(rows), rows, project, reason, expense_type, transfer)

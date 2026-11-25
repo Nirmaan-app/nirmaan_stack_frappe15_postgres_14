@@ -37,6 +37,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_MISMATCHED,
     derive_batch_status,
 )
+from nirmaan_stack.services.stored_files import reattach_files
 
 MARK_REASON_REQUIRED = "A reason is required to mark a line as an Internal Transfer."
 SEND_BACK_REASON_REQUIRED = "A reason is required to send a line back to Mismatched."
@@ -113,6 +114,9 @@ def send_back_to_mismatched(row: str, reason: str) -> dict:
         if refusal:
             frappe.throw(refusal, title="Cannot send back")
         for name in frappe.get_all(INTERNAL_TRANSFER_DOCTYPE, filters={"import_row": row}, pluck="name"):
+            # FIRST: a record a Move made keeps its bill as proof (#1762); the delete would take that File and its
+            # bytes, so it goes to the line, as an open Collect payment's bill is kept there (#1595).
+            reattach_files(INTERNAL_TRANSFER_DOCTYPE, name, ROW_DOCTYPE, row)
             frappe.delete_doc(INTERNAL_TRANSFER_DOCTYPE, name, ignore_permissions=True, force=True)
         now = frappe.utils.now_datetime()
         note = SENT_BACK_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
