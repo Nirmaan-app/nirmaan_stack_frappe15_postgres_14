@@ -38,7 +38,8 @@ from nirmaan_stack.services.outflow_import.porter_wording import (
     description_hand_edited,
     rectified_description,
 )
-from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
+from nirmaan_stack.services.outflow_import.row_settlement import record_settlement
+from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE, CASHFREE_SOURCE, ICICI_STATEMENT_SOURCE
 
 
 @dataclass(frozen=True)
@@ -291,8 +292,69 @@ CASHBOOK = RectifySource(
 )
 
 
+# --- A bank or Cashfree line's Create (#1760) --------------------------------------------------------
+
+
+def _bank_replacement(old, line, from_name: str | None, to_name: str | None) -> Replacement:
+    """The description as it is; Paid by kept, or on a move from Non Project the person who created it, as Create
+    writes Paid by on a bank line (the person recording it)."""
+    return Replacement(description=old.description, payment_by=old.get("payment_by") or old.owner or None)
+
+
+def _bank_plan_details(line, expense, project_name: str | None) -> dict:
+    """What the dialog shows of the bank line (spec #1753 story 44): date, UTR, beneficiary and remark (the amount is
+    the plan's own), and the expense's type."""
+    return {
+        "date": str(line.added_on.date()) if line.added_on else None,
+        "utr": (line.settlement_reference or line.bank_reference_no or line.transfer_id or "").strip(),
+        "beneficiary": (line.beneficiary_name or "").strip(),
+        "remark": (line.remarks or "").strip(),
+        "expense_type": expense.type,
+    }
+
+
+def _bank_source(source: str) -> RectifySource:
+    """A bank statement's or the payout gateway's lines: an expense a person created from one with Create. Its match
+    is written by Create's own writer (`record_settlement`)."""
+    return RectifySource(
+        source=source,
+        title=f"{source} Move",
+        endpoint="rectify_lines",
+        wording=RectifyWording(
+            not_this_source=f"Only a line from a {source} import can be moved with these lines.",
+            not_settled="This line is {status} now, not Settled, so it has no expense to move.",
+            not_found="This line no longer exists; its import may have been deleted.",
+            not_created=(
+                "This line's record was Linked, not created with Create, so it cannot be moved. "
+                "Unreconcile it instead."
+            ),
+            unexpected="Something went wrong moving this line, so nothing on it was changed.",
+            already_non_project="This expense is already a Non Project Expense.",
+            already_on="This expense is already on {name}.",
+            nothing_ticked="Tick at least one line to move.",
+            too_many="At most {limit} lines can be moved at once; {count} were sent.",
+            too_many_title="Too many lines",
+            split_line="This line settled more than one record, so it cannot be moved in part.",
+            partner_failed="Not moved, because the line it moves with ({txn}) could not be: {reason}",
+        ),
+        line_fields=(
+            "transfer_id", "added_on", "settlement_reference", "bank_reference_no", "beneficiary_name", "remarks",
+            "match_basis", "suggested_name",
+        ),
+        line_label=lambda line: {"txn_id": line.transfer_id if line else None},
+        plan_details=_bank_plan_details,
+        replacement=_bank_replacement,
+        record_match=lambda line, new, actor, origin: record_settlement(line, line, new, actor, origin=origin),
+        kept_file_url=lambda old: None,
+    )
+
+
+ICICI = _bank_source(ICICI_STATEMENT_SOURCE)
+CASHFREE = _bank_source(CASHFREE_SOURCE)
+
+
 #: Every source Move is wired for, by its lines' `source`.
-SOURCES = {source.source: source for source in (PORTER, CASHBOOK)}
+SOURCES = {source.source: source for source in (PORTER, CASHBOOK, ICICI, CASHFREE)}
 
 
 def source_of(rows) -> RectifySource:
