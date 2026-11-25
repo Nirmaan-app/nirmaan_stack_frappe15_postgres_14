@@ -91,16 +91,21 @@ class CardRectifyCase(CardCreateCase):
         )
         purge_expense_bills([m.target_name for m in matches])
         purge_records(PROJECT_EXPENSE, [m.target_name for m in matches if m.target_doctype == PROJECT_EXPENSE])
-        for m in matches:
+        scopes = [
+            scope
+            for m in matches
+            for scope in (
+                ("Deleted Document", {"deleted_doctype": m.target_doctype, "deleted_name": m.target_name}),
+                ("Comment", {"comment_type": "Deleted", "subject": f"{m.target_doctype} {m.target_name}"}),
+            )
+        ]
+        for doctype, filters in scopes:
             try:
-                frappe.db.delete("Deleted Document", {"deleted_doctype": m.target_doctype, "deleted_name": m.target_name})
-                frappe.db.delete(
-                    "Comment", {"comment_type": "Deleted", "subject": f"{m.target_doctype} {m.target_name}"}
-                )
+                frappe.db.delete(doctype, filters)
                 frappe.db.commit()
             except Exception:
                 frappe.db.rollback()
-                print(f"card rectify test purge: could not delete what deleting {m.target_name} left")
+                print(f"card rectify test purge: could not delete {doctype} {filters}")
 
     def _expense_of(self, details: str):
         """The expense the line's live Settled match names."""

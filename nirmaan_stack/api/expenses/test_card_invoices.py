@@ -235,7 +235,12 @@ class TestACardSpendOnAProject(CardInvoiceCase):
         frappe.db.rollback()
         purge_expense_bills(self.project_expenses)
         purge_records(PE, self.project_expenses)
-        purge_records("Projects", [self.project])
+        try:
+            frappe.delete_doc("Projects", self.project, force=True, ignore_permissions=True)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            print(f"card invoice test purge: could not delete project {self.project}")
 
     def _project_expense(self, statement, serno="70000000101", **extra):
         doc = frappe.get_doc(
