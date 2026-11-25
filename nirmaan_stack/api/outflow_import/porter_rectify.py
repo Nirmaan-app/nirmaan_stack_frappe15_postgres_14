@@ -30,7 +30,8 @@ EACH LINE, IN ONE SAVEPOINT, COMMITTED BEFORE THE NEXT
     3. any attachment a person added to the old Expense moves to the new one
     4. the old Expense is deleted (`unreconcile_created.delete_created`: series counter kept)
     5. a new Settled match, through the writer the source's Create uses (Porter: `record_porter_match`)
-    6. the line's plan, pick and note follow the new Expense; a comment on the line says who, why, where
+    6. the line's plan, pick and note follow the new Expense; a comment on the line and on the new Expense says
+       who, why, and where from
     7. the CEO-Hold cashflow gap of BOTH projects is re-evaluated
 
 ⚠️ ALWAYS ALLOWED -- NO "EDITED SINCE" REFUSAL. Unreconcile refuses a created record someone edited, because
@@ -65,18 +66,15 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     refuse_unless_won,
     won_projects,
 )
+from nirmaan_stack.api.outflow_import.rectify_refusals import already_there, expense_refusal, line_refusal
 from nirmaan_stack.api.outflow_import.rectify_sources import PORTER, RectifySource
 from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, stamp_reversed
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills.receive import move_bills
-from nirmaan_stack.services.outflow_import.ledgers import (
-    NON_PROJECT_EXPENSE_DOCTYPE,
-    PROJECT_EXPENSE_DOCTYPE,
-    is_expense_doctype,
-)
+from nirmaan_stack.services.expense_type_ledger import ledger_types
+from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
-from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
 #: The cap the bulk Unreconcile keeps: the screen works one page (50 lines) at a time.
 RECTIFY_LIMIT = BULK_UNRECONCILE_LIMIT
@@ -107,18 +105,30 @@ class _ExpenseAsRow:
 def plan_rectify(source: RectifySource, rows) -> dict:
     """Where each ticked line's Expense is now. WRITES NOTHING, TAKES NO LOCK.
 
-    Returns `{"lines": [...], "projects": [{name, project_name}]}` (the Won projects). Each line: `row`,
+    Returns `{"lines": [...], "projects": [{name, project_name}], "types": {ledger: [type]}}` (the Won projects, and
+    the expense types each ledger takes). Each line: `row`,
     `refusal` (`None` when it can be rectified), the source's `line_label`, and when it can move, `amount`,
     `ledger`, `project`, `project_name`, `expense` and the source's `plan_details`.
 
     ⚠️ A PLAN, NEVER A PROMISE. The write re-reads every line under its own lock.
     """
     require_outflow_undo_access()
-    return {"lines": [_plan_of(source, row) for row in _ticked(source, rows)], "projects": won_projects()}
+    names = _ticked(source, rows)
+    return {
+        "lines": [_plan_of(source, row, frozenset(names)) for row in names],
+        "projects": won_projects(),
+        "types": ledger_types(),
+    }
 
 
-def rectify_rows(source: RectifySource, rows, project: str | None = None, reason: str = "") -> dict:
-    """Move each line's Expense to `project` (blank: Non-Project), each line in its own transaction.
+def rectify_rows(
+    source: RectifySource, rows, project: str | None = None, reason: str = "", expense_type: str | None = None
+) -> dict:
+    """Move each line's Expense to `project` (blank: Non-Project), each line in its own transaction -- or, for lines
+    that must move together (`RectifySource.partners`: a wallet spend and its refund), each such group in one.
+
+    `expense_type`: the type every replacement takes; blank keeps each one's own. Either way it must suit the
+    destination ledger, or the line is refused in the writer's words.
 
     Returns `{"count": N, "lines": [...]}`, one entry per distinct line in the order sent: either
     `{"row", "rectified": True, "from": {...}, "to": {...}, **source's result}` or
@@ -126,7 +136,8 @@ def rectify_rows(source: RectifySource, rows, project: str | None = None, reason
     no lines or too many, a project that does not exist or is not Won.
 
     ⚠️ A REFUSED LINE NEVER STOPS THE OTHERS, AND NEVER POPS A MESSAGE -- the bulk Unreconcile's shape. A
-    line that fails part-way is rolled back whole: its old Expense and match are as they were.
+    line that fails part-way is rolled back whole, with every line of its group: its old Expense and match are as
+    they were.
     """
     actor = require_outflow_undo_access()
     reason = (reason or "").strip()
@@ -136,32 +147,82 @@ def rectify_rows(source: RectifySource, rows, project: str | None = None, reason
     project = (project or "").strip() or None
     if project:
         refuse_unless_won(project)
+    expense_type = (expense_type or "").strip() or None
+    done: dict[str, dict] = {}
+    for group in _groups(source, names):
+        done.update(_rectify_group(source, group, project, reason, actor, len(names), expense_type))
+    return {"count": len(names), "lines": [done[row] for row in names]}
+
+
+def _groups(source: RectifySource, names: list[str]) -> list[list[str]]:
+    """The ticked lines in the order sent, each with the ticked lines it must move with. A partner not ticked is
+    the write's refusal to say, under its lock."""
+    grouped: set[str] = set()
+    groups = []
+    for row in names:
+        if row in grouped:
+            continue
+        line = _read_line(source, row)
+        partners = source.partners(line)[0] if line else ()
+        group = [row] + [p for p in partners if p in names and p not in grouped and p != row]
+        grouped.update(group)
+        groups.append(group)
+    return groups
+
+
+def _rectify_group(
+    source: RectifySource, group: list[str], project: str | None, reason: str, actor: str, count: int,
+    expense_type: str | None,
+) -> dict[str, dict]:
+    """The lines of one group, all moved and committed together, or each refused with the sentence. Leaves no lock
+    held either way."""
+    messages = len(frappe.local.message_log)
+    ticked = frozenset(group)
+    failed = group[0]
+    try:
+        moved = {}
+        # Locked in one order, whatever the order ticked, so two moves of one pair queue instead of deadlocking.
+        for row in sorted(group):
+            failed = row
+            moved[row] = rectify_line(
+                source, row, project, reason, actor, bulk_of=count, ticked=ticked, expense_type=expense_type,
+                commit=False,
+            )
+        frappe.db.commit()
+        return {row: {"row": row, "rectified": True, **moved[row]} for row in group}
+    except frappe.ValidationError as exc:
+        _drop_this_line(messages)
+        sentence = _sentence(source, exc)
+    except Exception:
+        _drop_this_line(messages)
+        frappe.log_error(title=f"{source.title}: {failed}")
+        frappe.db.commit()  # the Error Log row, alone: every earlier group has already committed
+        sentence = source.wording.unexpected
+    txn = frappe.db.get_value(ROW_DOCTYPE, failed, "transfer_id") or failed
     return {
-        "count": len(names),
-        "lines": [_rectify_one(source, row, project, reason, actor, len(names)) for row in names],
+        row: {
+            "row": row,
+            "rectified": False,
+            "reason": sentence if row == failed else source.wording.partner_failed.format(txn=txn, reason=sentence),
+        }
+        for row in group
     }
 
 
-def _rectify_one(source: RectifySource, row: str, project: str | None, reason: str, actor: str, count: int) -> dict:
-    """One line, or a refused entry with its sentence. Leaves no lock held either way."""
-    messages = len(frappe.local.message_log)
-    try:
-        return {"row": row, "rectified": True, **rectify_line(source, row, project, reason, actor, bulk_of=count)}
-    except frappe.ValidationError as exc:
-        _drop_this_line(messages)
-        return {"row": row, "rectified": False, "reason": _sentence(source, exc)}
-    except Exception:
-        _drop_this_line(messages)
-        frappe.log_error(title=f"{source.title}: {row}")
-        frappe.db.commit()  # the Error Log row, alone: every earlier line has already committed
-        return {"row": row, "rectified": False, "reason": source.wording.unexpected}
-
-
 def rectify_line(
-    source: RectifySource, row: str, project: str | None, reason: str, actor: str, *, bulk_of: int = 1
+    source: RectifySource,
+    row: str,
+    project: str | None,
+    reason: str,
+    actor: str,
+    *,
+    bulk_of: int = 1,
+    ticked: frozenset[str] = frozenset(),
+    expense_type: str | None = None,
+    commit: bool = True,
 ) -> dict:
-    """Rectify one line, all or nothing, and commit. Not whitelisted: the caller has checked undo access,
-    the reason and the project.
+    """Rectify one line, all or nothing, and commit (`commit` False: the caller commits its group). Not whitelisted:
+    the caller has checked undo access, the reason and the project. `ticked`: the lines moving with it.
 
     ⚠️ LOCK ORDER IS ROW, THEN LEG, THEN EXPENSE -- Unreconcile's, so the two queue on one line instead of
     deadlocking. A refusal throws with the locks held; the caller rolls back.
@@ -172,15 +233,18 @@ def rectify_line(
             frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True, for_update=True)
             for leg in (live_legs(row) if line else [])
         ]
-        refusal = _refusal(source, line, legs)
+        refusal = line_refusal(source, line, legs, ticked | {row})
         if refusal:
             frappe.throw(refusal, title="Cannot rectify")
         [leg] = legs
         old = frappe.get_doc(leg.target_doctype, leg.target_name, for_update=True)
+        refusal = expense_refusal(old)
+        if refusal:
+            frappe.throw(refusal, title="Cannot rectify")
         old_project = old.get("projects") or None
         new_doctype = PROJECT_EXPENSE_DOCTYPE if project else NON_PROJECT_EXPENSE_DOCTYPE
         if (new_doctype, project) == (old.doctype, old_project):
-            frappe.throw(_already_there(source, project), title="Already there")
+            frappe.throw(already_there(source, project), title="Already there")
 
         names = _project_names(old_project, project)
         replacement = source.replacement(old, line, names.get(old_project), names.get(project))
@@ -199,7 +263,7 @@ def rectify_line(
                     settlement_reference=old.payment_ref or "",
                 ),
                 doctype=new_doctype,
-                expense_type=old.type,
+                expense_type=expense_type or old.type,
                 actor=actor,
                 project=project,
                 description=replacement.description,
@@ -218,8 +282,8 @@ def rectify_line(
             move_bills(old.doctype, old.name, new.doctype, new.name)
             delete_created(old.doctype, old.name, None)
             source.record_match(line, new, actor, _ORIGIN)
-            _follow_on_the_line(line.name, new, project, actor)
-            _comment_on_line(
+            _follow_on_the_line(line.name, new, project, expense_type or old.type, actor)
+            _comment_on_line_and_record(
                 line.name, actor, reason, (old.doctype, old.name, old_project), (new.doctype, new.name, project),
                 names, bulk_of,
             )
@@ -231,7 +295,8 @@ def rectify_line(
             frappe.db.rollback(save_point=savepoint)
             raise
         frappe.db.release_savepoint(savepoint)
-        frappe.db.commit()
+        if commit:
+            frappe.db.commit()
 
     return {
         "from": {"doctype": old.doctype, "name": old.name, "project": old_project, "project_name": names.get(old_project)},
@@ -245,19 +310,22 @@ def _read_line(source: RectifySource, row: str, *, for_update: bool = False):
     return frappe.db.get_value(ROW_DOCTYPE, row, fields, as_dict=True, for_update=for_update)
 
 
-def _plan_of(source: RectifySource, row: str) -> dict:
+def _plan_of(source: RectifySource, row: str, ticked: frozenset[str]) -> dict:
     line = _read_line(source, row)
     legs = (
         [frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True) for leg in live_legs(row)]
         if line
         else []
     )
-    refusal = _refusal(source, line, legs)
+    refusal = line_refusal(source, line, legs, ticked)
     plan = {"row": row, "refusal": refusal, **source.line_label(line)}
     if refusal:
         return plan
     [leg] = legs
     expense = frappe.get_doc(leg.target_doctype, leg.target_name)
+    refusal = expense_refusal(expense)
+    if refusal:
+        return {**plan, "refusal": refusal}
     project = expense.get("projects") or None
     project_name = _project_names(project).get(project)
     return {
@@ -269,31 +337,6 @@ def _plan_of(source: RectifySource, row: str) -> dict:
         "expense": expense.name,
         **source.plan_details(line, expense, project_name),
     }
-
-
-def _refusal(source: RectifySource, line, legs) -> str | None:
-    """Why this line cannot be rectified at all, or `None`. The plan and the write ask the same."""
-    if not line:
-        return source.wording.not_found
-    if (line.source or "").strip() != source.source:
-        return source.wording.not_this_source
-    if line.row_status != ROW_SETTLED:
-        return source.wording.not_settled.format(status=line.row_status)
-    if (
-        len(legs) != 1
-        or not legs[0].created_by_import
-        or not is_expense_doctype(legs[0].target_doctype)
-        or not frappe.db.exists(legs[0].target_doctype, legs[0].target_name)
-    ):
-        return source.wording.not_created
-    return None
-
-
-def _already_there(source: RectifySource, project: str | None) -> str:
-    if not project:
-        return source.wording.already_non_project
-    name = frappe.db.get_value("Projects", project, "project_name") or project
-    return source.wording.already_on.format(name=name)
 
 
 def _project_names(*projects: str | None) -> dict:
@@ -327,7 +370,7 @@ def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -
     )
 
 
-def _follow_on_the_line(row: str, new, project: str | None, actor: str) -> None:
+def _follow_on_the_line(row: str, new, project: str | None, expense_type: str, actor: str) -> None:
     """The line's plan and pick follow the new Expense, so a later Unreconcile + Create re-creates it where
     it was rectified to. Its status stays Settled, so the batch rollup does not move.
 
@@ -339,6 +382,7 @@ def _follow_on_the_line(row: str, new, project: str | None, actor: str) -> None:
         {
             "suggested_doctype": new.doctype,
             "resolved_project": project,
+            "suggested_expense_type": expense_type,
             "suggested_name": new.name,
             "outcome_note": f"Moved to {new.doctype} {new.name}.",
             "decided_at": frappe.utils.now_datetime(),
@@ -349,9 +393,11 @@ def _follow_on_the_line(row: str, new, project: str | None, actor: str) -> None:
     )
 
 
-def _comment_on_line(row: str, actor: str, reason: str, old: tuple, new: tuple, names: dict, bulk_of: int) -> None:
-    """"Rectified by <user>: <reason> (<old> on <A> -> <new> on <B>)" on the import line. `old` and `new`
-    are `(doctype, name, project)`."""
+def _comment_on_line_and_record(
+    row: str, actor: str, reason: str, old: tuple, new: tuple, names: dict, bulk_of: int
+) -> None:
+    """"Rectified by <user>: <reason> (<old> on <A> -> <new> on <B>)" on the import line and on the new Expense
+    (spec #1753 story 24), which names the old one. `old` and `new` are `(doctype, name, project)`."""
 
     def _where(doctype: str, name: str, project: str | None) -> str:
         return f"{doctype} {name}" + (f" on {names.get(project) or project}" if project else "")
@@ -360,6 +406,7 @@ def _comment_on_line(row: str, actor: str, reason: str, old: tuple, new: tuple, 
     if bulk_of > 1:
         text += f" (rectify of {bulk_of} lines)"
     frappe.get_doc(ROW_DOCTYPE, row).add_comment("Comment", text=text)
+    frappe.get_doc(new[0], new[1]).add_comment("Comment", text=text)
 
 
 def _ticked(source: RectifySource, rows) -> list[str]:

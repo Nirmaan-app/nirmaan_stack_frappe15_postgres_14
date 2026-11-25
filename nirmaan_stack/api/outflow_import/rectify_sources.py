@@ -18,10 +18,18 @@ from frappe import _dict as Line
 from frappe.model.document import Document
 
 from nirmaan_stack.api.outflow_import.cashbook_matches import record_cashbook_match
+from nirmaan_stack.api.outflow_import.cashbook_refund_spends import spend_expenses
+from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_records import SOURCE as PORTER_SOURCE
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
-from nirmaan_stack.services.outflow_import.cashbook_refunds import CREDIT_ROW_KINDS
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.cashbook_refunds import (
+    CREDIT_ROW_KINDS,
+    REFUND_PREFIX,
+    REFUND_ROW_KINDS,
+    refunded_spend_id,
+)
 from nirmaan_stack.services.outflow_import.porter import statement_line
 from nirmaan_stack.services.outflow_import.porter_pdf import invoice_pdf_url
 from nirmaan_stack.services.outflow_import.porter_wording import (
@@ -46,6 +54,10 @@ class RectifyWording:
     nothing_ticked: str
     too_many: str  # `{limit}`, `{count}`
     too_many_title: str
+    #: A line settled to more than one record.
+    split_line: str
+    #: A line not moved because the line it moves with (`{txn}`) was refused (`{reason}`).
+    partner_failed: str
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,9 @@ class RectifySource:
     record_match: Callable[[Line, Document, str, str], None]
     #: `(old_expense) -> str | None`: a file URL whose `File` rows never move with the Expense.
     kept_file_url: Callable[[Document], str | None]
+    #: `(line) -> (rows, sentence)`: the lines this one moves with, in one transaction, and the refusal when they are
+    #: not all ticked (with no rows: a standing refusal). Porter's lines move alone.
+    partners: Callable[[Line], tuple[tuple[str, ...], str | None]] = lambda line: ((), None)
 
 
 # --- Porter (#1449) ---------------------------------------------------------------------------------
@@ -133,6 +148,11 @@ PORTER = RectifySource(
         nothing_ticked="Tick at least one Porter order to rectify.",
         too_many="At most {limit} orders can be rectified at once; {count} were sent.",
         too_many_title="Too many orders",
+        split_line=(
+            "This order's expense is not one its import created, so it cannot be rectified. "
+            "Unreconcile it instead."
+        ),
+        partner_failed="Not rectified: the order it moves with ({txn}) could not be. {reason}",
     ),
     line_fields=("transfer_id", "porter_line"),
     line_label=lambda line: {"crn": line.transfer_id if line else None},
@@ -197,6 +217,47 @@ def _cashbook_plan_details(line, expense, project_name: str | None) -> dict:
     }
 
 
+def _cashbook_partners(line: Line) -> tuple[tuple[str, ...], str | None]:
+    """A wallet spend and its refund move together or not at all (spec #1753 story 21): a spend's partners are the
+    lines whose created refund names it (`REF-<Txn Id>`); a refund's, the line whose created spend it names. A refund
+    whose spend is booked otherwise (keyed in by hand, or Linked) cannot move away from it."""
+    txn = line.transfer_id or ""
+    spend = refunded_spend_id(txn) if (line.row_kind or "").strip() in REFUND_ROW_KINDS else ""
+    if not spend:
+        refunds = _created_lines_holding(REFUND_PREFIX + txn)
+        if not refunds:
+            return (), None
+        return tuple(row for row, _ in refunds), (
+            f"Its refund {', '.join(t for _, t in refunds)} is booked beside it. "
+            "Tick both, so the spend and its refund move together."
+        )
+    spends = _created_lines_holding(spend)
+    if spends:
+        return tuple(row for row, _ in spends), (
+            f"Its spend {spend} is booked too. Tick both, so the spend and its refund move together."
+        )
+    held = spend_expenses([spend]).get(spend)
+    if held:
+        return (), (
+            f"Its spend {spend} is {held.doctype} {held.name}, which its import did not create and a move cannot "
+            "take, so the refund stays beside it."
+        )
+    return (), None
+
+
+def _created_lines_holding(txn: str) -> list[tuple[str, str]]:
+    """(line, Txn Id) of each Cashbook line whose live Settled match created an expense for wallet Txn Id `txn`."""
+    return [
+        (row.import_row, row.transfer_id)
+        for row in frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"transfer_id": txn, "match_kind": MATCH_SETTLED, "source": CASHBOOK_SOURCE, "created_by_import": 1},
+            fields=["import_row", "transfer_id"],
+            order_by="import_row asc",
+        )
+    ]
+
+
 CASHBOOK = RectifySource(
     source=CASHBOOK_SOURCE,
     title="Cashbook Move",
@@ -214,6 +275,8 @@ CASHBOOK = RectifySource(
         nothing_ticked="Tick at least one Cashbook line to move.",
         too_many="At most {limit} lines can be moved at once; {count} were sent.",
         too_many_title="Too many lines",
+        split_line="This line settled more than one record, so it cannot be moved in part.",
+        partner_failed="Not moved, because the line it moves with ({txn}) could not be: {reason}",
     ),
     line_fields=("transfer_id", "row_kind", "added_by_raw", "beneficiary_name", "remarks", "added_on"),
     line_label=lambda line: {"txn_id": line.transfer_id if line else None},
@@ -223,4 +286,5 @@ CASHBOOK = RectifySource(
         line.name, line.import_batch, line.transfer_id, new, actor, origin
     ),
     kept_file_url=lambda old: None,
+    partners=_cashbook_partners,
 )

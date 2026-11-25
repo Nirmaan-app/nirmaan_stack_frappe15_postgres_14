@@ -83,6 +83,8 @@ class CashbookRectifyCase(CashbookBillsCase):
     def _purge_comments(self):
         frappe.db.rollback()
         frappe.db.delete("Comment", {"reference_doctype": "Outflow Import Row", "reference_name": ["in", self._lines()]})
+        for doctype, name in self._targets().values():
+            frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": name})
         frappe.db.commit()
 
     def _line(self, txn: str):
@@ -158,3 +160,105 @@ class TestASpendWithItsBillMovesToAProject(CashbookRectifyCase):
              settled_leg.created_by_import),
             ("Settled", new.name, ONE_LINK + self.suffix, "Cashbook", 1),
         )
+
+
+class TestAProjectSpendMovesOn(CashbookRectifyCase):
+    def setUp(self):
+        super().setUp()
+        self._move([ONE_LINK], self.orchid)
+        self.on_orchid = self._expense(ONE_LINK)
+
+    def test_to_another_project_it_keeps_paid_by_and_its_bill(self):
+        [bill] = bills_of(PROJECT_EXPENSE, self.on_orchid.name)
+
+        result = self._move([ONE_LINK], self.lotus)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        new = self._expense(ONE_LINK)
+        self.assertEqual((new.doctype, new.projects, new.payment_by), (PROJECT_EXPENSE, self.lotus, "Meera Iyer"))
+        self.assertFalse(frappe.db.exists(PROJECT_EXPENSE, self.on_orchid.name))
+        self.assertEqual([b.name for b in bills_of(PROJECT_EXPENSE, new.name)], [bill.name])
+        self.assertEqual(self._line(ONE_LINK).resolved_project, self.lotus)
+
+    def test_to_non_project_it_leaves_the_project_with_its_bill(self):
+        [bill] = bills_of(PROJECT_EXPENSE, self.on_orchid.name)
+
+        result = self._move([ONE_LINK], None)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        new = self._expense(ONE_LINK)
+        self.assertEqual(new.doctype, NON_PROJECT_EXPENSE)
+        self.assertEqual((float(new.amount), new.payment_ref), (2380.0, ONE_LINK + self.suffix))
+        self.assertEqual([b.name for b in bills_of(NON_PROJECT_EXPENSE, new.name)], [bill.name])
+        line = self._line(ONE_LINK)
+        self.assertEqual((line.suggested_doctype, line.resolved_project), (NON_PROJECT_EXPENSE, None))
+
+    def test_a_comment_on_the_new_expense_names_the_old_one_who_and_why(self):
+        self._move([ONE_LINK], self.lotus)
+        new = self._expense(ONE_LINK)
+        comments = frappe.get_all(
+            "Comment", filters={"reference_doctype": PROJECT_EXPENSE, "reference_name": new.name,
+                                "comment_type": "Comment"}, pluck="content",
+        )
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn(self.on_orchid.name, comments[0])
+        self.assertIn("Administrator", comments[0])
+        self.assertIn(REASON, comments[0])
+
+
+class TestMoneyComingBackStaysNegative(CashbookRectifyCase):
+    def test_a_wallet_credit_moved_to_a_project_is_minus_its_amount_paid_by_its_holder(self):
+        result = self._move([CREDIT], self.orchid)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        new = self._expense(CREDIT)
+        self.assertEqual((new.doctype, new.projects), (PROJECT_EXPENSE, self.orchid))
+        self.assertEqual(float(new.amount), -9000.0)
+        self.assertEqual(new.payment_by, "Asha Menon")
+        self.assertEqual(float(self._legs(CREDIT)[-1].target_amount), -9000.0)
+
+
+class TestASpendAndItsRefundMoveTogether(CashbookRectifyCase):
+    def test_ticked_together_both_go_to_the_project_the_refund_still_negative(self):
+        result = self._move([PART_SPEND, PART_REFUND], self.orchid)
+
+        self.assertEqual([line["rectified"] for line in result["lines"]], [True, True], result)
+        spend, refund = self._expense(PART_SPEND), self._expense(PART_REFUND)
+        self.assertEqual((spend.doctype, spend.projects, float(spend.amount)), (PROJECT_EXPENSE, self.orchid, 17446.0))
+        self.assertEqual((refund.doctype, refund.projects, float(refund.amount)), (PROJECT_EXPENSE, self.orchid, -11248.0))
+        # Money coming back: Paid by is the To, the wallet holder.
+        self.assertEqual((spend.payment_by, refund.payment_by), ("Asha Menon", "Asha Menon"))
+
+    def test_the_spend_alone_is_refused_in_the_plan_and_the_write_naming_its_refund(self):
+        before = self._expense(PART_SPEND)
+
+        [planned] = self._plan(PART_SPEND)["lines"]
+        [written] = self._move([PART_SPEND], self.orchid)["lines"]
+
+        self.assertIn(PART_REFUND + self.suffix, planned["refusal"])
+        self.assertFalse(written["rectified"])
+        self.assertEqual(written["reason"], planned["refusal"])
+        self.assertEqual(self._expense(PART_SPEND).name, before.name)
+
+    def test_the_refund_alone_is_refused_naming_its_spend(self):
+        [planned] = self._plan(PART_REFUND)["lines"]
+        [written] = self._move([PART_REFUND], self.orchid)["lines"]
+
+        self.assertIn(PART_SPEND + self.suffix, planned["refusal"])
+        self.assertFalse(written["rectified"])
+        self.assertEqual(self._expense(PART_REFUND).doctype, NON_PROJECT_EXPENSE)
+
+    def test_when_the_refund_cannot_move_its_spend_does_not_move_either(self):
+        refund = self._expense(PART_REFUND)
+        # Raw, the test's own setup: a refund no longer Paid is refused (story 29).
+        frappe.db.set_value(NON_PROJECT_EXPENSE, refund.name, "status", "Approved")
+        frappe.db.commit()
+        spend = self._expense(PART_SPEND)
+
+        result = self._move([PART_SPEND, PART_REFUND], self.orchid)
+
+        self.assertEqual([line["rectified"] for line in result["lines"]], [False, False], result)
+        self.assertIn("not Paid", result["lines"][1]["reason"])
+        self.assertIn(PART_REFUND + self.suffix, result["lines"][0]["reason"])
+        self.assertEqual(self._expense(PART_SPEND).name, spend.name)
+        self.assertEqual(self._expense(PART_REFUND).name, refund.name)

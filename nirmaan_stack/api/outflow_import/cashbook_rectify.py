@@ -29,4 +29,4 @@ def rectify_cashbook_rows(rows, project: str | None = None, reason: str = "", ex
     URL: /api/method/nirmaan_stack.api.outflow_import.cashbook_rectify.rectify_cashbook_rows
     Body: `rows` (a JSON list of `Outflow Import Row` names), `project` (blank: Non Project), `reason`.
     """
-    return rectify_rows(CASHBOOK, rows, project, reason)
+    return rectify_rows(CASHBOOK, rows, project, reason, expense_type)
