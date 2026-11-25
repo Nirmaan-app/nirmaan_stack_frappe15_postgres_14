@@ -7521,9 +7521,9 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    amount with 0, 1 or 2 decimals (`12 12.7 USD 1,086.93`, `19 20 USD 1,702.10`). Its amount is the rupee amount,
    printed last; the foreign amount and currency are not stored (owner, 2026-11-25). Shape 1 is one row. Shape 2 is
    three rows: the opening row ends in the foreign amount (`... US* 9 10.25`) and so reads whole on its own, then
-   the currency alone (`USD`), then the rupee amount and any `CR` alone (`877.60`). `_match_line_at` joins on
-   whenever a lone currency row follows a row that reads whole, and keeps the row alone when that join does not
-   complete in three rows (the gate then refuses the file: the foreign amount is not the rupee amount). The
+   the currency alone (`USD`), then the rupee amount and any `CR` alone (`877.60`). `_match_line_at` joins a row
+   that reads whole to exactly those two rows and to nothing else (never a points-and-amount row, never the next
+   line's opening row); a shape-2 line cut short reads its foreign amount and the gate refuses the file. The
    older currency-first form (`USD 10.25 877.60`) is still read, so no line reads differently.
 3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code (or one with a
    star, `US*`, #1751) AND the city

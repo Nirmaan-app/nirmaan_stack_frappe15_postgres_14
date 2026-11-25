@@ -37,10 +37,10 @@ amount and currency are not kept (owner, 2026-11-25). The bank prints it in one 
     USD
     877.60
 
-A shape-2 opening row reads whole on its own (ending in the foreign amount), so it is joined on whenever a lone
-currency row follows it. A shape-2 line not complete within three rows is read as its opening row alone (its foreign amount as the amount),
-so the gate refuses the file; it never joins the next line's rows. The `US*` place code is dropped from the
-merchant key like a two-letter one.
+A shape-2 opening row reads whole on its own (ending in the foreign amount), so a row that reads whole is joined
+to the two rows under it when they are exactly a lone currency and a lone rupee amount (with any `CR`). Otherwise
+it is read alone, whatever rows follow it: a shape-2 line cut short reads its foreign amount as its amount, and the
+gate refuses the file. The `US*` place code is dropped from the merchant key like a two-letter one.
 
 A line too wide for the Transaction Details column is split over two or three rows (the 2026 Apr, Jun, Jul and
 Sep statements): the opening row holds the date, the SerNo and the first details; the next row the country code,
@@ -51,9 +51,9 @@ or the city and country code; the last the points, the amount and any `CR`:
     0 12,754.68
 
 Such a line is read as its rows' words joined with one space (details `ING*FAKE TRAVELS INDI HTTPS://WWW.F IN`).
-Only such a place row, points-and-amount row, or an international line's lone currency or amount row is joined on (never an invoice number, a page header, a card
-heading or the next line's opening row), and a line not complete within three rows is not read, so the gate
-refuses the file.
+Only such a place row or points-and-amount row is joined on (never an invoice number, a page header, a card
+heading or the next line's opening row), and a line whose opening row does not read whole and is not complete
+within three rows is not read, so the gate refuses the file.
 
 The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
 
@@ -76,10 +76,12 @@ _OPENING = r"(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<serno>\d{11})"
 # decimals) then its currency, as the bank prints it (#1751); or the currency first, then the amount with two
 # decimals, the form read before #1751 and kept so no line reads differently. Never stored: only the rupee amount,
 # printed last, is read (owner, 2026-11-25).
-_INTL = r"(?:[\d,]+(?:\.\d{1,2})?\s+[A-Z]{3}|(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})"
+_RUPEES = r"[\d,]+\.\d{2}"
+_CURRENCY = r"[A-Z]{3}"
+_FOREIGN_PART = rf"(?:[\d,]+(?:\.\d{{1,2}})?\s+{_CURRENCY}|(?:{_CURRENCY}\s+)?{_RUPEES})"
 _LINE = re.compile(
     rf"^{_OPENING}\s+(?P<details>.+?)\s+(?P<points>-?\d+)"
-    rf"(?:\s+{_INTL})?\s+(?P<amount>[\d,]+\.\d{{2}})(?P<cr>\s+CR)?\s*$"
+    rf"(?:\s+{_FOREIGN_PART})?\s+(?P<amount>{_RUPEES})(?P<cr>\s+CR)?\s*$"
 )
 _PERIOD = re.compile(r"Statement period\s*:\s*(?P<start>[A-Za-z]+ \d{1,2}, \d{4})\s+to\s+(?P<end>[A-Za-z]+ \d{1,2}, \d{4})")
 _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
@@ -278,15 +280,15 @@ _CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
 # over the next rows, so such a row may not end the line.
 _LINE_START = re.compile(rf"^{_OPENING}\b")
 # A row a split line runs on to: its place (the city and two-letter country code, or the code alone), then or
-# instead its points, optional international amount, amount and optional CR; or, on an international line, its
-# currency alone, then its rupee amount and optional CR alone (shape 2, #1751). Any other row (an invoice number, a
+# instead its points, optional international amount, amount and optional CR. Any other row (an invoice number, a
 # page header, a card heading, the next line's opening row) is never part of a line.
 _PLACE = r"(?:\S+\s+)*[A-Z]{2}"
-_POINTS_AND_AMOUNT = rf"-?\d+(?:\s+{_INTL})?\s+[\d,]+\.\d{{2}}(?:\s+CR)?"
-_CURRENCY = r"[A-Z]{3}"
-_AMOUNT = r"[\d,]+\.\d{2}(?:\s+CR)?"
-_RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT}|{_CURRENCY}|{_AMOUNT})\s*$")
+_POINTS_AND_AMOUNT = rf"-?\d+(?:\s+{_FOREIGN_PART})?\s+{_RUPEES}(?:\s+CR)?"
+_RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT})\s*$")
+# The two rows under a shape-2 international opening row (#1751): its currency alone, then its rupee amount and
+# any CR alone.
 _CURRENCY_ROW = re.compile(rf"^{_CURRENCY}\s*$")
+_RUPEES_ROW = re.compile(rf"^{_RUPEES}(?:\s+CR)?\s*$")
 # The most rows one line has been seen to take (the 2026 Apr-Sep statements): the opening row and two more.
 _MAX_LINE_ROWS = 3
 
@@ -315,25 +317,28 @@ def _lines(rows: list[str]):
 
 def _match_line_at(rows: list[str], index: int) -> re.Match | None:
     """The `_LINE` match of the transaction line that opens at `rows[index]`: the row alone, or, when it does not
-    end there, the row with the one or two rows under it, their words joined with one space. Only a run-on row
-    (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read.
+    end there, the row with the one or two rows under it, their words joined with one space. Only a place row or a
+    points-and-amount row (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read.
 
     An international line's opening row may read whole on its own, ending in the foreign amount, with its currency
-    and its rupee amount on the two rows under it (shape 2, #1751). So a row that reads whole is still joined on
-    when a lone currency row follows it, and is read alone when that join does not complete."""
+    alone and its rupee amount alone on the two rows under it (shape 2, #1751). A row that reads whole is joined to
+    exactly those two rows, and to nothing else."""
     row = rows[index]
+    alone = _LINE.match(row)
+    if alone:
+        shape_2 = rows[index + 1 : index + 3]
+        if len(shape_2) == 2 and _CURRENCY_ROW.match(shape_2[0]) and _RUPEES_ROW.match(shape_2[1]):
+            return _LINE.match(" ".join(" ".join(rows[index : index + 3]).split())) or alone
+        return alone
     if not _LINE_START.match(row):
         return None
-    alone = _LINE.match(row)
-    if alone and not (index + 1 < len(rows) and _CURRENCY_ROW.match(rows[index + 1])):
-        return alone
     for end in range(index + 1, min(index + _MAX_LINE_ROWS, len(rows))):
         if _LINE_START.match(rows[end]) or not _RUN_ON.match(rows[end]):
-            break
+            return None
         found = _LINE.match(" ".join(" ".join(rows[index : end + 1]).split()))
         if found:
             return found
-    return alone
+    return None
 
 
 def _gate(statement: CardStatement) -> None:

@@ -267,9 +267,9 @@ class TestAnInternationalLine(unittest.TestCase):
     """A line paid in a foreign currency (#1751). The bank prints the foreign amount, then its currency, then the
     rupee amount; only the rupee amount, printed last, is read (owner, 2026-11-25). Merchant names are made up."""
 
-    def _read_with(self, rows: str, old: str = _ONE_ROW_SPEND):
+    def _read_with(self, rows: str, old: str = _ONE_ROW_SPEND, serno: str = "14092030373"):
         statement = read_card_statement(_replace(_text(), old, rows))
-        [line] = [line for line in statement.lines if line.serno == "14092030373"]
+        [line] = [line for line in statement.lines if line.serno == serno]
         return statement, line
 
     def test_shape_1_on_one_row_with_0_1_or_2_decimals_in_the_foreign_amount(self):
@@ -283,14 +283,15 @@ class TestAnInternationalLine(unittest.TestCase):
                 self.assertFalse(line.is_credit)
                 self.assertEqual(len(statement.lines), 47)
 
-
     def test_shape_2_over_three_rows_is_one_line_with_the_rupee_amount(self):
         # The opening row alone reads as a whole line ending in the foreign amount 10.25; the currency and the
         # rupee amount sit on the two rows under it.
-        statement, line = self._read_with("01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n470.00\n")
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n470.00\n"
+        )
         self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
         self.assertEqual(line.amount, Decimal("470.00"))
-        self.assertNotEqual(line.amount, Decimal("10.25"))
+        self.assertNotEqual(line.amount, Decimal("10.25"))  # never the foreign amount
         self.assertFalse(line.is_credit)
         self.assertEqual(len(statement.lines), 47)
 
@@ -301,15 +302,16 @@ class TestAnInternationalLine(unittest.TestCase):
             ("2", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.50\nUSD\n167.00 CR\n"),
         ):
             with self.subTest(shape=shape):
-                statement = read_card_statement(_replace(_text(), credit, rows))
-                [line] = [line for line in statement.lines if line.serno == "14194563678"]
+                statement, line = self._read_with(rows, old=credit, serno="14194563678")
                 self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
                 self.assertEqual(line.amount, Decimal("167.00"))
                 self.assertTrue(line.is_credit)
                 self.assertEqual(statement.credits_total, Decimal("276821.73"))
 
     def test_a_statement_whose_spends_include_both_shapes_passes_the_gate(self):
-        text = _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 5.6 USD 470.00\n")
+        text = _replace(
+            _text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 5.6 USD 470.00\n"
+        )
         text = _replace(
             text,
             "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n",
@@ -334,6 +336,13 @@ class TestAnInternationalLine(unittest.TestCase):
                 )
             )
         self.assertIn("spends read ₹1,37,125.24", str(caught.exception))
+
+    def test_a_domestic_line_never_joins_a_three_letter_row_and_the_points_and_amount_under_it(self):
+        # Only shape 2 joins on to a row that reads whole: a currency row, then the rupee amount ALONE. A line that
+        # is complete keeps its own amount whatever stray rows follow it.
+        _, line = self._read_with(_ONE_ROW_SPEND + "ABC\n0 50.00\n")
+        self.assertEqual(line.details, "BLINK COMMERCE PVT LTD BANGALORE IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
 
 
 class TestALineThatNeverCompletes(unittest.TestCase):

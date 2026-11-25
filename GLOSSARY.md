@@ -256,9 +256,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   *Avoid*: unpaired card credit, card credit, card inflow.
 
 - **International card line** — a card spend or credit made in a foreign currency, such as a foreign
-  subscription. The statement prints the foreign amount and its currency, then the rupee amount the card was
-  charged. The line's amount is that rupee amount, the one the statement prints last. The foreign amount and
-  currency are not kept. (Owner, 2026-11-25, #1751.)
+  subscription. Its amount is the rupee amount the card was charged, never the foreign amount; the foreign amount
+  and currency are not kept. (Owner, 2026-11-25, #1751.)
   *Avoid*: foreign line, forex line, USD line.
 
 ## Petty-cash wallet (Cashbook)
