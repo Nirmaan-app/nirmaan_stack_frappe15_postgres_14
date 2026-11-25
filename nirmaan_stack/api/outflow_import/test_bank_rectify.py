@@ -20,6 +20,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import import rectify
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense
+from nirmaan_stack.api.outflow_import.review import get_batch_rows
 from nirmaan_stack.api.outflow_import.test_unreconcile_created import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -213,3 +214,19 @@ class TestAMoveKeepsWhatAPersonAddedLater(BankRectifyCase):
             pluck="content",
         )
         self.assertIn("Type corrected from Office Rent", comments)
+
+
+class TestTheTableKnowsACreatedLine(BankRectifyCase):
+    """The Bulk Import table offers Move on a bank line only when its expense was created with Create."""
+
+    def test_a_created_lines_match_says_so_and_a_linked_lines_does_not(self):
+        created, _ = self._created(ICICI)
+        linked, _ = self._linked(NON_PROJECT_EXPENSE)
+
+        rows = {}
+        for row in (created, linked):
+            batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+            rows.update({r["name"]: r for r in get_batch_rows(batch)["rows"]})
+
+        self.assertEqual([m["created_by_import"] for m in rows[created]["matches"]], [1])
+        self.assertEqual([m["created_by_import"] for m in rows[linked]["matches"]], [0])

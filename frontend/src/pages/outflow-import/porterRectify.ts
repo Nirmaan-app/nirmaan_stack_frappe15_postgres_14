@@ -9,6 +9,7 @@
 
 import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
 
+import { BANK_MOVE_SOURCES } from "./bankRectify";
 import { CASHBOOK_SOURCE, cashbookMoveLabel } from "./cashbookRectify";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
@@ -68,31 +69,49 @@ export interface RectifyResult {
     lines: RectifyResultLine[];
 }
 
-type MovableRow = { row_status: string; source?: string | null; suggested_doctype?: string | null };
+type MovableRow = {
+    row_status: string;
+    source?: string | null;
+    suggested_doctype?: string | null;
+    /** The line's live Settled matches; a bank line's must say its record was created with Create (#1760). */
+    matches?: ReadonlyArray<{ created_by_import?: 0 | 1 | null }>;
+};
 
-/** The sources Move is wired for (#1449 Porter, #1757 Cashbook), and what each calls its lines. */
-const MOVABLE_SOURCES: Record<string, string> = { [PORTER_SOURCE]: "Porter orders", [CASHBOOK_SOURCE]: "Cashbook lines" };
-
-/** The line's source when it is a Settled line Move is wired for, else `null`. */
-const movableSource = (row: MovableRow): string | null => {
-    const source = (row.source ?? "").trim();
-    return row.row_status === ROW_SETTLED && source in MOVABLE_SOURCES ? source : null;
+/** The sources Move is wired for (#1449 Porter, #1757 Cashbook, #1760 bank and Cashfree), and what each calls its lines. */
+const MOVABLE_SOURCES: Record<string, string> = {
+    [PORTER_SOURCE]: "Porter orders",
+    [CASHBOOK_SOURCE]: "Cashbook lines",
+    ...BANK_MOVE_SOURCES,
 };
 
 /**
- * The Rectify (Move) button beside Unreconcile on one line: a Settled Porter or Cashbook line, for the undo roles
- * (`outflowImportStatus.canUndoOutflow`) -- the same people who can Unreconcile it.
+ * The line's source when it is a Settled line Move is wired for, else `null`. A bank or Cashfree line only when its
+ * record was created with Create: most of them were Linked to a payment, which Move never takes.
+ */
+const movableSource = (row: MovableRow): string | null => {
+    const source = (row.source ?? "").trim();
+    if (row.row_status !== ROW_SETTLED || !(source in MOVABLE_SOURCES)) return null;
+    if (source in BANK_MOVE_SOURCES && !(row.matches ?? []).some((match) => match.created_by_import)) return null;
+    return source;
+};
+
+/**
+ * The Rectify (Move) button beside Unreconcile on one line: a Settled Porter or Cashbook line, or a bank or Cashfree
+ * line whose expense was created, for the undo roles (`outflowImportStatus.canUndoOutflow`) -- the same people who
+ * can Unreconcile it.
  */
 export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean => canUndo && Boolean(movableSource(row));
 
 /**
- * The line button's words: a Porter line keeps "Move to another project" (until #1759); a Cashbook line says where
- * its expense will go (`cashbookMoveLabel`).
+ * The line button's words: a Porter line keeps "Move to another project" (until #1759); a Cashbook, bank or Cashfree
+ * line says where its expense will go (`cashbookMoveLabel`).
  */
-export const lineMoveLabel = (row: MovableRow): string =>
-    movableSource(row) === CASHBOOK_SOURCE ? cashbookMoveLabel([row.suggested_doctype]) : MOVE_ORDER_LABEL;
+export const lineMoveLabel = (row: MovableRow): string => {
+    const source = movableSource(row);
+    return source && source !== PORTER_SOURCE ? cashbookMoveLabel([row.suggested_doctype]) : MOVE_ORDER_LABEL;
+};
 
-/** The toolbar's words over the ticked lines: "Move N orders" for Porter, the Cashbook label rule for Cashbook. */
+/** The toolbar's words over the ticked lines: "Move N orders" for Porter, the Cashbook label rule for the others. */
 export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string => {
     const ticked = rows.filter((row) => selected.has(row.name));
     if (ticked.some((row) => movableSource(row) === PORTER_SOURCE)) return moveOrdersLabel(selected.size);
@@ -111,7 +130,7 @@ export interface RectifyButtonState {
 /**
  * Move (Rectify) in the Settled-lines toolbar, beside "Unreconcile N". On only when every ticked line is a Settled
  * line of ONE wired source on this page (Porter first when both are ticked): the run moves every line to ONE
- * placement, through that source's rules, which means nothing for a bank line.
+ * placement, through that source's rules.
  */
 export const rectifyButtonState = (
     rows: ReadonlyArray<MovableRow & { name: string }>,

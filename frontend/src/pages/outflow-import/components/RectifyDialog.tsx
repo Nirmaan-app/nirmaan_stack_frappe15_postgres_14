@@ -6,6 +6,8 @@
 //   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
 //     the expense type the destination takes; wording in `cashbookRectify.ts`.
+//   * Bank and Cashfree lines whose expense was created with Create (#1760): the Cashbook label and type rules, and
+//     the line's date, UTR, beneficiary and remark (`bankRectify.ts`).
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -34,6 +36,7 @@ import {
     destinationLedger,
     type CashbookPlanLine,
 } from "../cashbookRectify";
+import { BANK_MOVE_SOURCES, bankDetailRows, type BankPlanLine } from "../bankRectify";
 import { describeFrappeError } from "../outflowTableModel";
 import {
     RECTIFY_METHOD,
@@ -52,15 +55,23 @@ import {
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /** A plan line of either source: Porter's fields, and a Cashbook line's beside them. */
-type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine>;
+type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine> & Partial<BankPlanLine>;
 
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
 
+const isBank = (plan: RectifyPlan | undefined): boolean => Boolean(plan?.source && plan.source in BANK_MOVE_SOURCES);
+
+/**
+ * A Cashbook, bank or Cashfree plan moves expenses by the label and type rules of `cashbookRectify.ts`; a Porter plan
+ * keeps its order wording.
+ */
+const movesExpenses = (plan: RectifyPlan | undefined): boolean => plan?.source === CASHBOOK_SOURCE || isBank(plan);
+
 /** The title before the plan says the source, and for each source once it has. */
 const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
     if (!plan) return "Move";
-    if (plan.source !== CASHBOOK_SOURCE) return moveDialogTitle(rows.length);
+    if (!movesExpenses(plan)) return moveDialogTitle(rows.length);
     const ledgers = plan.lines.filter((line) => line.ledger).map((line) => line.ledger);
     return cashbookMoveLabel(ledgers.length ? ledgers : plan.lines.map(() => undefined));
 };
@@ -117,16 +128,18 @@ const RectifyBody = ({
         `rectify-plan-${opening}`,
     );
     const plan = data?.message;
-    const cashbook = plan?.source === CASHBOOK_SOURCE;
     return (
         <>
             <DialogHeader>
                 <DialogTitle>{titleOf(rows, plan)}</DialogTitle>
                 <DialogDescription>
-                    {cashbook
+                    {plan?.source === CASHBOOK_SOURCE
                         ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
                           "where you choose. Its old placement is kept as reversed, with your reason."
-                        : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
+                        : isBank(plan)
+                          ? "Each expense is replaced by one with the same amount, date, UTR, account paid and " +
+                            "comments, where you choose. Its old placement is kept as reversed, with your reason."
+                          : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
                           "on the project you choose. Its old placement is kept as reversed, with your reason."}
                 </DialogDescription>
             </DialogHeader>
@@ -163,7 +176,8 @@ const RectifyForm = ({
     const [reason, setReason] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const cashbook = plan.source === CASHBOOK_SOURCE;
+    // A Cashbook, bank or Cashfree plan: the expense label, the type the destination takes, the expense outcome.
+    const cashbook = movesExpenses(plan);
     const lines: PlanLine[] = plan.lines;
 
     const options = useMemo(() => projectOptions(plan.projects ?? []), [plan]);
@@ -231,7 +245,12 @@ const RectifyForm = ({
                                     </span>
                                 )}
                             </div>
-                            {cashbook && line.ledger && <CashbookDetails line={line} />}
+                            {line.ledger &&
+                                (isBank(plan) ? (
+                                    <BankDetails line={line} />
+                                ) : (
+                                    plan.source === CASHBOOK_SOURCE && <CashbookDetails line={line} />
+                                ))}
                             {line.description_edited && (
                                 <p className="text-xs text-muted-foreground">
                                     Its description was edited by hand, so it is kept as it is.
@@ -334,6 +353,20 @@ const CashbookDetails = ({ line }: { line: PlanLine }) => (
             )}
             <span>{billCheckText(line.bill)}</span>
         </span>
+    </div>
+);
+
+/** The bank or Cashfree line's details, one compact row (story 44): date, UTR, beneficiary and remark (the amount is above). */
+const BankDetails = ({ line }: { line: PlanLine }) => (
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
+        {bankDetailRows(line)
+            .filter((row) => row.label !== "Amount")
+            .map((row) => (
+                <span key={row.label}>
+                    <span className="text-muted-foreground">{row.label}: </span>
+                    {row.value}
+                </span>
+            ))}
     </div>
 );
 
