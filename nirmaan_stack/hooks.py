@@ -91,6 +91,9 @@ after_sync = ["nirmaan_stack.services.expense_type_seed.seed_expense_types"]
 # CU-A: after every migrate, create any missing index of the index manifest under its own
 # table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
 # named one back in the same migrate. It never drops anything.
+# The match pool build gate is closed while a migrate runs; after_migrate's last entry opens it again (#1741).
+before_migrate = ["nirmaan_stack.services.boq_rate_match.pool_autobuild.before_migrate"]
+
 after_migrate = [
     "nirmaan_stack.services.index_manifest.ensure_indexes",
     # Records without review drops a profile that raises no type, judged on the types the migrate

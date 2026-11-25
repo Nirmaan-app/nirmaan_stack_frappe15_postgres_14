@@ -47,7 +47,7 @@ queued or run until a migrate has finished on THIS database:
 The MIGRATE MARK, `migrated.json` beside the pool file, holds the Postgres oid of the database the last migrate finished
 on. A restore drops and recreates the database, so its oid always changes and an old mark stops matching (a flag
 inside the database would arrive from the backup already set). A missing, unreadable or foreign mark, or an oid that
-cannot be read, is a refusal. `after_migrate()` (the last `hooks.after_migrate` entry) writes the mark once
+cannot be read, is a refusal; so is the "migrating" mark `before_migrate()` writes for the length of every migrate. `after_migrate()` (the last `hooks.after_migrate` entry) writes the mark once
 post_schema_updates commits, then queues the first build through the check above: never on a dev site
 (`nirmaan_env == "dev"`), and only when the `long` queue's Redis answers. With Redis down, frappe.enqueue inside a
 migrate runs the job INLINE (frappe/utils/background_jobs.py, in_migrate), so it is not called then, and the call is
@@ -107,6 +107,8 @@ def site_ready():
         oid = _live_oid()
     except Exception as exc:  # noqa: BLE001
         return f"the database oid cannot be read ({type(exc).__name__})"
+    if isinstance(mark, dict) and mark.get("migrating"):
+        return "a migrate is running on this database"
     marked = mark.get("oid") if isinstance(mark, dict) else None
     if marked != oid:
         return f"the migrate mark is for another database (mark oid {marked}, live oid {oid}): no migrate since the restore"
@@ -115,12 +117,26 @@ def site_ready():
 
 def write_mark():
     """The mark for the live database, written to a temp name and renamed."""
+    _write_mark_json({"oid": _live_oid(), "at": str(frappe.utils.now_datetime())})
+
+
+def _write_mark_json(mark):
     path = mark_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"oid": _live_oid(), "at": str(frappe.utils.now_datetime())}, f)
+        json.dump(mark, f)
     os.replace(tmp, path)
+
+
+def before_migrate():
+    """hooks.before_migrate: close the gate for the length of the migrate. A migrate on a database that already holds a
+    matching mark (no restore) would otherwise leave builds free to start against a half-applied schema;
+    `_after_migrate_committed` opens it again. A migrate that fails leaves it closed until one succeeds. Never raises."""
+    try:
+        _write_mark_json({"migrating": True, "at": str(frappe.utils.now_datetime())})
+    except Exception:  # noqa: BLE001
+        logger().exception("match pool gate: the migrating mark could not be written")
 
 
 def _long_queue_answers():

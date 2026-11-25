@@ -299,6 +299,15 @@ class TestMigrateGate(FrappeTestCase):
     def test_no_mark_is_not_ready(self):
         self.assertIn("no migrate", AB.site_ready())
 
+    def test_a_migrate_on_the_same_database_closes_the_gate_until_it_commits(self):
+        self._mark(self._live_oid())
+        self.assertIsNone(AB.site_ready())
+        AB.before_migrate()
+        self.assertIn("a migrate is running", AB.site_ready())
+        with patch.dict(frappe.conf, {"nirmaan_env": "dev"}):
+            AB._after_migrate_committed()
+        self.assertIsNone(AB.site_ready())
+
     def test_a_mark_for_another_database_is_not_ready(self):
         self._mark(self._live_oid() + 1)                                  # a restore made a new database
         self.assertIn("another database", AB.site_ready())
