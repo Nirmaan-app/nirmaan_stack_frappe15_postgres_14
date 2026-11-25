@@ -284,16 +284,29 @@ class TestAnInternationalLine(unittest.TestCase):
                 self.assertEqual(len(statement.lines), 47)
 
     def test_shape_2_over_three_rows_is_one_line_with_the_rupee_amount(self):
-        # The opening row alone reads as a whole line ending in the foreign amount 10.25; the currency and the
-        # rupee amount sit on the two rows under it.
-        statement, line = self._read_with(
-            "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n470.00\n"
-        )
-        self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
-        self.assertEqual(line.amount, Decimal("470.00"))
-        self.assertNotEqual(line.amount, Decimal("10.25"))  # never the foreign amount
-        self.assertFalse(line.is_credit)
-        self.assertEqual(len(statement.lines), 47)
+        # The opening row ends in the foreign amount (with 2 decimals it even reads whole alone); the currency and
+        # the rupee amount sit on the two rows under it.
+        for foreign in ("10", "10.2", "10.25"):
+            with self.subTest(foreign=foreign):
+                statement, line = self._read_with(
+                    f"01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 {foreign}\nUSD\n470.00\n"
+                )
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))  # never the foreign amount
+                self.assertFalse(line.is_credit)
+                self.assertEqual(len(statement.lines), 47)
+
+    def test_a_split_line_ending_in_the_foreign_amount_joins_the_shape_2_rows_under_it(self):
+        for rows in (
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n9 10.25\nUSD\n470.00\n",
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n9 10\nUSD\n470.00\n",
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US* 9 10.2\nUSD\n470.00\n",
+        ):
+            with self.subTest(rows=rows):
+                statement, line = self._read_with(rows)
+                self.assertEqual(line.details, "FAKECLOUD SUBSCRIPTION FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))
+                self.assertEqual(len(statement.lines), 47)
 
     def test_a_split_line_with_a_starred_place_and_the_foreign_amount_on_its_last_row(self):
         statement, line = self._read_with(
@@ -309,6 +322,7 @@ class TestAnInternationalLine(unittest.TestCase):
         for shape, rows in (
             ("1", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.5 USD 167.00 CR\n"),
             ("2", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.50\nUSD\n167.00 CR\n"),
+            ("2, 0 decimals", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* -2 2\nUSD\n167.00 CR\n"),
         ):
             with self.subTest(shape=shape):
                 statement, line = self._read_with(rows, old=credit, serno="14194563678")
@@ -345,6 +359,17 @@ class TestAnInternationalLine(unittest.TestCase):
                 )
             )
         self.assertIn("spends read ₹1,37,125.24", str(caught.exception))
+
+    def test_a_shape_2_line_cut_short_with_a_whole_foreign_amount_is_unread_and_refused(self):
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(
+                _replace(
+                    _text(),
+                    _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                    "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10\nUSD\n02/09/2026 14099237561",
+                )
+            )
+        self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
 
     def test_a_domestic_line_never_joins_a_three_letter_row_and_the_points_and_amount_under_it(self):
         # Only shape 2 joins on to a row that reads whole: a currency row, then the rupee amount ALONE. A line that

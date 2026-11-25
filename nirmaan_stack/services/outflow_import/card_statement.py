@@ -37,16 +37,19 @@ amount and currency are not kept (owner, 2026-11-25). The bank prints it in one 
     USD
     877.60
 
-A shape-2 opening row reads whole on its own (ending in the foreign amount), so a row that reads whole is joined
-to the two rows under it when they are exactly a lone currency and a lone rupee amount (with any `CR`). Otherwise
-it is read alone, whatever rows follow it: a shape-2 line cut short reads its foreign amount as its amount, and the
-gate refuses the file. The `US*` place code is dropped from the merchant key like a two-letter one.
+A line is joined to the two rows under it when they are exactly a lone currency and a lone rupee amount (with any
+`CR`), whatever the decimals of the foreign amount that ends the rows above them; this tail is tried before the
+rows above are read without it. An opening row ending in a foreign amount with 2 decimals also reads whole on its
+own, so a shape-2 line cut short reads its foreign amount as its amount and the gate refuses the file; one ending
+in 0 or 1 decimals reads not at all, and the gate refuses it too. The `US*` place code is dropped from the
+merchant key like a two-letter one.
 
 A line too wide for the Transaction Details column is split over two or three rows (the 2026 Apr, Jun, Jul and
 Sep statements): the opening row holds the date, the SerNo and the first details; the next row the country code,
 or the city and country code; the last the points, the amount and any `CR`. An international line splits the same
 way, its place starred (`FAKECLOUD.COM US*`) and its last row holding the foreign amount and currency before the
-rupee amount (`18 20 USD 1,700.00`):
+rupee amount (`18 20 USD 1,700.00`), or ending in the foreign amount with the shape-2 currency and rupee rows
+under it (`9 20` / `USD` / `1,700.00`, five rows in all):
 
     03/03/2026 12900000001 ING*FAKE TRAVELS  INDI HTTPS://WWW.F
     IN
@@ -288,6 +291,9 @@ _LINE_START = re.compile(rf"^{_OPENING}\b")
 _PLACE = r"(?:\S+\s+)*[A-Z]{2}\*?"
 _POINTS_AND_AMOUNT = rf"-?\d+(?:\s+{_FOREIGN_PART})?\s+{_RUPEES}(?:\s+CR)?"
 _RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT})\s*$")
+# The last row of a split shape-2 line, joined on only when the shape-2 currency and rupee rows follow it: its
+# place, if any, its points and its foreign amount (0, 1 or 2 decimals).
+_POINTS_AND_FOREIGN = re.compile(rf"^(?:{_PLACE}\s+)?-?\d+\s+[\d,]+(?:\.\d{{1,2}})?\s*$")
 # The two rows under a shape-2 international opening row (#1751): its currency alone, then its rupee amount and
 # any CR alone.
 _CURRENCY_ROW = re.compile(rf"^{_CURRENCY}\s*$")
@@ -323,25 +329,30 @@ def _match_line_at(rows: list[str], index: int) -> re.Match | None:
     end there, the row with the one or two rows under it, their words joined with one space. Only a place row or a
     points-and-amount row (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read.
 
-    An international line's opening row may read whole on its own, ending in the foreign amount, with its currency
-    alone and its rupee amount alone on the two rows under it (shape 2, #1751). A row that reads whole is joined to
-    exactly those two rows, and to nothing else."""
-    row = rows[index]
-    alone = _LINE.match(row)
-    if alone:
-        shape_2 = rows[index + 1 : index + 3]
-        if len(shape_2) == 2 and _CURRENCY_ROW.match(shape_2[0]) and _RUPEES_ROW.match(shape_2[1]):
-            return _LINE.match(" ".join(" ".join(rows[index : index + 3]).split())) or alone
-        return alone
-    if not _LINE_START.match(row):
+    An international line may end in its foreign amount (0, 1 or 2 decimals), with its currency alone and its rupee
+    amount alone on the two rows under it (shape 2, #1751). Those two rows are joined on, and tried first, after the
+    opening row or after any rows a split line runs on to; the last of those may then hold only points and the
+    foreign amount (`_POINTS_AND_FOREIGN`)."""
+    if not _LINE_START.match(rows[index]):
         return None
-    for end in range(index + 1, min(index + _MAX_LINE_ROWS, len(rows))):
-        if _LINE_START.match(rows[end]) or not _RUN_ON.match(rows[end]):
+    for end in range(index, min(index + _MAX_LINE_ROWS, len(rows))):
+        tail = rows[end + 1 : end + 3]
+        has_tail = len(tail) == 2 and bool(_CURRENCY_ROW.match(tail[0]) and _RUPEES_ROW.match(tail[1]))
+        if end > index and (
+            _LINE_START.match(rows[end])
+            or not (_RUN_ON.match(rows[end]) or (has_tail and _POINTS_AND_FOREIGN.match(rows[end])))
+        ):
             return None
-        found = _LINE.match(" ".join(" ".join(rows[index : end + 1]).split()))
+        found = (has_tail and _LINE.match(_joined(rows[index : end + 3]))) or _LINE.match(
+            _joined(rows[index : end + 1])
+        )
         if found:
             return found
     return None
+
+
+def _joined(rows: list[str]) -> str:
+    return " ".join(" ".join(rows).split())
 
 
 def _gate(statement: CardStatement) -> None:
