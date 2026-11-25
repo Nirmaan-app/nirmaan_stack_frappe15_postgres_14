@@ -124,13 +124,22 @@ def rebuild(force=False, clock=None):
 
     clock = clock or BuildClock.for_this_run()
     path = P.pool_path()
-    if not force:
-        not_ready = pool_autobuild.site_ready()
+
+    def refused():
+        not_ready = None if force else pool_autobuild.site_ready()
         if not_ready is not None:
             _log().info("match pool build: refused: %s", not_ready)
             return {"path": path, "built": False, "why": not_ready}
+        return None
+
+    out = refused()
+    if out:
+        return out
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with FileLock(path + ".lock", timeout=P.REBUILD_WAIT_SEC):
+        out = refused()     # again: a migrate may have started while this job waited behind another build
+        if out:
+            return out
         pool = P.build_pool(clock=clock)
         P.save_pool(pool, path)
     return {"path": path, "built": True, "rows": len(pool.rows), "kept": len(pool.kept), "as_of": pool.as_of,

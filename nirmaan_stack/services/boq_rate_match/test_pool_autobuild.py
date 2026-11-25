@@ -366,6 +366,15 @@ class TestMigrateGate(FrappeTestCase):
         self.assertFalse(os.path.exists(self.path + ".lock"))
         self.assertFalse(os.path.exists(self.path))
 
+    def test_a_gate_that_closes_while_the_job_waits_for_the_lock_stops_the_build(self):
+        # the first check passes; a migrate starts while the job waits up to REBUILD_WAIT_SEC behind another build
+        with patch.object(AB, "site_ready", side_effect=[None, "a migrate is running on this database"]), \
+                patch.object(P, "build_pool", side_effect=AssertionError("no build")):
+            out = P.rebuild_pool()
+        self.assertFalse(out["built"])
+        self.assertIn("a migrate is running", out["why"])
+        self.assertFalse(os.path.exists(self.path))
+
     def test_the_manual_path_forces_a_build_before_a_migrate(self):
         with patch.object(P, "build_pool", return_value=_pool()):
             out = P.rebuild_pool(force=True)
@@ -376,6 +385,10 @@ class TestMigrateGate(FrappeTestCase):
     def test_after_migrate_is_the_last_after_migrate_hook(self):
         self.assertEqual(frappe.get_hooks("after_migrate", app_name="nirmaan_stack")[-1],
                          "nirmaan_stack.services.boq_rate_match.pool_autobuild.after_migrate")
+
+    def test_before_migrate_closes_the_gate_on_every_migrate(self):
+        self.assertIn("nirmaan_stack.services.boq_rate_match.pool_autobuild.before_migrate",
+                      frappe.get_hooks("before_migrate", app_name="nirmaan_stack"))
 
     def _redis_down_get_queue(self):
         """get_queue failing the way Frappe's in_migrate fallback catches (redis.exceptions.ConnectionError, not the

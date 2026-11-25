@@ -781,7 +781,9 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 - **Migrate mark** — the note, kept beside the match pool, of which database a migrate last finished on. A match pool
   is built only while the live database is that one: a restore makes a new database, so until the next migrate
-  finishes nothing builds one, by schedule or by itself; only a person building it by hand goes past it. *Avoid*:
+  finishes nothing builds one, by schedule or by itself; only a person building it by hand goes past it. Every
+  migrate also marks it "migrating" while it runs, so nothing builds during a migrate either, nor after one that
+  failed until the next one succeeds. *Avoid*:
   ready flag, site ready (a flag inside the database would come back from the backup already set). (#1741, owner
   2026-11-25.)
 

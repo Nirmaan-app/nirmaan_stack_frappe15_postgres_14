@@ -205,8 +205,13 @@ usable file is seen. A failure that repeats (a data error) never fixes itself: i
 the check above queued a build, and its read locks on `tabBoQ Row Category` held the restore's ADD PRIMARY KEY for 16
 minutes. THE MIGRATE MARK (`private/boq_rate_match/migrated.json`, beside the pool file) holds the Postgres oid of the
 database the last migrate finished on; a restore recreates the database, so the oid changes. `pool_autobuild.site_ready`
-is None only when the mark holds the live oid (any read error refuses). The 5-minute check, `daily_pool_rebuild` (returns
-False) and the job body `pool.rebuild_pool` (`pool_job.rebuild`: builds nothing, takes no lock) refuse until then; by hand
+is None only when the mark holds the live oid (any read error refuses). `pool_autobuild.before_migrate` (the
+`hooks.before_migrate` entry) writes a "migrating" mark at the start of EVERY migrate, which also refuses: a migrate
+on a database that already holds a matching mark (no restore) closes the gate too, and a FAILED migrate leaves it
+closed (no build, the 06:00 one included, until a migrate succeeds; the pool then goes stale with no alarm). A build
+already running when a migrate starts is not stopped. The 5-minute check, `daily_pool_rebuild` (returns
+False) and the job body `pool.rebuild_pool` (`pool_job.rebuild`: builds nothing, takes no lock; it asks again once it holds
+the build lock, after a wait of up to `REBUILD_WAIT_SEC`) refuse until then; by hand
 it is `rebuild_pool(force=True)`. `pool_autobuild.after_migrate` (the LAST `hooks.after_migrate` entry) writes the mark
 once post_schema_updates commits (`frappe.db.after_commit`), then - not when `nirmaan_env == "dev"`, and only when the
 `long` queue's Redis answers a ping - runs the 5-minute check, with `in_migrate` cleared (frappe.enqueue runs a job INLINE
