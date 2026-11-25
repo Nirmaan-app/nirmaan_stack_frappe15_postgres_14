@@ -5,13 +5,15 @@
 // ticked together (the toolbar); the same dialog either way. The plan names the lines' source:
 //   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
-//     the expense type the destination takes; wording in `cashbookRectify.ts`.
+//     the expense type the destination takes; wording in `cashbookRectify.ts`. To a project, a ticked box saves the
+//     remark's phrase as a project alias (#1758), so the next Cashbook upload places it.
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowRightLeft, Ban, Loader2, Paperclip } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Dialog,
     DialogContent,
@@ -32,6 +34,9 @@ import {
     cashbookOutcome,
     defaultMoveType,
     destinationLedger,
+    learnPhraseLabel,
+    suggestedPhrase,
+    type CashbookMoveResult,
     type CashbookPlanLine,
 } from "../cashbookRectify";
 import { describeFrappeError } from "../outflowTableModel";
@@ -156,8 +161,11 @@ const RectifyForm = ({
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
 }) => {
-    const { call } = useFrappePostCall<{ message: RectifyResult }>(RECTIFY_METHOD);
+    const { call } = useFrappePostCall<{ message: RectifyResult & CashbookMoveResult }>(RECTIFY_METHOD);
     const [target, setTarget] = useState<ProjectOption | null>(null);
+    // The phrase box (#1758): ticked by default; `null` phrase: not typed by hand, so the remark's applies.
+    const [learn, setLearn] = useState(true);
+    const [typedPhrase, setTypedPhrase] = useState<string | null>(null);
     // `null`: not chosen by hand, so the default for the destination applies.
     const [chosenType, setChosenType] = useState<ProjectOption | null>(null);
     const [reason, setReason] = useState("");
@@ -177,6 +185,9 @@ const RectifyForm = ({
     const fallbackType = ledger ? defaultMoveType(moving, ledger, plan.types ?? {}) : "";
     const type =
         chosenType && typeOptions.some((option) => option.value === chosenType.value) ? chosenType.value : fallbackType;
+    const toProject = cashbook && Boolean(target?.value);
+    const phrase = typedPhrase ?? (toProject && target ? suggestedPhrase(moving, target.label) : "");
+    const teaches = toProject && learn;
 
     const blocked = !target
         ? "Choose where the expenses go."
@@ -184,9 +195,11 @@ const RectifyForm = ({
           ? "Nothing here would move."
           : cashbook && !type
             ? "Choose an expense type the destination takes."
-            : !trimmed
-              ? "Type a reason first."
-              : null;
+            : teaches && !phrase.trim()
+              ? "Type the phrase, or untick the box."
+              : !trimmed
+                ? "Type a reason first."
+                : null;
 
     const run = async () => {
         if (!target) return;
@@ -198,6 +211,7 @@ const RectifyForm = ({
                 project: target.value,
                 reason: trimmed,
                 ...(cashbook ? { expense_type: type } : {}),
+                ...(teaches ? { phrase: phrase.trim() } : {}),
             });
             const targetName = target.value ? target.label : null;
             onRan(cashbook ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
@@ -253,7 +267,11 @@ const RectifyForm = ({
                 <PorterProjectSelect
                     options={options}
                     value={target}
-                    onChange={setTarget}
+                    onChange={(option) => {
+                        setTarget(option);
+                        setTypedPhrase(null);
+                        setError(null);
+                    }}
                     placeholder="Choose a Won project, or No project…"
                     isDisabled={busy}
                 />
@@ -269,6 +287,38 @@ const RectifyForm = ({
                         placeholder="Choose a type the destination takes…"
                         isDisabled={busy}
                     />
+                </div>
+            )}
+
+            {toProject && (
+                <div className="space-y-1.5 rounded-md border px-3 py-2.5" data-testid="learn-phrase">
+                    <div className="flex items-start gap-2">
+                        <Checkbox
+                            id="learn-phrase"
+                            checked={learn}
+                            disabled={busy}
+                            onCheckedChange={(checked) => {
+                                setLearn(checked === true);
+                                setError(null);
+                            }}
+                            className="mt-0.5"
+                        />
+                        <Label htmlFor="learn-phrase" className="text-sm font-normal leading-snug">
+                            {learnPhraseLabel(phrase)}
+                        </Label>
+                    </div>
+                    {learn && (
+                        <Input
+                            aria-label="Phrase"
+                            value={phrase}
+                            placeholder="The word or two that name this project"
+                            disabled={busy}
+                            onChange={(e) => {
+                                setTypedPhrase(e.target.value);
+                                setError(null);
+                            }}
+                        />
+                    )}
                 </div>
             )}
 

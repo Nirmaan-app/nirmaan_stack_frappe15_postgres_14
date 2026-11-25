@@ -69,15 +69,30 @@ export const billCheckText = (bill: MoveBill | null | undefined): string => {
     return reason ? `${bill.check}: ${reason}` : bill.check;
 };
 
-/** What a run reports: how many expenses moved where, and each line that did not, in the server's own words. */
-export const cashbookOutcome = (result: RectifyResult, targetName: string | null): RectifyOutcome => {
+/** The write's answer about the phrase it was given (#1758): saved, already this project's, or refused with why. */
+export interface LearnedPhrase {
+    phrase: string;
+    saved: boolean;
+    reason?: string;
+}
+
+/** A Cashbook Move's result: the shared one, and the phrase's answer when a phrase was sent to a project. */
+export interface CashbookMoveResult extends RectifyResult {
+    phrase?: LearnedPhrase;
+}
+
+/**
+ * What a run reports: how many expenses moved where, what the phrase taught, and each line that did not move, in the
+ * server's own words.
+ */
+export const cashbookOutcome = (result: CashbookMoveResult, targetName: string | null): RectifyOutcome => {
     const moved = result.lines.filter((line) => line.rectified).length;
     return {
         moved,
         title: moved
             ? `${moved} ${moved === 1 ? "expense" : "expenses"} moved to ${targetName || "Non Project"}.`
             : "Nothing was moved.",
-        notes: [],
+        notes: phraseNote(result.phrase, targetName),
         failed: result.lines
             .filter((line) => !line.rectified)
             .map((line) => ({ row: line.row, reason: line.reason ?? "Not moved." })),
@@ -98,4 +113,53 @@ export const defaultMoveType = (
 ): string => {
     const own = [...new Set(lines.map((line) => line.expense_type ?? ""))];
     return own.length === 1 && own[0] && (types[ledger] ?? []).includes(own[0]) ? own[0] : "";
+};
+
+/** A word as the import's alias matcher reads one (`project_match.alias_haystack`): letters and digits, any case. */
+const WORD = /[\p{L}\p{N}]+/gu;
+
+/**
+ * The phrase the box starts with (#1758, story 48): from the first moving line whose remark names the destination,
+ * the longest run of consecutive remark words that are words of the project's name (the first run on a tie), as the
+ * remark writes it. Blank when no remark word is in the name (a nickname, a typo), so the person types the phrase.
+ */
+export const suggestedPhrase = (lines: readonly CashbookPlanLine[], projectName: string): string => {
+    const nameWords = new Set(Array.from(projectName.toLowerCase().matchAll(WORD), (match) => match[0]));
+    for (const line of lines) {
+        const remark = line.remark ?? "";
+        let best = "";
+        let runStart = -1;
+        let runEnd = -1;
+        let runLength = 0;
+        let bestLength = 0;
+        for (const match of remark.matchAll(WORD)) {
+            const start = match.index ?? 0;
+            if (!nameWords.has(match[0].toLowerCase())) {
+                runLength = 0;
+                continue;
+            }
+            if (runLength === 0) runStart = start;
+            runEnd = start + match[0].length;
+            runLength += 1;
+            if (runLength > bestLength) {
+                bestLength = runLength;
+                best = remark.slice(runStart, runEnd);
+            }
+        }
+        if (best) return best;
+    }
+    return "";
+};
+
+/** The box's sentence (story 47), with the phrase in it once there is one. */
+export const learnPhraseLabel = (phrase: string): string =>
+    `Next time, put spends that mention ${phrase.trim() ? `“${phrase.trim()}”` : "[phrase]"} on this project`;
+
+/** What the outcome says of the phrase the write was given (`rectify_phrase.learn_phrase`'s answer), if any. */
+const phraseNote = (learned: LearnedPhrase | undefined, targetName: string | null): string[] => {
+    if (!learned) return [];
+    if (learned.reason) return [`The phrase was not saved: ${learned.reason}`];
+    return learned.saved
+        ? [`Next time, spends that mention “${learned.phrase}” go to ${targetName}.`]
+        : [`“${learned.phrase}” already puts spends on ${targetName}.`];
 };

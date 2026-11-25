@@ -6,6 +6,8 @@ import {
     cashbookOutcome,
     cashbookMoveLabel,
     defaultMoveType,
+    learnPhraseLabel,
+    suggestedPhrase,
     type CashbookPlanLine,
 } from "./cashbookRectify";
 import { lineMoveLabel, rectifyAffordance, rectifyButtonState, toolbarMoveLabel } from "./porterRectify";
@@ -153,5 +155,49 @@ describe("what a run reports (story 26)", () => {
         expect(cashbookOutcome({ count: 1, lines: [{ row: "OFR-1", rectified: true }] }, null).title).toBe(
             "1 expense moved to Non Project.",
         );
+    });
+});
+
+describe("the phrase a Move to a project teaches (#1758, spec #1753 stories 47-52)", () => {
+    const withRemark = (remark: string): CashbookPlanLine => ({ ...spend, remark });
+
+    it("is pre-filled with the remark's words that name the destination project, as the remark writes them", () => {
+        expect(suggestedPhrase([withRemark("VR Mall local purchase")], "VR Mall Food Court")).toBe("VR Mall");
+        expect(suggestedPhrase([withRemark("Paid for tea, testorchid")], "Testorchid Heights")).toBe("testorchid");
+    });
+
+    it("takes the longest run of such words, the first on a tie", () => {
+        expect(suggestedPhrase([withRemark("food for vr-mall staff")], "VR Mall Food Court")).toBe("vr-mall");
+        expect(suggestedPhrase([withRemark("court fees mall")], "VR Mall Food Court")).toBe("court");
+    });
+
+    it("is blank when no word of the remark is in the project's name, so the person types it", () => {
+        expect(suggestedPhrase([withRemark("hexware tea")], "Hexaware Phase 2")).toBe("");
+        expect(suggestedPhrase([withRemark("")], "Hexaware Phase 2")).toBe("");
+    });
+
+    it("comes from the first moving line whose remark names the project", () => {
+        const lines = [withRemark("Pay via Razorpay"), withRemark("testlotus material")];
+        expect(suggestedPhrase(lines, "Testlotus Annexe")).toBe("testlotus");
+    });
+
+    it("reads the box's sentence with the phrase in it", () => {
+        expect(learnPhraseLabel("vr mall")).toBe("Next time, put spends that mention “vr mall” on this project");
+        expect(learnPhraseLabel("  ")).toBe("Next time, put spends that mention [phrase] on this project");
+    });
+
+    it("says in the outcome what was learned, or why not", () => {
+        const moved = { count: 1, lines: [{ row: "OFR-1", rectified: true }] };
+        expect(cashbookOutcome({ ...moved, phrase: { phrase: "vr mall", saved: true } }, "VR Mall Food Court").notes)
+            .toEqual(["Next time, spends that mention “vr mall” go to VR Mall Food Court."]);
+        expect(cashbookOutcome({ ...moved, phrase: { phrase: "vr mall", saved: false } }, "VR Mall Food Court").notes)
+            .toEqual(["“vr mall” already puts spends on VR Mall Food Court."]);
+        expect(
+            cashbookOutcome(
+                { ...moved, phrase: { phrase: "vr mall", saved: false, reason: "'vr mall' already puts spends on X." } },
+                "VR Mall Food Court",
+            ).notes,
+        ).toEqual(["The phrase was not saved: 'vr mall' already puts spends on X."]);
+        expect(cashbookOutcome(moved, "VR Mall Food Court").notes).toEqual([]);
     });
 });
