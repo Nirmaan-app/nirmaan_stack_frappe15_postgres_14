@@ -4,8 +4,8 @@
 """What an import source plugs into the Rectify core, and the sources wired so far (#1754, spec #1753).
 
 The core (`porter_rectify.plan_rectify` / `rectify_rows`) runs the same seven steps for every source; a
-`RectifySource` says what differs. `PORTER` (#1449) and `CASHBOOK` (#1757) are wired; card and bank sources
-are added here by the spec's later tickets.
+`RectifySource` says what differs. `PORTER` (#1449), `CASHBOOK` (#1757) and `CARD` (#1761) are wired;
+the bank sources are added here by the spec's later tickets.
 """
 
 from __future__ import annotations
@@ -17,13 +17,17 @@ import frappe
 from frappe import _dict as Line
 from frappe.model.document import Document
 
+from nirmaan_stack.api.outflow_import.card_create import record_card_match
+from nirmaan_stack.api.outflow_import.card_upload import STATEMENT_DOCTYPE
 from nirmaan_stack.api.outflow_import.cashbook_matches import record_cashbook_match
 from nirmaan_stack.api.outflow_import.cashbook_refund_spends import spend_expenses
 from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_records import ROW_DOCTYPE, line_names
 from nirmaan_stack.api.outflow_import.porter_records import SOURCE as PORTER_SOURCE
+from nirmaan_stack.services.card_invoices import card_line_details, statement_months
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
+from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     CREDIT_ROW_KINDS,
@@ -38,7 +42,7 @@ from nirmaan_stack.services.outflow_import.porter_wording import (
     description_hand_edited,
     rectified_description,
 )
-from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE, CASHBOOK_SOURCE, is_card_refund
 
 
 @dataclass(frozen=True)
@@ -291,8 +295,86 @@ CASHBOOK = RectifySource(
 )
 
 
+# --- Credit Card (#1761) ----------------------------------------------------------------------------
+
+
+def _card_statement(expense) -> frappe._dict:
+    """The expense's Credit Card Statement: its name, holder and period."""
+    return frappe.db.get_value(
+        STATEMENT_DOCTYPE,
+        expense.credit_card_statement,
+        ["name", "holder", "period_from", "period_to"],
+        as_dict=True,
+    ) or frappe._dict(name=expense.credit_card_statement)
+
+
+def _card_replacement(old, line, from_name: str | None, to_name: str | None) -> Replacement:
+    """The description as it is; Paid by the card holder (spec #1753 story 57); the statement link kept (story 55)."""
+    return Replacement(
+        description=old.description,
+        payment_by=_card_statement(old).holder or None,
+        writer_fields={"credit_card_statement": old.credit_card_statement},
+    )
+
+
+def _card_plan_details(line, expense, project_name: str | None) -> dict:
+    """What the dialog shows of the card line (spec #1753 story 43): the holder, the merchant, the statement and the
+    date; the core adds the amount."""
+    statement = _card_statement(expense)
+    details = card_line_details(expense.payment_ref)
+    return {
+        "date": str(line.added_on)[:10] if line.added_on else None,
+        "holder": statement.holder or "",
+        "merchant": merchant_key(details) if details else "",
+        "details": details,
+        "statement": statement.name,
+        "statement_months": statement_months(statement.period_from, statement.period_to),
+        "expense_type": expense.type,
+    }
+
+
+def _card_partners(line: Line) -> tuple[tuple[str, ...], str | None]:
+    """A card refund moves nowhere (a standing refusal): the import books it Non Project at minus itself, and only a
+    card spend may move to a project (ADR-0039 Amendment F)."""
+    if is_card_refund(line.direction, line.match_basis):
+        return (), "This is a card refund, which stays a Non Project Expense. Only a card spend can be moved."
+    return (), None
+
+
+CARD = RectifySource(
+    source=CARD_STATEMENT_SOURCE,
+    title="Card Move",
+    endpoint="rectify_lines",
+    wording=RectifyWording(
+        not_this_source="Only a line from a Credit Card Statement import can be moved here.",
+        not_settled="This line is {status} now, not Settled, so it has no expense to move.",
+        not_found="This line no longer exists; its import may have been deleted.",
+        not_created=(
+            "This line's expense is not one its import created, so it cannot be moved. Unreconcile it instead."
+        ),
+        unexpected="Something went wrong moving this line, so nothing on it was changed.",
+        already_non_project="This expense is already a Non Project Expense.",
+        already_on="This expense is already on {name}.",
+        nothing_ticked="Tick at least one card line to move.",
+        too_many="At most {limit} lines can be moved at once; {count} were sent.",
+        too_many_title="Too many lines",
+        split_line="This line settled more than one record, so it cannot be moved in part.",
+        partner_failed="Not moved, because the line it moves with ({txn}) could not be: {reason}",
+    ),
+    line_fields=("transfer_id", "direction", "match_basis", "added_on"),
+    line_label=lambda line: {"txn_id": line.transfer_id if line else None},
+    plan_details=_card_plan_details,
+    replacement=_card_replacement,
+    record_match=lambda line, new, actor, origin: record_card_match(
+        line.name, line.import_batch, line.transfer_id, new, actor, origin
+    ),
+    kept_file_url=lambda old: None,
+    partners=_card_partners,
+)
+
+
 #: Every source Move is wired for, by its lines' `source`.
-SOURCES = {source.source: source for source in (PORTER, CASHBOOK)}
+SOURCES = {source.source: source for source in (PORTER, CASHBOOK, CARD)}
 
 
 def source_of(rows) -> RectifySource:

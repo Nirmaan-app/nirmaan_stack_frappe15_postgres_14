@@ -171,28 +171,7 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
         card_refund=refund,
     )
 
-    match = frappe.new_doc(MATCH_DOCTYPE)
-    match.update(
-        {
-            "import_row": row.name,
-            "import_batch": batch,
-            "transfer_id": row.transfer_id,
-            "source": CARD_STATEMENT_SOURCE,
-            "target_doctype": result.doctype,
-            "target_name": result.name,
-            # The Expense's own amount, as on every match record: a refund's is negative. Unreconcile and the
-            # Expense's own amount guard compare the record with this figure.
-            "target_amount": float(result.amount),
-            "match_kind": MATCH_SETTLED,
-            "match_basis": MATCH_BASIS,
-            "settlement_origin": _ORIGIN,
-            "created_by_import": 1,
-            "matched_at": frappe.utils.now_datetime(),
-            "matched_by": actor,
-            **target_snapshot(result.doctype, result.name),
-        }
-    )
-    match.insert(ignore_permissions=True)
+    record_card_match(row.name, batch, row.transfer_id, result, actor, _ORIGIN)
 
     # The type is confirmed by Create: next month's statement suggests it for this merchant (#1569). Only a
     # spend teaches the memory: one odd refund must not retype the merchant's spends (#1673).
@@ -215,6 +194,33 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
         },
         update_modified=False,
     )
+
+
+def record_card_match(row: str, batch: str, transfer_id: str, expense, actor: str, origin: str) -> None:
+    """Insert the Settled `Outflow Row Match` of card line `row` and the Expense the import created for it: its
+    Create's, and a Move's (`rectify_sources.CARD`). `expense` carries `doctype`, `name` and `amount`."""
+    match = frappe.new_doc(MATCH_DOCTYPE)
+    match.update(
+        {
+            "import_row": row,
+            "import_batch": batch,
+            "transfer_id": transfer_id,
+            "source": CARD_STATEMENT_SOURCE,
+            "target_doctype": expense.doctype,
+            "target_name": expense.name,
+            # The Expense's own amount, as on every match record: a refund's is negative. Unreconcile and the
+            # Expense's own amount guard compare the record with this figure.
+            "target_amount": float(expense.amount),
+            "match_kind": MATCH_SETTLED,
+            "match_basis": MATCH_BASIS,
+            "settlement_origin": origin,
+            "created_by_import": 1,
+            "matched_at": frappe.utils.now_datetime(),
+            "matched_by": actor,
+            **target_snapshot(expense.doctype, expense.name),
+        }
+    )
+    match.insert(ignore_permissions=True)
 
 
 def _mark_error(line: str, note: str) -> None:
