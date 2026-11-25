@@ -60,7 +60,7 @@ past imports by source and month.
 
 - `bit-cashbook-move` Move a Cashbook spend's expense (#1757, spec #1753; the domain's Rectify). On a Settled Cashbook
   line whose expense the import created, Admin and Accountant Lead see `Move to a project` (a Non Project Expense)
-  or `Change project` (a Project Expense) beside Unreconcile; ticked Cashbook lines get the same in the toolbar, or
+  or `Change project` (a Project Expense), with no Unreconcile beside it where Move accepts the line (#1762); ticked Cashbook lines get the same in the toolbar, or
   `Move N expenses` when their ledgers are mixed. An Accountant sees none. The dialog (titled the same) shows each
   line's Txn Id, amount, `Now: <placement> (<expense>)`, then `Date`, `Spent by` / `Paid to` (`Back to` / `From` on
   money coming back), `Remark`, and `Bill: Open <verdict>: <remark>`; then `Move to` (Won projects and `No project
@@ -73,6 +73,17 @@ past imports by source and month.
   `BIN/walk_cashbook_move.py` (seed `BIN/cashbook_move_seed.py`, DB read `BIN/cashbook_move_db.py`), as an
   Accountant Lead and an Accountant. The Expense lists have no Txn Id search: the walk searches by `Comment`,
   `Imported from <batch>`.
+
+- `bit-cashbook-move-transfer` Move a Cashbook spend to Internal Transfer (#1762, spec #1753 stories 13, 27-28, 53-54).
+  The Move dialog's `Move to` list ends with `Internal Transfer` on Cashbook lines. Chosen, it asks no type: `From`
+  (the wallet, `Cashbook Employee Wallet`, fixed) and `To` (a place select, `#move-it-other`) for a spend, the other
+  way round for money coming back, `Own side` / `Other end` for a spend ticked with its refund; `Detail`
+  (`#move-it-detail`) starts as the wallet holder. The run button reads `Move to Internal Transfer`; the result
+  `1 expense moved to Internal Transfer.` The expense is gone, the line moves to the `Internal Transfers` tab, and its
+  record (the violet link in the Outcome cell, opening Desk) shows the bill as `Proof`. A Settled line Move accepts
+  shows no `Unreconcile` (the row's `can_move`); a refused line, or one Linked to an existing record, keeps it. The
+  toolbar's `Unreconcile N` is unchanged. Walked by `BIN/walk_move_to_transfer.py` (seed `BIN/cashbook_move_seed.py`,
+  DB read `BIN/move_to_transfer_db.py`; the Linked line is read from the env's own data), as an Accountant Lead.
 
 ## How to get to it (user POV)
 
