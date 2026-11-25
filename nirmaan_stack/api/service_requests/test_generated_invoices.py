@@ -547,20 +547,21 @@ class SignedUploadTestCase(GeneratedInvoiceTestCase):
 
 
 class TestSignedUpload(SignedUploadTestCase):
-    def test_the_upload_marks_it_signed_and_creates_one_pending_vendor_invoice_for_its_figures(self):
+    def test_the_upload_creates_one_vendor_invoice_for_its_figures_approved_by_the_system(self):
+        # ADR-0050 decision 1: a signed copy is approved by the System at upload, so the record ends Approved.
         wo = self._wo()
         record = self._generate(wo, 12_345.5, invoice_date="2026-10-21")
 
         row = upload_signed_copy(record["name"], SCAN)
 
-        self.assertEqual(row["status"], "Signed")
+        self.assertEqual(row["status"], "Approved")
         invoices = frappe.get_all("Vendor Invoices", filters={"document_name": wo}, pluck="name")
         self.assertEqual(invoices, [self._vi(record["name"])])
         vi = self._invoice(invoices[0])
         self.assertEqual(
             (vi.document_type, vi.document_name, vi.invoice_no, getdate(vi.invoice_date), flt(vi.invoice_amount),
              flt(vi.invoice_base_amount), flt(vi.invoice_gst_amount), vi.status),
-            (SR, wo, record["invoice_no"], getdate("2026-10-21"), 12_345.5, 12_345.5, 0, "Pending"),
+            (SR, wo, record["invoice_no"], getdate("2026-10-21"), 12_345.5, 12_345.5, 0, "Approved"),
         )
         self.assertEqual(frappe.db.get_value("Nirmaan Attachments", vi.invoice_attachment, "attachment"), SCAN)
         self.assertEqual(frappe.db.get_value(GI, record["name"], "signed_attachment"), vi.invoice_attachment)
@@ -579,6 +580,11 @@ class TestSignedUpload(SignedUploadTestCase):
             upload_signed_copy(name, "/private/files/another.pdf")
         self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": wo}), 1)
 
+    def test_an_unknown_invoice_is_not_found(self):
+        # Not a server error: the upload names a generated invoice that does not exist (deleted, or mistyped).
+        with self.assertRaisesRegex(frappe.DoesNotExistError, "not found"):
+            upload_signed_copy("WGI-NO-SUCH-RECORD", "/private/files/another.pdf")
+
     def test_a_voided_invoice_cannot_be_uploaded(self):
         name = self._generate(self._wo(), 1_000)["name"]
         void_invoice(name, "Typo")
@@ -591,10 +597,16 @@ class TestSignedUpload(SignedUploadTestCase):
             upload_signed_copy(name, "  ")
         self.assertEqual(self._stored(name).status, "Generated")
 
+    # Who the "waiting for approval" notice reaches. Since ADR-0050 (decision 9) it is sent only for a signed
+    # copy left Pending, and the upload approves every one, so these drive the notice itself.
+    def _told_of_a_pending_copy(self, wo):
+        record = frappe.get_doc(GI, self._generate(wo, 10_000)["name"])
+        api._notify_accountants(frappe.get_doc(SR, wo), record)
+
     def test_accountants_on_the_project_are_told(self):
         wo = self._wo()
         accountant = self._on_project(self._user(ACCOUNTANT))
-        self._uploaded(wo)
+        self._told_of_a_pending_copy(wo)
         notes = frappe.get_all("Nirmaan Notifications", filters={"docname": wo, "recipient": accountant},
                                fields=["event_id"])
         self.assertEqual([n.event_id for n in notes], ["wo_invoice:signed_uploaded"])
@@ -605,7 +617,7 @@ class TestSignedUpload(SignedUploadTestCase):
         if not accountant:
             self.skipTest("every Accountant on this site is put on projects")
         wo = self._wo()
-        self._uploaded(wo)
+        self._told_of_a_pending_copy(wo)
         self.assertTrue(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
 
     def test_an_accountant_put_only_on_other_projects_is_not_told(self):
@@ -614,7 +626,7 @@ class TestSignedUpload(SignedUploadTestCase):
         frappe.db.commit()
         self._on_project(accountant, other)
         wo = self._wo()
-        self._uploaded(wo)
+        self._told_of_a_pending_copy(wo)
         self.assertFalse(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
 
     def test_a_procurement_executive_uploads_and_an_accountant_may_not(self):
@@ -626,7 +638,7 @@ class TestSignedUpload(SignedUploadTestCase):
         self.assertEqual(self._stored(first).status, "Generated")
 
         procurement = self._on_project(self._user(PROCUREMENT))
-        self.assertEqual(self._as(procurement, upload_signed_copy, second, SCAN)["status"], "Signed")
+        self.assertEqual(self._as(procurement, upload_signed_copy, second, SCAN)["status"], "Approved")
 
 
 class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
@@ -685,6 +697,16 @@ class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
 
 
 class TestApprovalMovesIt(SignedUploadTestCase):
+    def _uploaded(self, wo, amount=10_000):
+        """A signed copy left Pending: Add Invoice of a copy the AI found unsigned (ADR-0050 decision 1). Upload
+        signed copy approves every one, so a person's decision is tested on this one."""
+        name = self._generate(wo, amount)["name"]
+        record = frappe.get_doc(GI, name)
+        api.book_signed_copy(name, SCAN, {"invoice_no": record.invoice_no, "date": record.invoice_date,
+                                          "amount": amount}, {"invoice_base_amount": amount, "invoice_gst_amount": 0},
+                             signed=False)
+        return name
+
     def _decide(self, name, action, reason=None):
         """Decide its Vendor Invoice the normal way, as an Accountant on the project."""
         if not getattr(self, "_accountant", None):
@@ -809,8 +831,8 @@ class TestDelete(SignedUploadTestCase):
     def test_only_a_voided_one_is_deleted(self):
         wo = self._wo()
         generated = self._generate(wo, 1_000)["name"]
-        signed = self._uploaded(wo, 1_000)
-        for name, status in ((generated, "Generated"), (signed, "Signed")):
+        uploaded = self._uploaded(wo, 1_000)   # approved by the System at upload (ADR-0050 decision 1)
+        for name, status in ((generated, "Generated"), (uploaded, "Approved")):
             with self.assertRaisesRegex(frappe.ValidationError, status, msg=name):
                 delete_generated_invoice(name)
             self.assertTrue(frappe.db.exists(GI, name))
