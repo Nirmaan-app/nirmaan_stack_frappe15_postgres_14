@@ -267,5 +267,5 @@ expense and its bill.
 
 **Consequences.** Every reader of `credit_card_statement` reads both ledgers. A card spend on a project counts in
 that project's spend and its CEO Hold cashflow gap, as any Paid Project Expense does. Its project is changed only by
-Move; the Project Expense edit dialog does not yet lock the project of a card spend as it does a Porter or Cashbook
-one.
+Move: the expense edit dialogs lock a card spend's project, as they do a Porter or Cashbook expense's, and link to its
+line's Move.
