@@ -19,6 +19,7 @@ from nirmaan_stack.api.invoices._validation import (
     existing_invoiced_sum,
     normalize_gstin,
 )
+from nirmaan_stack.api.invoices._wo_auto_approve import wo_rule_reasons
 from nirmaan_stack.services.extraction.validation import (
     ABSENT as V_ABSENT,
     INVALID as V_INVALID,
@@ -44,13 +45,19 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     caller persists this list to `auto_approve_skip_reasons` so reviewers can
     later see why an invoice was kicked to manual.
     """
+    # A Work Order invoice is judged by ADR-0050's rules 2 and 3 alone: amounts only, none of the gates
+    # below (decision 7). Gate 2 kept every one of them out before.
+    if invoice_doc.get("document_type") == "Service Requests":
+        reasons = wo_rule_reasons(invoice_doc)
+        return (len(reasons) == 0), reasons
+
     reasons = []
 
     # Gate 1: AI extraction was used (not manual typing).
     if not invoice_doc.get("autofill_used"):
         reasons.append("autofill_not_used")
 
-    # Gate 2: PO invoice (not Service Request).
+    # Gate 2: PO invoice. A Work Order invoice returned above, so this now refuses only other parents.
     if invoice_doc.get("document_type") != "Procurement Orders":
         reasons.append("not_procurement_order")
 
@@ -86,7 +93,7 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
 
     # Resolve AI-extracted GSTINs. Prefer dedicated columns where available;
     # fall back to parsing autofill_all_entities_json for older rows.
-    entities = _parse_entities(invoice_doc.get("autofill_all_entities_json"))
+    entities = parse_entities(invoice_doc.get("autofill_all_entities_json"))
     ai_supplier_gstin = (
         invoice_doc.get("autofill_extracted_supplier_gstin")
         or entities.get("supplier_gstin", "")
@@ -299,7 +306,7 @@ def _intrinsic_validation_reasons(invoice_doc):
     policy → the invoice stays Pending for human review.
     """
     reasons = []
-    entities = _parse_entities(invoice_doc.get("autofill_all_entities_json"))
+    entities = parse_entities(invoice_doc.get("autofill_all_entities_json"))
 
     supplier = (
         invoice_doc.get("autofill_extracted_supplier_gstin")
@@ -330,7 +337,7 @@ def _intrinsic_validation_reasons(invoice_doc):
     return reasons
 
 
-def _parse_entities(json_str):
+def parse_entities(json_str):
     """Flatten autofill_all_entities_json into a {type: value} dict.
 
     First occurrence wins for repeated types — Document AI sometimes returns
