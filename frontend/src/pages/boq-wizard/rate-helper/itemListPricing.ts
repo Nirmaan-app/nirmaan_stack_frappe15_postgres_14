@@ -3652,12 +3652,41 @@ const fmt4 = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.t
 /** Copy each item of the spec's kind with its unit CLASS projected into `attributes[unit_class_attr]`.
  * Items whose unit is not in the table are left without the key (they can never match a classed selection). PURE. */
 export function projectUnitClass(spec: ItemListPricingSpec, items: RateMasterItem[]): RateMasterItem[] {
-  return items.map((it) => {
+  return catalogueOf(spec, items).projected;
+}
+
+/**
+ * #1741 -- THE CATALOGUE MEMO. A row's pricing projects the whole catalogue once per projectUnitClass call and again in
+ * every fieldOptionsFromSkus call (each dropdown of each block), which was a quarter of the server's driving-field
+ * measure. Per (spec, items) pair -- both by identity, in WeakMaps, so nothing outlives its spec or catalogue -- the
+ * projection and each family's rows of the spec's kind (catalogue order kept) are built once. A catalogue array that
+ * changed length since (the TRIPWIRE) is projected afresh. Readers never write into either (they filter and read).
+ */
+interface Catalogue { length: number; projected: RateMasterItem[]; byFamily: Map<unknown, RateMasterItem[]> }
+const CATALOGUES = new WeakMap<ItemListPricingSpec, WeakMap<RateMasterItem[], Catalogue>>();
+
+function catalogueOf(spec: ItemListPricingSpec, items: RateMasterItem[]): Catalogue {
+  let bySpec = CATALOGUES.get(spec);
+  if (!bySpec) { bySpec = new WeakMap(); CATALOGUES.set(spec, bySpec); }
+  const hit = bySpec.get(items);
+  if (hit && hit.length === items.length) return hit;
+  const projected = items.map((it) => {
     if (!kindIn(spec, it.kind)) return it;
     const cls = unitClassOf(spec, it.unit);
     if (cls === null) return it;
     return { ...it, attributes: { ...it.attributes, [spec.unit_class_attr]: cls } };
   });
+  const byFamily = new Map<unknown, RateMasterItem[]>();
+  const fa = familyAttr(spec);
+  for (const it of projected) {
+    if (!kindIn(spec, it.kind)) continue;
+    const f = it.attributes[fa];
+    const list = byFamily.get(f);
+    if (list) list.push(it); else byFamily.set(f, [it]);
+  }
+  const made = { length: items.length, projected, byFamily };
+  bySpec.set(items, made);
+  return made;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -6774,13 +6803,13 @@ export function fieldOptionsFromSkus(
 ): string[] {
   const fam = spec.families[family];
   if (!fam) return [];
-  const projected = projectUnitClass(spec, items);
   const cls = rowUnitClass ?? "";
   const classes = new Set<string>(
     fam.units[cls] ? [cls] : (fam.convert?.[cls] ?? []).map((o) => o.to),
   );
-  const famRows = projected.filter(
-    (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
+  // the family's rows of the spec's kind, from the catalogue memo (#1741); the class filter as before
+  const famRows = (catalogueOf(spec, items).byFamily.get(family) ?? []).filter(
+    (it) => classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr])),
   );
   const carrying = famRows.filter((it) => attr in it.attributes);
   /**
