@@ -52370,3 +52370,26 @@ analysis), his 11:43 QR-GATE (c), and his 16:52 - 17:02 "lets fix the buuild fir
   fixes; test_vav2c3d_keys, the v87 undo step, pins and fixture one version on.
 - The cert C1 - C13 PASS on 2e66b1b9c (2026-11-25 00:00 - 00:20, the owner's sign-in; C4 by search): the FIX-2 cases, the split / doubt
   pairs, the rules page, the Calculator, Electrical unchanged; dev_isolate --verify PASS after --yes. Screenshots: BoQ main lane\VAV-2c3\cert_screenshots.
+
+## Slice VAV-FIX (desktop) - the final fix slice of the VAV Box build: S1 - S6 of chat-Claude's VAV-2c3 review, HVAC v88, the full BoQ sets (the pre-deploy run), the cert - 2026-11-25
+
+The owner's 2026-11-25 00:37 / 00:41 words ("put it back to blank in the final fix slice - agree and review accepted"; "draft and launch
+tonight"); chat-Claude's calls S2 - S6 under his 2026-11-23 13:46 word; QR-C1 (a) confirmed ANSWER 2; option (b) ANSWER 7. Figures and
+counts: the report `BoQ main lane\VAV-FIX\2026-11-25_VAV-FIX_Report.md`.
+- K1 04c2f6aeb - the Calculator starts blank (`boq_rows_only` read where there is no row), one note per defaulted field, one no-unit warning,
+  a refused box shows its defaults, no "as written (BoQ)" on a helper-added item; vavfix.test.ts, vavfix.harness.ts, the v88 edits file.
+- K1b fe9205711 - the switch reads an explicit Calculator flag set by calculatorCtx, never the unit (ANSWER 6 / 7).
+- K2 fa732cc63 - HVAC v88 (sha256 38e80217; loaded 01:55, batch rmbulk-369a52daebf4, pre-load snapshot BRMS-26-01898, after the proved
+  backup vavfix_pre_v88_20261125_015227.dump; verify 0 / 0 / 0); the validator key; test_vavfix_keys, vavfixV88; the 78 version pins (F-A),
+  the v88 undo step (F-B), the served-prices fixture diffed first (F-C), two vav1VavParity checks inverted (F-D); the runner's plan measures
+  the four VAV-2c3 key modules and test_vavfix_keys in.
+- K1c 1b5e1e35d - a default stated by its own blue note is not restated in the working (found by PF1, ANSWER 8).
+- PF1: the standard replay (34,429 rows, both harnesses) 0 figure moves, 0 non-VAV rows changed, VAV wording 53 (S5 31, S3 23); the
+  sheet-aware replay of the 84 run sheets (7,282 rows) 0 figure moves, 0 unattributed (S2 873, S3 24 + 24, S5 31, S6 159).
+- THE FULL BoQ SETS (the pre-deploy run) on 1b5e1e35d: Python 149 / 149 modules OK; vitest 242 / 242 files (boq-wizard 179 + 12 DOM,
+  pricing 46 + 5 DOM); tsc 0 new; oxlint BoQ folders 0 / 0 (the repo-wide lint's 3 ProjectPayments errors predate the build).
+- The cert C1 - C8 PASS on 1b5e1e35d (2026-11-25 09:57 - 10:07, the owner's 09:52 sign-in; read-only): the Calculator blank then priced
+  (22,400 / 2,400 at 700 CFM), one note per defaulted field and one no-unit sentence (00140 r237, 00029 r29), rules page line 52 without the
+  label (VRF page scanned too), a refused box's defaults (00140 r263), no "as written (BoQ)" on the helper's cabling, VRF / Ducting orange
+  lines kept, Electrical Conduit 59.5 / 20; C9 counts unchanged, no AI call; dev_isolate --verify PASS after --yes. Screenshots: BoQ main
+  lane\VAV-FIX\cert_screenshots.

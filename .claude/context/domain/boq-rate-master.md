@@ -6115,3 +6115,46 @@ DECLARED model-request change is VAV Box's alone (the reading guidance; every ot
 - B1 (19:53 "our standard treatment is that thw whole box will refuse and the note will mention which component needs to be added by user, the
   other components will show their price"): already the behaviour - no change.
 - THE DERIVATION TAB states each new rule (itemListRuleOrder 13m: one line per chain_values rule, one for the no-unit bar), each with its reason.
+
+## HVAC v88 - VAV-FIX (2026-11-25) - the final fix slice of the VAV Box build: the Calculator starts blank, one note, one warning, no internal label
+
+v88 = v87 + ONLY the 5 edits of frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vavfixEdits.json, all on VAV Box (mint script
+mint_hvac_v88_vavfix.py, candidate path required). No item changes; every model request and every group context byte-identical v87 -> v88
+(the mint's own proof; test_vavfix_keys test_03). The code is K1 / K1b / K1c (pricingSheetHelper.ts, itemListPricing.ts, rateHelperTypes.ts,
+PricingCalculator.tsx).
+
+### Load-bearing rules (each with the owner's words)
+- THE VAV BOX CALCULATOR STARTS BLANK (owner 2026-11-20 17:53 "a"; re-confirmed 2026-11-25 00:37 "My recommendation: put it back to blank in
+  the final fix slice. - agree and review accepted"): every field of a VAV item starts blank, carries its "*", no "default" tag, no "assumed"
+  note, and a blank withholds the price; "shape not stated -> Rectangular (assumed)" applies to BoQ rows only. Built as
+  `defaults.<attr>.boq_rows_only: true` (shape / integrator_included / vav_type; config_validation accepts it only beside absent_as_none: true)
+  read by itemListPricing.boqRowsOnlyDefaultsOff: in the Calculator the default's `absent_as_none` is not read. THE CALCULATOR IS DECIDED BY AN
+  EXPLICIT FLAG, NEVER BY THE UNIT (chat-Claude, ANSWER 6 / 7, 2026-11-25 02:18 / 02:30): `RateHelperRowContext.calculator`, set only by
+  `calculatorCtx` (PricingCalculator.tsx) and carried by the contexts the helper derives from it; a BoQ row with no unit (unit "") or with no
+  unit key keeps its ruled defaults (33 / 34 VAV BoQ rows have no unit). ADP / VRF / Valve Package Calculators still pre-fill their own ruled
+  defaults (`absent_as_none`) - a finding for the owner, not changed (QR-C1).
+- ONE NOTE PER DEFAULTED FIELD (chat-Claude's call under the owner's 2026-11-23 13:46 word "fors cosmetic note changes you can take the
+  decision. hese are trivial"): a default whose own `note` (v86 D1; VAV Box's three only) is the field's blue box shows no amber rule line, and
+  its copy in the item's working is not restated either (K1c: withoutRestatements counts a default stated by its note as on screen). Every other
+  default keeps its amber line (its only note: VRF's "no brand stated - priced as Blue Star", ADP, Valve Package, Insulation).
+- ONE WARNING ON A NO-UNIT ROW (same word; the owner's 2026-11-24 20:00 ruling "[no unit] price it by number and mention it clearly in notes.
+  the notes should be a stronegr warning" stands): the orange bar keeps its title ("Warning: no unit on this row", drawn in capitals) and ONE
+  sentence (v88 `blank_unit_bar.line`: "The BoQ gives no unit for this row. It is priced per number (Nos). Check the unit before using this
+  rate."); the "No unit on the BoQ row -> priced per Nos, the catalogue's unit for this item" line is not drawn where the bar shows.
+- NO INTERNAL LABEL ON THE RULES PAGE (owner 2026-11-22 10:49 "a and also check for similar instances across other HVAC categories and remove
+  if found"; 13:03 "a"): rules page line 52 (`derivation_reasons[50].why`) without "(chat-Claude's correction 21:52, ANSWER 21)". R4's program
+  (scripts/pricer_texts.py walk / where + R4's patterns: chat-Claude, ANSWER, QR-, FIX-, slice ids, bare times without a date, D-1 .. D-4) on
+  v88: 0 of 3,602 pricer-facing HVAC texts; a Pricing Input / field id inside a working line is drawn as its name (37 such texts, VAV-2c1's
+  rule); the AI's reading guidance and the category notes are left alone.
+- A REFUSED VAV BOX SHOWS THE RULED DEFAULTS (chat-Claude's call inside the owner's 2026-11-24 16:52 / 16:58 rulings, "the ricing logic should
+  combine model outputs and our rules / logic given as it is doing for every other catgeory"): an item of a band family (`band_from`) refusing
+  at the needs loop (above the largest box, no airflow) carries the defaults it read as `defaulted` beside `heldDefaults`, so Type /
+  Integrator show the ruled value with its note; the row stays refused with its own reason; a valid airflow then prices with no other pick.
+- A HELPER-ADDED ITEM IS NOT "AS WRITTEN (BoQ)" (same word): an item the helper adds by its own rule (the integrator cabling,
+  HELPER_ADDED_ATTR - the one producer) shows no read-only "as written (BoQ)" line; an item the model read keeps it.
+- THE PRE-DEPLOY FULL RUN of the VAV Box build (owner 2026-11-19 17:36 "full suite test runs we will do in the final fix slice"; Test Plan
+  R2) on 1b5e1e35d with v88 live: Python 149 / 149 BoQ modules OK (148 through scripts/run_tests_parallel.py: 4,406 tests; test_rate_master
+  by its 72 classes 609 + TestRateMaster in its 5 saved groups 167); vitest boq-wizard unit 179 / 179 files (7,014 tests), DOM 12 / 12 (82),
+  pricing unit 46 / 46 (1,911), DOM 5 / 5 (48); tsc FULL 0 new (1,185); oxlint on the BoQ folders 0 / 0. The repo-wide CI lint (yarn lint)
+  reports 3 errors in ProjectPayments files no BoQ slice touched (from 2026-11-17 commits before 01c16f0e8) - to clear with the develop side.
+  These logs are the deploy pre-pack's "before" (BoQ main lane\VAV-FIX\logs\2026-11-25_VAV-FIX_*_full*.log).
