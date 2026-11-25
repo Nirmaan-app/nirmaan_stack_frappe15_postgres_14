@@ -79,13 +79,14 @@ past imports by source and month.
   mention “<phrase>” on this project` above the reason, with the phrase in a field (`Phrase`) pre-filled from the
   remark: the longest run of remark words that are words of the project's name, skipping a run whose every word one
   other Won project's name holds too; when no remark word is in the name, the remark word closest in spelling to one
-  (one slip in five letters); else blank (then the run button waits for a phrase or an unticked box). Unticked, the field goes and nothing is learned. The result adds
+  (one slip in five letters), unless another Won project's name spells it as near; else blank (then the run button
+  waits for a phrase or an unticked box). Unticked, the field goes and nothing is learned. The result adds
   `Next time, spends that mention “<phrase>” go to <project>.`; a phrase another project already holds refuses the
   Move in a plain sentence (`'<phrase>' already puts spends on <project>, ...`). DB: an active `Outflow Import Project
   Alias` (phrase -> project, owner the mover); the next Cashbook import places a remark holding the phrase on that
   project. Walked by `BIN/walk_cashbook_phrase.py` (seed `BIN/cashbook_phrase_seed.py`: two made-up Won projects
-  sharing a word, so the remark names neither until the phrase is learned, a third one letter off that word for the
-  close spelling, and `again` for the next import; DB read
+  sharing a word, so the remark names neither until the phrase is learned, a third whose name word is one letter off a
+  remark word, for the close spelling, and `again` for the next import; DB read
   `BIN/cashbook_phrase_db.py`), as an Accountant Lead.
 
 ## How to get to it (user POV)

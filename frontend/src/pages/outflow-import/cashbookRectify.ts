@@ -159,7 +159,7 @@ const runsOf = (remark: string, keep: (word: string) => boolean): Run[] => {
  *     project's name also holds ("mall" alone names no one project).
  *  2. Only when no remark word of any moving line is a word of the name: the remark word closest in spelling to a
  *     word of the name, at `CLOSE_WORD_LIKENESS` or nearer ("hexware" for Hexaware), from the first line that has
- *     one; never for a name word another Won project's name holds too.
+ *     one; never a word some other Won project's name spells as near or nearer (or holds outright).
  *  3. Else blank, so the person types the phrase.
  */
 export const suggestedPhrase = (
@@ -181,9 +181,9 @@ export const suggestedPhrase = (
         if (best) return best.text;
     }
     if (anyNameWord) return "";
-    const ownWords = [...nameWords].filter((word) => !shared([word]));
+    const otherWords = new Set(others.flatMap((other) => [...other]));
     for (const remark of remarks) {
-        const near = closestWord(remark, ownWords);
+        const near = closestWord(remark, nameWords, otherWords);
         if (near) return near;
     }
     return "";
@@ -194,7 +194,7 @@ export const suggestedPhrase = (
  * of four letters or fewer is suggested only when spelt right, which rule 1 already covers ("gilt" is not "GIFT"),
  * and two slips in seven letters is too far ("hixwere"). "hexware" (0.875) and "macoons" (0.857) are near enough.
  */
-export const CLOSE_WORD_LIKENESS = 0.8;
+const CLOSE_WORD_LIKENESS = 0.8;
 
 /**
  * How alike two words are in spelling: 1 minus their edit distance over the longer one's length. A slip is one
@@ -217,19 +217,23 @@ const likeness = (a: string, b: string): number => {
     return 1 - d[a.length][b.length] / longest;
 };
 
-/** The remark word, as written, closest in spelling to one of `nameWords` and near enough; the first on a tie. */
-const closestWord = (remark: string, nameWords: readonly string[]): string => {
+/** How near `word` comes to the nearest of `words` (0 when there are none). */
+const nearest = (word: string, words: ReadonlySet<string>): number =>
+    Math.max(0, ...[...words].map((other) => likeness(word, other)));
+
+/**
+ * The remark word, as written, closest in spelling to one of `nameWords` and near enough, the first on a tie; never
+ * one that a word of `otherWords` (the other Won projects' names) is as near to, since it may mean that project.
+ */
+const closestWord = (remark: string, nameWords: ReadonlySet<string>, otherWords: ReadonlySet<string>): string => {
     let best = "";
     let bestLikeness = CLOSE_WORD_LIKENESS;
     for (const match of remark.matchAll(WORD)) {
         const word = match[0].toLowerCase();
-        for (const nameWord of nameWords) {
-            const score = likeness(word, nameWord);
-            if (score > bestLikeness || (!best && score === bestLikeness)) {
-                best = match[0];
-                bestLikeness = score;
-            }
-        }
+        const score = nearest(word, nameWords);
+        if (score < bestLikeness || (best && score === bestLikeness) || nearest(word, otherWords) >= score) continue;
+        best = match[0];
+        bestLikeness = score;
     }
     return best;
 };

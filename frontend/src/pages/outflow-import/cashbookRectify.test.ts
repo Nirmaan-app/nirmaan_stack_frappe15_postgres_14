@@ -192,6 +192,13 @@ describe("the phrase a Move to a project teaches (#1758, spec #1753 stories 47-5
         expect(suggestedPhrase([withRemark("mall hexware")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
     });
 
+    it("does not guess a remark word another Won project's name spells as near or nearer", () => {
+        expect(suggestedPhrase([withRemark("testtower124 tea")], "Testtower123 Depot", ["Testtower124 Plaza"])).toBe("");
+        expect(suggestedPhrase([withRemark("testtowr123 tea")], "Testtower123 Depot", ["Testtower124 Plaza"])).toBe(
+            "testtowr123",
+        );
+    });
+
     it("does not guess a word another Won project's name holds too", () => {
         expect(suggestedPhrase([withRemark("malls")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
     });

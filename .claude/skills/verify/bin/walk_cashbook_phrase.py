@@ -7,8 +7,8 @@ read; it exits 1 when one is not seen (it walks on past a miss, and lists every 
 
 The lead needs the password on the env DB (`devenv.sh run <task> set-password <email> <pw>`). It seeds
 (`cashbook_phrase_seed.py`; every run stamps new projects and Txn Ids) two made-up Won projects sharing one word,
-`QX Walkmall<n> Court` and `Walkmall<n> Annexe`, and a Cashbook import whose courier spend (Rs 2,380) reads "Courier
-charges for QX Walkmall<n> site": that shared word names neither project, so the spend is booked Non Project.
+`QX Walkmall<n> Court` and `Walkmall<n> Annexe`, a third, `Depot<n> Yard`, and a Cashbook import whose courier spend (Rs 2,380) reads "Courier
+charges for QX Walkmall<n> site, Depo<n> gate": that shared word names neither project, so the spend is booked Non Project.
 
 As the Accountant Lead:
  1. Sidebar Bulk Import Transactions -> Matched / Settled – Outflow -> the spend's line -> "Move to a project": the
@@ -16,7 +16,7 @@ As the Accountant Lead:
  2. Choose No project: no phrase box (Non Project learns nothing).
  3a. Choose `Walkmall<n> Annexe`: the box is ticked with the phrase blank (the remark's run "Walkmall<n>" is a word
     `QX Walkmall<n> Court` holds too): the sentence reads "[phrase]".
- 3b. Choose `Walkmal<n> Depot` (no remark word spelt as in its name): the phrase is pre-filled "Walkmall<n>", the
+ 3b. Choose `Depot<n> Yard` (no remark word spelt as in its name): the phrase is pre-filled "Depo<n>", the
     remark word closest in spelling.
  3. Choose `QX Walkmall<n> Court`: the box "Next time, put spends that mention “QX Walkmall<n>” on this project",
     ticked, the phrase pre-filled "QX Walkmall<n>" (the remark's words that name the project). Untick: the phrase
@@ -117,7 +117,7 @@ with session(a.task, a.lead, a.password) as (page, out):
     save(page, out, "03a-shared-word-blank")
 
     choose(page, dialog, "Move to", seeded["near_project_name"])
-    near = PHRASE.split()[-1]
+    near = seeded["near_word"]
     check(field.input_value() == near,
           f"1758 pre-fill rule (a): no remark word in the name, so the closest spelling is pre-filled ({near!r})")
     save(page, out, "03b-close-spelling")
