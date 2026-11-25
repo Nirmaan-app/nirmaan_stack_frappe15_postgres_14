@@ -2626,10 +2626,12 @@ space-normalised and padded, so a word start is exactly a preceding space.
    `v3_0.backfill_outflow_row_source` — shipping the facet without it would have drawn a funnel
    offering one option reading "(blank)".
 
-### Two patches need `patches.txt` lines (maintainer, per the existing convention)
+### `patches.txt` lines
+
+`seed_cashbook_import_rules` runs under `[post_model_sync]` (#1756): it inserts only a missing row and never
+touches one a person changed. `backfill_outflow_row_source` still needs its line (maintainer):
 
 ```
-nirmaan_stack.patches.v3_0.seed_cashbook_import_rules
 nirmaan_stack.patches.v3_0.backfill_outflow_row_source
 ```
 

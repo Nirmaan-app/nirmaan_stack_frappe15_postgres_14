@@ -270,17 +270,6 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet, a *Collect payment* included (since 2026-11-18). Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. No new wallet spend is dated earlier (see *Line before 1 Apr 2026*). (Owner, 2026-11-02; this financial year, 2026-11-07.)
 
-- **Project alias** — a nickname people write in a wallet spend's remark for a Won project, where the project's
-  own name would not be found: a shorter name, a short initialism, or a habitual misspelling. A remark naming it
-  names that project. Accountants keep the list in Desk; each site starts with the owner's four (#1756), and a later change to
-  one is kept. *Avoid*: project keyword, project rule (a rule chooses an expense type).
-
-- **Expense-type rule** — a word in a wallet spend's remark that gives its *Expense type*, kept separately for the
-  Project and the Non-Project ledger, so one word can mean a different type on each (courier: transport on a
-  project, postage otherwise). A word counts at the start of a remark's word; the longest matching word wins; no
-  match, or two types matching equally, gives Petty Cash. Accountants keep the list in Desk; each site starts with the owner's
-  42 (#1756), and a later change to one is kept. *Avoid*: keyword map, expense rule, category rule.
-
 - **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app (Zomato, Urban Company, Blinkit). Money left the company, so it is never treated as a move between the company's own balances. It is a *Wallet spend* like any other: the import records it as one Expense, with its bills as the invoice, and it waits for its invoice when it has none. One refunded in full on the same statement is not recorded (see *Paired wallet refund*). (Owner, 2026-11-02; recorded on its own since 2026-11-18, [ADR-0015 Amendment C](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept open for a person to record or skip.)
 
 - **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported (a **late bill**) arrives with a later statement and is attached then. Each becomes an *Expense bill* with its *Bill check*, a late bill too; one of several pages is Not checked. (Owner, 2026-11-02; Bill check, 2026-11-07.)
@@ -300,6 +289,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, and a company top-up is never one (that is an Internal Transfer). It is recorded as a *Wallet credit expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment E](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 - **Wallet credit expense** — the *Paid* Expense of minus a *Wallet credit*'s amount. It goes on a project when its remark names exactly one, typed from the remark; otherwise it is a Non-Project Expense typed from the remark, else Petty Cash. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
+
+- **Project alias** — a nickname people write in a wallet spend's remark for a Won project whose own name the remark does not carry: a shorter name, a short initialism, or a habitual misspelling. A remark naming the alias names that project. (Owner, 2026-11-25, #1756.)
+  *Avoid*: project keyword, project rule (a rule gives an expense type).
+
+- **Expense-type rule** — a word in a wallet spend's remark that gives its *Expense type*, set separately for the Project and the Non-Project ledger, so one word can mean a different type on each (courier: transport on a project, postage otherwise). When several rules' words appear, the longest word decides; when none does, or two types tie, the spend is Petty Cash. (Owner, 2026-11-25, #1756.)
+  *Avoid*: keyword map, expense rule, category rule.
 
 ## Expense bills
 
