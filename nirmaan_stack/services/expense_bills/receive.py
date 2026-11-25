@@ -21,7 +21,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.services.card_invoices import is_card_spend, is_cashbook_spend
-from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
+from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
 from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
@@ -44,6 +44,7 @@ def receive_bill(
     bill_count: int = 1,
     *,
     approve: bool = False,
+    system_approve: bool = False,
     file_stays: bool = False,
 ) -> str:
     """File `file_url` as Expense `doc`'s bill (`doc` read `FOR UPDATE` by the caller) and record it; returns the
@@ -59,6 +60,11 @@ def receive_bill(
 
     `approve`: the bill is approved at once in `user`'s name (an approver replacing a paid Expense's bill on Payment
     Done, #1643). Its Bill check still runs and is recorded, and never replaces that number or date.
+
+    `system_approve`: the bill is approved at once by the system (auto-approved, `approved_by` "System"), as the
+    Cashbook import's copy of a wallet bill is (#1755, spec #1753): only `cashbook_bills._attach_invoice` passes it.
+    Its Bill check still runs and records its verdict, remark and read figures, and a Matched one still fills the
+    number and date as on a Pending bill (`reading.record_check`).
 
     `file_stays` keeps the file's one `File` where it is (an open Collect payment's bill stored on its line before
     #1708 stays there; `patches/v3_0/create_open_collect_payment_expenses`): the URL is
@@ -101,6 +107,10 @@ def receive_bill(
     )
     if approve:
         bill.update({"status": APPROVED, "approved_by": user, "approved_on": now_datetime()})
+    elif system_approve:
+        bill.update(
+            {"status": APPROVED, "auto_approved": 1, "approved_by": SYSTEM_APPROVER, "approved_on": now_datetime()}
+        )
     bill.insert(ignore_permissions=True)
     if verdict is None:
         queue_reading(bill.name)
