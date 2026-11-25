@@ -7514,7 +7514,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    ⚠️ **A line may be split over two or three rows** (pypdf breaks details too wide for their column; read by
    `_match_line_at`): a row that opens
    with date + SerNo but does not end the line is joined with the one or two rows under it, words joined with one
-   space. Only a place row (city and country code, or the code alone) or a points-and-amount row is joined on
+   space. Only a place row (city and country code, or the code alone; a foreign merchant's code starred, `US*`)
+   or a points-and-amount row (its foreign amount and currency included, `18 20 USD 1,933.78`) is joined on
    (`_RUN_ON`), never the next line's opening row, a card heading or an invoice number. A line not complete in
    three rows is unread and the gate refuses the file.
    ⚠️ **An international line** (#1751) prints `points <foreign amount> <CUR> <rupee amount> [CR]`, the foreign

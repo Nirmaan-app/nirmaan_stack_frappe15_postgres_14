@@ -44,7 +44,9 @@ gate refuses the file. The `US*` place code is dropped from the merchant key lik
 
 A line too wide for the Transaction Details column is split over two or three rows (the 2026 Apr, Jun, Jul and
 Sep statements): the opening row holds the date, the SerNo and the first details; the next row the country code,
-or the city and country code; the last the points, the amount and any `CR`:
+or the city and country code; the last the points, the amount and any `CR`. An international line splits the same
+way, its place starred (`FAKECLOUD.COM US*`) and its last row holding the foreign amount and currency before the
+rupee amount (`18 20 USD 1,700.00`):
 
     03/03/2026 12900000001 ING*FAKE TRAVELS  INDI HTTPS://WWW.F
     IN
@@ -279,10 +281,11 @@ _CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
 # A row that opens a transaction: its date and SerNo. A line too wide for the Transaction Details column runs on
 # over the next rows, so such a row may not end the line.
 _LINE_START = re.compile(rf"^{_OPENING}\b")
-# A row a split line runs on to: its place (the city and two-letter country code, or the code alone), then or
+# A row a split line runs on to: its place (the city and two-letter country code, starred for a foreign merchant
+# as in `US*`, or the code alone), then or
 # instead its points, optional international amount, amount and optional CR. Any other row (an invoice number, a
 # page header, a card heading, the next line's opening row) is never part of a line.
-_PLACE = r"(?:\S+\s+)*[A-Z]{2}"
+_PLACE = r"(?:\S+\s+)*[A-Z]{2}\*?"
 _POINTS_AND_AMOUNT = rf"-?\d+(?:\s+{_FOREIGN_PART})?\s+{_RUPEES}(?:\s+CR)?"
 _RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT})\s*$")
 # The two rows under a shape-2 international opening row (#1751): its currency alone, then its rupee amount and

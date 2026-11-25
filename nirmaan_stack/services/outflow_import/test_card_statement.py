@@ -295,6 +295,15 @@ class TestAnInternationalLine(unittest.TestCase):
         self.assertFalse(line.is_credit)
         self.assertEqual(len(statement.lines), 47)
 
+    def test_a_split_line_with_a_starred_place_and_the_foreign_amount_on_its_last_row(self):
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n18 20 USD 470.00\n"
+        )
+        self.assertEqual(line.details, "FAKECLOUD SUBSCRIPTION FAKECLOUD.COM US*")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertEqual(line.merchant_key, "FAKECLOUD SUBSCRIPTION")
+        self.assertEqual(len(statement.lines), 47)
+
     def test_an_international_credit_in_either_shape_is_a_credit_of_the_rupee_amount(self):
         credit = "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n"
         for shape, rows in (
