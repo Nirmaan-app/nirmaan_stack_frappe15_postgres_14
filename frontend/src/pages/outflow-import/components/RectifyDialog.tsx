@@ -32,7 +32,6 @@ import {
     CASHBOOK_SOURCE,
     billCheckText,
     cashbookDetailRows,
-    moveLabel,
     cashbookOutcome,
     defaultMoveType,
     destinationLedger,
@@ -43,6 +42,7 @@ import {
     RECTIFY_METHOD,
     RECTIFY_PLAN_METHOD,
     linesToMove,
+    moveButtonLabel,
     moveDialogTitle,
     placementText,
     rectifyOutcome,
@@ -296,7 +296,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {moveLabel((moving.length ? moving : lines).map((line) => line.ledger))}
+                    {moveButtonLabel(lines, moving)}
                 </Button>
             </div>
         </div>

@@ -35,8 +35,8 @@ describe("projectField (the edit dialog's project lock)", () => {
 	});
 
 	it("leaves any other expense as it was: no project row", () => {
-		expect(projectField({ porter_order: "" })).toEqual({ locked: false });
-		expect(projectField({})).toEqual({ locked: false });
+		expect(projectField({ porter_order: "" }, "Non Project Expenses")).toEqual({ locked: false });
+		expect(projectField({}, "Non Project Expenses")).toEqual({ locked: false });
 	});
 
 	it("locks a Cashbook expense's project and words its Move by where it is (#1757)", () => {

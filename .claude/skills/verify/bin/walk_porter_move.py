@@ -110,9 +110,13 @@ with session(a.task, a.lead, a.password) as (page, out):
         check(button.count() == 1, f"1759-{37 if n == 0 else 38} {step}: the line's button reads {words!r}")
         save(page, out, f"{n}1-line")
         button.click()
+        page.get_by_role("dialog").wait_for(timeout=30_000)
         dialog = page.get_by_role("dialog", name=words, exact=True)
-        check(dialog.count() == 1 or dialog.wait_for(timeout=30_000) is None,
-              f"1759-39 {step}: the dialog is titled {words!r}")
+        page.wait_for_timeout(1500)  # the title is "Move" until the plan arrives
+        if not check(dialog.count() == 1, f"1759-39 {step}: the dialog is titled {words!r}"):
+            save(page, out, f"{n}2-dialog-title")
+            page.keyboard.press("Escape")
+            continue
         details_of(dialog, line, step)
         placement = "Non-Project Expense" if doctype == "Non Project Expenses" else f"Project Expense on {line['project_name']}"
         check(f"Now: {placement} ({line['expense']})" in dialog.inner_text(),

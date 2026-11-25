@@ -1,8 +1,8 @@
 // src/pages/outflow-import/cashbookRectify.ts
 //
-// Move a Cashbook spend's expense (#1757, spec #1753): the button and title wording, the wallet line's details and
-// the type offered. Pure: no React, no fetch. `cashbookRectify.test.ts` pins it; `RectifyDialog`, `OutflowRowsTable`,
-// `OutflowMasterPage` and the expense edit dialogs render it. On screen it is Move; the domain keeps Rectify.
+// Move a Cashbook spend's expense (#1757, spec #1753): the wallet line's details and the type offered (the wording
+// is every source's, `utils/moveLabel.ts`). Pure: no React, no fetch. `cashbookRectify.test.ts` pins it;
+// `RectifyDialog` renders it. On screen it is Move; the domain keeps Rectify.
 //
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks.
@@ -15,9 +15,6 @@ import type { RectifyOutcome, RectifyPlanLine, RectifyResult } from "./porterRec
 export const CASHBOOK_SOURCE = "Cashbook";
 
 const PROJECT_EXPENSE = "Project Expenses";
-
-export const MOVE_TO_A_PROJECT = "Move to a project";
-export const CHANGE_PROJECT = "Change project";
 
 /** The latest bill on the expense, with its Bill check. */
 export interface MoveBill {
@@ -39,18 +36,6 @@ export interface CashbookPlanLine extends Omit<RectifyPlanLine, "crn"> {
     expense_type?: string;
     bill?: MoveBill | null;
 }
-
-/**
- * Move's words on any wired source (#1757; Porter #1759): the button, the dialog title and an expense's hint
- * (stories 37-39). "Move to a project" when every expense is a Non Project Expense,
- * "Change project" when every one is on a project, "Move N expenses" for a mixed selection.
- */
-export const moveLabel = (ledgers: readonly (string | null | undefined)[]): string => {
-    const onProject = ledgers.filter((ledger) => ledger === PROJECT_EXPENSE).length;
-    if (onProject === 0) return MOVE_TO_A_PROJECT;
-    if (onProject === ledgers.length) return CHANGE_PROJECT;
-    return `Move ${ledgers.length} expenses`;
-};
 
 const orDash = (value: string | null | undefined) => (value || "").trim() || "--";
 

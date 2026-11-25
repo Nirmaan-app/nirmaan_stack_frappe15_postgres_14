@@ -7,7 +7,9 @@
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks. This only decides what to offer and how to word it.
 
-import { CASHBOOK_SOURCE, moveLabel } from "./cashbookRectify";
+import { moveLabel } from "@/utils/moveLabel";
+
+import { CASHBOOK_SOURCE } from "./cashbookRectify";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
@@ -27,6 +29,10 @@ export const moveDialogTitle = (lines: readonly RectifyPlanLine[]): string => {
     const ledgers = lines.filter((line) => line.ledger).map((line) => line.ledger);
     return moveLabel(ledgers.length ? ledgers : lines.map(() => undefined));
 };
+
+/** The run button's words: the title's until a destination is chosen, then the lines that will move. */
+export const moveButtonLabel = (lines: readonly RectifyPlanLine[], moving: readonly RectifyPlanLine[]): string =>
+    moving.length ? moveLabel(moving.map((line) => line.ledger)) : moveDialogTitle(lines);
 
 /** One ticked line, as the plan reads it. Every field past `refusal` is absent on a refused line. */
 export interface RectifyPlanLine {
@@ -86,9 +92,9 @@ export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean =>
 /** The line button's words, by where the line's expense is now (`moveLabel`; a Porter line too, #1759). */
 export const lineMoveLabel = (row: MovableRow): string => moveLabel([row.suggested_doctype]);
 
-/** The toolbar's words over the ticked lines, by the same rule as one line's (#1757, Porter #1759). */
+/** The toolbar's words over the ticked lines Move is wired for, by the same rule as one line's (#1757, Porter #1759). */
 export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string =>
-    moveLabel(rows.filter((row) => selected.has(row.name)).map((row) => row.suggested_doctype));
+    moveLabel(rows.filter((row) => selected.has(row.name) && movableSource(row)).map((row) => row.suggested_doctype));
 
 export interface RectifyButtonState {
     /** Shown once a Settled Porter or Cashbook line is ticked on this page. */

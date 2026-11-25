@@ -4,7 +4,6 @@ import {
     billCheckText,
     cashbookDetailRows,
     cashbookOutcome,
-    moveLabel,
     defaultMoveType,
     type CashbookPlanLine,
 } from "./cashbookRectify";
@@ -31,22 +30,6 @@ const spend: CashbookPlanLine = {
     expense_type: "Petty Cash",
     bill: { file: "/private/files/bill.jpeg", check: "Mismatched", check_reason: "The bill says Rs 1,999." },
 };
-
-describe("the Move button and title (spec #1753 stories 37-39)", () => {
-    it("reads Move to a project on a Non Project Expense", () => {
-        expect(moveLabel([NPE])).toBe("Move to a project");
-        expect(moveLabel([NPE, NPE])).toBe("Move to a project");
-    });
-
-    it("reads Change project on a Project Expense", () => {
-        expect(moveLabel([PE])).toBe("Change project");
-        expect(moveLabel([PE, PE, PE])).toBe("Change project");
-    });
-
-    it("reads Move N expenses for a mixed selection", () => {
-        expect(moveLabel([PE, NPE, NPE])).toBe("Move 3 expenses");
-    });
-});
 
 describe("the wallet spend's details (story 42)", () => {
     it("shows date, spender, who was paid, amount and Remark", () => {
@@ -115,6 +98,11 @@ describe("Move in Bulk Import (stories 1, 3, 7, 9)", () => {
         const page = [porter("p"), { ...porter("q"), suggested_doctype: PE }, { ...porter("r"), suggested_doctype: PE }];
         expect(toolbarMoveLabel(page, new Set(["q", "r"]))).toBe("Change project");
         expect(toolbarMoveLabel(page, new Set(["p", "q"]))).toBe("Move 2 expenses");
+    });
+
+    it("words the toolbar by the movable lines alone, a ticked bank line aside", () => {
+        const page = [{ ...porter("p"), suggested_doctype: PE }, { ...bank("c"), suggested_doctype: "Project Payments" }];
+        expect(toolbarMoveLabel(page, new Set(["p", "c"]))).toBe("Change project");
     });
 
     it("is off while a line of another kind is ticked with them, and says why", () => {

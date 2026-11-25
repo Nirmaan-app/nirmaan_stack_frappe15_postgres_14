@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SITEURL from "@/constants/siteURL";
 import { useUserData } from "@/hooks/useUserData";
-import { moveLabel } from "@/pages/outflow-import/cashbookRectify";
 import { canUndoOutflow } from "@/pages/outflow-import/outflowImportStatus";
 import {
 	isPorterExpense,
@@ -24,6 +23,7 @@ import {
 	porterSectionRows,
 	type PorterExpenseSection,
 } from "@/utils/porterExpense";
+import { moveLabel } from "@/utils/moveLabel";
 
 const PORTER_EXPENSE_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.get_porter_expense";
 const MOVE_LINE_METHOD = "nirmaan_stack.api.outflow_import.rectify.get_move_line";

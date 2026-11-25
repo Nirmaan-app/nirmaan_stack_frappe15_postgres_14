@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     linesToMove,
+    moveButtonLabel,
     moveDialogTitle,
     placementText,
     rectifyAffordance,
@@ -99,6 +100,12 @@ describe("The Move dialog's title follows the label rule (#1759, story 39)", () 
     it("words a refused line, which has no ledger, by the lines that have one", () => {
         expect(moveDialogTitle([onQuillon, refused])).toBe("Change project");
         expect(moveDialogTitle([refused])).toBe("Move to a project");
+    });
+
+    it("words the run button as the title until a destination is chosen, then by the lines that will move", () => {
+        const nonProject2: RectifyPlanLine = { ...onQuillon, row: "OFR-5", ledger: "Non Project Expenses", project: null };
+        expect(moveButtonLabel([onQuillon, refused], [])).toBe("Change project");
+        expect(moveButtonLabel([onQuillon, nonProject2], [nonProject2])).toBe("Move to a project");
     });
 });
 
