@@ -262,3 +262,142 @@ class TestASpendAndItsRefundMoveTogether(CashbookRectifyCase):
         self.assertIn(PART_REFUND + self.suffix, result["lines"][0]["reason"])
         self.assertEqual(self._expense(PART_SPEND).name, spend.name)
         self.assertEqual(self._expense(PART_REFUND).name, refund.name)
+
+
+class TestEachRefusalIsSaidBeforeConfirmAndMovesNothing(CashbookRectifyCase):
+    """Each condition is set raw on the expense the import created (the test's own setup), then asked of the plan and
+    the write: the same sentence from both, and the expense left where it was."""
+
+    def _refused(self, words: str, legs: int = 1):
+        before = self._expense(ONE_LINK)
+        [planned] = self._plan(ONE_LINK)["lines"]
+        [written] = self._move([ONE_LINK], self.orchid)["lines"]
+        self.assertIn(words, planned["refusal"] or "")
+        self.assertEqual((written["rectified"], written["reason"]), (False, planned["refusal"]))
+        self.assertEqual(self._expense(ONE_LINK).name, before.name)
+        self.assertEqual(len(self._legs(ONE_LINK)), legs)
+
+    def _set(self, field: str, value):
+        expense = self._expense(ONE_LINK)
+        frappe.db.set_value(expense.doctype, expense.name, field, value, update_modified=False)
+        frappe.db.commit()
+        return expense
+
+    def test_an_expense_not_paid(self):
+        self._set("status", "Approved")
+        self._refused("Approved, not Paid")
+
+    def test_a_reimbursements_expense(self):
+        self._set("reimbursement", "TEST-REIMB-0001")
+        self._refused("Reimbursement TEST-REIMB-0001")
+
+    def test_an_expense_requests_expense(self):
+        self._set("request_id", "TEST-EXREQ-0001")
+        self._refused("Expense Request TEST-EXREQ-0001")
+
+    def test_an_expense_carrying_a_payment_tds_deduction(self):
+        expense = self._expense(ONE_LINK)
+        tds = frappe.get_doc(
+            {"doctype": "Payment TDS Deduction", "non_project_expense": expense.name, "tds_amount": 10,
+             "status": "Pending"}
+        )
+        tds.name = f"TEST-TDS-{frappe.generate_hash(length=6)}"
+        tds.db_insert()
+        frappe.db.commit()
+        self.addCleanup(self._drop, "Payment TDS Deduction", tds.name)
+        self._refused(f"Payment TDS Deduction {tds.name}")
+
+    def test_a_bill_still_being_read(self):
+        expense = self._expense(ONE_LINK)
+        [bill] = bills_of(expense.doctype, expense.name)
+        self.assertEqual(bill.bill_check, "Checking")
+        frappe.db.set_value("Expense Bill", bill.name, "read_claimed_at", frappe.utils.now_datetime())
+        frappe.db.commit()
+        self._refused("being read")
+
+    def test_a_line_settled_to_more_than_one_record(self):
+        line = self._line(ONE_LINK)
+        extra = frappe.get_doc(
+            {"doctype": "Outflow Row Match", "import_row": line.name, "import_batch": self.batch,
+             "target_doctype": "Project Payments", "target_name": "TEST-PAYMENT-0001", "match_kind": "Settled",
+             "target_amount": 1}
+        )
+        extra.name = f"TEST-MATCH-{frappe.generate_hash(length=6)}"
+        extra.db_insert()
+        frappe.db.commit()
+        self._refused("more than one record", legs=2)
+
+    def test_a_project_not_won_or_missing_refuses_the_whole_write(self):
+        for project in (self.tender, "TEST-NO-SUCH-PROJECT"):
+            with self.assertRaises(frappe.ValidationError):
+                self._move([ONE_LINK], project)
+        self.assertEqual(self._expense(ONE_LINK).doctype, NON_PROJECT_EXPENSE)
+
+    def test_an_accountant_can_neither_plan_nor_move(self):
+        from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, _Users
+
+        users = _Users()
+        self.addCleanup(users.purge)
+        accountant = users.make(ACCOUNTANT)
+        frappe.set_user(accountant)
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                self._plan(ONE_LINK)
+            with self.assertRaises(frappe.PermissionError):
+                self._move([ONE_LINK], self.orchid)
+        finally:
+            frappe.set_user("Administrator")
+
+    def _drop(self, doctype: str, name: str):
+        frappe.db.rollback()
+        frappe.db.delete(doctype, name)
+        frappe.db.commit()
+
+
+class TestTheTypeFitsTheDestination(CashbookRectifyCase):
+    def test_a_chosen_type_goes_on_the_new_expense_and_the_line(self):
+        self._move([ONE_LINK], self.orchid, expense_type="Material Purchases")
+
+        self.assertEqual(self._expense(ONE_LINK).type, "Material Purchases")
+        self.assertEqual(self._line(ONE_LINK).suggested_expense_type, "Material Purchases")
+
+    def test_a_type_the_destination_does_not_take_is_refused_and_nothing_moves(self):
+        self._move([ONE_LINK], self.orchid, expense_type="Material Purchases")
+        on_orchid = self._expense(ONE_LINK)
+
+        [line] = self._move([ONE_LINK], None)["lines"]
+
+        self.assertFalse(line["rectified"])
+        self.assertIn("not an expense type for Non Project Expenses", line["reason"])
+        self.assertEqual(self._expense(ONE_LINK).name, on_orchid.name)
+        [line] = self._move([ONE_LINK], None, expense_type="Petty Cash")["lines"]
+        self.assertTrue(line["rectified"], line)
+
+
+class TestThePlanShowsTheWalletSpend(CashbookRectifyCase):
+    def test_each_line_its_placement_and_details_and_the_choices(self):
+        self._read(ONE_LINK, Decimal("1999.00"))
+        expense = self._expense(ONE_LINK)
+
+        plan = self._plan(ONE_LINK)
+
+        [line] = plan["lines"]
+        self.assertIsNone(line["refusal"])
+        self.assertEqual(
+            (line["txn_id"], line["ledger"], line["project"], line["expense"], line["amount"]),
+            (ONE_LINK + self.suffix, NON_PROJECT_EXPENSE, None, expense.name, 2380.0),
+        )
+        self.assertEqual(
+            (line["date"], line["spender"], line["counterparty"], line["remark"], line["money_in"],
+             line["expense_type"]),
+            (str(expense.payment_date), "Meera Iyer", "TESTPAYEE COURIER ONE",
+             "Courier charges from bngl to Ahemadbad", False, "Petty Cash"),
+        )
+        self.assertEqual((line["bill"]["file"], line["bill"]["check"]), (expense.invoice_attachment, "Mismatched"))
+        self.assertTrue(line["bill"]["check_reason"])
+        won = {p["name"] for p in plan["projects"]}
+        self.assertIn(self.orchid, won)
+        self.assertNotIn(self.tender, won)
+        self.assertIn("Material Purchases", plan["types"][PROJECT_EXPENSE])
+        self.assertNotIn("Material Purchases", plan["types"][NON_PROJECT_EXPENSE])
+        self.assertIn("Petty Cash", plan["types"][NON_PROJECT_EXPENSE])
