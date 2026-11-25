@@ -69,6 +69,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     refuse_unless_won,
     won_projects,
 )
+from nirmaan_stack.api.outflow_import.rectify_phrase import learn_phrase, phrase_refusal
 from nirmaan_stack.api.outflow_import.rectify_refusals import already_there, expense_refusal, line_refusal
 from nirmaan_stack.api.outflow_import.rectify_sources import PORTER, RectifySource
 from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, stamp_reversed
@@ -125,7 +126,12 @@ def plan_rectify(source: RectifySource, rows) -> dict:
 
 
 def rectify_rows(
-    source: RectifySource, rows, project: str | None = None, reason: str = "", expense_type: str | None = None
+    source: RectifySource,
+    rows,
+    project: str | None = None,
+    reason: str = "",
+    expense_type: str | None = None,
+    phrase: str | None = None,
 ) -> dict:
     """Move each line's Expense to `project` (blank: Non-Project), each line in its own transaction -- or, for lines
     that must move together (`RectifySource.partners`: a wallet spend and its refund), each such group in one.
@@ -133,10 +139,14 @@ def rectify_rows(
     `expense_type`: the type every replacement takes; blank keeps each one's own. Either way it must suit the
     destination ledger, or the line is refused in the writer's words.
 
-    Returns `{"count": N, "lines": [...]}`, one entry per distinct line in the order sent: either
+    `phrase` (#1758): for a project destination, saved as an active project alias once at least one line moved
+    (`rectify_phrase`); a phrase that already names another project refuses the whole write. Ignored for Non-Project.
+
+    Returns `{"count": N, "lines": [...]}` (and `"phrase"`, `learn_phrase`'s answer, when one was learned or
+    refused), one entry per distinct line in the order sent: either
     `{"row", "rectified": True, "from": {...}, "to": {...}, **source's result}` or
     `{"row", "rectified": False, "reason"}`. Refused outright, writing nothing: no undo access, no reason,
-    no lines or too many, a project that does not exist or is not Won.
+    no lines or too many, a project that does not exist or is not Won, a phrase that names another project.
 
     ⚠️ A REFUSED LINE NEVER STOPS THE OTHERS, AND NEVER POPS A MESSAGE -- the bulk Unreconcile's shape. A
     line that fails part-way is rolled back whole, with every line of its group: its old Expense and match are as
@@ -150,11 +160,18 @@ def rectify_rows(
     project = (project or "").strip() or None
     if project:
         refuse_unless_won(project)
+    refusal = phrase_refusal(phrase, project)
+    if refusal:
+        frappe.throw(refusal, title="Phrase already taken")
     expense_type = (expense_type or "").strip() or None
     done: dict[str, dict] = {}
     for group in _groups(source, names):
         done.update(_rectify_group(source, group, project, reason, actor, len(names), expense_type))
-    return {"count": len(names), "lines": [done[row] for row in names]}
+    result = {"count": len(names), "lines": [done[row] for row in names]}
+    learned = learn_phrase(phrase, project) if any(line["rectified"] for line in result["lines"]) else None
+    if learned:
+        result["phrase"] = learned
+    return result
 
 
 def _groups(source: RectifySource, names: list[str]) -> list[list[str]]:

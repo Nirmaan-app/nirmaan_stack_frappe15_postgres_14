@@ -31,14 +31,17 @@ def get_rectify_plan(rows) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def rectify_lines(rows, project: str | None = None, reason: str = "", expense_type: str | None = None) -> dict:
+def rectify_lines(
+    rows, project: str | None = None, reason: str = "", expense_type: str | None = None, phrase: str | None = None
+) -> dict:
     """`rectify_rows` for the ticked lines' source.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.rectify.rectify_lines
     Body: `rows` (a JSON list of `Outflow Import Row` names), `project` (blank: Non Project), `reason`, and
-    `expense_type` (blank: each expense keeps its own).
+    `expense_type` (blank: each expense keeps its own), and `phrase` (#1758: blank or Non Project learns nothing; else
+    saved as a project alias, `rectify_phrase`).
     """
-    return rectify_rows(source_of(rows), rows, project, reason, expense_type)
+    return rectify_rows(source_of(rows), rows, project, reason, expense_type, phrase)
 
 
 @frappe.whitelist()

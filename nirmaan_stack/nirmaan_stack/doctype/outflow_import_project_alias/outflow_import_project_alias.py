@@ -27,6 +27,7 @@ of writing, where there is somebody to tell.
 import frappe
 from frappe.model.document import Document
 
+from nirmaan_stack.api.outflow_import.rectify_phrase import lock_phrase
 from nirmaan_stack.services.outflow_import.project_match import alias_haystack
 
 
@@ -42,6 +43,9 @@ class OutflowImportProjectAlias(Document):
             frappe.throw(
                 "An alias needs at least one letter or number.", title="Nothing to match on"
             )
+
+        # Queue behind a Move learning the same phrase (`rectify_phrase.learn_phrase`, #1758) until it commits.
+        lock_phrase(self.keyword)
 
         for other in frappe.get_all(
             "Outflow Import Project Alias",
