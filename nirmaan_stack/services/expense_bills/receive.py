@@ -21,9 +21,9 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.services.card_invoices import is_card_spend, is_cashbook_spend
-from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
+from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
-from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
+from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check, system_approval
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
@@ -108,9 +108,7 @@ def receive_bill(
     if approve:
         bill.update({"status": APPROVED, "approved_by": user, "approved_on": now_datetime()})
     elif system_approve:
-        bill.update(
-            {"status": APPROVED, "auto_approved": 1, "approved_by": SYSTEM_APPROVER, "approved_on": now_datetime()}
-        )
+        bill.update(system_approval())
     bill.insert(ignore_permissions=True)
     if verdict is None:
         queue_reading(bill.name)

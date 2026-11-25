@@ -233,13 +233,16 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
         doc.invoice_date = doc.invoice_date or verdict.invoice_date
     doc.invoice_amount = verdict.total
     if auto_approve:
-        doc.status = APPROVED
-        doc.auto_approved = 1
-        doc.approved_by = SYSTEM_APPROVER
-        doc.approved_on = now_datetime()
+        doc.update(system_approval())
     doc.save(ignore_permissions=True)
     if fills and verdict.auto_approves and doc.is_latest and expense is not None:
         _fill_expense(expense, doc, verdict)
+
+
+def system_approval() -> dict:
+    """The fields of a bill the system approves, now: a Matched reading's (`record_check`), the Cashbook import's copy
+    on arrival (`receive.receive_bill`, #1755) and its back-fill (`patches/v3_0/approve_cashbook_import_bills`)."""
+    return {"status": APPROVED, "auto_approved": 1, "approved_by": SYSTEM_APPROVER, "approved_on": now_datetime()}
 
 
 def read_fields(reading: Reading) -> dict:
