@@ -17,6 +17,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.cashbook_matches import cashbook_line_of
 from nirmaan_stack.api.outflow_import.porter_rectify import plan_rectify, rectify_rows
 from nirmaan_stack.api.outflow_import.rectify_sources import source_of
+from nirmaan_stack.api.outflow_import.rectify_transfer import INTERNAL_TRANSFER_DESTINATION, TransferTo
 from nirmaan_stack.services.outflow_import.ledgers import is_expense_doctype
 
 
@@ -31,14 +32,29 @@ def get_rectify_plan(rows) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def rectify_lines(rows, project: str | None = None, reason: str = "", expense_type: str | None = None) -> dict:
+def rectify_lines(
+    rows,
+    project: str | None = None,
+    reason: str = "",
+    expense_type: str | None = None,
+    destination: str | None = None,
+    other_end: str | None = None,
+    detail: str | None = None,
+) -> dict:
     """`rectify_rows` for the ticked lines' source.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.rectify.rectify_lines
     Body: `rows` (a JSON list of `Outflow Import Row` names), `project` (blank: Non Project), `reason`, and
-    `expense_type` (blank: each expense keeps its own).
+    `expense_type` (blank: each expense keeps its own). `destination` "Internal Transfer" (#1762) moves each line to
+    an Internal Transfer instead, from or to `other_end` with `detail`, as Mark as Internal Transfer asks; `project`
+    and `expense_type` are then not read.
     """
-    return rectify_rows(source_of(rows), rows, project, reason, expense_type)
+    transfer = (
+        TransferTo(other_end=(other_end or "").strip(), detail=(detail or "").strip())
+        if (destination or "").strip() == INTERNAL_TRANSFER_DESTINATION
+        else None
+    )
+    return rectify_rows(source_of(rows), rows, project, reason, expense_type, transfer)
 
 
 @frappe.whitelist()

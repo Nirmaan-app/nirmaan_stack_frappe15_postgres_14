@@ -83,7 +83,7 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
         now = frappe.utils.now_datetime()
         record_for_line(line, ends, MADE_BY_HAND, marked_by=actor, marked_at=now, reason=reason)
         note = MARKED_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
-        _save_line(row, {"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": note}, actor, now)
+        save_line(row, {"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": note}, actor, now)
         statuses = refresh_batch_rollup(line.import_batch)
         frappe.db.commit()
     return {"row": row, "status": ROW_INTERNAL_TRANSFER, "batch_status": derive_batch_status(statuses)}
@@ -116,7 +116,7 @@ def send_back_to_mismatched(row: str, reason: str) -> dict:
             frappe.delete_doc(INTERNAL_TRANSFER_DOCTYPE, name, ignore_permissions=True, force=True)
         now = frappe.utils.now_datetime()
         note = SENT_BACK_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
-        _save_line(row, {"row_status": ROW_MISMATCHED, "outcome_note": note}, actor, now)
+        save_line(row, {"row_status": ROW_MISMATCHED, "outcome_note": note}, actor, now)
         statuses = refresh_batch_rollup(line.import_batch)
         frappe.db.commit()
     return {"row": row, "status": ROW_MISMATCHED, "batch_status": derive_batch_status(statuses)}
@@ -129,7 +129,7 @@ def _locked_line(row: str):
     return line
 
 
-def _save_line(row: str, values: dict, actor: str, now) -> None:
+def save_line(row: str, values: dict, actor: str, now) -> None:
     """The line's new status and note, who and when, through the document layer (a Version row) and a comment."""
     doc = frappe.get_doc(ROW_DOCTYPE, row)
     doc.update(
