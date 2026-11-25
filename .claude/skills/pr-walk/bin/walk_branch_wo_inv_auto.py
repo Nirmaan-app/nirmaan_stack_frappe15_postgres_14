@@ -12,6 +12,13 @@ can see, and the made-up Accountant `walk-accountant@example.com`. The screens a
 (`wo_invoice_auto_approve_match_setup.py`, which rejects the WO's Pending invoices and generates its FINAL E).
 Every figure checked is read from that env's DB during the run. The env has no Gemini key: the walk answers the
 browser's `extract_invoice_fields` call with the number, amount and signature answer for the file it picked.
+
+Decisions 3, 7 and 10 (`pick_part`, `limits_part`, `rule3_pe_part`, `rule3_acc_part`) first pick their Work Orders
+by query from the same data on each side, before anything is written: GST-off ones the user sees with Amount Paid
+above their Approved invoices (a rule-3 match, a ₹50 near miss, a typed match, a typed rule-2 match), a GST-on one
+for the base-vs-base case, one read and never written (Request Payment, Generate Invoice), and a Pending PO
+invoice. The after side checks that what decision 10 keeps reads the same as on the before side. `--sides after`
+walks one side only, for a probe; the page needs both.
 """
 
 from __future__ import annotations
@@ -45,6 +52,8 @@ ap.add_argument("--user", required=True)
 ap.add_argument("--after", required=True, help="the env on the branch")
 ap.add_argument("--before", required=True, help="the env on develop at the branch's base")
 ap.add_argument("--password", default="WalkPw-WoInv")
+ap.add_argument("--sides", nargs="+", default=["before", "after"], choices=["before", "after"],
+                help="walk only these sides (a probe run); the page needs both")
 a = ap.parse_args()
 ENVS = {"after": a.after, "before": a.before}
 out = Path(a.out)
@@ -173,14 +182,18 @@ answer: dict = {}
 
 def ai_read(route):
     """The AI's answer for the file just picked: `answer` holds its number, amount and signature box."""
+    if answer.get("empty"):
+        route.fulfill(json={"message": None})   # the AI read nothing: the person types every field
+        return
     no, amount, signature = answer["no"], answer["amount"], answer["signature"]
+    base, gst = answer.get("base", amount), answer.get("gst", 0)
     entities = [{"type": "invoice_id", "value": no, "confidence": 1.0},
                 {"type": "total_amount", "value": str(amount), "confidence": 1.0}]
     if signature:
         entities.append({"type": "authorized_signature", "value": signature, "confidence": 1.0})
     route.fulfill(json={"message": {
         "invoice_no": no, "invoice_date": date.today().isoformat(), "amount": str(amount),
-        "net_amount": str(amount), "base_amount": str(amount), "gst_amount": "0", "gst_note": "",
+        "net_amount": str(base), "base_amount": str(base), "gst_amount": str(gst), "gst_note": "",
         "supplier_gstin": "", "receiver_gstin": "", "entities": entities, "line_items": [],
         "confidence": {k: 1.0 for k in ("invoice_no", "invoice_date", "amount", "net_amount", "base_amount",
                                         "gst_amount")},
@@ -193,8 +206,9 @@ def loaded(page) -> None:
     page.wait_for_load_state("networkidle")
 
 
-def open_work_order(page, side: str, cid: str, wo: str, ready: str) -> None:
-    """Sidebar Work Orders › All WO › search by WO ID › the WO's link, as the Procurement Executive does."""
+def open_work_order(page, side: str, cid: str, wo: str, ready: str | None) -> None:
+    """Sidebar Work Orders › All WO › search by WO ID › the WO's link, as the Procurement Executive does. Waits
+    for the generated invoice `ready`'s Print button, or with None for the Invoices card's Add Invoice."""
     sidebar(page, "Work Orders")
     page.get_by_role("button", name=re.compile(r"^All WO\s*\d+$")).click()
     page.locator("a[href*='/service-requests/SR-']").first.wait_for(timeout=60_000)
@@ -205,7 +219,8 @@ def open_work_order(page, side: str, cid: str, wo: str, ready: str) -> None:
     link.wait_for(timeout=30_000)
     w.step(page, cid, side, PE, a.user, f"Work Orders › All WO, searched by WO ID: open {wo}.", click=link)
     loaded(page)
-    page.get_by_role("button", name=f"Print {ready}", exact=True).wait_for(timeout=60_000)
+    page.get_by_role("button", name=f"Print {ready}" if ready else "Add Invoice", exact=True).first.wait_for(
+        timeout=60_000)
 
 
 def generated_row(page, no: str):
@@ -229,10 +244,12 @@ def toast(page, text: str):
         return None
 
 
-def add_invoice(page, side: str, cid: str, no: str, amount: float, signature: str | None, what: str) -> bool:
+def add_invoice(page, side: str, cid: str, no: str, amount: float, signature: str | None, what: str,
+                base: float | None = None, gst: float = 0) -> bool:
     """Add Invoice of `no` as the AI reads it; shoots the filled dialog with its button boxed, then saves.
     Returns whether the unsigned-copy warning showed."""
-    answer.update(no=no, amount=amount, signature=signature)
+    answer.clear()
+    answer.update(no=no, amount=amount, signature=signature, base=amount if base is None else base, gst=gst)
     page.get_by_role("button", name="Add Invoice", exact=True).first.click()
     dialog = page.get_by_role("alertdialog")
     dialog.get_by_text("Upload your invoice").wait_for()
@@ -287,7 +304,8 @@ def pe_part(side: str) -> None:
     A, B, C = seed["records"]
     d_no = f"WALK-{date.today():%y%m%d}-RA{A['name'].rsplit('-', 1)[1]}"
     d_amount = 1_234
-    st = state[side] = {"seed": seed, "wo": wo, "A": A, "B": B, "C": C, "D": d_no, "d_amount": d_amount}
+    st = state[side]
+    st.update({"seed": seed, "wo": wo, "A": A, "B": B, "C": C, "D": d_no, "d_amount": d_amount})
     w.check("d1", ACC, "the Accountant is the seed's made-up one: free_users.py lists none, every Accountant "
             "copied from production holds an asset to declare, which locks them",
             seed["accountant"], seed["accountant"] == "walk-accountant@example.com", kind="info")
@@ -614,6 +632,472 @@ def match_part(side: str) -> None:
                 got[0] == "Pending", kind="info")
 
 
+# ---------------------------------------------------------------- decisions 3, 7 and 10
+
+PICK = '''"""Pick the Work Orders the walk of decisions 3, 7 and 10 uses, from the env's own data, with their figures."""
+import json, sys
+import frappe
+from frappe.utils import flt
+from nirmaan_stack.api.service_requests import generated_invoices as gi_api
+from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.amount_paid import amount_paid_of
+
+SR = "Service Requests"
+
+
+def paid_sum(wo, gst_only=False):
+    """The WO's Paid payments, or their GST payments only (`gst_part_of_amount_paid` on the branch; develop has
+    no such helper, so the walk reads it the same way on both sides)."""
+    return flt(frappe.db.sql("""SELECT COALESCE(SUM(amount), 0) FROM "tabProject Payments" WHERE document_type = %s
+        AND document_name = %s AND status = 'Paid'""" + (" AND is_gst_payment = 1" if gst_only else ""), (SR, wo))[0][0])
+pe = sys.argv[1]
+projects = frappe.get_all("User Permission", filters={"user": pe, "allow": "Projects"}, pluck="for_value")
+frappe.set_user(pe)
+visible = sorted(frappe.get_list(SR, filters={"status": "Approved", "project": ("in", projects)}, pluck="name",
+                                 limit_page_length=0))
+frappe.set_user("Administrator")
+
+
+def figures(wo):
+    sr = frappe.get_doc(SR, wo)
+    by = {s: (flt(a), flt(g), n) for s, a, g, n in frappe.db.sql(
+        """SELECT status, COALESCE(SUM(invoice_amount), 0), COALESCE(SUM(invoice_gst_amount), 0), COUNT(*)
+           FROM "tabVendor Invoices" WHERE document_type = %s AND document_name = %s GROUP BY status""", (SR, wo))}
+    tds = payment_tds.borne_tds_by_order(SR, [wo]).get(wo)
+    state = gi_api._billing_state(sr)
+    f = {"wo": wo, "gst_on": sr.gst == "true", "total": flt(sr.total_amount), "paid": flt(sr.amount_paid),
+         "paid_from_source": flt(amount_paid_of(SR, wo)),
+         "paid_payments": paid_sum(wo), "vendor_tds": flt(tds.vendor) if tds else 0.0,
+         "gst_paid": paid_sum(wo, gst_only=True),
+         "approved": by.get("Approved", (0, 0, 0))[0], "approved_gst": by.get("Approved", (0, 0, 0))[1],
+         "pending": by.get("Pending", (0, 0, 0))[0], "pending_count": by.get("Pending", (0, 0, 0))[2],
+         "open_generated": frappe.db.count("WO Generated Invoice", {"work_order": wo, "status": "Generated"}),
+         "min_amount": state["min_amount"], "max_amount": state["max_amount"]}
+    f["need"] = round(f["paid"] - f["approved"], 2)
+    f["base_need"] = round((f["paid"] - f["gst_paid"]) - (f["approved"] - f["approved_gst"]), 2)
+    return f
+
+
+def room(f, amount):   # the upload's overage check: Pending + Approved + this <= total + 10
+    return f["approved"] + f["pending"] + amount <= f["total"] + 10
+
+
+# Still in the starting state: no invoice waiting (an earlier run's upload leaves one) and no generated invoice
+# not yet uploaded (so no number of the walk's can be a generated one's).
+rows = [f for f in map(figures, visible) if f["total"] > 0 and not f["open_generated"] and not f["pending_count"]]
+off = [f for f in rows if not f["gst_on"] and f["need"] > 100 and abs(f["paid"] - f["total"]) > 100
+       and room(f, f["need"] + 60)]
+# The one read on both sides and never written: the last by name, so a rerun reads the same one.
+limits = max(off, key=lambda f: f["wo"]) if off else None
+rest = sorted((f for f in off if f is not limits), key=lambda f: (f["vendor_tds"] <= 0, f["wo"]))
+match, near, typed = (rest + [None] * 3)[:3]
+rule2 = next((f for f in rest[3:] if room(f, f["total"] - f["approved"])), None)
+on = next((f for f in rows if f["gst_on"] and f["base_need"] > 100
+           and room(f, round(f["base_need"] * 1.18, 2))
+           and abs(f["approved"] + round(f["base_need"] * 1.18, 2) - f["total"]) > 1), None)
+po = frappe.db.sql("""SELECT name, invoice_no, document_name, auto_approve_skip_reasons FROM "tabVendor Invoices"
+    WHERE document_type = 'Procurement Orders' AND status = 'Pending' AND COALESCE(auto_approve_skip_reasons, '') != ''
+    ORDER BY name LIMIT 1""", as_dict=True)
+print(json.dumps({"limits": limits, "match": match, "near": near, "typed": typed, "rule2": rule2, "gst_on": on,
+                  "po": po[0] if po else None, "candidates": len(off)}, default=str))
+'''
+
+INVOICE = '''import json, sys
+import frappe
+rows = frappe.get_all("Vendor Invoices", filters={"invoice_no": ("in", sys.argv[1:])},
+                      fields=["name", "invoice_no", "status", "approved_by", "auto_approved", "autofill_used",
+                              "invoice_amount", "invoice_gst_amount", "auto_approve_skip_reasons", "document_name"])
+print(json.dumps({r.invoice_no: r for r in rows}, default=str))
+'''
+
+
+def py(task: str, label: str, source: str, *args: str) -> dict:
+    """Run `source` on the env with its site connected; keep the script and its output under db/; its last JSON line."""
+    (out / "db").mkdir(exist_ok=True)
+    src = out / "db" / f"{label}.py"
+    src.write_text(source)
+    res = subprocess.run([DEVENV, "script", task, str(src), *args], capture_output=True, text=True, timeout=600)
+    (out / "db" / f"{task}-{label}-{len(list((out / 'db').iterdir()))}.txt").write_text(
+        " ".join(args) + "\n\n" + res.stdout + res.stderr)
+    line = next((ln for ln in reversed(res.stdout.splitlines()) if ln.startswith("{")), None)
+    if line is None:
+        raise RuntimeError(f"{label} on {task} printed no JSON:\n{res.stdout[-800:]}\n{res.stderr[-800:]}")
+    return json.loads(line)
+
+
+def invoices(task: str, *numbers: str) -> dict:
+    return py(task, "invoices", INVOICE, *numbers)
+
+
+def walk_no(tag: str, wo: str) -> str:
+    """A made-up invoice number of its own (no generated invoice has it, so rule 1 cannot apply)."""
+    return f"WALK-{date.today():%y%m%d}-{tag}{wo.rsplit('-', 1)[1]}"
+
+
+def hover_card(page, trigger):
+    """Hover a Not Auto-Approved Reason cell; its card's text and its box measured now (a locator pin would scroll
+    first, and the card closes). ("", the trigger) when no card opens."""
+    try:
+        trigger.hover(timeout=10_000)
+        card = page.locator("[data-radix-popper-content-wrapper]").first
+        card.wait_for(timeout=10_000)
+        page.wait_for_timeout(700)
+        b = card.bounding_box()
+        return card.inner_text(), {"x": round(b["x"]), "y": round(b["y"]), "w": round(b["width"]),
+                                   "h": round(b["height"])}
+    except Exception:
+        return "", trigger
+
+
+def pick_part(side: str) -> None:
+    """Pick the records of decisions 3, 7 and 10 from this env's data before anything is written, and check the
+    figures ADR-0050 decision 3 states."""
+    task = ENVS[side]
+    got = py(task, "pick", PICK, a.user)
+    state[side] = {"pick": got}
+    if side == "after" and "before" in state:
+        then = state["before"]["pick"]
+        for key in ("limits", "match", "near", "typed", "rule2", "gst_on", "po"):
+            ids = [(x or {}).get("wo") or (x or {}).get("name") for x in (got[key], then[key])]
+            w.check("d10" if key in ("limits", "po") else "d3", PE, f"both sides picked the same {key} record",
+                    f"after {ids[0]} | before {ids[1]}", ids[0] == ids[1])
+    m = got["match"]
+    if not m:
+        return
+    seen = can_see(task, a.user, m["wo"])
+    w.check("d3", PE, f"{a.user} sees {m['wo']} (GST-off, Approved)", f"get_list count {seen}", seen == 1,
+            kind="info")   # `visible` is that user's own get_list: every picked WO passes it
+    w.check("d3", PE, f"DB: {m['wo']}'s Amount Paid includes vendor TDS: Paid payments {rupees(m['paid_payments'])} "
+            f"+ TDS {rupees(m['vendor_tds'])}", f"Amount Paid {m['paid']:.2f}",
+            m["vendor_tds"] > 0 and abs(m["paid_payments"] + m["vendor_tds"] - m["paid"]) <= 0.01)
+    w.check("d3", PE, f"DB: {m['wo']}'s stored Amount Paid = recomputed from source",
+            f"{m['paid']:.2f} vs {m['paid_from_source']:.2f}", abs(m["paid"] - m["paid_from_source"]) <= 0.01,
+            kind="info")
+    w.check("d3", PE, f"DB: {m['wo']}'s Approved WO invoices (status Approved only) {rupees(m['approved'])}, its "
+            f"Pending {rupees(m['pending'])} left out; the new invoice = Amount Paid − Approved = {rupees(m['need'])}",
+            f"{m['paid']:.2f} − {m['approved']:.2f} = {m['need']:.2f}",
+            abs(m["approved"] + m["need"] - m["paid"]) <= 0.01, kind="info")
+    w.check("d3", PE, f"rule 2 cannot be what approves it: Amount Paid {rupees(m['paid'])} ≠ WO total "
+            f"{rupees(m['total'])} by more than ₹1", f"{abs(m['paid'] - m['total']):.2f}",
+            abs(m["paid"] - m["total"]) > 1, kind="info")
+
+
+def typed_invoice(page, side: str, cid: str, no: str, amount: float, base: float, gst: float, what: str) -> None:
+    """Add Invoice whose AI read returns nothing, so the Procurement Executive types the number, date and amounts.
+    Shoots the filled dialog with the amount field pinned and the button boxed, then saves."""
+    answer.clear()
+    answer["empty"] = True
+    page.get_by_role("button", name="Add Invoice", exact=True).first.click()
+    dialog = page.get_by_role("alertdialog")
+    dialog.get_by_text("Upload your invoice").wait_for()
+    dialog.locator("input[type=file]").set_input_files(scan(no))
+    dialog.locator("#invoice_no").wait_for(timeout=60_000)
+    dialog.locator("#invoice_no").fill(no)
+    dialog.locator("#invoice_date").fill(date.today().isoformat())
+    for field, value in (("#invoice_amount", amount), ("#invoice_base_amount", base), ("#invoice_gst_amount", gst)):
+        dialog.locator(field).fill(f"{value:.2f}")
+    button = dialog.get_by_role("button", name="Add Invoice", exact=True)
+    for _ in range(40):
+        if button.is_enabled():
+            break
+        page.wait_for_timeout(500)
+    amount_box = dialog.locator("#invoice_amount")
+    marked = "amber" in (amount_box.get_attribute("class") or "")
+    w.check(cid, PE, "the typed amount carries no AI mark (AI-filled fields are amber)",
+            "amber" if marked else "plain", not marked, kind="info")
+    w.step(page, cid, side, PE, a.user, f"Add Invoice of {no}: the AI read nothing, so the number, date and amount "
+           f"{rupees(amount)} are typed by hand ({what}). Save it.", click=button,
+           pins=[pin(amount_box, f"Typed: {rupees(amount)}, " + ("marked amber." if marked else "no amber AI mark."),
+                     "info")])
+    toast(page, "Success")
+    dialog.wait_for(state="hidden", timeout=30_000)
+    page.reload()
+    loaded(page)
+
+
+def no_decision_buttons(row) -> bool:
+    """The row offers no Approve or Reject (by name, or the check and cross icon buttons)."""
+    return not (row.get_by_role("button", name=re.compile(r"approve|reject", re.I)).count()
+                or row.locator("button:has(svg.lucide-check), button:has(svg.lucide-x)").count())
+
+
+def rule3_pe_part(side: str) -> None:
+    """As the Procurement Executive: Add Invoice on the rule-3 match, the near miss, the typed match, the typed
+    rule-2 match and the GST-on match, each on its own WO picked by `pick_part`."""
+    task, st = ENVS[side], state[side]
+    p = st["pick"]
+    plan = []   # (claim, record, tag, amount, base, gst, typed, what)
+    if p["match"]:
+        m = p["match"]
+        plan.append(("d3", m, "R3M", m["need"], m["need"], 0, False,
+                     f"Approved {rupees(m['approved'])} + it = Amount Paid {rupees(m['paid'])} (incl. TDS "
+                     f"{rupees(m['vendor_tds'])}); WO total {rupees(m['total'])}"))
+    if p["near"]:
+        n = p["near"]
+        plan.append(("d3", n, "R3N", n["need"] + 50, n["need"] + 50, 0, False,
+                     f"a near miss: Approved {rupees(n['approved'])} + it = Amount Paid {rupees(n['paid'])} + ₹50"))
+    if p["typed"]:
+        t = p["typed"]
+        plan.append(("d7", t, "R3T", t["need"], t["need"], 0, True,
+                     f"Approved {rupees(t['approved'])} + it = Amount Paid {rupees(t['paid'])}"))
+    if p["rule2"]:
+        r = p["rule2"]
+        amount = round(r["total"] - r["approved"], 2)
+        plan.append(("d7", r, "R2T", amount, amount, 0, True,
+                     f"Approved {rupees(r['approved'])} + it = WO total {rupees(r['total'])}; Amount Paid "
+                     f"{rupees(r['paid'])}, so only rule 2 can match"))
+    if p["gst_on"]:
+        g = p["gst_on"]
+        base = g["base_need"]
+        gst = round(base * 0.18, 2)
+        plan.append(("d3", g, "R3G", round(base + gst, 2), base, gst, False,
+                     f"GST-on: base Approved {rupees(g['approved'] - g['approved_gst'])} + base {rupees(base)} = "
+                     f"base paid {rupees(g['paid'] - g['gst_paid'])} (GST payments {rupees(g['gst_paid'])} left out)"))
+    done = st["rule3"] = []
+    with session(task, a.user, a.password) as (page, _):
+        page.route(EXTRACT, ai_read)
+        for cid, rec, tag, amount, base, gst, typed, what in plan:
+            no = walk_no(tag, rec["wo"])
+            open_work_order(page, side, cid, rec["wo"], None)
+            if typed:
+                typed_invoice(page, side, cid, no, amount, base, gst, what)
+            else:
+                add_invoice(page, side, cid, no, amount, None, what, base=base, gst=gst)
+            row = invoice_row(page, no)
+            row.first.wait_for(timeout=60_000)
+            approved = "Approved" in row_text(row)
+            pins = [pin(row, f"{no}: {'Approved' if approved else 'Pending'}", "info")]
+            if tag == "R3N":
+                bare = no_decision_buttons(row.first)
+                w.check("d10", PE, f"the Procurement Executive's row of Pending {no} offers no Approve or Reject",
+                        "none" if bare else "offered", bare)
+                pins.append(pin(row.first.locator("td").last, "No Approve or Reject for the Procurement Executive.",
+                                "info"))
+            w.step(page, "d10" if tag == "R3N" else cid, side, PE, a.user,
+                   f"{no} ({rupees(amount)}): its Vendor Invoice reads {'Approved' if approved else 'Pending'}"
+                   + (", and its row offers the Procurement Executive no Approve or Reject." if tag == "R3N" else "."),
+                   pins=pins)
+            done.append({"cid": cid, "tag": tag, "no": no, "wo": rec["wo"], "amount": amount, "rec": rec,
+                         "screen": "Approved" if approved else "Pending"})
+    db_rows = invoices(task, *[d["no"] for d in done])
+    labels = {"R3M": "rule 3", "R3T": "rule 3, typed", "R2T": "rule 2, typed", "R3G": "rule 3, GST-on base"}
+    for d in done:
+        inv = db_rows.get(d["no"]) or {}
+        got = (inv.get("status"), inv.get("approved_by"), inv.get("auto_approved"))
+        rec, tag = d["rec"], d["tag"]
+        if side == "before":
+            w.check(d["cid"], PE, f"before: {d['no']} stays Pending (no WO auto-approval on develop)",
+                    f"{got[0]} / {inv.get('auto_approve_skip_reasons')}", got[0] == "Pending", kind="info")
+            continue
+        if tag == "R3N":
+            want = f"wo_paid_mismatch:{rec['paid']:.2f}:{rec['approved'] + d['amount']:.2f}"
+            reasons = inv.get("auto_approve_skip_reasons") or ""
+            w.check("d3", PE, f"DB: near miss {d['no']} stays Pending with {want}", f"{got[0]} / {reasons}",
+                    got[0] == "Pending" and want in reasons)
+            w.check("d3", PE, "± ₹1: the near miss is ₹50 over Amount Paid, outside ₹1",
+                    f"{rec['approved'] + d['amount'] - rec['paid']:.2f}",
+                    abs(rec["approved"] + d["amount"] - rec["paid"]) > 1, kind="info")
+            continue
+        w.check(d["cid"], PE, f"DB: {d['no']} ({labels[tag]}) Approved by System, auto_approved 1", str(got),
+                got == ("Approved", "System", 1))
+        w.check(d["cid"], PE, f"screen: {d['no']}'s row reads Approved", d["screen"], d["screen"] == "Approved")
+        if tag in ("R3T", "R2T"):
+            w.check("d7", PE, f"DB: {d['no']} was typed (autofill_used 0)", str(inv.get("autofill_used")),
+                    not inv.get("autofill_used"))
+        if tag == "R2T":
+            w.check("d7", PE, f"only rule 2 can match {d['no']}: Approved + it {rupees(rec['approved'] + d['amount'])} "
+                    f"vs Amount Paid {rupees(rec['paid'])} differ by more than ₹1",
+                    f"{abs(rec['approved'] + d['amount'] - rec['paid']):.2f}",
+                    abs(rec["approved"] + d["amount"] - rec["paid"]) > 1, kind="info")
+        if tag in ("R3M", "R3T"):
+            w.check("d3", PE, f"± ₹1: {d['no']}'s Approved + it vs Amount Paid within ₹1",
+                    f"{rec['approved'] + d['amount']:.2f} vs {rec['paid']:.2f}",
+                    abs(rec["approved"] + d["amount"] - rec["paid"]) <= 1, kind="info")
+
+
+def search_tab(page, tab: str, text: str):
+    page.get_by_role("button", name=tab, exact=True).click()
+    page.wait_for_load_state("networkidle")
+    search = page.get_by_role("textbox", name=re.compile(r"^Search")).first
+    search.fill(text)
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(1500)
+    return search
+
+
+def kept(side: str, role: str, key: str, now: str, what: str) -> str:
+    """Decision 10: keep `now` under `key`; on the after side check it reads as the before side's did. The kind of
+    pin the step shows it with: `must` when they differ (ADR-0050 decisions 1-9 change none of these screens)."""
+    state[side][key] = now
+    (out / f"{key}-{side}.txt").write_text(now)
+    if side != "after" or "before" not in state:
+        return "info"
+    then = state["before"].get(key)
+    w.check("d10", role, f"{what} reads the same before and after",
+            "same" if now == then else f"after: {now[:200]} | before: {str(then)[:200]}", now == then)
+    return "info" if now == then else "must"
+
+
+def preview(page, side: str, cid: str, acc: str, tab: str, caption: str, pin_text: str, pattern: str,
+            keep: str | None = None) -> str:
+    """Re-check on the tab open now, preview only: shoot it with the first `pattern` match pinned, Cancel. With
+    `keep`, the preview's text is decision 10's, compared across the sides (`kept`)."""
+    page.get_by_role("button", name="Re-check", exact=True).click()
+    dlg = page.get_by_role("dialog")
+    dlg.get_by_text("Re-check results").wait_for(timeout=60_000)
+    page.wait_for_timeout(1500)
+    text = dlg.inner_text()
+    (out / f"recheck-{tab}-{cid}-{side}.txt").write_text(text)
+    kind = kept(side, ACC, keep, text, "the PO tab's Re-check preview text and counts") if keep else "info"
+    mark = dlg.get_by_text(re.compile(pattern)).first
+    w.step(page, cid, side, ACC, acc, caption(text) + " Cancel: nothing is applied.",
+           click=dlg.get_by_role("button", name="Cancel", exact=True),
+           pins=[pin(mark, pin_text if kind == "info" else "Differs from develop's preview.", kind)]
+           if mark.count() else [])
+    return text
+
+
+def rule3_acc_part(side: str) -> None:
+    """As the Accountant: the rule-3 match is not waiting, the near miss's reason, Re-check's preview, the PO tab's
+    reason and Re-check (decision 10), and an approval by hand (after only)."""
+    task, st = ENVS[side], state[side]
+    acc = st["seed"]["accountant"]
+    by_tag = {d["tag"]: d for d in st.get("rule3", [])}
+    po = st["pick"]["po"]
+    m, n = by_tag.get("R3M"), by_tag.get("R3N")
+    with session(task, acc, a.password) as (page, _):
+        accountant_rows(page)
+        if m:
+            search = search_tab(page, "WO", m["wo"])
+            row = page.get_by_role("row").filter(has_text=m["no"])
+            listed = row.count() > 0
+            if side == "after":
+                w.check("d3", ACC, f"Pending Invoice Approvals › WO does not list {m['no']} (approved by the System)",
+                        "listed" if listed else "not listed", not listed)
+            w.step(page, "d3", side, ACC, acc, f"As the Accountant, Pending Invoice Approvals › WO, searched "
+                   f"{m['wo']}: {m['no']} is " + ("listed, waiting for an Accountant." if listed else
+                                                  "not here: nothing waits for an Accountant."),
+                   pins=[pin(row if listed else search, f"{m['no']} {'waits' if listed else 'is not listed'}.",
+                             "info")])
+        if n:
+            search_tab(page, "WO", n["wo"])
+            row = page.get_by_role("row").filter(has_text=n["no"]).first
+            row.wait_for(timeout=30_000)
+            rec = n["rec"]
+            label = f"Invoices + this {rupees(rec['approved'] + n['amount'])} ≠ Amount Paid {rupees(rec['paid'])}"
+            card, target = hover_card(page, row.locator("div.cursor-default.rounded").first)
+            shown = row.inner_text() + "\n" + card
+            if side == "after":
+                w.check("d3", ACC, f"{n['no']}'s reason shows {label!r} (the figures the walk computed)",
+                        "shown" if label in shown else shown[-240:], label in shown)
+            w.step(page, "d3", side, ACC, acc,
+                   f"Pending Invoice Approvals › WO, searched {n['wo']}: the near miss {n['no']}'s Not Auto-Approved "
+                   "Reason, hovered" + (f": {label}." if side == "after" else "."),
+                   pins=[pin(target, "The reason on develop." if side == "before" else
+                             "The Amount Paid reason with its figures." if label in shown else
+                             f"Not the figures the walk computed: {label}.", "must" if side == "after" and label
+                             not in shown else "info")], settle_ms=200)
+            page.mouse.move(0, 0)
+            page.wait_for_timeout(600)
+        # Re-check on the WO tab after the walk's uploads: does a Pending WO invoice match by rule 3 now?
+        search_tab(page, "WO", "")
+        text = preview(page, side, "d3", acc, "wo", lambda t: "Re-check on the WO tab after the walk's uploads: the "
+                       "preview " + (f"names {len(re.findall('Rule 3 · ', t))} invoice(s) by rule 3." if "Rule 3 · "
+                                     in t else "names no invoice by rule 3."),
+                       "Rule 3 and its two figures.", r"Rule 3 · ")
+        rule3 = re.findall(r"Rule 3 · invoiced (₹[\d,]+) = Amount Paid (₹[\d,]+)", text)
+        if side == "after":
+            st["rule3_recheck"] = rule3
+            if rule3:
+                state["rule3_seen"] = True
+                w.check("d3", ACC, "Re-check's preview names a Pending WO invoice matching rule 3",
+                        "; ".join(f"{x} = {y}" for x, y in rule3),
+                        all(abs(money(x) - money(y)) <= 1 for x, y in rule3))
+
+        # Decision 10: the PO tab, the same PO invoice on both sides
+        if po:
+            search = search_tab(page, "PO", po["document_name"])
+            row = page.get_by_role("row").filter(has_text=po["invoice_no"]).first
+            row.wait_for(timeout=30_000)
+            trigger = row.locator("div.cursor-default.rounded").first
+            cell = trigger.inner_text() if trigger.count() else row.inner_text()
+            card, target = hover_card(page, trigger if trigger.count() else row)
+            kind = kept(side, ACC, "po_reason", cell + "\n---\n" + card, "the PO invoice's reason cell and hover")
+            w.step(page, "d10", side, ACC, acc,
+                   f"Pending Invoice Approvals › PO, searched {po['document_name']}: {po['invoice_no']}'s Not "
+                   f"Auto-Approved Reason \"{cell}\", hovered.",
+                   pins=[pin(target, "The PO invoice's reasons." if kind == "info" else "Differs from develop.",
+                             kind)], settle_ms=200)
+            page.mouse.move(0, 0)
+            page.wait_for_timeout(600)
+            search.fill("")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(1500)
+            preview(page, side, "d10", acc, "po", lambda t: "Pending Invoice Approvals › PO: Re-check's preview.",
+                    "The PO tab's preview: the PO-value checks.", r"PO-value", keep="po_recheck")
+
+        # Decision 10: a person approves by hand (after only)
+        if side == "after" and n:
+            search_tab(page, "WO", n["wo"])
+            row = page.get_by_role("row").filter(has_text=n["no"]).first
+            row.wait_for(timeout=30_000)
+            w.step(page, "d10", side, ACC, acc, f"As the Accountant, approve the near miss {n['no']} by hand: its "
+                   "row's Approve.", click=row.locator("button:has(svg.lucide-check)").first)
+            confirm = page.get_by_role("alertdialog").filter(has_text="Confirm Approval").get_by_role(
+                "button", name=re.compile(r"^\s*Approve\s*$"))
+            confirm.wait_for(timeout=30_000)
+            page.wait_for_timeout(2000)   # the comparison inside it loads
+            w.step(page, "d10", side, ACC, acc, "Confirm Approval: Approve.", click=confirm)
+            toast(page, "Success")
+            page.wait_for_timeout(2000)
+    if side == "after" and n:
+        inv = invoices(task, n["no"]).get(n["no"]) or {}
+        got = (inv.get("status"), inv.get("approved_by"), inv.get("auto_approved"))
+        w.check("d10", ACC, f"DB: {n['no']} approved by hand: Approved, approved_by the Accountant, auto_approved 0",
+                str(got), got[0] == "Approved" and got[1] == acc and not got[2])
+
+
+def limits_part(side: str) -> None:
+    """Decision 10 as the Procurement Executive, on one WO read and never written: Request Payment's invoice check
+    and limit, and Generate Invoice's range. The after side compares with the before side's text."""
+    task, st = ENVS[side], state[side]
+    lim = st["pick"]["limits"]
+    if not lim:
+        return
+    w.check("d10", PE, f"{lim['wo']}'s Approved invoices {rupees(lim['approved'])} are below its Amount Paid "
+            f"{rupees(lim['paid'])}", f"{lim['approved']:.2f} < {lim['paid']:.2f}", lim["approved"] < lim["paid"],
+            kind="info")
+    with session(task, a.user, a.password) as (page, _):
+        open_work_order(page, side, "d10", lim["wo"], None)
+        req = page.get_by_role("button", name="Request Payment", exact=True).first
+        req.wait_for(timeout=30_000)
+        w.step(page, "d10", side, PE, a.user, f"{lim['wo']}: Request Payment.", click=req)
+        dlg = page.get_by_role("alertdialog").filter(has_text="Request Payment")
+        dlg.wait_for(timeout=30_000)
+        page.wait_for_timeout(2500)
+        kind = kept(side, PE, "payment", dlg.inner_text(), f"Request Payment's invoice check and limit on {lim['wo']}")
+        pins = [pin(x, x.inner_text() if kind == "info" else "Differs from develop: " + x.inner_text(), kind) for x in (dlg.get_by_text(re.compile(r"^Raised ₹")).first,
+                                                         dlg.get_by_text(re.compile(r"in approved invoices")).first)
+                if x.count()]
+        w.step(page, "d10", side, PE, a.user, "Request Payment on a WO whose Approved invoices are below its Amount "
+               "Paid: the invoice check and the limit it shows. Cancel.", pins=pins,
+               click=dlg.get_by_role("button", name="Cancel", exact=True))
+        page.wait_for_timeout(1000)
+        gen = page.get_by_role("button", name="Generate Invoice", exact=True).first
+        gen.wait_for(timeout=30_000)
+        w.step(page, "d10", side, PE, a.user, f"{lim['wo']}'s Invoices card: Generate Invoice.", click=gen)
+        gdlg = page.get_by_role("dialog").filter(has_text="Generate Invoice for")
+        gdlg.wait_for(timeout=30_000)
+        page.wait_for_timeout(1500)
+        rng = gdlg.get_by_text(re.compile(r"^Bill ")).first
+        text = rng.inner_text() if rng.count() else gdlg.inner_text()
+        kind = kept(side, PE, "generate", text, f"Generate Invoice's range on {lim['wo']}")
+        w.step(page, "d10", side, PE, a.user, f"Generate Invoice's range: \"{text}\". Close it.",
+               pins=[pin(rng, "The allowed range." if kind == "info" else "Differs from develop.", kind)]
+               if rng.count() else [])
+        page.keyboard.press("Escape")
+
+
 def guarded(cids: tuple, fn, side: str) -> bool:
     """Run one part on one side. A part that stops fails every claim it feeds (its evidence so far is kept), and
     returns False so the later parts of that side, which need its records, do not run."""
@@ -630,27 +1114,50 @@ def guarded(cids: tuple, fn, side: str) -> bool:
         return False
 
 
-PLAN = [(("d1", "d4", "d6", "d8", "amend_c"), pe_part), (("d5", "d8", "d9"), acc_part), (("d2",), match_part)]
+PLAN = [(("d3", "d7", "d10"), pick_part), (("d1", "d4", "d6", "d8", "amend_c"), pe_part),
+        (("d5", "d8", "d9"), acc_part), (("d2",), match_part), (("d10",), limits_part),
+        (("d3", "d7", "d10"), rule3_pe_part), (("d3", "d10"), rule3_acc_part)]
 for side in ("before", "after"):
+    if side not in a.sides:
+        continue
     for cids, fn in PLAN:
-        if (not a.only or fn.__name__ in a.only) and (fn is pe_part or side in state):
+        if (fn is pick_part or side in state) and (not a.only or fn.__name__ in a.only or fn is pick_part):
             if not guarded(cids, fn, side):
                 state.pop(side, None)
                 break
 
-NOT_WALKED = {
-    "d3": "The walk set up no WO where Approved invoices + one more = Amount Paid, and the WO tab's Re-check "
-          "preview listed no rule-3 match. The reasons show the Amount Paid figure (decision 8). Pinned by "
-          "services/test_work_order_invoice_rules.TestRuleThreeAmountPaid, TestRuleThreeOnAGstOnWorkOrder and "
-          "api/invoices/test_wo_auto_approve.TestRuleThreeAtUpload.",
-    "d7": "A typed (not AI-read) matching amount was not driven. Pinned by "
-          "api/invoices/test_wo_auto_approve.TestRuleThreeAtUpload.test_a_typed_invoice_equal_to_amount_paid_is_approved.",
-    "d10": "\"Nothing else changes\" has no one screen, and this walk compared no PO invoice (commit 4016a5f3f's "
-           "message reports 400 of 400 PO decisions unchanged). Pinned by api/invoices/test_wo_auto_approve."
-           "TestWhyNotAtUpload.test_a_purchase_order_invoice_still_gets_its_gates and "
-           "TestReCheckOnTheWorkOrderTab.test_the_po_tabs_re_check_leaves_it_alone.",
-}
+after = state.get("after", {})
+tags = {d["tag"] for d in after.get("rule3", [])}
+NOT_WALKED = {}
+if "R3M" not in tags:
+    NOT_WALKED["d3"] = ("No GST-off WO on the Procurement Executive's projects had Amount Paid above its Approved "
+                        "invoices with room under its total, so no rule-3 match was set up. Pinned by "
+                        "services/test_work_order_invoice_rules.TestRuleThreeAmountPaid and "
+                        "api/invoices/test_wo_auto_approve.TestRuleThreeAtUpload.")
+if not tags & {"R3T", "R2T"}:
+    NOT_WALKED["d7"] = ("No WO was left for a typed match. Pinned by api/invoices/test_wo_auto_approve."
+                        "TestRuleThreeAtUpload.test_a_typed_invoice_equal_to_amount_paid_is_approved.")
+d3_left = []
+if "R3G" not in tags:
+    d3_left.append("the GST-on base-vs-base case: no GST-on WO on the Procurement Executive's projects has base paid "
+                   "above base Approved with room under its total (services/test_work_order_invoice_rules."
+                   "TestRuleThreeOnAGstOnWorkOrder)")
+if not state.get("rule3_seen"):
+    d3_left.append("Re-check naming rule 3: no Pending WO invoice in this env's data equals Amount Paid, so the "
+                   "preview names none (the step shows it; api/invoices/test_wo_auto_approve."
+                   "TestReCheckOnTheWorkOrderTab)")
+d10_walked = [what for what, key in (("the PO tab's reason and Re-check", "po_recheck"),
+                                     ("Request Payment's invoice check", "payment"),
+                                     ("Generate Invoice's range", "generate")) if key in after]
+if "R3N" in tags:
+    d10_walked.append("an approval by hand")
 PARTLY = {
+    "d3": "Not walked: " + "; ".join(d3_left) + "." if d3_left else "",
+    "d7": "" if "R2T" in tags else ("Not walked: a typed amount matching rule 2 (no WO was left where only rule 2 "
+                                    "can match; api/invoices/test_wo_auto_approve.TestRuleTwoAtUpload)."),
+    "d10": "Walked on the same records before and after: " + (", ".join(d10_walked) or "none") + ". Not walked: who may "
+           "upload, generate or edit, beyond the Procurement Executive's row offering no Approve or Reject "
+           "(services/test_work_order_invoice_access).",
     "d1": "Not walked: the duplicate refusal (api/service_requests/test_add_invoice_signed_copy.TestADuplicate), the "
           "± ₹1 amount match (services/test_work_order_invoice_rules.TestAddInvoiceOfAGeneratedInvoice."
           "test_the_amount_may_differ_by_a_rupee), a copy ahead of Amount Paid (test_add_invoice_signed_copy."
@@ -669,7 +1176,7 @@ for c in w.data["changes"]:
     bad = [k for k in w.data["checks"] if k["change"] == c["id"] and not k["ok"] and k["kind"] == "must"]
     musts = [p for s in w.data["steps"] if s["change"] == c["id"] for p in s["pins"] if p["kind"] == "must"]
     walked = any(x["change"] == c["id"] for x in w.data["steps"] + w.data["checks"])
-    if c["id"] in NOT_WALKED and not (c["id"] == "d3" and state.get("rule3_seen")):
+    if c["id"] in NOT_WALKED and not (bad or musts):   # a failed check is never hidden as "not walked"
         w.status(c["id"], "not_walked", NOT_WALKED[c["id"]])
         continue
     if not walked:
