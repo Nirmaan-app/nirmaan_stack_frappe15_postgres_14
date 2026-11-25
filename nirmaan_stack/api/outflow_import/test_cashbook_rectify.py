@@ -10,6 +10,11 @@ Cashbook statement imported end to end by the job run inline (`test_cashbook_bil
 download and the reading replaced). Read back the way the screens read it: the line, its Settled match, the expense,
 the expense's bills.
 
+The import plans against the suite's own expense-type rules and project aliases (`expense_rules`, none by default),
+never the site's: the seed (#1756) types a courier remark "Postage & Courier", which a project does not take. With no
+rules each line is typed the fallback Petty Cash, which both ledgers take; `TestANonProjectOnlyTypeNeedsAProjectType`
+gives the import a rule like the seed's.
+
 Lines of the fixture used here (made-up statement `cashbook_statement.xlsx`):
   ONE_LINK   a Wallet Spend of Rs 2,380 by Meera Iyer, booked Non Project, one bill (1.jpeg)
   PART_SPEND a Wallet Spend of Rs 17,446 by Asha Menon, Non Project; its part refund REF-PART_SPEND (Rs 11,248, the
@@ -19,10 +24,12 @@ Lines of the fixture used here (made-up statement `cashbook_statement.xlsx`):
 
 import json
 from decimal import Decimal
+from unittest.mock import patch
 
 import frappe
 
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
+from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import rectify
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import ONE_LINK, CashbookBillsCase
 from nirmaan_stack.api.outflow_import.test_porter_rectify import _purge_history
@@ -42,6 +49,9 @@ _KEPT = ("amount", "status", "payment_date", "payment_ref", "invoice_ref", "invo
 
 class CashbookRectifyCase(CashbookBillsCase):
     """Two made-up Won projects and one Tendering one; the statement imported, every bill read."""
+
+    #: The expense-type rules the import types each line by (`candidates.load_expense_rules`' shape).
+    expense_rules = {"Project": (), "Non Project": ()}
 
     @classmethod
     def setUpClass(cls):
@@ -77,7 +87,9 @@ class CashbookRectifyCase(CashbookBillsCase):
         return doc.name
 
     def setUp(self):
-        super().setUp()
+        with patch.object(cb, "load_expense_rules", lambda: self.expense_rules), \
+                patch.object(cb, "load_project_aliases", lambda: ()):
+            super().setUp()
         self._run()
         # Runs before the import's purge (cleanups are last-in, first-out), while the matches still name the expenses
         # a Move left history on: the Porter Rectify suite's helper.
@@ -398,6 +410,56 @@ class TestTheTypeFitsTheDestination(CashbookRectifyCase):
         self.assertEqual(self._expense(ONE_LINK).name, on_orchid.name)
         [line] = self._move([ONE_LINK], None, expense_type="Petty Cash")["lines"]
         self.assertTrue(line["rectified"], line)
+
+
+class TestANonProjectOnlyTypeNeedsAProjectType(CashbookRectifyCase):
+    """A rule like the seed's "courier" one (#1756) types the courier spend with a type only Non Project Expenses
+    take. A Move to a project keeps the expense's own type unless a type is chosen, so it is refused until one is."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.courier_type = frappe.get_doc({
+            "doctype": "Expense Type", "expense_name": f"Testcourier Office {frappe.generate_hash(length=4)}",
+            "non_project": 1, "project": 0,
+        }).insert(ignore_permissions=True).name
+        frappe.db.commit()
+        cls.expense_rules = {"Project": (), "Non Project": (("courier", cls.courier_type),)}
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.rollback()
+        try:
+            frappe.db.delete("Expense Type", {"name": cls.courier_type})
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            print(f"cashbook rectify test purge: could not remove expense type {cls.courier_type}")
+        super().tearDownClass()
+
+    def test_moved_to_a_project_it_is_refused_without_a_type_and_moves_with_a_project_type(self):
+        old = self._expense(ONE_LINK)
+        self.assertEqual((old.doctype, old.type), (NON_PROJECT_EXPENSE, self.courier_type))
+        plan = self._plan(ONE_LINK)
+        [planned] = plan["lines"]
+        self.assertEqual((planned["refusal"], planned["expense_type"]), (None, self.courier_type))
+        # What the dialog offers for the destination: the project ledger does not take the line's own type.
+        self.assertNotIn(self.courier_type, plan["types"][PROJECT_EXPENSE])
+        self.assertIn(self.courier_type, plan["types"][NON_PROJECT_EXPENSE])
+
+        [line] = self._move([ONE_LINK], self.orchid)["lines"]
+
+        self.assertFalse(line["rectified"])
+        self.assertEqual(line["reason"], f"'{self.courier_type}' is not an expense type for Project Expenses.")
+        self.assertEqual(self._expense(ONE_LINK).name, old.name)
+        self.assertEqual(len(self._legs(ONE_LINK)), 1)
+
+        [line] = self._move([ONE_LINK], self.orchid, expense_type="Material Purchases")["lines"]
+
+        self.assertTrue(line["rectified"], line)
+        new = self._expense(ONE_LINK)
+        self.assertEqual((new.doctype, new.projects, new.type), (PROJECT_EXPENSE, self.orchid, "Material Purchases"))
+        self.assertEqual(self._line(ONE_LINK).suggested_expense_type, "Material Purchases")
 
 
 class TestThePlanShowsTheWalletSpend(CashbookRectifyCase):
