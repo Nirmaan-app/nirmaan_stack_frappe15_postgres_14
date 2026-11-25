@@ -38,6 +38,8 @@ export interface CashbookPlanLine extends Omit<RectifyPlanLine, "crn"> {
     remark?: string;
     expense_type?: string;
     bill?: MoveBill | null;
+    /** The detail an Internal Transfer starts with (#1762), when the plan offers that destination. */
+    transfer_detail?: string;
 }
 
 /**
@@ -98,4 +100,41 @@ export const defaultMoveType = (
 ): string => {
     const own = [...new Set(lines.map((line) => line.expense_type ?? ""))];
     return own.length === 1 && own[0] && (types[ledger] ?? []).includes(own[0]) ? own[0] : "";
+};
+
+// --- The Internal Transfer destination (#1762, spec #1753 stories 13, 27-28) --------------------------------------
+
+/** The Move-to choice that turns each expense into an Internal Transfer (`rectify_transfer.INTERNAL_TRANSFER_DESTINATION`). */
+export const INTERNAL_TRANSFER_TARGET = "Internal Transfer";
+
+/** The run button's words for that destination. */
+export const MOVE_TO_INTERNAL_TRANSFER = "Move to Internal Transfer";
+
+/** What the plan offers for that destination (`rectify_transfer.transfer_offer`), or `null` where lines cannot go there. */
+export interface TransferOffer {
+    own_place: string;
+    other_ends: string[];
+}
+
+/** The Move-to choices: the projects (and No project), then Internal Transfer when the plan offers it. */
+export const moveTargets = <T extends { value: string; label: string }>(
+    projects: readonly T[],
+    transfer: TransferOffer | null | undefined,
+): { value: string; label: string }[] =>
+    transfer ? [...projects, { value: INTERNAL_TRANSFER_TARGET, label: INTERNAL_TRANSFER_TARGET }] : [...projects];
+
+/**
+ * Which end the person chooses, as Mark asks (`hand_mark_ends`): "to" where money went out of the wallet, "from"
+ * where it came back in, "either" for a spend moving with its refund (each record runs its own way).
+ */
+export const transferChosenEnd = (lines: readonly Pick<CashbookPlanLine, "money_in">[]): "to" | "from" | "either" => {
+    const ins = lines.filter((line) => line.money_in).length;
+    if (ins === 0) return "to";
+    return ins === lines.length ? "from" : "either";
+};
+
+/** The detail the dialog starts with: the lines' shared one (Mark's: the wallet holder), else blank. */
+export const defaultTransferDetail = (lines: readonly Pick<CashbookPlanLine, "transfer_detail">[]): string => {
+    const details = [...new Set(lines.map((line) => line.transfer_detail ?? ""))];
+    return details.length === 1 ? details[0] : "";
 };

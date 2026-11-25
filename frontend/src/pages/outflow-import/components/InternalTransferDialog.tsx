@@ -161,7 +161,7 @@ interface PlaceSelectProps {
 }
 
 /** A plain select over the places other than the line's own. Its placeholder stays selectable (the owner-locked rule). */
-const PlaceSelect = ({ id, value, onChange, choices }: PlaceSelectProps) => (
+export const PlaceSelect = ({ id, value, onChange, choices }: PlaceSelectProps) => (
     <select
         id={id}
         value={value}

@@ -53,7 +53,8 @@ export interface RectifyPlan {
     /** The ticked lines' source (`rectify.get_rectify_plan`, #1757). */
     source?: string;
     /** The expense types each ledger takes, for the type a Cashbook Move offers. */
-    types?: Record<string, string[]>;
+    types?: Record<string, string[]>;    /** The Internal Transfer destination's own place and far ends, or `null` where lines cannot go there (#1762). */
+    transfer?: { own_place: string; other_ends: string[] } | null;
 }
 
 export interface RectifyResultLine {
