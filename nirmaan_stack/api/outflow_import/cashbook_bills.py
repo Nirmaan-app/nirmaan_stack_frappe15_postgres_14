@@ -336,15 +336,17 @@ def store_or_discard(saved, attach) -> None:
 def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: int) -> bool:
     """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
     through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
-    who confirmed the import, its reading queued once this commits; `saved` merged from `bill_count` > 1 links is
-    recorded Not checked and never read. Returns whether it attached (and then
-    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already typed on the Expense is kept."""
+    who confirmed the import, approved on arrival by the system (#1755: the Cashbook approval tab holds only bills a
+    person uploaded; the Bill check still records its verdict), its reading queued once this commits; `saved` merged
+    from `bill_count` > 1 links is recorded Not checked and never read. Returns whether it attached (and then
+    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already
+    typed on the Expense is kept."""
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False
     # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
     _attach_file(saved, doctype, expense, "invoice_attachment")
-    receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor, bill_count)
+    receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor, bill_count, system_approve=True)
     frappe.db.commit()
     return True
 

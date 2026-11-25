@@ -218,3 +218,4 @@ nirmaan_stack.patches.v3_0.create_open_cashbook_refund_expenses
 nirmaan_stack.patches.v3_0.create_open_wallet_credit_expenses
 nirmaan_stack.patches.v3_0.gst_payments_waiting_to_approved
 nirmaan_stack.patches.v3_0.reimbursement_status_from_expense
+nirmaan_stack.patches.v3_0.approve_cashbook_import_bills

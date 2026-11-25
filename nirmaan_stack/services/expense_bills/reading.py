@@ -15,9 +15,10 @@ started while the first still reads) finds it claimed and does nothing, so one b
 
 A Matched bill is auto-approved (`approved_by` "System", as an auto-approved Vendor Invoice) and fills the bill's and
 the Expense's number and date where they are empty (a typed one stands) -- the Expense's only while it is still its
-latest bill. Every other result stays Pending and writes nothing to the Expense. A bill a person approved before it
-was read (an approver's replace on Payment Done, #1643) keeps its approval and the number and date they typed; the
-result is recorded beside them.
+latest bill. Every other result stays Pending and writes nothing to the Expense. A bill the Cashbook import copied
+in was approved by the system on arrival (#1755): its result is recorded, and a Matched one fills as above. A bill a
+person approved before it was read (an approver's replace on Payment Done, #1643) keeps its approval and the number
+and date they typed; the result is recorded beside them.
 """
 
 from __future__ import annotations
@@ -123,10 +124,11 @@ def reading_stopped(bill_check: str, read_claimed_at: datetime | str | None) -> 
 
 
 def read_again(bill: str) -> None:
-    """Read again (#1645): put bill `bill` (its Expense's latest; Pending, or Approved by a person before it was
-    read, #1643), Not read or left Checking by a reading that stopped, back to Checking, unclaimed, and queue its
-    reading. A bill Checking for any other reason is left alone, so pressing twice reads it once. A Rejected bill,
-    and one with a result (a bill the system approved is Matched), are refused. Does not commit; the reading is
+    """Read again (#1645): put bill `bill` (its Expense's latest; Pending, Approved by a person before it was read,
+    #1643, or approved on arrival by the system, the Cashbook import's copy, #1755), Not read or left Checking by a
+    reading that stopped, back to Checking, unclaimed, and queue its reading; an approved bill keeps its approval. A
+    bill Checking for any other reason is left alone, so pressing twice reads it once. A Rejected bill, and one with
+    any other result, are refused. Does not commit; the reading is
     queued once the caller's transaction commits.
 
     The reading is queued under a job id of its own: a worker killed outright can leave the stopped reading's job
@@ -209,7 +211,8 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     date on the bill and on its Expense, each only where empty (what a person typed wins, as on the Expense).
 
     Approval moves only a Pending bill: one a person approved or rejected while it was read keeps that decision, its
-    number and date, and its Expense is left alone."""
+    number and date, and its Expense is left alone. A bill the system approved on arrival (the Cashbook import's
+    copy, `receive_bill(system_approve=True)`, #1755) keeps its approval and is filled as a Pending one."""
     head = frappe.db.get_value(BILL_DOCTYPE, bill, ["expense_doctype", "expense", "is_latest"], as_dict=True)
     # The Expense before the bill: THE ONE LOCK ORDER (the package docstring). Taken only when a Matched result
     # may fill the Expense; a retired bill's Expense may be gone (`receive.retire_bills`).
@@ -219,22 +222,28 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
         else None
     )
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
+    # A bill the system approved on arrival (the Cashbook import's copy, #1755) is filled as a Pending one is: no
+    # person has decided it.
+    undecided = doc.status == PENDING or (doc.status == APPROVED and doc.approved_by == SYSTEM_APPROVER)
     auto_approve = verdict.auto_approves and doc.status == PENDING
     doc.update(read_fields(reading))
     doc.bill_check = verdict.result
     doc.bill_check_reason = verdict.reason or None
-    if doc.status == PENDING:
+    if undecided:
         doc.invoice_no = doc.invoice_no or verdict.invoice_no or None
         doc.invoice_date = doc.invoice_date or verdict.invoice_date
     doc.invoice_amount = verdict.total
     if auto_approve:
-        doc.status = APPROVED
-        doc.auto_approved = 1
-        doc.approved_by = SYSTEM_APPROVER
-        doc.approved_on = now_datetime()
+        doc.update(system_approval())
     doc.save(ignore_permissions=True)
-    if auto_approve and doc.is_latest and expense is not None:
+    if undecided and verdict.auto_approves and doc.is_latest and expense is not None:
         _fill_expense(expense, doc, verdict)
+
+
+def system_approval() -> dict:
+    """The fields of a bill the system approves, now: a Matched reading's (`record_check`), the Cashbook import's copy
+    on arrival (`receive.receive_bill`, #1755) and its back-fill (`patches/v3_0/approve_cashbook_import_bills`)."""
+    return {"status": APPROVED, "auto_approved": 1, "approved_by": SYSTEM_APPROVER, "approved_on": now_datetime()}
 
 
 def read_fields(reading: Reading) -> dict:

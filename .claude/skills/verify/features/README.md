@@ -127,8 +127,9 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
 - [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
   the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same
-  check, and two or more bill links are Not checked; any other result waits in Pending Invoice Approvals -> Cashbook
-  or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
+  check, and two or more bill links are Not checked, but are approved on arrival by System (#1755; a one-off patch
+  approved the ones waiting or rejected before it); any other result of a person's upload waits in Pending Invoice
+  Approvals -> Cashbook or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
   a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
   an Admin or Accountant Lead replaces on Payment Done is approved at once in their name; the Project and
   Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each;
@@ -139,3 +140,5 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check`,
   `--part paid-replace`, `--part all-payments` or `--part all-invoices` for one part alone;
   `--part marker-patch` runs the #1649 patch on the env and walks the Cashbook pill before and after it).
+  `BIN/walk_cashbook_bill_approval.py` walks #1755: the import's bills Approved on arrival, a person's upload alone
+  on Pending Invoice Approvals -> Cashbook, and an import bill Mismatched and Auto-approved on All Invoices.
