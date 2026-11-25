@@ -289,7 +289,8 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
     const pr = pageRows.find((x) => x.source_row_number === r.excel_row);
     const ownNotes = r.ownNotes ?? (pr ? rowOwnNotes(pr, pageRows) : []);
     const headingNotes = r.headingNotes ?? (pr ? rowHeadingNotes(pr, pageRows) : []);
-    const helper = makePricingSheetHelper({ configsByCategory, items: items as never, extractionByRow: new Map([[r.excel_row, ext]]) } as never);
+    // #1741: machineRead -- only the figures are read here, so the display text pass is skipped
+    const helper = makePricingSheetHelper({ configsByCategory, items: items as never, extractionByRow: new Map([[r.excel_row, ext]]), machineRead: true } as never);
     let res: ResultSeen;
     try {
       res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline,

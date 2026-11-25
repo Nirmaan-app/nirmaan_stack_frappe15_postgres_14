@@ -495,7 +495,14 @@ interface Deps {
   extractionByRow: Map<number, ExtractionRow>;
   // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is RETIRED -- `isEligibleConfig` admits an
   // item-list category on every surface, so the calculator and the BoQ panel build this helper identically.
+  /** #1741: the caller reads only the figures (serverPricingStep.measureDrivingFields, never a screen and never
+   *  priceRowsForMatching): the item-list display text pass (`say`, plainItemListView) is skipped. */
+  machineRead?: boolean;
 }
+
+/** #1741: set for the length of one synchronous `compute` of a machineRead helper (restored in `finally`), so the
+ *  module-level item-list compute it reaches skips the display text pass without a parameter through every call. */
+let MACHINE_READ = false;
 
 /** Cable vs termination from the row text (a termination line prices the gland/lug set).
  *
@@ -1464,6 +1471,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
 
   /** VP-3 (D6): a BoQ row with no unit whose description ends in a unit piece is priced in that unit, with its line. */
   function compute(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
+    if (!deps.machineRead || MACHINE_READ) return computeShown(ctx, overrides);
+    MACHINE_READ = true;
+    try {
+      return computeShown(ctx, overrides);
+    } finally {
+      MACHINE_READ = false;
+    }
+  }
+
+  function computeShown(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
     const du = descriptionUnitOf(ctx);
     if (du === null) return computeRow(ctx, overrides);
     return withDescriptionUnitNote(computeRow({ ...ctx, unit: du } as RateHelperRowContext, overrides), du);
@@ -4354,6 +4371,7 @@ function computeItemListOwn(
       })
     : [];
   const say = (line: string): string => {
+    if (MACHINE_READ) return line;   // #1741: no reader of this text
     let s = line;
     for (const [from, to] of pickSentences) if (s.includes(from)) s = s.split(from).join(to);
     return plainPricerText(s, items, fieldLabels);
@@ -4364,7 +4382,7 @@ function computeItemListOwn(
     ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
     basis,
     workings: { attributes: [], matchedRows: [], derivation: derivation.map(say), finalValues: { ...values } },
-    itemList: plainItemListView(view, say, spec),
+    itemList: MACHINE_READ ? view : plainItemListView(view, say, spec),
   };
   return out;
 }
