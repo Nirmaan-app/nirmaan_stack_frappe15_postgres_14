@@ -28,6 +28,20 @@ A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward p
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
 order, is kept as printed.
 
+An international line (a foreign-currency spend or credit, #1751) prints the foreign amount, with 0, 1 or 2
+decimals, then its currency, then the rupee amount. Its amount is the rupee amount, printed last; the foreign
+amount and currency are not kept (owner, 2026-11-25). The bank prints it in one of two shapes (examples made up):
+
+    12/09/2026 12900000002 FAKECLOUD SAAS FAKECLOUD.COM US* 12 12.40 USD 1,061.25     <- shape 1: one row
+    19/09/2026 12900000003 FAKEDESIGN TOOLS FAKEDESIGN.IO US* 9 10.25                 <- shape 2: three rows
+    USD
+    877.60
+
+A shape-2 opening row reads whole on its own (ending in the foreign amount), so it is joined on whenever a lone
+currency row follows it. A shape-2 line not complete within three rows is read as its opening row alone (its foreign amount as the amount),
+so the gate refuses the file; it never joins the next line's rows. The `US*` place code is dropped from the
+merchant key like a two-letter one.
+
 A line too wide for the Transaction Details column is split over two or three rows (the 2026 Apr, Jun, Jul and
 Sep statements): the opening row holds the date, the SerNo and the first details; the next row the country code,
 or the city and country code; the last the points, the amount and any `CR`:
@@ -37,7 +51,7 @@ or the city and country code; the last the points, the amount and any `CR`:
     0 12,754.68
 
 Such a line is read as its rows' words joined with one space (details `ING*FAKE TRAVELS INDI HTTPS://WWW.F IN`).
-Only such a place row or points-and-amount row is joined on (never an invoice number, a page header, a card
+Only such a place row, points-and-amount row, or an international line's lone currency or amount row is joined on (never an invoice number, a page header, a card
 heading or the next line's opening row), and a line not complete within three rows is not read, so the gate
 refuses the file.
 

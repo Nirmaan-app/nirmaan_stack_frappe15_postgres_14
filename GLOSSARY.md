@@ -255,6 +255,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. It lowers the payments dashboard's amounts but counts as no payment there (owner, 2026-11-18). (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
   *Avoid*: unpaired card credit, card credit, card inflow.
 
+- **International card line** — a card spend or credit made in a foreign currency, such as a foreign
+  subscription. The statement prints the foreign amount and its currency, then the rupee amount the card was
+  charged. The line's amount is that rupee amount, the one the statement prints last. The foreign amount and
+  currency are not kept. (Owner, 2026-11-25, #1751.)
+  *Avoid*: foreign line, forex line, USD line.
+
 ## Petty-cash wallet (Cashbook)
 
 - **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
