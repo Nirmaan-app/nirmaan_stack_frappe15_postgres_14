@@ -171,14 +171,44 @@ describe("the phrase a Move to a project teaches (#1758, spec #1753 stories 47-5
         expect(suggestedPhrase([withRemark("court fees mall")], "VR Mall Food Court")).toBe("court");
     });
 
-    it("is blank when no word of the remark is in the project's name, so the person types it", () => {
-        expect(suggestedPhrase([withRemark("hexware tea")], "Hexaware Phase 2")).toBe("");
-        expect(suggestedPhrase([withRemark("")], "Hexaware Phase 2")).toBe("");
+    it("with no word of the name in any remark, takes the remark word closest in spelling to a word of the name", () => {
+        expect(suggestedPhrase([withRemark("hexware tea")], "Hexaware GIFT City")).toBe("hexware");
+        expect(suggestedPhrase([withRemark("Macoons site, cement")], "Maconns Noida")).toBe("Macoons");
+        expect(suggestedPhrase([withRemark("tea for hexawrae")], "Hexaware GIFT City")).toBe("hexawrae");
+        // The closest of two near words.
+        expect(suggestedPhrase([withRemark("hexawar hexware")], "Hexaware GIFT City")).toBe("hexawar");
+    });
+
+    it("is blank when no remark word is near enough in spelling, so the person types it", () => {
+        expect(suggestedPhrase([withRemark("sfk tea")], "Testorchid Heights")).toBe("");
+        expect(suggestedPhrase([withRemark("")], "Hexaware GIFT City")).toBe("");
+        // Short words need the exact spelling: one slip in a four-letter word is too far.
+        expect(suggestedPhrase([withRemark("gilt items")], "Hexaware GIFT City")).toBe("");
+        // Two slips in seven letters is too far.
+        expect(suggestedPhrase([withRemark("hixwere")], "Hexaware GIFT City")).toBe("");
+    });
+
+    it("does not guess a spelling once a remark word is in the name, even in a run it skipped", () => {
+        expect(suggestedPhrase([withRemark("mall hexware")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
+    });
+
+    it("does not guess a word another Won project's name holds too", () => {
+        expect(suggestedPhrase([withRemark("malls")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
     });
 
     it("comes from the first moving line whose remark names the project", () => {
         const lines = [withRemark("Pay via Razorpay"), withRemark("testlotus material")];
         expect(suggestedPhrase(lines, "Testlotus Annexe")).toBe("testlotus");
+    });
+
+    it("never pre-fills a run whose every word another Won project's name also holds", () => {
+        const others = ["Testpearl Mall Annexe"];
+        expect(suggestedPhrase([withRemark("mall tea")], "VR Mall Food Court", others)).toBe("");
+        expect(suggestedPhrase([withRemark("mall tea, then vr mall")], "VR Mall Food Court", others)).toBe("vr mall");
+        // Each word in some other name, but no one other name holds both: it names only this project.
+        expect(suggestedPhrase([withRemark("vr mall")], "VR Mall Food Court", ["VR Heights", "Testpearl Mall"])).toBe(
+            "vr mall",
+        );
     });
 
     it("reads the box's sentence with the phrase in it", () => {

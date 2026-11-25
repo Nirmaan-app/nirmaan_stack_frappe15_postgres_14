@@ -185,7 +185,10 @@ const RectifyForm = ({
     const type =
         chosenType && typeOptions.some((option) => option.value === chosenType.value) ? chosenType.value : fallbackType;
     const toProject = cashbook && Boolean(target?.value);
-    const phrase = typedPhrase ?? (toProject ? suggestedPhrase(moving, target?.label ?? "") : "");
+    const otherNames = (plan.projects ?? [])
+        .filter((project) => project.name !== target?.value)
+        .map((project) => project.project_name);
+    const phrase = typedPhrase ?? (toProject ? suggestedPhrase(moving, target?.label ?? "", otherNames) : "");
     const teaches = toProject && learn;
 
     const blocked = !target

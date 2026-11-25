@@ -118,37 +118,120 @@ export const defaultMoveType = (
 /** A word as the import's alias matcher reads one (`project_match.alias_haystack`): letters and digits, any case. */
 const WORD = /[\p{L}\p{N}]+/gu;
 
-/**
- * The phrase the box starts with (#1758, story 48): from the first moving line whose remark names the destination,
- * the longest run of consecutive remark words that are words of the project's name (the first run on a tie), as the
- * remark writes it. Blank when no remark word is in the name (a nickname, a typo), so the person types the phrase.
- */
-export const suggestedPhrase = (lines: readonly CashbookPlanLine[], projectName: string): string => {
-    const nameWords = new Set(Array.from(projectName.toLowerCase().matchAll(WORD), (match) => match[0]));
-    for (const line of lines) {
-        const remark = line.remark ?? "";
-        let best = "";
-        let runStart = -1;
-        let runEnd = -1;
-        let runLength = 0;
-        let bestLength = 0;
-        for (const match of remark.matchAll(WORD)) {
-            const start = match.index ?? 0;
-            if (!nameWords.has(match[0].toLowerCase())) {
-                runLength = 0;
-                continue;
-            }
-            if (runLength === 0) runStart = start;
-            runEnd = start + match[0].length;
-            runLength += 1;
-            if (runLength > bestLength) {
-                bestLength = runLength;
-                best = remark.slice(runStart, runEnd);
-            }
+/** A text's words as the import's alias matcher reads them, lower-cased. */
+const wordsOf = (text: string): string[] => Array.from(text.toLowerCase().matchAll(WORD), (match) => match[0]);
+
+interface Run {
+    /** As the remark writes it. */
+    text: string;
+    /** Lower-cased. */
+    words: string[];
+}
+
+/** The runs of consecutive remark words that pass `keep`. */
+const runsOf = (remark: string, keep: (word: string) => boolean): Run[] => {
+    const runs: Run[] = [];
+    let start: number | null = null;
+    for (const match of remark.matchAll(WORD)) {
+        const word = match[0].toLowerCase();
+        const at = match.index ?? 0;
+        if (!keep(word)) {
+            start = null;
+            continue;
         }
-        if (best) return best;
+        if (start === null) {
+            start = at;
+            runs.push({ text: "", words: [] });
+        }
+        const run = runs[runs.length - 1];
+        run.text = remark.slice(start, at + match[0].length);
+        run.words.push(word);
+    }
+    return runs;
+};
+
+/**
+ * The phrase the box starts with (#1758, story 48; the owner's rule of 2026-11-26). Only a suggestion the person
+ * sees and edits: the import's matching reads the saved alias, not this.
+ *
+ *  1. From the first moving line that has one, the longest run of consecutive remark words that are words of the
+ *     project's name (the first on a tie), as the remark writes it, skipping a run whose every word one other Won
+ *     project's name also holds ("mall" alone names no one project).
+ *  2. Only when no remark word of any moving line is a word of the name: the remark word closest in spelling to a
+ *     word of the name, at `CLOSE_WORD_LIKENESS` or nearer ("hexware" for Hexaware), from the first line that has
+ *     one; never for a name word another Won project's name holds too.
+ *  3. Else blank, so the person types the phrase.
+ */
+export const suggestedPhrase = (
+    lines: readonly CashbookPlanLine[],
+    projectName: string,
+    otherProjectNames: readonly string[] = [],
+): string => {
+    const nameWords = new Set(wordsOf(projectName));
+    const others = otherProjectNames.map((name) => new Set(wordsOf(name)));
+    const shared = (words: readonly string[]) => others.some((other) => words.every((word) => other.has(word)));
+    const remarks = lines.map((line) => line.remark ?? "");
+    let anyNameWord = false;
+    for (const remark of remarks) {
+        const runs = runsOf(remark, (word) => nameWords.has(word));
+        anyNameWord ||= runs.length > 0;
+        const best = runs
+            .filter((run) => !shared(run.words))
+            .reduce<Run | null>((top, run) => (!top || run.words.length > top.words.length ? run : top), null);
+        if (best) return best.text;
+    }
+    if (anyNameWord) return "";
+    const ownWords = [...nameWords].filter((word) => !shared([word]));
+    for (const remark of remarks) {
+        const near = closestWord(remark, ownWords);
+        if (near) return near;
     }
     return "";
+};
+
+/**
+ * The least likeness (`likeness`) a misspelt remark word needs to be suggested: one slip in five letters. So a word
+ * of four letters or fewer is suggested only when spelt right, which rule 1 already covers ("gilt" is not "GIFT"),
+ * and two slips in seven letters is too far ("hixwere"). "hexware" (0.875) and "macoons" (0.857) are near enough.
+ */
+export const CLOSE_WORD_LIKENESS = 0.8;
+
+/**
+ * How alike two words are in spelling: 1 minus their edit distance over the longer one's length. A slip is one
+ * letter added, dropped or changed, or two neighbours swapped ("hexawrae").
+ */
+const likeness = (a: string, b: string): number => {
+    const longest = Math.max(a.length, b.length);
+    if (!longest) return 1;
+    const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+        Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+    );
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return 1 - d[a.length][b.length] / longest;
+};
+
+/** The remark word, as written, closest in spelling to one of `nameWords` and near enough; the first on a tie. */
+const closestWord = (remark: string, nameWords: readonly string[]): string => {
+    let best = "";
+    let bestLikeness = CLOSE_WORD_LIKENESS;
+    for (const match of remark.matchAll(WORD)) {
+        const word = match[0].toLowerCase();
+        for (const nameWord of nameWords) {
+            const score = likeness(word, nameWord);
+            if (score > bestLikeness || (!best && score === bestLikeness)) {
+                best = match[0];
+                bestLikeness = score;
+            }
+        }
+    }
+    return best;
 };
 
 /** The box's sentence (story 47), with the phrase in it once there is one. */
