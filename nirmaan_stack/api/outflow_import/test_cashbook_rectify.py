@@ -206,12 +206,16 @@ class TestAProjectSpendMovesOn(CashbookRectifyCase):
         new = self._expense(ONE_LINK)
         comments = frappe.get_all(
             "Comment", filters={"reference_doctype": PROJECT_EXPENSE, "reference_name": new.name,
-                                "comment_type": "Comment"}, pluck="content",
+                                "comment_type": "Comment"}, pluck="content", order_by="creation desc",
         )
-        self.assertEqual(len(comments), 1, comments)
-        self.assertIn(self.on_orchid.name, comments[0])
+        # The newest is this move's; the earlier move's comment came along with the expense (owner, 2026-11-26).
+        self.assertEqual(len(comments), 2, comments)
+        self.assertIn(f"({PROJECT_EXPENSE} {self.on_orchid.name} on ", comments[0])
+        self.assertIn(f"{PROJECT_EXPENSE} {new.name} on ", comments[0])
         self.assertIn("Administrator", comments[0])
         self.assertIn(REASON, comments[0])
+        self.assertIn(f"{PROJECT_EXPENSE} {self.on_orchid.name} on ", comments[1])
+        self.assertNotIn(new.name, comments[1])
 
 
 class TestMoneyComingBackStaysNegative(CashbookRectifyCase):

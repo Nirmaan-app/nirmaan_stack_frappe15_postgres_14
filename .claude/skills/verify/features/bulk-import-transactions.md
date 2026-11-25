@@ -95,6 +95,17 @@ past imports by source and month.
   toolbar's `Unreconcile N` is unchanged. Walked by `BIN/walk_move_to_transfer.py` (seed `BIN/cashbook_move_seed.py`,
   DB read `BIN/move_to_transfer_db.py`; the Linked line is read from the env's own data), as an Accountant Lead.
 
+- `bit-bank-move` Move an expense a person created from a bank or Cashfree line with Create (#1760, spec #1753). On a
+  Settled ICICI Bank Statement or Cashfree line whose one live match was created by the import (Create), the undo
+  roles see `Move to a project` / `Change project` beside Unreconcile, by the Cashbook label rule; a line Linked to a
+  payment or an existing expense shows none (the row's `matches[].created_by_import`). Ticked lines of one statement
+  move together; another statement's line ticked with them turns the toolbar button off. The dialog shows each line's
+  UTR, amount, `Now: <placement> (<expense>)`, then `Date`, `UTR`, `Beneficiary`, `Remark`; then `Move to`,
+  `Expense type`, `Reason (required)`. A line settled to more than one record is refused. Every Move (any source)
+  keeps the old expense's pay-to account, approval dates and comments (owner, 2026-11-26). Walked by
+  `BIN/walk_bank_move.py` (seed `BIN/bank_move_seed.py`, DB read `BIN/bank_move_db.py`), as an Accountant Lead; the
+  Bulk Import search finds a line by its UTR.
+
 ## How to get to it (user POV)
 
 - The sidebar entry `Bulk Import Transactions` (Admin, Accountant Lead, Accountant).

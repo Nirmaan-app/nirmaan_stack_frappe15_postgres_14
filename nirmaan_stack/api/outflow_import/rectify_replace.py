@@ -5,7 +5,8 @@
 the Rectify core `porter_rectify` by #1762, which added the Internal Transfer destination, `rectify_transfer`).
 
 Steps 2-6 of the core's per-line steps, the comments aside: run inside the core's savepoint, after the line's Settled
-match is stamped Reversed.
+match is stamped Reversed. What a person added later travels too (owner, 2026-11-26, #1760): the pay-to account and
+approval dates (`settle.CARRIED_FIELDS`), and every comment people wrote (`_move_comments`).
 """
 
 from __future__ import annotations
@@ -14,11 +15,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import frappe
+from frappe.core.doctype.comment.comment import update_comment_in_doc
 
 from nirmaan_stack.api.outflow_import.porter_records import ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills.receive import move_bills
-from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
+from nirmaan_stack.services.outflow_import.settle import CARRIED_FIELDS, ExpenseInvoice, create_expense_from_row
 from nirmaan_stack.services.stored_files import reattach_files
 
 if TYPE_CHECKING:
@@ -69,9 +71,11 @@ def replace_expense(
         payment_by=replacement.payment_by,
         blank_payment_by_is_actor=False,
         invoice=ExpenseInvoice(number=old.invoice_ref, date=old.invoice_date, file_url=old.invoice_attachment),
+        carried={field: old.get(field) for field in CARRIED_FIELDS if old.get(field)},
         **replacement.writer_fields,
     )
     _move_attachments(old, new.doctype, new.name, source.kept_file_url(old))
+    _move_comments(old, new.doctype, new.name)
     # BEFORE the delete: its `on_trash` would retire every bill still on the old Expense.
     move_bills(old.doctype, old.name, new.doctype, new.name)
     delete_created(old.doctype, old.name, None)
@@ -95,6 +99,31 @@ def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -
     if old.get("payment_attachment"):
         frappe.db.set_value(doctype, name, "payment_attachment", old.payment_attachment, update_modified=False)
     reattach_files(old.doctype, old.name, doctype, name, except_url=kept_file_url)
+
+
+def _move_comments(old, doctype: str, name: str) -> None:
+    """Carry over what people wrote on the old Expense (comment type Comment) before the delete leaves it on a name
+    that no longer exists (owner, 2026-11-26), as `_move_attachments` carries its `File` rows. Only what people wrote,
+    as the owner asked: the old Expense's own history (Info, Edit, Attachment entries) stays with it.
+
+    RAW RE-POINT, as for the `File` rows: a `Comment` row's hooks only notify and refresh its parent's `_comments`
+    list-view cache, which `update_comment_in_doc` refreshes here for the new Expense; the old Expense's cache goes
+    with it.
+    """
+    moved = frappe.get_all(
+        "Comment",
+        filters={"reference_doctype": old.doctype, "reference_name": old.name, "comment_type": "Comment"},
+        pluck="name",
+        order_by="creation asc",
+    )
+    if not moved:
+        return
+    frappe.db.sql(
+        """UPDATE "tabComment" SET reference_doctype = %s, reference_name = %s WHERE name IN %s""",
+        (doctype, name, tuple(moved)),
+    )
+    for comment in moved:
+        update_comment_in_doc(frappe.get_doc("Comment", comment))
 
 
 def _follow_on_the_line(row: str, new, project: str | None, expense_type: str, actor: str) -> None:

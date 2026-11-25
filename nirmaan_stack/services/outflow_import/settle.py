@@ -116,6 +116,7 @@ from nirmaan_stack.services.cheques.decide import pay_alone_problem
 from nirmaan_stack.services.expense_tds import BANK_AMOUNT_CORRECTION
 from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
     document_project,
@@ -210,6 +211,11 @@ DIRECTION_CREDIT = "Credit"
 # expense functions still refuse one by name.
 
 _PAID = "Paid"
+
+#: What `create_expense_from_row(carried=...)` writes from the expense a Move replaces, though Create never writes it
+#: (owner, 2026-11-26): the account the money was paid into (locked once Paid, ADR-0033 Amendment A, so nobody could
+#: put it back) and the approval dates.
+CARRIED_FIELDS = PAY_TO_FIELDS + ("approval_date", "ceo_approval_date")
 
 
 class ExpenseSettlementError(frappe.ValidationError):
@@ -1022,6 +1028,7 @@ def create_expense_from_row(
     blank_payment_by_is_actor: bool = True,
     card_refund: bool = False,
     cashbook_money_in: bool = False,
+    carried: dict | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1046,6 +1053,9 @@ def create_expense_from_row(
     Expense, so no other caller can write a negative expense through here.
     `cashbook_money_in` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
     refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
+    `carried` is Move's (Rectify, owner 2026-11-26): fields of the expense being replaced, only `CARRIED_FIELDS` (its
+    pay-to account and approval dates), set as they are before the insert, so the save hooks see them: a pay-to account present is not
+    refilled from the vendor (`payees.pay_to.fill_from_vendor`).
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1138,6 +1148,9 @@ def create_expense_from_row(
         doc.credit_card_statement = credit_card_statement
     if cashbook_batch:
         doc.cashbook_batch = cashbook_batch
+    if carried:
+        # Only the fields named for it: a carried amount, ledger or marker would bypass every guard above.
+        doc.update({field: value for field, value in carried.items() if field in CARRIED_FIELDS})
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.

@@ -13,6 +13,8 @@ is refused under it, in that source's words, and is left where it was.
 import dataclasses
 import json
 
+import frappe
+
 from nirmaan_stack.api.outflow_import import porter_rectify
 from nirmaan_stack.api.outflow_import.rectify_sources import PORTER
 from nirmaan_stack.api.outflow_import.test_porter_create import NON_PROJECT_EXPENSE, PROJECT_EXPENSE
@@ -56,3 +58,34 @@ class TestTheCoreTakesTheSource(PorterRectifyCase):
         self.assertTrue(result["lines"][0]["rectified"], result)
         moved = self._expense_of("003")
         self.assertEqual((moved.doctype, moved.projects), (PROJECT_EXPENSE, self.zephyr))
+
+
+class TestAnyMoveKeepsWhatAPersonAddedLater(PorterRectifyCase):
+    """Owner, 2026-11-26: every source's Move keeps the pay-to account, the approval dates and a person's comments."""
+
+    def test_a_porter_move_keeps_the_pay_to_account_approval_dates_and_a_persons_comment(self):
+        carried = {
+            "pay_to_account_name": "Testporter Logistics",
+            "pay_to_account_number": "999888777666",
+            "pay_to_ifsc": "TEST0009876",
+            "approval_date": "2026-10-02",
+            "ceo_approval_date": "2026-10-03",
+        }
+        old = self._expense_of("003")
+        frappe.db.set_value(old.doctype, old.name, carried, update_modified=False)
+        frappe.get_doc(old.doctype, old.name).add_comment("Comment", text="Checked against the delivery slip")
+        frappe.db.commit()
+
+        result = porter_rectify.rectify_rows(PORTER, json.dumps([self._lines()["003"].name]), self.zephyr, REASON)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        new = self._expense_of("003")
+        self.assertEqual({k: str(new.get(k)) for k in carried}, carried)
+        self.assertIn(
+            "Checked against the delivery slip",
+            frappe.get_all(
+                "Comment",
+                filters={"reference_doctype": new.doctype, "reference_name": new.name, "comment_type": "Comment"},
+                pluck="content",
+            ),
+        )

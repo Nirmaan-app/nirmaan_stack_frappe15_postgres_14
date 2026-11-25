@@ -11,7 +11,7 @@ THE CORE TAKES THE SOURCE AS AN INPUT (#1754). `plan_rectify(source, rows)` and 
 project, reason, expense_type)` are source-neutral; a `RectifySource` (`rectify_sources`) says what differs per import
 source: which lines are its own, its sentences, the details its plan shows, how the replacement's description and Paid
 by are written, its own writer fields, how its Settled match is recorded, which file never moves, and which lines move
-together. `PORTER`, `CASHBOOK` (#1757) and `CARD` (#1761) are wired; bank sources plug in here (spec #1753). Why a line or
+together. `PORTER`, `CASHBOOK` (#1757), `CARD` (#1761), `ICICI` and `CASHFREE` (#1760) are wired. Why a line or
 its expense cannot move is `rectify_refusals`; the Move endpoints for any wired source are `rectify`.
 
 Porter's two whitelisted endpoints are the core with `PORTER`, contract unchanged:
@@ -27,9 +27,9 @@ wallet spend and its refund, #1757) commit together, or none of them does
     1. its Settled match -> Reversed, with the reason (`unreconcile.stamp_reversed`)
     2. the replacement Expense, through Create's own writer (`settle.create_expense_from_row`), from the
        OLD EXPENSE's figures: amount, payment date, reference, type, comment, invoice number / date / file
-       URL, and the source's own fields (Porter: the Porter Order) -- only the ledger, the project, the
-       description and Paid by (the source's rule) change
-    3. any attachment a person added to the old Expense moves to the new one
+       URL, its pay-to account and approval dates (owner, 2026-11-26), and the source's own fields (Porter: the
+       Porter Order) -- only the ledger, the project, the description and Paid by (the source's rule) change
+    3. any attachment a person added to the old Expense, and every comment people wrote on it, moves to the new one
     4. its Expense bills, latest and history, follow it (`expense_bills.receive.move_bills`), then the old Expense
        is deleted (`unreconcile_created.delete_created`: series counter kept), so its delete retires no bill
     5. a new Settled match, through the writer the source's Create uses (Porter: `record_porter_match`)

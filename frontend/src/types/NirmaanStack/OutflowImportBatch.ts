@@ -98,6 +98,8 @@ export interface OutflowRowMatch {
      * back to the older search-param scheme rather than disappearing -- see `settlementLink`.
      */
     order_name?: string;
+    /** 1 when the import (Create) brought the record into existence (#1278); what lets a bank line offer Move (#1760). */
+    created_by_import?: 0 | 1;
 }
 
 /** The import run's waiting-refund suggestion for a credit line (#1402), as `get_outflow_rows` sends it. */

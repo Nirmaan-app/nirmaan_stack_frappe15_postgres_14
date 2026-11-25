@@ -7,12 +7,15 @@
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
 //     the expense type the destination takes; wording in `cashbookRectify.ts`.
 //   * Card lines (#1761): Cashbook's label rule and type choice, and the card line's details (`cardRectify.ts`).
-// A Cashbook line may also move to Internal Transfer (#1762, spec #1753 story 13): From, To and Detail as Mark as
-// Internal Transfer asks them; the record keeps the bill as its proof and no expense is left.
+//   * Bank and Cashfree lines whose expense was created with Create (#1760): the Cashbook label and type rules, and
+//     the line's date, UTR, beneficiary and remark (`bankRectify.ts`).
+// A Cashbook, bank or Cashfree line may also move to Internal Transfer (#1762, spec #1753 story 13), when the plan
+// offers it (`plan.transfer`): From, To and Detail as Mark as Internal Transfer asks them; the record keeps the bill as
+// its proof and no expense is left. Each line's details row: `RectifyLineDetails.tsx`.
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowRightLeft, Ban, Loader2, Paperclip } from "lucide-react";
+import { ArrowRightLeft, Ban, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,14 +27,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { cardDetailRows, type CardPlanLine } from "../cardRectify";
 import {
     CASHBOOK_SOURCE,
-    billCheckText,
-    cashbookDetailRows,
     cashbookMoveLabel,
     cashbookOutcome,
     defaultMoveType,
@@ -41,7 +40,6 @@ import {
     MOVE_TO_INTERNAL_TRANSFER,
     moveTargets,
     transferChosenEnd,
-    type CashbookPlanLine,
     type TransferOffer,
 } from "../cashbookRectify";
 import { CARD_SOURCE } from "../creditCardImport";
@@ -57,22 +55,21 @@ import {
     staysNote,
     type RectifyOutcome,
     type RectifyPlan,
-    type RectifyPlanLine,
     type RectifyResult,
 } from "../porterRectify";
 import { PlaceSelect } from "./InternalTransferDialog";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
-
-/** A plan line of any source: Porter's fields, and a Cashbook or card line's beside them. */
-type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine> & Partial<CardPlanLine>;
-
-/** The sources whose Move picks a ledger and a type, worded by where the expense goes (Cashbook #1757, card #1761);
- * Porter keeps its own words. */
-const movesBetweenLedgers = (plan: RectifyPlan | undefined): boolean =>
-    plan?.source === CASHBOOK_SOURCE || plan?.source === CARD_SOURCE;
+import { isBankSource, LineDetails, type PlanLine } from "./RectifyLineDetails";
 
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
+
+/**
+ * The sources whose Move picks a ledger and a type, worded by where the expense goes (Cashbook #1757, card #1761, bank
+ * and Cashfree #1760): the label and type rules of `cashbookRectify.ts`. Porter keeps its own words.
+ */
+const movesBetweenLedgers = (plan: RectifyPlan | undefined): boolean =>
+    plan?.source === CASHBOOK_SOURCE || plan?.source === CARD_SOURCE || isBankSource(plan?.source);
 
 /** The title before the plan says the source, and for each source once it has. */
 const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
@@ -134,7 +131,6 @@ const RectifyBody = ({
         `rectify-plan-${opening}`,
     );
     const plan = data?.message;
-    const ledgerMove = movesBetweenLedgers(plan);
     return (
         <>
             <DialogHeader>
@@ -143,11 +139,14 @@ const RectifyBody = ({
                     {plan?.source === CARD_SOURCE
                         ? "Each expense is replaced by one with the same amount, date, reference, card statement, " +
                           "bill and Bill check, where you choose. Its old placement is kept as reversed, with your reason."
-                        : ledgerMove
-                        ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
-                          "where you choose. Its old placement is kept as reversed, with your reason."
-                        : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
-                          "on the project you choose. Its old placement is kept as reversed, with your reason."}
+                        : plan?.source === CASHBOOK_SOURCE
+                          ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
+                            "where you choose. Its old placement is kept as reversed, with your reason."
+                          : isBankSource(plan?.source)
+                            ? "Each expense is replaced by one with the same amount, date, UTR, account paid and " +
+                              "comments, where you choose. Its old placement is kept as reversed, with your reason."
+                            : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
+                              "on the project you choose. Its old placement is kept as reversed, with your reason."}
                 </DialogDescription>
             </DialogHeader>
             {outcome ? (
@@ -259,8 +258,7 @@ const RectifyForm = ({
                                     </span>
                                 )}
                             </div>
-                            {plan.source === CASHBOOK_SOURCE && line.ledger && <CashbookDetails line={line} />}
-                            {plan.source === CARD_SOURCE && line.ledger && <CardDetails line={line} />}
+                            {line.ledger && <LineDetails source={plan.source} line={line} />}
                             {line.description_edited && (
                                 <p className="text-xs text-muted-foreground">
                                     Its description was edited by hand, so it is kept as it is.
@@ -417,48 +415,6 @@ const TransferEnds = ({
         </fieldset>
     );
 };
-
-/** The wallet line's details, one compact row (stories 42, 45): the statement's facts, then the bill and its Bill check. */
-const CashbookDetails = ({ line }: { line: PlanLine }) => (
-    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
-        {cashbookDetailRows(line)
-            .filter((row) => row.label !== "Amount")
-            .map((row) => (
-                <span key={row.label}>
-                    <span className="text-muted-foreground">{row.label}: </span>
-                    {row.value}
-                </span>
-            ))}
-        <span>
-            <span className="text-muted-foreground">Bill: </span>
-            {line.bill?.file && (
-                <a
-                    href={SITEURL + line.bill.file}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mr-1 inline-flex items-center gap-0.5 text-primary hover:underline"
-                >
-                    <Paperclip className="h-3 w-3" /> Open
-                </a>
-            )}
-            <span>{billCheckText(line.bill)}</span>
-        </span>
-    </div>
-);
-
-/** The card line's details, one compact row (stories 43, 45): holder, merchant, statement and date. */
-const CardDetails = ({ line }: { line: PlanLine }) => (
-    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
-        {cardDetailRows(line)
-            .filter((row) => row.label !== "Amount")
-            .map((row) => (
-                <span key={row.label}>
-                    <span className="text-muted-foreground">{row.label}: </span>
-                    {row.value}
-                </span>
-            ))}
-    </div>
-);
 
 const OutcomeBox = ({ outcome, onClose }: { outcome: RectifyOutcome; onClose: () => void }) => (
     <div className="space-y-3">
