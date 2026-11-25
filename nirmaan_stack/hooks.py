@@ -88,6 +88,9 @@ after_sync = ["nirmaan_stack.services.expense_type_seed.seed_expense_types"]
 
 # Migration
 # ------------
+# The match pool build gate is closed while a migrate runs; after_migrate's last entry opens it again (#1741).
+before_migrate = ["nirmaan_stack.services.boq_rate_match.pool_autobuild.before_migrate"]
+
 # CU-A: after every migrate, create any missing index of the index manifest under its own
 # table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
 # named one back in the same migrate. It never drops anything.
@@ -96,6 +99,9 @@ after_migrate = [
     # Records without review drops a profile that raises no type, judged on the types the migrate
     # ends with (a patch may merge or remove types).
     "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+    # Last: once the migrate commits, mark this database as migrated (the pool build gate) and queue the first match
+    # pool build after a deploy (#1741).
+    "nirmaan_stack.services.boq_rate_match.pool_autobuild.after_migrate",
 ]
 
 # Uninstallation

@@ -41,8 +41,8 @@ bundle's measureDrivingFields on EVERY stored row; DEV2-B4 rule (iii): the price
 nothing is stored in code, so a pricing-config change reaches W1 at the next build. Step unavailable or no readings ->
 no v1 tokens (W1 without V1).
 
-THE DAILY REBUILD: `rebuild_pool()` (no arguments, under the same lock) is the entry point the 06:00 IST job calls
-(rate_match.daily_pool_rebuild); its summary adds the cut-off's counts. `ensure_pool` (the bench) keeps its 24 h check.
+THE DAILY REBUILD: `rebuild_pool()` (pool_job.rebuild, under the same lock) is the job the 06:00 IST entry and the
+auto-build queue; its summary adds the cut-off's counts. `ensure_pool` (the bench) keeps its 24 h check.
 
 THE INDEX (owner G6 (a)) is built with the pool and cached in the same file: per heading level a TF-IDF over word
 tokens + bigrams (self / parent / upper), a TF-IDF over character 3-grams of the description, BM25 postings over all
@@ -307,18 +307,20 @@ def _corpus(progress=None):
     return boqs, sheets, cells, sheet_last, desc_by_boq, rows
 
 
-def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progress=None):
+def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progress=None, clock=None):
     """Build the pool and its index from the live data (READ ONLY). `as_of` (default now) sets the 3-day windows + cut-off.
     `row_order` (a list of keys) only fixes the rows' order -- and so group numbering and index ties -- to reproduce an
-    earlier build; production orders rows by key. Nothing is written."""
+    earlier build; production orders rows by key. Nothing is written. `clock` (pool_job.BuildClock; the job passes its
+    own) logs each stage as it ends and bounds the driving-field step."""
     from nirmaan_stack.services.boq_ai_guidance import revision_family
-    from nirmaan_stack.services.boq_rate_match import pool_age, pricing_step
+    from nirmaan_stack.services.boq_rate_match import pool_age, pool_job, pricing_step
 
-    t0 = time.time()
+    clock = clock or pool_job.BuildClock()
+    clock.begin_build()
     at = _as_datetime(as_of)
     cut = _iso(at - datetime.timedelta(days=WINDOW_DAYS))
     boqs, sheets, cells, sheet_last, desc_by_boq, raw = _corpus(progress)
-    t_corpus = time.time()
+    clock.stage('corpus')
 
     # the rows as matching reads them
     fam_root, fam_sets = {}, {}
@@ -367,11 +369,14 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
         p, rr = pricing_step.sheet_inputs(b, sn)
         page_rows.update(p)
         step_rows += rr
-    t_inputs = time.time()
+    clock.stage('inputs')
+    # #1741: end the read transaction before the node steps (minutes): its read locks held a restore's DDL. Nothing
+    # was written (no caller holds writes here: rebuild_pool's job, ensure_pool's bench), so a rollback ends it.
+    frappe.db.rollback()
     step = pricing_step.price_rows(page_rows, step_rows, asset=asset)
-    t_priced = time.time()
-    driving = pricing_step.measure_driving_fields(page_rows, step_rows, asset=asset)
-    t_driving = time.time()
+    clock.stage('pricing_step')
+    driving = pool_job.measure_driving(clock, page_rows, step_rows, asset)
+    clock.stage('driving_fields')
     stored = {f"{x['boq']}|{x['sheet_name']}|{x['excel_row']}": x for x in step_rows}
     for k, x in stored.items():
         r = byk.get(k)
@@ -385,7 +390,7 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
             r['priced_by_rules'], r['pricing_stamp'] = got['priced'], got['stamp']
             if got['priced'] and got['signature']:
                 r['rules_key'] = got['signature'] + '|' + json.dumps(got['values_after_rules'], sort_keys=True)
-    t_step = time.time()
+    clock.stage('readings_view')
 
     # the selection
     created = {b: str(v['creation']) for b, v in boqs.items()}
@@ -400,16 +405,14 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
         r['wip'] = is_wip(r['sheet_last'], at)
     cards = (card_source or StoredCards()).cards_for([(r['key'], r['payload']) for r in rows])
     index = build_index(rows, cards)
-    t_end = time.time()
+    clock.stage('selection_index')
     return Pool({
         'format': POOL_FORMAT, 'as_of': _iso(at), 'cut': cut, 'built_at': _iso(frappe.utils.now_datetime()),
         'rows': rows, 'kept': kept, 'aged': aged, 'age': age, 'sel': sel, 'nxt': nxt, 'near_sets': [sorted(s) for s in near], 'index': index,
         'pricing': {'available': step['available'], 'reason': step['reason'], 'stamp': step['stamp']},
         'driving': {'available': driving['available'], 'reason': driving['reason'], 'lists': driving['lists'],
                     'categories': {c: {k: v[k] for k in ('rows', 'pricedRows', 'sampled')} for c, v in driving['categories'].items()}},
-        'secs': {'corpus': round(t_corpus - t0, 1), 'inputs': round(t_inputs - t_corpus, 1), 'pricing_step': round(t_priced - t_inputs, 1),
-                 'driving_fields': round(t_driving - t_priced, 1), 'readings_view': round(t_step - t_driving, 1),
-                 'selection_index': round(t_end - t_step, 1), 'total': round(t_end - t0, 1)},
+        'secs': clock.finish(rows=len(rows), kept=len(kept), pricing=step['available'], driving=driving['available']),
     })
 
 
@@ -470,16 +473,11 @@ def _usable(path, stamp):
     return pool
 
 
-def rebuild_pool():
-    """THE DAILY REBUILD (no arguments): build the pool now and replace the cached file, under the same lock as
-    ensure_pool. The entry point a scheduled job calls as it is (B4 adds the 06:00 IST entry). -> a short summary."""
-    path = pool_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with FileLock(path + '.lock', timeout=REBUILD_WAIT_SEC):
-        pool = build_pool()
-        save_pool(pool, path)
-    return {'path': path, 'rows': len(pool.rows), 'kept': len(pool.kept), 'as_of': pool.as_of, 'secs': pool.secs,
-            'pricing': pool.pricing, 'driving': {k: pool.driving[k] for k in ('available', 'reason')}, **getattr(pool, 'age', {})}
+def rebuild_pool(force=False):
+    """THE DAILY REBUILD, the job the 06:00 entry and the auto-build queue (pool_job.rebuild: the migrate gate, the job
+    clock, the stage log); force=True is the manual entry. -> a short summary."""
+    from nirmaan_stack.services.boq_rate_match import pool_job
+    return pool_job.rebuild(force=force)
 
 
 def ensure_pool(path=None, builder=None):

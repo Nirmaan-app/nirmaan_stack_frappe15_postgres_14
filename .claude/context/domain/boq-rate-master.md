@@ -158,7 +158,7 @@ run ends COMPLETE (active=1, the prior active run retired), never halted; `usage
 The run never touches the pool's file lock, so a 06:00 build in progress cannot make it wait. DEV2-B6's
 `rate_match.queue_pool_rebuild` is REMOVED (it had no other caller); the 06:00 job (`daily_pool_rebuild` ->
 `pool.rebuild_pool` on `long`, id `boq_match_pool_daily_rebuild`) and the manual `bench --site <site> execute
-nirmaan_stack.services.boq_rate_match.pool.rebuild_pool` are unchanged; `pool.ensure_pool` stays for h2_bench's own
+nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"` (force: past the migrate mark, #1741) are unchanged; `pool.ensure_pool` stays for h2_bench's own
 bench pool. A stale pool's rows carry the old pricing stamp's rule values until the 06:00 build; targets are always
 read live. Tests: `test_match_run_pool` (B6's "one queued" pins inverted), `test_rate_match.TestQueuePoolRebuild`.
 DEV2-B9 adds ONE more automatic build, only for a MISSING pool (the auto-build after a deploy, below).
@@ -199,6 +199,34 @@ so the check retries until a file is usable, waiting 10 min, 30 min, 1 h, 2 h, t
 Error Log). The failure time is RQ's record of the fixed id (`ended_at`, else `enqueued_at`), so a failed 06:00 build
 counts too; the try count is the cache key `boq_match_pool_autobuild_tries` (read with `expires=True`), cleared when a
 usable file is seen. A failure that repeats (a data error) never fixes itself: its Error Log is the signal.
+
+**NO POOL BUILD UNTIL A MIGRATE HAS FINISHED ON THIS DATABASE; THE BUILD RUNS ON A CLOCK (#1741; owner 2026-11-25
+"go").** On the 2026-11-24 deploy the scheduler fired mid-restore (the dump's tabSingles carries enable_scheduler=1),
+the check above queued a build, and its read locks on `tabBoQ Row Category` held the restore's ADD PRIMARY KEY for 16
+minutes. THE MIGRATE MARK (`private/boq_rate_match/migrated.json`, beside the pool file) holds the Postgres oid of the
+database the last migrate finished on; a restore recreates the database, so the oid changes. `pool_autobuild.site_ready`
+is None only when the mark holds the live oid (any read error refuses). `pool_autobuild.before_migrate` (the
+`hooks.before_migrate` entry) writes a "migrating" mark at the start of EVERY migrate, which also refuses: a migrate
+on a database that already holds a matching mark (no restore) closes the gate too, and a FAILED migrate leaves it
+closed (no build, the 06:00 one included, until a migrate succeeds; the pool then goes stale with no alarm). A build
+already running when a migrate starts is not stopped. The 5-minute check, `daily_pool_rebuild` (returns
+False) and the job body `pool.rebuild_pool` (`pool_job.rebuild`: builds nothing, takes no lock; it asks again once it holds
+the build lock, after a wait of up to `REBUILD_WAIT_SEC`) refuse until then; by hand
+it is `rebuild_pool(force=True)`. `pool_autobuild.after_migrate` (the LAST `hooks.after_migrate` entry) writes the mark
+once post_schema_updates commits (`frappe.db.after_commit`), then - not when `nirmaan_env == "dev"`, and only when the
+`long` queue's Redis answers a ping - runs the 5-minute check, with `in_migrate` cleared (frappe.enqueue runs a job INLINE
+when Redis fails inside a migrate). `build_pool` ROLLS BACK its read transaction after the `inputs` stage, before the
+node steps (no caller holds writes there). THE POOL BUILD CLOCK (`pool_job.BuildClock`) starts first thing in the job
+with the RQ job's own timeout as its limit (none by hand): the driving-field step gets the time left minus 900 s, is
+skipped under 60 s, and a timeout or skip saves the pool with driving unavailable plus one WARNING and one Error Log row
+"Match pool built without driving fields"; past 50 % of the limit, one WARNING and one Error Log row (both committed at
+once). The `boq_rate_match` logger is set to INFO (Frappe's default off the dev server is ERROR): one line per stage as
+it ends, one summary line. TIMES: production 2026-11-25 (e2-standard-4) `secs` corpus 92.6, inputs 77.2, pricing_step
+103.1, driving_fields 2599.8 (86 %), readings_view 1.4, selection_index 139.7, total 3013.9. The pricer speed-up
+(catalogue memo, machine read, pair skip; output byte-identical, `scripts/_instruments/pricer_identity.py`) measured on
+r7 over the 2026-11-17 data (23,835 stored rows): driving over all rows 763.0 s -> 331.7 s (43 %), the 60-per-category
+sample 140.9 s -> 53.0 s (38 %, 3 runs each). One full build there by hand after it: corpus 40.9, inputs 39.1,
+pricing_step 21.4, driving_fields 324.6, readings_view 0.2, selection_index 72.3, total 498.4 s (36,886 rows).
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
@@ -285,9 +313,9 @@ rolled-back transaction (byte-equal, count unchanged).
 `BoQ Rate Match Run`, `BoQ Rate Match Feedback` + the AI settings' "Historical matching" fields; no patches) -> confirm
 `match_enabled` = 0 -> fill the card / judge model (`claude-haiku-5-5`) and prices -> read the pricing step's stamp ->
 load the dev2 cards file with `load_spec_cards.py --dry`, then without (a skip-mismatch share = rows changed since the
-dev copy) -> build the pool once by hand (`pool.rebuild_pool`, ~8 min) -> check the 06:00 entry -> the owner switches
+dev copy) -> build the pool once by hand (`pool.rebuild_pool(force=True)`, ~8 min) -> check the 06:00 entry -> the owner switches
 `match_enabled` ON and `match_cards_at_commit` ON -> one watched real run -> AFTER GO-LIVE, outside working hours, the
-ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`, the real run, then `pool.rebuild_pool`).
+ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`, the real run, then `pool.rebuild_pool(force=True)`).
 Checks first (read-only): worker Node 18.x, a worker on `long`, System
 Settings time_zone Asia/Kolkata, the scheduler on, ~6 GB free for a pool build, the Anthropic key present, no rate-master
 asset in the diff (Deployment Mode does not apply). ROLLBACK: untick `match_enabled` (instant; Suggest unaffected); a
@@ -316,7 +344,7 @@ connection, builds no client and projects from `cards.plan_sheet` (calls, chars 
 call wave, sheets one after another). SAFE TO STOP AND RE-RUN: a sheet's cards are committed as soon as its calls come
 back; a re-run skips what is valid; a malformed / failed / refused row is listed with its reason and not retried in that
 run; a 429, usage limit, burst, error or Ctrl+C stops cleanly with the summary (exit code 1). It never rebuilds the pool:
-it prints `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`. CARDS AT COMMIT
+it prints `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"`. CARDS AT COMMIT
 (`match_cards_at_commit`, go-live step 3.10) card every rate-editable row of a sheet committed after go-live, priced or
 not (the payload holds no rate, so pricing never stales a card); what only the fill-in covers is the go-live gap, rows of
 a pre-go-live sheet priced after the fill-in ran, and a commit card that failed - hence one re-run about a week after
@@ -348,7 +376,7 @@ Parity 2).
 DEPLOY NOTE (DEV2-B2): the frontend build produces the bundle (`yarn build` -> `node scripts/build_pricing_step.mjs`;
 no migrate), and the worker that builds the pool or runs matching needs `node` on its PATH (production's image: Node
 18.18.2 on every service; the bundle targets node18 and builds byte-equal under 18.18.2). The pool rebuild is ONE call,
-`pool.rebuild_pool()` (no arguments, under the pool's FileLock). THE 06:00 REBUILD (owner 2026-11-02 21:41, DEV2-B4):
+`pool.rebuild_pool()` (`pool_job.rebuild`, under the pool's FileLock; `force=True` by hand, #1741). THE 06:00 REBUILD (owner 2026-11-02 21:41, DEV2-B4):
 hooks.py cron "0 6 * * *" -> `rate_match.daily_pool_rebuild`, which ENQUEUES `pool.rebuild_pool` on `long` with a
 3600 s timeout - never point the cron at rebuild_pool itself: Frappe runs a "Cron" job on `default` at 300 s and a
 build takes ~450 s. Frappe's cron reads the SYSTEM time zone (now_datetime -> System Settings time_zone): dev2 holds

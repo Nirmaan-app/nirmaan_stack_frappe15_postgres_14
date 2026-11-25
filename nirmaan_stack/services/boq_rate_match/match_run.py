@@ -146,7 +146,8 @@ def job_pool(path=None):
       no usable file      missing, unreadable or another format: NOT built -> (None, info), info["not_ready"] =
                           "pool not ready: ..."; run_match then asks nothing and every row carries that reason.
     The ONLY automatic build is the 06:00 job (rate_match.daily_pool_rebuild -> pool.rebuild_pool); the manual entry
-    point (`bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`) is unchanged.
+    point (`bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs
+    "{'force': True}"`, past the migrate gate) is unchanged.
     `path` is a seam (tests).
     -> (pool | None, {"rebuilt": False, "stale", "stamp_used", "stamp_current", "rebuild_queued": False, "not_ready"})."""
     from nirmaan_stack.services.boq_rate_match import pool as P

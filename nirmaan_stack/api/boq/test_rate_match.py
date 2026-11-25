@@ -449,7 +449,7 @@ class TestSchedulerEntries(FrappeTestCase):
         self.assertIn("nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs", cron["*/5 * * * *"])
 
     def test_the_daily_rebuild_enqueues_rebuild_pool_on_long_with_its_own_timeout(self):
-        with patch.object(frappe, "enqueue") as enq:
+        with patch.object(frappe, "enqueue") as enq, patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None):
             self.assertTrue(RM.daily_pool_rebuild())
         args, kw = enq.call_args
         self.assertEqual(args[0], "nirmaan_stack.services.boq_rate_match.pool.rebuild_pool")
@@ -466,7 +466,7 @@ class TestQueuePoolRebuild(FrappeTestCase):
         # INVERTED (was test_it_queues_rebuild_pool_on_long_under_the_daily_jobs_id)
         self.assertFalse(hasattr(RM, "queue_pool_rebuild"))
         self.assertFalse(hasattr(RM, "POOL_REBUILD_JOB_ID"))
-        with patch.object(frappe, "enqueue") as enq:
+        with patch.object(frappe, "enqueue") as enq, patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None):
             RM.daily_pool_rebuild()
         args, kw = enq.call_args
         self.assertEqual(args[0], "nirmaan_stack.services.boq_rate_match.pool.rebuild_pool")
