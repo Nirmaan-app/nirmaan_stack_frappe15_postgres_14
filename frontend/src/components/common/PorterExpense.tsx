@@ -16,9 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SITEURL from "@/constants/siteURL";
 import { useUserData } from "@/hooks/useUserData";
+import { moveLabel } from "@/pages/outflow-import/cashbookRectify";
 import { canUndoOutflow } from "@/pages/outflow-import/outflowImportStatus";
 import {
-	MOVE_ORDER_LABEL,
 	isPorterExpense,
 	moveOrderLink,
 	porterSectionRows,
@@ -43,7 +43,7 @@ export const PorterBadge = ({ expense }: { expense: { porter_order?: string | nu
 	) : null;
 
 /**
- * The locked project's hint, "Move to another project" (#1558): a link to the order's line in Bulk Import with
+ * The locked project's hint, Move's words (#1558; by the expense's ledger, #1759): a link to the order's line in Bulk Import with
  * the move dialog open, or plain text while the line is not known. `onFollow` closes the edit dialog, whose
  * open flag lives in a global store and would otherwise reopen it on the way back.
  */
@@ -74,10 +74,10 @@ export const PorterProjectLock: React.FC<{
 	value: string;
 	section: MoveLine | null;
 	onFollow: () => void;
-	hint?: string;
+	hint: string;
 	/** Show the Move link only to those who may Move (`canUndoOutflow`): a Cashbook expense's (#1757). */
 	undoOnly?: boolean;
-}> = ({ id, value, section, onFollow, hint = MOVE_ORDER_LABEL, undoOnly = false }) => {
+}> = ({ id, value, section, onFollow, hint, undoOnly = false }) => {
 	const { role, user_id } = useUserData();
 	const showHint = !undoOnly || canUndoOutflow(role, user_id);
 	return (
@@ -116,15 +116,15 @@ export const usePorterExpense = (doctype: string, name: string | undefined, enab
 };
 
 /**
- * The read-only block itself, for a caller that already holds the data. `canMove` adds the Move link (story
- * 54) for a viewer who may Rectify; the edit dialogs leave it off, since their Project row carries it.
+ * The read-only block itself, for a caller that already holds the data. `moveHint` adds the Move link (story
+ * 54), in those words, for a viewer who may Rectify; the edit dialogs leave it off, since their Project row carries it.
  */
 export const PorterSectionBlock: React.FC<{
 	section: PorterExpenseSection | null;
 	isLoading?: boolean;
 	error?: unknown;
-	canMove?: boolean;
-}> = ({ section, isLoading, error, canMove = false }) => (
+	moveHint?: string;
+}> = ({ section, isLoading, error, moveHint }) => (
 	<div className="rounded-md border border-orange-200 bg-orange-50/40 px-3 py-2 text-sm dark:border-orange-900 dark:bg-orange-950/20">
 		<p className="pb-1 text-xs font-semibold uppercase tracking-wide text-orange-800 dark:text-orange-300">
 			Porter
@@ -157,8 +157,8 @@ export const PorterSectionBlock: React.FC<{
 				</dd>
 			</dl>
 		)}
-		{canMove && moveOrderLink(section) && (
-			<MoveOrderHint hint={MOVE_ORDER_LABEL} section={section} onFollow={() => {}} className="pt-1 text-xs" />
+		{moveHint && moveOrderLink(section) && (
+			<MoveOrderHint hint={moveHint} section={section} onFollow={() => {}} className="pt-1 text-xs" />
 		)}
 	</div>
 );
@@ -181,7 +181,7 @@ export const PorterSection: React.FC<{ doctype: string; name: string; offerMove?
 			section={section}
 			isLoading={isLoading}
 			error={error}
-			canMove={offerMove && canUndoOutflow(role, user_id)}
+			moveHint={offerMove && canUndoOutflow(role, user_id) ? moveLabel([doctype]) : undefined}
 		/>
 	);
 };

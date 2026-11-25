@@ -3,7 +3,9 @@
 // Rectify (on screen: Move) created import expenses: each one's Expense goes to a chosen Won project, or to
 // Non-Project, with a typed reason. One line (the Outcome cell's button, or an expense's locked-project link) or several
 // ticked together (the toolbar); the same dialog either way. The plan names the lines' source:
-//   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
+// Every source words it by the label rule (`moveLabel`: "Move to a project", "Change project", "Move N expenses").
+//   * Porter orders (#1449, ADR-0032; the label rule and the delivery's details #1759): each line's details are the
+//     expense's Porter section (`porter_expense.get_porter_expense`, one read per line, keyed as the expense screens').
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
 //     the expense type the destination takes; wording in `cashbookRectify.ts`.
 
@@ -21,14 +23,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { usePorterExpense } from "@/components/common/PorterExpense";
 import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { porterMoveDetailRows } from "@/utils/porterExpense";
 
 import {
     CASHBOOK_SOURCE,
     billCheckText,
     cashbookDetailRows,
-    cashbookMoveLabel,
+    moveLabel,
     cashbookOutcome,
     defaultMoveType,
     destinationLedger,
@@ -40,7 +44,6 @@ import {
     RECTIFY_PLAN_METHOD,
     linesToMove,
     moveDialogTitle,
-    moveOrdersLabel,
     placementText,
     rectifyOutcome,
     staysNote,
@@ -56,14 +59,6 @@ type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine>;
 
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
-
-/** The title before the plan says the source, and for each source once it has. */
-const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
-    if (!plan) return "Move";
-    if (plan.source !== CASHBOOK_SOURCE) return moveDialogTitle(rows.length);
-    const ledgers = plan.lines.filter((line) => line.ledger).map((line) => line.ledger);
-    return cashbookMoveLabel(ledgers.length ? ledgers : plan.lines.map(() => undefined));
-};
 
 /**
  * ⚠️ RENDER IT ONLY FOR THE UNDO ROLES (`canUndoOutflow`): both endpoints refuse a plain Accountant.
@@ -121,7 +116,7 @@ const RectifyBody = ({
     return (
         <>
             <DialogHeader>
-                <DialogTitle>{titleOf(rows, plan)}</DialogTitle>
+                <DialogTitle>{plan ? moveDialogTitle(plan.lines) : "Move"}</DialogTitle>
                 <DialogDescription>
                     {cashbook
                         ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
@@ -139,19 +134,17 @@ const RectifyBody = ({
                     Could not load the lines ({describeFrappeError(error, "couldn't load")}).
                 </p>
             ) : (
-                <RectifyForm rows={rows} plan={plan} onCancel={onCancel} onRan={onRan} />
+                <RectifyForm plan={plan} onCancel={onCancel} onRan={onRan} />
             )}
         </>
     );
 };
 
 const RectifyForm = ({
-    rows,
     plan,
     onCancel,
     onRan,
 }: {
-    rows: string[];
     plan: RectifyPlan;
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
@@ -232,6 +225,9 @@ const RectifyForm = ({
                                 )}
                             </div>
                             {cashbook && line.ledger && <CashbookDetails line={line} />}
+                            {!cashbook && line.ledger && line.expense && (
+                                <PorterDetails doctype={line.ledger} expense={line.expense} />
+                            )}
                             {line.description_edited && (
                                 <p className="text-xs text-muted-foreground">
                                     Its description was edited by hand, so it is kept as it is.
@@ -300,9 +296,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {cashbook
-                        ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
-                        : moveOrdersLabel(moving.length || rows.length)}
+                    {moveLabel((moving.length ? moving : lines).map((line) => line.ledger))}
                 </Button>
             </div>
         </div>
@@ -336,6 +330,36 @@ const CashbookDetails = ({ line }: { line: PlanLine }) => (
         </span>
     </div>
 );
+
+/**
+ * A Porter line's delivery details, one compact row (stories 41, 45): where it went, fare and reverse-charge GST,
+ * the invoice number and its PDF. Read from the expense's Porter section, so the facts are the expense screens' own.
+ */
+const PorterDetails = ({ doctype, expense }: { doctype: string; expense: string }) => {
+    const { section, isLoading, error } = usePorterExpense(doctype, expense, true);
+    if (isLoading) return <p className="text-xs text-muted-foreground">Loading the delivery…</p>;
+    if (error || !section) return <p className="text-xs text-muted-foreground">Could not read this delivery's details.</p>;
+    return (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
+            {porterMoveDetailRows(section).map((row) => (
+                <span key={row.label}>
+                    <span className="text-muted-foreground">{row.label}: </span>
+                    {row.value}
+                </span>
+            ))}
+            {section.pdf_url && (
+                <a
+                    href={SITEURL + section.pdf_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                >
+                    <Paperclip className="h-3 w-3" /> Invoice PDF
+                </a>
+            )}
+        </div>
+    );
+};
 
 const OutcomeBox = ({ outcome, onClose }: { outcome: RectifyOutcome; onClose: () => void }) => (
     <div className="space-y-3">

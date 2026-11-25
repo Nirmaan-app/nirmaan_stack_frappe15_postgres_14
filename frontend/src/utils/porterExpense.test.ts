@@ -7,6 +7,7 @@ import {
 	invoiceAttachmentUrl,
 	isPorterExpense,
 	PORTER_INVOICE_PDF_METHOD,
+	porterMoveDetailRows,
 	porterSectionRows,
 	moveOrderLink,
 	projectField,
@@ -27,11 +28,10 @@ describe("isPorterExpense (the Porter badge)", () => {
 });
 
 describe("projectField (the edit dialog's project lock)", () => {
-	it("locks the project of a Porter Expense and points to Move to another project", () => {
-		expect(projectField({ porter_order: "CRN1234567890" })).toEqual({
-			locked: true,
-			hint: "Move to another project",
-		});
+	it("locks the project of a Porter Expense and words its Move by where it is (#1759)", () => {
+		const porter = { porter_order: "CRN1234567890" };
+		expect(projectField(porter, "Non Project Expenses")).toEqual({ locked: true, hint: "Move to a project" });
+		expect(projectField(porter, "Project Expenses")).toEqual({ locked: true, hint: "Change project" });
 	});
 
 	it("leaves any other expense as it was: no project row", () => {
@@ -103,6 +103,17 @@ describe("porterSectionRows (the read-only Porter section)", () => {
 		expect(rows).toContainEqual({ label: "From → To", value: "Demo Hardware, KR Market → --" });
 		expect(rows).toContainEqual({ label: "Reverse-charge GST", value: "₹0.00" });
 		expect(rows).toContainEqual({ label: "Billing entity", value: "--" });
+	});
+
+	it("gives the Move dialog one compact row of the delivery's facts past its CRN and booker, with the invoice number (#1759)", () => {
+		expect(porterMoveDetailRows(section)).toEqual([
+			{ label: "From → To", value: "Demo Hardware, KR Market → Zephyr Tower site, Whitefield" },
+			{ label: "City", value: "Bangalore" },
+			{ label: "Fare", value: "₹1,616.00" },
+			{ label: "Reverse-charge GST", value: "₹80.80" },
+			{ label: "Invoice", value: "29SS27A0900001" },
+		]);
+		expect(porterMoveDetailRows({ ...section, invoice_number: "" })).toContainEqual({ label: "Invoice", value: "--" });
 	});
 });
 

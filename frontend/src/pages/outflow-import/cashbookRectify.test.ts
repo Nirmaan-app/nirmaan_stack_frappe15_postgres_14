@@ -4,7 +4,7 @@ import {
     billCheckText,
     cashbookDetailRows,
     cashbookOutcome,
-    cashbookMoveLabel,
+    moveLabel,
     defaultMoveType,
     type CashbookPlanLine,
 } from "./cashbookRectify";
@@ -34,17 +34,17 @@ const spend: CashbookPlanLine = {
 
 describe("the Move button and title (spec #1753 stories 37-39)", () => {
     it("reads Move to a project on a Non Project Expense", () => {
-        expect(cashbookMoveLabel([NPE])).toBe("Move to a project");
-        expect(cashbookMoveLabel([NPE, NPE])).toBe("Move to a project");
+        expect(moveLabel([NPE])).toBe("Move to a project");
+        expect(moveLabel([NPE, NPE])).toBe("Move to a project");
     });
 
     it("reads Change project on a Project Expense", () => {
-        expect(cashbookMoveLabel([PE])).toBe("Change project");
-        expect(cashbookMoveLabel([PE, PE, PE])).toBe("Change project");
+        expect(moveLabel([PE])).toBe("Change project");
+        expect(moveLabel([PE, PE, PE])).toBe("Change project");
     });
 
     it("reads Move N expenses for a mixed selection", () => {
-        expect(cashbookMoveLabel([PE, NPE, NPE])).toBe("Move 3 expenses");
+        expect(moveLabel([PE, NPE, NPE])).toBe("Move 3 expenses");
     });
 });
 
@@ -91,10 +91,11 @@ describe("Move in Bulk Import (stories 1, 3, 7, 9)", () => {
         expect(rectifyAffordance(cashbook("a", NPE, "Skipped"), true)).toBe(false);
     });
 
-    it("labels the line's button by where its expense is; a Porter line keeps its wording", () => {
+    it("labels the line's button by where its expense is, a Porter line too (#1759)", () => {
         expect(lineMoveLabel(cashbook("a", NPE))).toBe("Move to a project");
         expect(lineMoveLabel(cashbook("a", PE))).toBe("Change project");
-        expect(lineMoveLabel(porter("p"))).toBe("Move to another project");
+        expect(lineMoveLabel(porter("p"))).toBe("Move to a project");
+        expect(lineMoveLabel({ ...porter("q"), suggested_doctype: PE })).toBe("Change project");
     });
 
     it("moves ticked Cashbook lines together under the label rule", () => {
@@ -107,7 +108,13 @@ describe("Move in Bulk Import (stories 1, 3, 7, 9)", () => {
         });
         expect(toolbarMoveLabel(page, new Set(["a", "b"]))).toBe("Move 2 expenses");
         expect(toolbarMoveLabel(page, new Set(["a"]))).toBe("Move to a project");
-        expect(toolbarMoveLabel(page, new Set(["p"]))).toBe("Move 1 order");
+        expect(toolbarMoveLabel(page, new Set(["p"]))).toBe("Move to a project");
+    });
+
+    it("words the toolbar over ticked Porter lines by the same rule (#1759)", () => {
+        const page = [porter("p"), { ...porter("q"), suggested_doctype: PE }, { ...porter("r"), suggested_doctype: PE }];
+        expect(toolbarMoveLabel(page, new Set(["q", "r"]))).toBe("Change project");
+        expect(toolbarMoveLabel(page, new Set(["p", "q"]))).toBe("Move 2 expenses");
     });
 
     it("is off while a line of another kind is ticked with them, and says why", () => {

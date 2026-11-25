@@ -8,15 +8,9 @@
 import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
 import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
 import { encodeFiltersForUrl } from "@/hooks/useServerDataTable";
-import { cashbookMoveLabel } from "@/pages/outflow-import/cashbookRectify";
+import { moveLabel } from "@/pages/outflow-import/cashbookRectify";
 import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
-
-/**
- * Rectify's name on screen (#1558): the Bulk Import line's button, and the locked-project hint on an expense.
- * The domain term stays Rectify (GLOSSARY.md).
- */
-export const MOVE_ORDER_LABEL = "Move to another project";
 
 /** The Bulk Import URL parameter naming the Outflow Import Row whose move dialog opens on arrival. */
 export const MOVE_URL_KEY = "move";
@@ -51,18 +45,17 @@ export const isCashbookExpense = (expense: { cashbook_batch?: string | null } | 
 
 /**
  * The edit dialog's project field: locked on a Porter Expense and on a Cashbook expense (#1757), whose project moves
- * only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's words: Porter's
- * "Move to another project"; a Cashbook expense's by its ledger `doctype` ("Move to a project", "Change project").
- * Any other expense shows no locked row.
+ * only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's words, by the
+ * expense's ledger `doctype` ("Move to a project", "Change project"; Porter too, #1759). Any other expense shows no
+ * locked row.
  */
 export const projectField = (
 	expense: { porter_order?: string | null; cashbook_batch?: string | null } | null | undefined,
 	doctype?: string
-): { locked: false } | { locked: true; hint: string } => {
-	if (isPorterExpense(expense)) return { locked: true, hint: MOVE_ORDER_LABEL };
-	if (isCashbookExpense(expense)) return { locked: true, hint: cashbookMoveLabel([doctype]) };
-	return { locked: false };
-};
+): { locked: false } | { locked: true; hint: string } =>
+	isPorterExpense(expense) || isCashbookExpense(expense)
+		? { locked: true, hint: moveLabel([doctype]) }
+		: { locked: false };
 
 /**
  * Where the hint links: Bulk Import on the order's import, the Settled tab searched to its CRN, with the move
@@ -158,4 +151,16 @@ export const porterSectionRows = (section: PorterExpenseSection): { label: strin
 	{ label: "Fare", value: formatToIndianRupee(section.fare) },
 	{ label: "Reverse-charge GST", value: formatToIndianRupeeOrZero(section.rcm_gst) },
 	{ label: "Billing entity", value: orDash(section.billing_entity) },
+];
+
+/** Section rows the Move dialog leaves out: its line's header already shows the CRN and booker; story 41 omits the entity. */
+const NOT_IN_MOVE_DETAILS = new Set(["CRN", "Booked by", "Billing entity"]);
+
+/**
+ * The Move dialog's details for a Porter line (#1759, stories 41 and 45): one compact row of the section's facts the
+ * line's header does not already show, then the invoice number. The PDF is a link, the caller's.
+ */
+export const porterMoveDetailRows = (section: PorterExpenseSection): { label: string; value: string }[] => [
+	...porterSectionRows(section).filter((row) => !NOT_IN_MOVE_DETAILS.has(row.label)),
+	{ label: "Invoice", value: orDash(section.invoice_number) },
 ];

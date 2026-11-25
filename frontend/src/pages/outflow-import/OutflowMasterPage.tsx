@@ -340,7 +340,7 @@ export const OutflowMasterPage = () => {
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
     /**
-     * #1558: an expense's "Move to another project" link arrives searched to its order's CRN, so the table
+     * #1558: an expense's Move link arrives searched to its order's CRN, so the table
      * behind the move dialog shows that line. Read once, on mount, from the history entry's state.
      */
     const { setSearch } = table;

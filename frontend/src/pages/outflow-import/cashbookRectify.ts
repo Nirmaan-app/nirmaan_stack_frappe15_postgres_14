@@ -41,10 +41,11 @@ export interface CashbookPlanLine extends Omit<RectifyPlanLine, "crn"> {
 }
 
 /**
- * The button and the dialog title (stories 37-39): "Move to a project" when every expense is a Non Project Expense,
+ * Move's words on any wired source (#1757; Porter #1759): the button, the dialog title and an expense's hint
+ * (stories 37-39). "Move to a project" when every expense is a Non Project Expense,
  * "Change project" when every one is on a project, "Move N expenses" for a mixed selection.
  */
-export const cashbookMoveLabel = (ledgers: readonly (string | null | undefined)[]): string => {
+export const moveLabel = (ledgers: readonly (string | null | undefined)[]): string => {
     const onProject = ledgers.filter((ledger) => ledger === PROJECT_EXPENSE).length;
     if (onProject === 0) return MOVE_TO_A_PROJECT;
     if (onProject === ledgers.length) return CHANGE_PROJECT;
