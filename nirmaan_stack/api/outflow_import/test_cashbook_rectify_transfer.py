@@ -9,7 +9,12 @@
 Seam: the Move plan and write calls (`rectify.get_rectify_plan`, `rectify.rectify_lines`) on a Cashbook statement
 imported end to end (`test_cashbook_rectify.CashbookRectifyCase`). Read back the way the screens read it: the line,
 its Internal Transfer record, the expense, the bills.
+
+Also the page read's `can_move` (story 53) for every source Move takes: one rule, Move's own plan verdict for the line,
+asked for a Cashbook, card (#1761) and bank or Cashfree (#1760) line alike; and which of those offer Internal Transfer.
 """
+
+import json
 
 import frappe
 
@@ -22,6 +27,11 @@ from nirmaan_stack.api.outflow_import.test_cashbook_rectify import (
     REASON,
     CashbookRectifyCase,
 )
+from nirmaan_stack.api.outflow_import.test_bank_rectify import CASHFREE, ICICI, ROW_DOCTYPE, BankRectifyCase
+from nirmaan_stack.api.outflow_import.test_bank_rectify import REASON as BANK_REASON
+from nirmaan_stack.api.outflow_import.test_card_rectify import PARK, CardRectifyCase
+from nirmaan_stack.api.outflow_import.test_card_refunds import REFUND_DETAILS
+from nirmaan_stack.api.outflow_import.test_unreconcile_created import MATCH_DOCTYPE, NON_PROJECT_EXPENSE
 
 INTERNAL_TRANSFER = "Internal Transfer"
 WALLET = "Cashbook Employee Wallet"
@@ -207,3 +217,83 @@ class TestSentBackTheProofStaysOnTheLine(TransferCase):
                                      "attached_to_name": line}),
             1,
         )
+
+
+def _can_move_by_row(batch: str) -> dict:
+    """`can_move` of every line of `batch` as the Bulk Import page reads it, by line name."""
+    from nirmaan_stack.api.outflow_import.review import SCOPE_ALL, get_outflow_rows
+
+    return {row["name"]: row["can_move"] for row in get_outflow_rows(scope=SCOPE_ALL, batch=batch, limit=100)["rows"]}
+
+
+class TestACardRowSaysWhetherMoveAcceptsIt(CardRectifyCase):
+    """The same one rule on a card line (#1761): Move's own plan verdict. A Settled card spend hides Unreconcile; a
+    card refund, which Move refuses, keeps it."""
+
+    def test_a_spend_is_accepted_and_a_refund_is_not(self):
+        refund = next(row for row in self._rows(self.batch) if row.remarks == REFUND_DETAILS and row.direction == "Credit")
+
+        can_move = _can_move_by_row(self.batch)
+
+        self.assertIs(can_move[self._line(PARK).name], True)
+        self.assertIs(can_move[refund.name], False)
+
+    def test_internal_transfer_is_neither_offered_nor_taken(self):
+        # A card statement is not one of our own places, so Mark refuses a card line and Move offers no transfer.
+        expense = self._expense_of(PARK)
+        self.assertIsNone(self._plan(PARK)["transfer"])
+
+        with self.assertRaisesRegex(frappe.ValidationError, "not one of our own places"):
+            rectify.rectify_lines(
+                json.dumps([self._line(PARK).name]), reason=REASON, destination=INTERNAL_TRANSFER, other_end=WALLET
+            )
+
+        self.assertEqual((self._expense_of(PARK).doctype, self._expense_of(PARK).name), (expense.doctype, expense.name))
+
+
+class TestABankRowSaysWhetherMoveAcceptsIt(BankRectifyCase):
+    """The same one rule on a bank or Cashfree line (#1760): a line whose expense a person created with Create hides
+    Unreconcile; a line Linked to an existing record, which Move refuses, keeps it (story 54)."""
+
+    def test_a_created_line_is_accepted_and_a_linked_one_is_not(self):
+        for source in (ICICI, CASHFREE):
+            with self.subTest(source):
+                row, _ = self._created(source)
+                batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+                self.assertIs(_can_move_by_row(batch)[row], True)
+
+                leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "match_kind": "Settled"}, "name")
+                frappe.db.set_value(MATCH_DOCTYPE, leg, "created_by_import", 0, update_modified=False)
+                frappe.db.commit()
+                self.assertIs(_can_move_by_row(batch)[row], False)
+
+
+class TestACreatedBankExpenseMovesToInternalTransfer(BankRectifyCase):
+    """A bank or Cashfree line's created expense has the third destination too (#1760: the same destinations as a
+    Cashbook Move): its statement is one of our own places, so the plan offers it and the line becomes a transfer."""
+
+    def test_the_line_becomes_an_internal_transfer_and_no_expense_is_left(self):
+        for source in (ICICI, CASHFREE):
+            with self.subTest(source):
+                row, old = self._created(source)
+                offer = rectify.get_rectify_plan(json.dumps([row]))["transfer"]
+                self.assertIsNotNone(offer)
+                far_end = offer["other_ends"][0]
+
+                [line] = rectify.rectify_lines(
+                    json.dumps([row]), reason=BANK_REASON, destination=INTERNAL_TRANSFER, other_end=far_end,
+                    detail="Own account top-up",
+                )["lines"]
+
+                record = frappe.db.get_value(INTERNAL_TRANSFER, {"import_row": row}, "name")
+                if record:
+                    self.created.append((INTERNAL_TRANSFER, record))
+                self.assertTrue(line["rectified"], line)
+                self.assertFalse(frappe.db.exists(NON_PROJECT_EXPENSE, old))
+                self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), INTERNAL_TRANSFER)
+                self.assertEqual(self._live_leg(row), [])
+                record = frappe.get_doc(INTERNAL_TRANSFER, record)
+                self.assertEqual(
+                    (record.from_place, record.to_place, record.detail, float(record.amount)),
+                    (offer["own_place"], far_end, "Own account top-up", 4250.0),
+                )
