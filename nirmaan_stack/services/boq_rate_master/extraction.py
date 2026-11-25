@@ -929,6 +929,11 @@ def build_items_spec(cfg, configs=None, discipline=None):
         # borrower's items are not offered here. Every other borrowed category (Insulation under Piping / Ducting) asks its whole
         # question exactly as before, so those requests are byte-identical.
         offered = s.get("families") if ((target.get("list_spec") or {}).get("borrowers_ask_offered_only") is True) else None
+        # VAV-2b1 v80 (chat-Claude's call (c2), 2026-11-21 01:23; owner 01:07 / 01:09 "by the user only"): a family the borrower offers
+        # only for the USER to add (`list_spec.pricing.user_addable`) is never asked of the model -- the section asks what it asked before
+        user_only = {u.get("family") for u in ((spec.get("pricing") or {}).get("user_addable") or []) if isinstance(u, dict)}
+        if isinstance(offered, list) and user_only:
+            offered = [f for f in offered if f not in user_only]
         fam_id = sub.get("family_attribute_id")
         tfams = ((target.get("list_spec") or {}).get("pricing") or {}).get("families") or {}
         if isinstance(offered, list) and offered and fam_id:
@@ -1355,6 +1360,10 @@ def _log_attached_notes_drift_for(boq, sheet_name, committed_version):
         pass
 
 
+# VAV-2b2 (R16): the keys a claimed row carries from the population to its result row
+_CLAIM_KEYS = ("claimed_from", "claimed_item", "claimed_kind")
+
+
 def assemble_population(boq, sheet_name):
     """(committed_version, rows) -- rate-editable rows whose RESOLVED category is an ELIGIBLE config
     (non-empty pipelines AND definitions), ACROSS ALL categories on the sheet (EA-2). Each row keeps
@@ -1374,12 +1383,25 @@ def assemble_population(boq, sheet_name):
     # loaded alongside); a row whose category is an alias is admitted iff the TARGET is eligible.
     all_cfgs = load_configs_with_alias_targets(disciplines)
     eligible = {key: cfg for key, cfg in all_cfgs.items() if config_is_eligible(cfg, all_cfgs)}
+    claims = _filed_claims(boq, sheet_name, ctx, resolved, eligible)
     rows = []
     for r in ctx["rows"]:
         er = r["excel_row"]
         if er not in rate_editable:
             continue
         cat, disc = resolved.get(er, ("", None))
+        claim = claims.get(er)
+        if claim is not None:
+            # VAV-2b2 (R16): a row filed under Misc / Sensors that names a VAV item is read and priced by the VAV helper; it STAYS filed
+            # where it is (the run carries where it came from, the panel's note says so) -- no re-filing, no category written
+            rr = dict(r)
+            rr["category_id"] = claim["category_id"]
+            rr["discipline"] = claim["discipline"]
+            rr["claimed_from"] = claim["from"]
+            rr["claimed_item"] = claim["item"]
+            rr["claimed_kind"] = claim["kind"]
+            rows.append(rr)
+            continue
         if not cat or (disc, cat) not in eligible:
             continue
         rr = dict(r)
@@ -1387,6 +1409,42 @@ def assemble_population(boq, sheet_name):
         rr["discipline"] = disc
         rows.append(rr)
     return cv, rows
+
+
+def _filed_claims(boq, sheet_name, ctx, resolved, eligible):
+    """VAV-2b2 (R16, owner 2026-11-21 12:33 / 12:34 "agree on all 3"): {excel_row: {category_id, discipline, from, item, kind}} -- the rows
+    an ELIGIBLE config declaring `list_spec.pricing.claims_filed` (VAV Box only, by the validator) claims from the categories it names:
+    only on a sheet with a Line Item filed in the claiming category, only rows naming one of its items (vav_claims.claims_for_sheet, the
+    Python twin of the client's own-row tests). No config declares the key -> {} with no extra read, so every other sheet is untouched."""
+    from nirmaan_stack.services.boq_rate_master import vav_claims
+
+    claimers = [(key, cfg) for key, cfg in eligible.items()
+                if isinstance(((cfg.get("list_spec") or {}).get("pricing") or {}).get("claims_filed"), dict)]
+    if not claimers:
+        return {}
+    items = [r for r in ctx["rows"] if (r.get("node_type") or "").strip() == "Line Item"]
+    cats_by_row = {r["excel_row"]: (resolved.get(r["excel_row"]) or ("", None))[0] for r in items}
+    out = {}
+    units = None
+    for (disc, cat), cfg in claimers:
+        pr = cfg["list_spec"]["pricing"]
+        named = set((pr["claims_filed"].get("categories") or {}).keys())
+        if not any(c == cat for c in cats_by_row.values()) or not any(c in named for c in cats_by_row.values()):
+            continue
+        if units is None:
+            sheet = frappe.db.get_value(_BOQ_SHEET, {"boq": boq, "sheet_name": sheet_name, "is_current": 1}, "name")
+            units = {n["source_row_number"]: n["unit"] for n in frappe.get_all(
+                _BOQ_NODES, filters={"boq": boq, "sheet": sheet, "is_current": 1}, fields=["source_row_number", "unit"])} if sheet else {}
+        lines = {}
+        for r in items:
+            if cats_by_row.get(r["excel_row"]) not in named:
+                continue
+            own = r.get("own_notes_raw")
+            text = " | ".join(t for t in [r.get("description") or "", own if isinstance(own, str) else ""] if t.strip())
+            lines[r["excel_row"]] = {"text": text, "unit": units.get(r["excel_row"]) or "", "headings": list((r.get("anc_headers") or [])[1:])}
+        for er, c in vav_claims.claims_for_sheet(pr, cat, lines, cats_by_row).items():
+            out.setdefault(er, dict(c, category_id=cat, discipline=disc))
+    return out
 
 
 # ── AI extraction (mirrors ai_voter) ────────────────────────────────────────────────
@@ -3697,12 +3755,16 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
         return group_ctx[(r["discipline"], r["category_id"])]["defs"]
 
     def _blank_row(r):
-        return {
+        out = {
             "excel_row": r["excel_row"],
             "description": r.get("description") or "",
             "category_id": r["category_id"],
             "attributes": {d["id"]: {"value": None, "confidence": 0.0, "corroborated": False} for d in _defs_for(r)},
         }
+        for k in _CLAIM_KEYS:
+            if r.get(k):
+                out[k] = r[k]
+        return out
 
     # Fail closed.
     if not settings.get("enabled"):
@@ -3744,6 +3806,10 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             "category_id": r["category_id"],
             "attributes": row_attrs,
         }
+        # VAV-2b2 (R16): a claimed row says where it is filed and which VAV item it names (absent on every other row)
+        for k in _CLAIM_KEYS:
+            if r.get(k):
+                res[k] = r[k]
         if items is not None:
             res["items"] = items
             res["item_flags"] = list(item_flags or [])   # checks 1 + 2: flags for a person, never a rewrite

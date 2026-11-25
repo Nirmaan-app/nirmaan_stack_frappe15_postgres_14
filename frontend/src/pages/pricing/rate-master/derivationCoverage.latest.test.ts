@@ -27,7 +27,8 @@ const sectionsOf = (cfg: Cfg): Record<string, Cfg> => Object.fromEntries((cfg?.l
   .map((s) => String(s?.category_id ?? "")).filter((id) => id && borrowOnly.includes(id) && C[id]).map((id) => [id, C[id]]));
 
 /** the categories held to 0 / 0 (owner: Valve Package and Ducting before DONE; Misc through the Valve Package's section) */
-const GUARDED = ["hvac_valve_package", "hvac_misc", "hvac_ducting"];
+// VAV-1 (HVAC v76; owner R8 2026-11-15 13:39 / 13:41): VAV Box joins GUARDED with its mint, and Sensors (borrow-only) as Misc did
+const GUARDED = ["hvac_valve_package", "hvac_misc", "hvac_ducting", "hvac_vav_box", "hvac_sensors"];
 
 describe(`DU-1 THE GUARD on ${latest}: MISSING / ORPHAN = 0`, () => {
   for (const id of GUARDED) {
@@ -38,7 +39,13 @@ describe(`DU-1 THE GUARD on ${latest}: MISSING / ORPHAN = 0`, () => {
       expect(r.orphan).toEqual([]);
       // DU-1 Part B: a category that declares its reasons gives every line one (UNREASONED 0)
       if (Array.isArray((C[id].list_spec.pricing as { derivation_reasons?: unknown }).derivation_reasons)) expect(r.unreasoned).toEqual([]);
-      expect(r.lines.length).toBeGreaterThan(10);
+      // VAV-2a2 (B6; owner 2026-11-19 18:21 "ok b"; the rule as reviewed 23:45): no line shows a present-but-WRONG reason, every category;
+      // a reason no line shows (DEAD) fails for VAV Box; Ducting's are REPORTED, not failed (its config stays byte-identical, R9)
+      expect(r.wrong).toEqual([]);
+      if (id === "hvac_vav_box") expect(r.dead).toEqual([]);
+      if (id === "hvac_ducting") expect(r.dead.map((x) => Number(x.split(" ")[1]))).toEqual([33, 35, 39, 40, 41, 43, 47, 54]);
+      // VAV-1: Sensors is a borrow-only category of 2 items (7 lines); every other guarded category has more than 10
+      expect(r.lines.length).toBeGreaterThan(id === "hvac_sensors" ? 5 : 10);
     });
   }
   it("NEGATIVE: the guard bites on the same asset -- one declared valve line taken out is MISSING", () => {

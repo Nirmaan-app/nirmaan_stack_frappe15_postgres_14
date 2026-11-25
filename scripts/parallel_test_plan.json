@@ -90,6 +90,19 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_hvac_v76_vav1": {
+   "seconds": 12.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabGoogle Calendar",
+    "tabMilestone Tracker"
+   ]
+  },
   "nirmaan_stack.api.boq.test_match_estimate": {
    "seconds": 15.8,
    "series": [],
@@ -2575,6 +2588,12 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_master.test_calculator_only_vav1": {
+   "seconds": 11.8,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_master.test_capture_guard": {
    "seconds": 13.9,
    "series": [],
@@ -2643,6 +2662,12 @@
   },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_du3": {
    "seconds": 14.4,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_vav1": {
+   "seconds": 11.6,
    "series": [],
    "writes": [],
    "reads": []
@@ -2735,6 +2760,111 @@
    "reads": [
     "tabMilestone Tracker"
    ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2a2_keys": {
+   "seconds": 13.5,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ AI Run Log",
+    "tabBoQ Sheet Draft"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2a_keys": {
+   "seconds": 14.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabGoogle Calendar",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2b1_keys": {
+   "seconds": 14.5,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2b1_v80_keys": {
+   "seconds": 12.1,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2b2_keys": {
+   "seconds": 12.2,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c1_keys": {
+   "seconds": 14.6,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabMilestone Tracker"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c2_keys": {
+   "seconds": 12.5,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3_keys": {
+   "seconds": 14.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabMilestone Tracker"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3b_keys": {
+   "seconds": 13.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ AI Run Log",
+    "tabBoQ Sheet Draft"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3c_keys": {
+   "seconds": 13.6,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabMilestone Tracker"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vav2c3d_keys": {
+   "seconds": 12.7,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabGoogle Calendar",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.services.boq_rate_master.test_vavfix_keys": {
+   "seconds": 12.6,
+   "series": [],
+   "writes": [],
+   "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
    "seconds": 34.8,

@@ -1,0 +1,51 @@
+{
+ "about": "VAV-2c3 FIX (2026-11-24, desktop; PIN FIX-0 accepted ANSWER 10): HVAC v85 = v84 + ONLY these 3 edits - VAV Box's ruled defaults in the DefaultSpec pattern the other categories use (pricing.defaults): integrator not mentioned = 'No' (owner 2026-11-24 16:52; 2026-11-18 22:37; 2026-11-19 13:31), type not named = 'Nothing specific mentioned' (2026-11-18 23:53 point 10), shape not stated = Rectangular also when the reply leaves the shape out (2026-11-18 22:16 ruling B). No item, no other config, no model request changes. Read by the vav2c3b tests and the v85 mint script.",
+ "configs": [
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "shape",
+    "absent_as_none"
+   ],
+   "from": null,
+   "to": true,
+   "why": "FIX-0 #3: a reply that leaves the shape out reads as 'not stated' (ruling B)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "integrator_included"
+   ],
+   "from": null,
+   "to": {
+    "value": "No",
+    "rule": "integrator not mentioned - priced on the 'Integrator Included = No' line (assumed)",
+    "absent_as_none": true
+   },
+   "why": "FIX-0 #1: integrator not mentioned = 'No' (owner 16:52)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "vav_type"
+   ],
+   "from": null,
+   "to": {
+    "value": "Nothing specific mentioned",
+    "rule": "type not named - priced as 'Nothing specific mentioned' (assumed)",
+    "absent_as_none": true
+   },
+   "why": "FIX-0 #2: type not named = 'Nothing specific mentioned' (18 Nov 23:53 pt 10)"
+  }
+ ],
+ "pricing_inputs": {}
+}

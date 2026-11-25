@@ -35,7 +35,7 @@ import {
   runPipeline,
   evalFormula,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
-import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
+import { labelAsWord, mirroredLead, plainFact, plainPricerText, pricingInputLabel, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -91,6 +91,7 @@ import {
   readLayers,
   readNumber,
   ruledDefaultValue,
+  boqRowsOnlyDefaultsOff,
   sizeIsOutsideDiameter,
   severalSizesTaken,
   listSpecDefs,
@@ -136,10 +137,12 @@ import {
   vrf10On,
   NET_FAMILY_LINE_ATTR,
   NET_LINES_ATTR,
+  HELPER_ADDED_ATTR,
   netLinesOf,
   gaugeLabelOf,
   existingWorkOf,
   LABOUR_ROW_WORDS,
+  applyChainValues,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -153,6 +156,11 @@ import type {
   WorkingsAttribute,
   WorkingsGroup,
 } from "./rateHelperTypes";
+import { SHARES_OVERRIDE_KEY, countWords, decideSheetShares, decodeShareEdits, sheetSharesView, sheetVavsOf, type SeparateRowBy, type SharesView, type SheetShareDecision, type SheetVavRow } from "./vavSheetShares";
+import { claimNotesOf, claimedConfigOf, claimedItemsOf, matchedByHelper, type RowClaim } from "./vavClaims";
+import { scopedWarning, withScopeLines, type NotInScope } from "./scopeLines";
+import { installRowItems, installRowSpec, scopeRuleForRow } from "./scopeRule";
+import { panelPickLead, percentOf, rateShareWords, rowsStart } from "./helperWording";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
 const WIRING_CATEGORY_ID = "wiring_cabling";
@@ -189,6 +197,8 @@ export function buildExtractionByRow(
     items?: ExtractedListItem[];
     /** VRF-4 (q2): the row's category, carried onto an item-list row only (a refnet counts the sheet's VRF units) */
     category_id?: string;
+    /** VAV-2b2 (R16): a claimed row's filed category, the VAV item it names and its kind (absent on every other row) */
+    claimed_from?: string; claimed_item?: string; claimed_kind?: string;
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
@@ -201,6 +211,7 @@ export function buildExtractionByRow(
       row.items = r.items;
       if (typeof r.category_id === "string" && r.category_id) row.category = r.category_id;
     }
+    if (r.claimed_from && r.claimed_item && r.claimed_kind) row.claim = { from: r.claimed_from, item: r.claimed_item, kind: r.claimed_kind };
     m.set(r.excel_row, row);
   }
   ROW_CATEGORIES.set(m, cats);
@@ -209,7 +220,9 @@ export function buildExtractionByRow(
 
 /** SLICE 6: an extraction row that may carry the run's ITEMS (an item-list category). The base type lives
  * outside this slice's scope, so the items ride as an optional extension read through this alias. */
-export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string };
+export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string;
+  /** VAV-2b2 (R16): the run's claim on a row filed under Misc / Sensors (absent on every other row) */
+  claim?: RowClaim };
 
 /** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
  * so the unit is a pick held in the panel's session state instead). */
@@ -233,6 +246,17 @@ export type RowContextWithUnit = RateHelperRowContext & {
   /** VRF-6 (owner Q-pre 5): the make of this sheet's outdoor units (the first outdoor-unit row the run read whose make resolves),
    * set by `compute` on a BoQ row of a config declaring `extras.prepare.same_as_outdoor`. Absent everywhere else. */
   sheetOutdoorBrand?: { brand: string; row: number };
+  /** VAV-2b1 (B1 / B2): the sheet's shared-item decision (`vavSheetSharesOf`), set by `compute` on a BoQ row of a config declaring
+   *  `pricing.sheet_shares`. Absent everywhere else (the calculator: the pricer adds the shares). */
+  sheetShares?: SheetShareDecision;
+  /** VAV-2b1 v80: a BoQ row of a `sheet_shares` config that is NOT a counted VAV box row (the decision gave nothing): a share the user adds
+   *  here carries `sheet_shares.lines.not_box_row` */
+  sheetSharesNotBox?: true;
+  /** VAV-2b1 v80: on a BoQ row of a `sheet_shares` config, the sheet's counted VAVs and the row's own quantity (the full-rate blocks' pre-fill) */
+  sheetWholeRow?: { sheetVavs: number | null; qty: number | null; helperWhole?: string; /** VAV-2c3 FIX-2 (B2-2): the row's own words */ text?: string };
+  /** VAV-2c2 (R1 / R2): the scope rule's decision on this BoQ row (`scopeRule.ts`), set by `compute` for a config declaring
+   *  `pricing.scope.rule`; the scope step reads it in place of the model's answer. Absent everywhere else. */
+  scopeRule?: { value: string; note?: string };
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -1477,7 +1501,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // category has no ELIGIBLE config (unknown category, or a DATA-ONLY empty-pipelines config such
     // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
     // always resolves to its own eligible category by construction.
-    const cfg = resolveConfig(ctx.category);
+    // VAV-2b2 (R16): a row filed under Misc / Sensors that the run says the VAV helper claimed is priced by THAT config (it stays filed)
+    const claimRow = (ext as ExtractionRowWithItems | undefined)?.claim;
+    const claimCfg = claimedConfigOf(claimRow, ROW_CATEGORIES.get(extractionByRow)?.get(ctx.excelRow), ctx.category, configsByCategory);
+    const cfg = claimCfg ?? resolveConfig(ctx.category);
     // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
     // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
     // VRF-4 (Q1 A): VRF-2a's calculator-surface admission is removed -- the same predicate on every surface.
@@ -1597,11 +1624,63 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // (Case 4 speaks first: a part-length clause names WHY the second insulation is left out)
       const two = !paint && listSpec.two_insulations && rowCtx.noRow !== true && !partialInsulationOf(listSpec, rowCtx)
         ? twoInsulationsOf(listSpec, ext as ExtractionRowWithItems | undefined) : null;
-      const out1 = computeItemList(category, listSpec, items, withIns, (paint?.ext ?? two?.ext ?? ext) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // VAV-2b1 (R2 / R8): a withdrawn family is never priced per box -- dropped from the model's items before anything reads them
+      // VAV-2b2 (R16): a claimed row's items are its kind's ONE item (or none: the helper adds the full-rate block) -- nothing withdrawn
+      const claimed = claimCfg && claimRow ? claimedItemsOf(listSpec, claimRow, (ext as ExtractionRowWithItems | undefined)?.items,
+        (sec) => { const ds = sec ? itemListPricingSpec(configOf(delegatedSections(listSpec).find((x) => x.id === sec)?.category_id ?? "")) : listSpec; return ds ? familyAttr(ds) : "item"; }) : null;
+      const wd = claimed ? null : withdrawnItemsOf(listSpec, ext as ExtractionRowWithItems | undefined, configOf);
+      const extW0 = claimed ? { ...(ext as ExtractionRowWithItems), items: claimed.items } : wd ? wd.ext : ext;
+      // VAV-2c3 FIX-2 (A1 / A2 / B2-1): the row's own words set the model's answers `chain_values` names, BEFORE the sheet rules read them
+      // (so a separate integrator row still turns a router-mentioned "Yes" to "No"); no rule -> the same object
+      const extW = listSpec.chain_values && (extW0 as ExtractionRowWithItems | undefined)?.items?.length
+        ? { ...(extW0 as ExtractionRowWithItems), items: applyChainValues(listSpec, (extW0 as ExtractionRowWithItems).items!, rowCtx.chainRows) } : extW0;
+      // VAV-2a (B3-B6): the VAV sheet rules settle the model's items first -- only a config declaring their keys, only on a BoQ row
+      const vavSheet = !paint && !two ? vavSheetRules(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf) : null;
+      // VAV-2b1 (B1 / B2): the sheet's shared items -- only a config declaring `sheet_shares`, only on a BoQ box row
+      const sheetOf = !paint && !two ? vavSheetOf(listSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, category.category_id) : null;
+      // VAV-2c2 (R1 / R2): the scope rule decides the row's scope and its note from the sheet (a config declaring `pricing.scope.rule`, a BoQ
+      // row); an installation row prices the installation item in place of the box (QR-SURE (d), owner 2026-11-24 00:18 "ok")
+      const extR0 = (paint?.ext ?? two?.ext ?? vavSheet?.ext ?? extW) as ExtractionRowWithItems | undefined;
+      const ruled = !paint && !two ? scopeRuleForRow(listSpec as never, withIns, extR0?.items as never, rowCats, items, category.category_id) : null;
+      // VAV-2c3 (R5 F4): an installation row words the box-row notes it carries for itself (`scope.rule.install_row_texts`) -- texts only
+      const ilSpec = ruled?.installRow ? installRowSpec(listSpec) : listSpec;
+      const vavLines = ilSpec !== listSpec && vavSheet
+        ? vavSheetRules(ilSpec, withIns, extW as ExtractionRowWithItems | undefined, extractionByRow, rowCats, items, category.category_id, configOf)?.lines
+        : vavSheet?.lines;
+      // owner 2026-11-24 01:22 / 01:23 ("all components price move together"; "yes to both"): an installation row carries EVERY per-unit
+      // component of the box rows it covers -- the box item as the installation item, the box row's extras, its shared items at the sheet's
+      // own per-box figures (the VAVs counted as before) -- read from the first covered box row the run read
+      const boxRow = ruled?.installRow ? (ruled.boxRows ?? []).find((r) => ((extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items ?? []).length > 0) : undefined;
+      const boxExt = boxRow !== undefined ? extractionByRow.get(boxRow) as ExtractionRowWithItems : undefined;
+      const boxDec = boxRow !== undefined ? (() => {
+        const l = (withIns.sheetLines ?? []).find((x) => x.row === boxRow && x.sheet === undefined);
+        return vavSheetOf(ilSpec, { ...withIns, excelRow: boxRow, description: l?.text ?? "", ownNotes: [] }, boxExt, extractionByRow, rowCats, category.category_id)?.decision ?? null;
+      })() : null;
+      const shareDec = !vavSheet?.existing ? boxDec ?? sheetOf?.decision ?? null : null;
+      const notBox = !shareDec && !paint && !two && !!listSpec.sheet_shares && withIns.noRow !== true && !!withIns.sheetLines;
+      const wholeRow = sheetOf ? { sheetWholeRow: { sheetVavs: sheetOf.sheetVavs, qty: typeof withIns.quantity === "number" ? withIns.quantity : null,
+        text: [withIns.description ?? "", ...(withIns.ownNotes ?? [])].join(" | "),
+        ...(claimed?.helperWhole ? { helperWhole: claimed.helperWhole } : {}) } } : {};
+      const extR = ruled?.installRow && (boxExt?.items ?? extR0?.items) ? { ...(extR0 ?? {}), items: installRowItems(listSpec as never, (boxExt?.items ?? extR0!.items) as never) } as ExtractionRowWithItems : extR0;
+      const withShares = { ...withIns, ...wholeRow, ...(shareDec ? { sheetShares: shareDec } : notBox ? { sheetSharesNotBox: true as const } : {}),
+        ...(ruled ? { scopeRule: { value: ruled.value, ...(ruled.note ? { note: ruled.note } : {}) } } : {}) };
+      const out1v = computeItemList(category, ilSpec, items, withShares, extR, inRun, overrides, configOf, cableRate);
+      const out1x = vavSheet?.existing ? withExistingBoxes(out1v, vavSheet.existing, items) : out1v;
+      // VAV-2c1 (R4, owner 2026-11-22 10:51 "all a", 4.1): on a claimed row the helper's rule chose the item, not the model
+      const v1x = claimed ? (out1x as ItemListSuggestion).itemList : undefined;
+      const out1 = v1x ? { ...out1x, itemList: matchedByHelper(v1x) } as ItemListSuggestion : out1x;
       const v1 = (out1 as ItemListSuggestion).itemList;
-      const out0 = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
+      const out0a = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
+      const v0a = (out0a as ItemListSuggestion).itemList;
+      const claimNotes = claimed && claimRow ? claimNotesOf(listSpec, claimRow) : [];
+      const sheetLinesV = [...claimNotes, ...(wd?.lines ?? []), ...(vavLines ?? []), ...(shareDec?.rowNotes ?? [])];
+      const out0 = sheetLinesV.length && v0a
+        ? { ...out0a, itemList: { ...v0a, sheetHeadingNotes: [...(v0a.sheetHeadingNotes ?? []), ...sheetLinesV.map((l) => plainPricerText(l, items))] } } as ItemListSuggestion
+        : out0a;
       // DU-3 (Case 5): a row whose OWN words name a double-skin duct is not on our sheet -- the whole row unpriced, with the line
       const refusal = rowCtx.noRow !== true ? rowRefusalOf(listSpec, rowCtx) : null;
+      // VAV-2c3 (R6, owner 2026-11-21 15:56 "3b"): VAV-2b2's TEMPORARY "written by hand for a test" line is removed -- the paid reading
+      // replaces the hand-written test answers
       const out = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
       if (!paint) return out;
       const v = (out as ItemListSuggestion).itemList;
@@ -2583,6 +2662,9 @@ export interface ItemFieldView extends ItemFieldDef {
   /** SLICE 12e-3a (owner D3 / D3a): this field's value was MIRRORED from the item the section sits under
    * (the config's `mirror.tag`, "from pipe"). Set by the section pass only; gone once the pricer edits it. */
   mirrorTag?: string;
+  /** VAV-2a2 (B4, the approved mockup): where the value came from -- the band's source ("from the inlet size table", "from the CFM
+   *  you typed") or a BoQ-stated value of a `source_tags` attribute ("from BoQ"). Absent on every other field. */
+  sourceTag?: string;
   /** SLICE 12e-3a (owner D3a): the pricer chose a value here that differs from the mirrored one --
    * "you chose 19.05 (pipe is 15.875)" (the config's `mirror.line`). */
   mirrorLine?: string;
@@ -2641,7 +2723,16 @@ export interface ItemBlockView {
   source: "model" | "user" | "helper";
   /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
   helperLine?: string;
+  /** VAV-2b1 (owner 01:07 / 01:09): a full-rate item the user added while the sheet share of the same item is also on the entry
+   *  (`user_addable[].line`) */
+  doubleCountLine?: string;
   changedByYou?: true;
+  /** VAV-2c1 (R4, owner 2026-11-22 10:51): on a row the helper prices by its own rule, the rule chose this item ("matched by the helper") */
+  matchedByHelper?: true;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line (`scopeLines.ts`) */
+  notInScope?: NotInScope;
+  /** VAV-2a (B5): the helper ADDED this item (the integrator cabling) -- the panel says "added by the helper"; removable as any item */
+  helperAdded?: true;
   /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
    *  the helper's pick or the next best (K1d: exactly two), and the option the one toggle steps to (`cover_option`). */
   cover?: { option: number; of: number; userChosen: boolean; label: string; next: number };
@@ -2752,6 +2843,8 @@ export interface ExtraLineView {
   /** the per-metre rate, kept where known even when the line cannot price (B: "unit rate kept where known") */
   perMetre?: { supply: number; install: number };
   figures: Partial<Record<RateKind, number>>;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line */
+  notInScope?: NotInScope;
   /** VRF-5 (owner R1): an ACCESSORY line -- one that cannot price (no catalogue match, a default not set) is a note, never a
    *  block: the row prices without it */
   optional?: true;
@@ -2822,6 +2915,17 @@ export interface ItemListView {
   scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /** VP-1 (N5): the sheet-heading lines (`withSheetHeadingNotes`), drawn by the panel as an amber box after the items. */
   sheetHeadingNotes?: string[];
+  /** VAV-2a (B9): the combination-row warning (`combinationWarningOf`), drawn by the panel (and so the calculator) as an amber box after
+   *  the items. Present ONLY on a priced row of a config declaring `combination_warning` whose extras pass the share. */
+  combinationWarning?: string;
+  /** VAV-2b2 (R10, owner 2026-11-21 10:44 / 10:45 "1 yes 2 ok"): the "Possible double counting" block (a BACnet / DP block beside a DDC
+   *  block), shown above the row total in the "Review before using" style. Present only on a config declaring `sheet_shares.double_count`. */
+  doubleCounting?: { heading: string; lines: string[] };
+  /** VAV-2b1 (R11, screen 7): the combination warning's block heading ("Review before using") -- the panel then draws the warning as the
+   *  bordered amber block directly above the row total. Present only with `combinationWarning` on a config whose warning declares it. */
+  reviewHeading?: string;
+  /** VAV-2b1 (B3 / B5): the row's shared items (`sheetSharesView`), each its own block. Present only on a config declaring `sheet_shares`. */
+  shares?: SharesView;
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -2831,7 +2935,8 @@ export interface ItemListView {
    */
   sections?: {
     addLabel: string;
-    adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string }> }>;
+    adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string; /** VAV-2b2 (R13): the section a grouped entry adds to */ section?: string }>;
+      /** VAV-2b2 (R12): one-click entries adding several items */ combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> }>;
     independent: SectionBlockView[];
     lines: number;
     bad: number;
@@ -3146,6 +3251,12 @@ function itemBlockView(
   // VP-4 T4: a working line replaced whole (the D7c strainer line that now says the size it is priced at)
   const lineSwaps = new Map<string, string>();
   const fields: ItemFieldView[] = fieldDefs.map((f) => {
+    // VAV-2a2 (B3 / B4): the band `band_from` worked out -- read-only, the value USED, its source tag and how it landed (rule d)
+    if (f.bandReadOnly) {
+      const br = res.bandRead && res.bandRead.attr === f.skuAttr ? res.bandRead : undefined;
+      return { ...f, value: br ? br.band : "", typedValue: "", defaulted: false, userEdited: false, otherMode: false, readOnly: true as const,
+               blank: false, ...(br ? { sourceTag: br.tag } : {}), ...(br && br.lines.length ? { note: br.lines.join(" ") } : {}) };
+    }
     const raw = assembled.attributes[f.id]?.value;
     const stated = raw === null || raw === undefined ? "" : String(raw);
     const userEdited = Object.prototype.hasOwnProperty.call(edit.attrs, f.id);
@@ -3420,6 +3531,8 @@ function itemBlockView(
     }
     const dropped = clearedByBlock.get(f.id);
     if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
+    // VAV-2c3 FIX-2 (D1, owner 19:53 "fix"): a ruled default the field shows says so in the config's words ("... (assumed)")
+    if (defaulted && !note && spec.defaults?.[f.skuAttr]?.note) note = spec.defaults[f.skuAttr]!.note;
     const ov = overrideBy.get(f.skuAttr);
     let optionLabels: Record<string, string> | undefined;
     /**
@@ -3521,8 +3634,10 @@ function itemBlockView(
      * ONLY where that "None" was an option before -- no ruled default maps it (U5 names the air stream); a field whose
      * "None" a default already turned into a catalogue value never offered it (12d-2) and keeps its display as it was.
      */
-    const noneShown = plainItemListWording(spec) && f.allowNone && stated === "None" && !defaulted && !!f.options && !f.options.includes("None")
-      && family !== null && ruledDefaultValue(spec, f.skuAttr, family) === undefined;
+    const noneShown = (plainItemListWording(spec) && f.allowNone && stated === "None" && !defaulted && !!f.options && !f.options.includes("None")
+      && family !== null && ruledDefaultValue(spec, f.skuAttr, family) === undefined)
+      // VAV-2a2 (B3): the model's "None" in a CFM / inlet box is "not stated", never the word in the box
+      || (!!spec.band_from && stated === "None" && (f.id === spec.band_from.airflow_attr || f.id === spec.band_from.inlet_attr));
     return {
       ...f,
       ...(defaultAsOption ? { options: [...f.options!, value] } : {}),
@@ -3530,11 +3645,15 @@ function itemBlockView(
       value: noneShown ? "" : value,
       typedValue: defaultInBox ? value : stated,
       defaulted,
-      ...(defaulted ? { rule: d!.rule } : tm ? { rule: tm.line } : {}),
+      // VAV-FIX (S2, chat-Claude's call under the owner's 2026-11-23 13:46 word): a default whose own note is the field's blue box
+      // says its reason ONCE -- the blue box; the amber line stays where it is the field's only note (every other default)
+      ...(defaulted ? (spec.defaults?.[f.skuAttr]?.note && note === spec.defaults[f.skuAttr]!.note ? {} : { rule: d!.rule }) : tm ? { rule: tm.line } : {}),
       ...(modelGave ? { readOnly: true as const } : {}),
       userEdited,
       otherMode: otherMode || defaultInBox,
       ...(note ? { note } : {}),
+      // VAV-2a2 (B4): a value the BoQ stated (not typed, not a default) of an attribute the config tags says so ("from BoQ")
+      ...(spec.source_tags?.[f.skuAttr] && !userEdited && !defaulted && !tm && stated !== "" && stated !== "None" ? { sourceTag: spec.source_tags[f.skuAttr] } : {}),
       ...(optionLabels ? { optionLabels } : {}),
       // VRF-2b (owner Q3 / U1): the unit picker beside the typed box -- only on a reader declaring `units`
       ...(f.allowOther && spec.split && spec.compose?.attr === f.skuAttr && family !== null && spec.split.families.includes(family) ? { splitOnCommit: true as const } : {}),
@@ -3561,6 +3680,8 @@ function itemBlockView(
    * every other category is byte-identical.
    */
   const figures: Partial<Record<RateKind, number>> = {};
+  const helperAddedRaw = edit.base !== null && edit.family === null ? modelItem?.attributes?.[HELPER_ADDED_ATTR]?.value : undefined;
+  const helperAdded = typeof helperAddedRaw === "string" && helperAddedRaw.trim() !== "" ? helperAddedRaw : undefined;
   if (res.state === "priced") {
     let supply = 0, install = 0, anySupply = false, anyInstall = false;
     for (const l of layers) {
@@ -3573,7 +3694,9 @@ function itemBlockView(
   }
   return {
     index: res.index,
-    source: edit.helper ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    source: edit.helper || helperAdded !== undefined ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    // VAV-2a (B5): an item the helper added (the integrator cabling) says so, and how much it added
+    ...(!edit.helper && helperAdded !== undefined ? { helperLine: helperAdded, helperAdded: true as const } : {}),
     ...(edit.helper ? {
       helperLine: edit.helper.stated
         ? `From the split ${edit.helper.stated.typed ? "you typed" : "the row states"}: ${edit.helper.size} ${edit.helper.unit}`.trim()
@@ -3605,7 +3728,9 @@ function itemBlockView(
     fields,
     // SLICE 12d-1a (owner R7): read-only attributes -- declared in config, read off the assembled item,
     // shown under the definition's label. A value the model did not give is simply absent.
-    readOnly: (spec.panel_readonly ?? []).flatMap((id) => {
+    // VAV-FIX (S6): an item the HELPER added by its own rule (the integrator cabling) is not something the BoQ wrote -- no
+    // "as written (BoQ)" line under it (its heading says "added by the helper"); an item the model read keeps its line
+    readOnly: !edit.helper && helperAdded !== undefined ? [] : (spec.panel_readonly ?? []).flatMap((id) => {
       const raw = assembled.attributes[id]?.value;
       if (raw === null || raw === undefined || raw === "None" || String(raw).trim() === "") return [];
       // SLICE 12e-4b (owner D-3, decision 2 "(b)"): the family AS WRITTEN is shown only where it differs from
@@ -3657,7 +3782,9 @@ export function withoutRestatements(
   const fieldOf = (attr: string) => fields.find((f) => f.skuAttr === attr || (f.axes ?? []).includes(attr));
   for (const d of res.defaulted) {
     const f = fieldOf(d.attr);
-    if (f && f.defaulted && f.rule !== undefined) exact.add(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
+    // VAV-FIX (S2): a default the field states by its own blue note (no amber line since S2) is on screen too -- its working copy goes
+    const statedByNote = !!f && f.note !== undefined && f.note === spec.defaults?.[d.attr]?.note;
+    if (f && f.defaulted && (f.rule !== undefined || statedByNote)) exact.add(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
   }
   if (res.familyDefaulted && edit.family === null) exact.add(`${familyAttr(spec)} not mentioned -> ${res.familyDefaulted.value} (${res.familyDefaulted.rule})`);
   for (const o of res.overrides ?? []) if (fieldOf(o.attr)?.note === o.rule) exact.add(o.rule);
@@ -3904,7 +4031,7 @@ function foldedModelItems(spec: ItemListPricingSpec, edits: ItemListEditState, m
 
 function computeItemListOwn(
   category: RateCategoryConfig,
-  spec: ItemListPricingSpec,
+  specIn: ItemListPricingSpec,
   items: RateMasterItem[],
   ctx: RowContextWithUnit,
   ext: ExtractionRowWithItems | undefined,
@@ -3912,6 +4039,10 @@ function computeItemListOwn(
   overrides?: Record<string, string>,
   probe?: OwnPassProbe,
 ): HelperResult {
+  // VAV-FIX (S1, owner 2026-11-20 17:53 "a"; ANSWER 7 option (b)): in the CALCULATOR -- the explicit flag `calculatorCtx` sets, never the
+  // unit (a BoQ row with no unit, or no unit key, keeps its defaults) -- a default declaring `boq_rows_only` does not fill a blank; every
+  // other spec is the same object
+  const spec = ctx.calculator === true ? boqRowsOnlyDefaultsOff(specIn) : specIn;
   const modelItems = ext?.items ?? [];
   const decoded = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
   /**
@@ -4286,13 +4417,21 @@ function computeItemListOwn(
   else if (rowReason) derivation.push(rowReason);
   const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
   // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
+  // VAV-FIX (S3, chat-Claude's call under the owner's 2026-11-23 13:46 word): the no-unit bar is the row's ONE warning -- the
+  // "No unit on the BoQ row -> priced per ..." line is not drawn beside it (set where the bar is chosen, below)
+  let blankUnitBarShown = false;
   const unitBar = ((): ItemListView["unitBar"] => {
     // DU-2 (R-NOTE-ORDER): a row refused as not a duct (re-file) shows no whole-lot bar -- the re-file note is what it needs
     if (priced.refile) return undefined;
     if (isLotUnit(spec, unit) && spec.lot_units) {
       // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
       const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];
-      return { tone: "red", title: own ?? spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+      return { tone: "red", title: (own ?? spec.lot_units.bar).replace("{UNIT}", unit.trim().toUpperCase()), lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+    }
+    // VAV-2c3 FIX-2 (B2-3, owner 20:00 "the notes should be a stronger warning"): a row with NO unit that the default unit priced
+    if (spec.blank_unit_bar && unit.trim() === "" && priced.unitClass) {
+      blankUnitBarShown = true;
+      return { tone: "orange", title: spec.blank_unit_bar.title, lines: [spec.blank_unit_bar.line] };
     }
     if (!perSetRow || !spec.per_set) return undefined;
     const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
@@ -4327,9 +4466,9 @@ function computeItemListOwn(
     ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
     ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? rowReason) ? { reason: unshowableReason ?? rowReason } : {}),
-    ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
+    ...(priced.unitNote && !blankUnitBarShown ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
-    items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
+    items: blocks, families: offeredFamilies(spec), editState: edits, modelCount: modelItems.length,
     // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
     // with it (see the warning on `rowTotals`)
     ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
@@ -4538,6 +4677,8 @@ function withExtras(
   const lineCtx = (category: string, pipeOd?: boolean): RowContextWithUnit => ({
     excelRow: ctx.excelRow, description: "", nodeType: ctx.nodeType, category, discipline: ctx.discipline, rateKinds: ctx.rateKinds, unit: "mts", noRow: true,
     ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}),
+    // VAV-FIX (ANSWER 7): a borrowed line priced for the Calculator is the Calculator's too
+    ...(ctx.calculator === true ? { calculator: true as const } : {}),
   } as RowContextWithUnit);
   type LineCall = { rate: { supply: number; install: number } | { reason: string }; attrs?: Record<string, string>; notes?: Record<string, string>; size?: string; note?: string; read?: string };
   const lineCache = new Map<string, LineCall>();
@@ -5342,17 +5483,17 @@ export const VRF10_SCOPE = {
   supply_words: "^\\s*supply(?:ing)?\\b(?![^.;|\\n]*?\\b(?:install\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
   plain_supply: "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b|\\bexclud\\w*\\s+(?:of\\s+)?install\\w*|\\bwithout\\s+install\\w*|\\binstall\\w*[^.;|\\n]{0,40}?\\bby\\s+(?:others|the\\s+(?:client|owner)|client|owner)\\b|\\binstall\\w*[^.;|\\n]{0,20}?\\bnot\\s+(?:included|in\\s+(?:the\\s+)?scope)\\b",
   frame_families: ["MS frame / stand for ODU", "MS Angle Base Frame Structure"],
-  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation (owner F3)",
-  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\" (owner F3).",
-  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation (owner F2)",
-  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
-  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation",
+  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\".",
+  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation",
+  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only.",
+  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only.",
   f6_sheet: true,
   /** (QR-1 Q2 (a), ANSWER 2 relay: "a sheet with any installation-only row (ANY category)") a sheet line of another category -- no
    *  scope answer of its own -- reads installation-only when its text starts with installation work and names no supply */
   install_only_words: "^\\s*(?:shifting\\s*[,&]?\\s*(?:and\\s+)?)?(?:assembly\\s*[,&]?\\s*(?:and\\s+)?)?(?:install\\w*|instal\\w*|erection|fixing)\\b",
   install_only_not: "\\bsupply\\w*|\\bSITC\\b|\\bprovid\\w*|\\bprocur\\w*",
-  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only (owner F6).",
+  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only.",
 } as const;
 
 /** VRF-10 (F5a). The controller family whose "ON / OFF controller" note is kept only for a single-function controller, and the
@@ -5403,7 +5544,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   const forced = withScopeCore(spec, items, ctx, ext, overrides, res, probe, pick);
   const fs = forced.itemList?.scope;
   const because = hs?.note ? ` because: ${hs.note}` : "";
-  const lead = sc.panel_pick.note.replace("{helper}", hv).replace("{because}", because);
+  const lead = panelPickLead(sc.panel_pick.note, hv, because);
   return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
 }
 
@@ -5416,8 +5557,8 @@ export const VP5_SCOPE = {
   /** material handling in a scope list ("lifting, shifting, positioning at site") is never a refix -- removed before the refix test */
   handling: /\blifting\s*[,/&]?\s*(?:and\s+)?shifting\b|\bshifting\s*[,/&]\s*(?:positioning|placement|storing|handling|unloading)\b|\bunloading\s*,\s*shifting\b/gi,
   refix: /\b(?:dismantl\w*\s+(?:and|&)\s+re-?fix\w*|re-?fix\w*|re-?install\w*|re-?install(?:ation)?|shifting|relocat\w*)\b|\b(?:existing|old)\s+(?:valves?|gauges?|guages?|thermometers?|strainers?|meters?|instruments?|items?|units?|fittings?)\b/i,
-  both_note: "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end) (owner E11)",
-  refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift (owner E11)",
+  both_note: "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end)",
+  refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift",
   /** QR-2 (a): the pair rule's supply row -- its own words start with supply and name no installation */
   supply_row_words: /^\s*(?:supply|supplying)\b/i,
   /** DU-3 (R3, owner 2026-11-16 15:16 Case 1 "ok option A"): the same supply row behind a heading echo in capitals ("FIRE RATED DUCTING
@@ -5425,11 +5566,12 @@ export const VP5_SCOPE = {
   supply_row_echo: /^\s*[A-Z][A-Z0-9&/().,'\- ]{1,60}\s+(?:[Ss]upply(?:ing)?|SUPPLY(?:ING)?)\s+(?:of|OF)\b/,
   install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
   // owner-approved wording (02:24, VP5-16): shown ALONE, without the standard supply-only sentence
-  pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here (owner QR-2)",
+  // VAV-2a2 (R7, owner 2026-11-17 "(owner chose A)" / 2026-11-19 18:16 "a) the next VAV slice"): the owner tag is not shown in the note
+  pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here",
   /** DU-2 K1b (owner QR-1 Q1 (a), 2026-11-16 01:27): a "labour charges" row is the duct's installation only -- on a scope whose own
    *  supply-row uplift is set (Ducting, G-4) only, so the Valve Package's rule is unchanged */
   labour: /\blabou?r\s+(?:charges?|only|cost)\b/i,
-  labour_note: "labour only - duct installation priced; insulation installation is priced by Insulation's own rows (owner QR-1 Q1)",
+  labour_note: "labour only - duct installation priced; insulation installation is priced by Insulation's own rows",
 } as const;
 
 function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
@@ -5443,6 +5585,8 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   let value = "";
   if (forced !== undefined) value = forced;
   else if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  // VAV-2c2 (R1 / R2): the scope rule decided this BoQ row (`compute` -> `scopeRuleForRow`) -- its value, and its note in place of the BoQ one
+  else if (ctx.scopeRule) value = ctx.scopeRule.value;
   else {
     const id = spec.extras?.from_model?.scope ?? (spec.extras ? undefined : spec.scope?.model_attr);
     for (const it of id ? (ext?.items ?? []) : []) {
@@ -5451,7 +5595,9 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     }
   }
   const picker = calculator ? { title: sc.title, options: sc.options, value: sc.options.includes(value) ? value : sc.options[0] } : undefined;
-  const L = sc.lines;
+  // VAV-2c2 (R3 a, owner 2026-11-23 13:46): a scope the user picked on the panel, or the Calculator's, is not what the BoQ says -- its notes
+  // come from `chosen_lines` (a key it lacks keeps the BoQ wording)
+  const L = (calculator || forced !== undefined) && sc.chosen_lines ? { ...sc.lines, ...sc.chosen_lines } : sc.lines;
   // VRF-6 (owner Q5, Divyansh 11:38-11:55; INSTALLATION-ONLY 11:50 / 11:55): on a BoQ row, the same sheet's rows of the SAME kind
   // of item (item-1 family) and their scope answers decide -- a supply-only row under a note that includes installation, and an
   // installation-only row, each carry a note naming the rows that decided
@@ -5618,7 +5764,10 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
   const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
+  // VAV-2c2 (R2): the rule's note on a BoQ row it decided (a scope the user picked, or the Calculator's, never carries it)
+  const ruleNote = forced === undefined && !calculator ? ctx.scopeRule?.note : undefined;
   if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
+    if (ruleNote) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ruleNote } } };
     return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
   }
   const supplyOnly = value === sc.supply_only;
@@ -5683,8 +5832,8 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // the owner's note reads the figure without the rupee sign ("charged at 5,600"); the formatting is the app's own (residence R1)
   const figureText = (n: number) => formatToRoundedIndianRupee(n).replace(/^₹/, "");
   const onSiteNote = (title: string, fig: number) => (/^MS frame/i.test(title)
-    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us (owner R-F2)`
-    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged (owner R-F2)`);
+    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us`
+    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged`);
   const adj = (f: Partial<Record<RateKind, number>>, title: string, line = false): Partial<Record<RateKind, number>> => {
     const s0 = f.supply_rate ?? 0;
     const i0 = f.install_rate ?? 0;
@@ -5714,7 +5863,12 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   }
   // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
   // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
-  const note0 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
+  // VAV-2c3 (R5 F3): a config whose Calculator shows Supply only by its Scope box line alone does not repeat it as a note
+  const boxOnly = calculator && supplyOnly && sc.calculator_scope_box_only === true;
+  const note00 = ruleNote !== undefined ? ruleNote : pairRule || boxOnly ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? (L.normal_note ?? sc.supply_row.normal_note).replace("{uplift}", uplift0 === null ? "not set" : percentOf(uplift0)) : L.install_only_note.replace("{pct}", pct || "-"));
+  // VAV-2c2 (R3 b): a note written to introduce the per-line working ends with a colon; with no working line after it (0% uplift) the
+  // sentence ends where the text ends
+  const note0 = note00 !== undefined && !points.length ? note00.replace(/:\s*$/, ".") : note00;
   const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
   const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
@@ -5735,11 +5889,12 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
                          ...(rest.lineCount && bad ? { lineCount: { ...rest.lineCount, bad: Math.max(rest.lineCount.bad, bad) } } : {}) } };
   }
   const values: Record<string, number> = { supply_rate: totals.supply_rate ?? 0, install_rate: totals.install_rate ?? 0, combined_rate: (totals.supply_rate ?? 0) + (totals.install_rate ?? 0) };
+  const after: ItemListView = { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView };
   return {
     ...res,
     values,
     workings: { ...res.workings, derivation: [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`], finalValues: { ...values } },
-    itemList: { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView },
+    itemList: sc.lines_follow ? withScopeLines(view, after, { word: sc.lines_follow.word, supplyOnly, uplift: uplift ?? 0, pct, perLine }) : after,
   };
 }
 
@@ -6562,6 +6717,9 @@ export const VALVE_NETS = {
   /** E6: a pressure gauge PROVISION (sockets / valves to fix a gauge later) -> the Misc test plug; the gauge is not included */
   gauge_provision: /\b(?:pressure\s+)?(?:gauge|guage)s?\s+provision\b|\bprovision\b[^|.;]{0,80}?\b(?:gauge|guage)s?\b/i,
   e6_line: "BoQ asks for \"{said}\" -> priced as a gauge provision (socket / test point); the gauge itself is not included (owner E6)",
+  /** VAV-2a2 (R7, owner 2026-11-15 11:46 "price as thermowell"; QR-V (a) 2026-11-20 00:10): "Thermowell with Valve" is the thermowell */
+  thermowell_valve: /\bthermo-?\s*wells?\s+with\s+(?:an?\s+|isolation\s+|ball\s+)?valves?\b/i,
+  e13_line: "BoQ asks for \"{said}\" -> priced as the thermowell (Test Plug / Thermowell); no valve item",
   /** E7: a balancing valve with INTEGRATED P/T test points -> no extra test plug item (W1 counts only separately counted ones) */
   integrated_pt: /\bintegrated\s+(?:p\s*\/\s*t|pressure[^|.;]{0,20}?temperature)\s+test\s+(?:points?|ports?|plugs?)\b/i,
   e7_line: "BoQ says \"{said}\": integrated P/T test points are part of the balancing valve (owner E7)",
@@ -6979,6 +7137,27 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
       }
     }
   }
+  if (secOf.has(N.misc_section)) {
+    // E13 (VAV-2a2 R7, owner 2026-11-15 11:46 "price as thermowell"; QR-V (a) 2026-11-20 00:10): a row whose OWN words are "thermowell
+    // with valve" -> the Misc Test Plug / Thermowell, with a note; a sizeless valve the model listed (the "valve" of those words) folds
+    // into it. A valve with a size of its own is left as read. (BOQ-26-00140 r562, 00234 r222, 00261 r125, 00273 r222.)
+    const ms = secOf.get(N.misc_section)!;
+    const m = own.match(N.thermowell_valve);
+    if (m && items.length >= 1) {
+      const sizeless = (it: ExtractedListItem) => !isSec(it) && sizeOf(val(it, "size_mm")) === null && (famOf(it) === N.ball || blankFam(famOf(it)));
+      // the thermowell the model already read (Misc's Test Plug / Thermowell) is kept; else the sizeless valve becomes it
+      const plugAt = items.findIndex((it) => famOf(it) === N.test_plug);
+      const target = plugAt !== -1 ? plugAt : items.findIndex(sizeless);
+      if (target !== -1) {
+        const prev = items[target];
+        const plug: ExtractedListItem = famOf(prev) === N.test_plug && isSec(prev) ? prev : { section: N.misc_section, attributes: {
+          [ms.fa]: { value: N.test_plug, confidence: 1 }, [ms.asw]: { value: m[0].trim(), confidence: 1 } } };
+        const line13 = N.e13_line.replace("{said}", m[0].trim());
+        const lined = netLinesOf(plug).includes(line13) ? plug : addLine(plug, line13);
+        items = items.flatMap((it, i) => (i === target ? [lined] : sizeless(it) ? [] : [it]));
+      }
+    }
+  }
   {
     // E7: a balancing valve whose heading / words say INTEGRATED P/T test points -> no extra test plug (unless the BoQ counts them)
     const m = near.match(N.integrated_pt);
@@ -7125,7 +7304,9 @@ function computeItemList(
   const ownView = ownRes.itemList!;
   const edits = probe.edits!;
   const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
-  const rowUnit = ownView.unit;
+  // VAV-2c3 FIX-2 (B2-3): a row with NO unit that the item priced in its default unit (Nos) prices its sections in that unit too -- a
+  // config declaring `blank_unit_bar` only (VAV Box); every other category's sections keep the row's own unit, as before
+  const rowUnit = spec.blank_unit_bar && ownView.unit.trim() === "" && ownView.rateUnit ? ownView.rateUnit : ownView.unit;
   // the calculator has no row, so nothing supplies the unit (the helper's one existing test for it)
   const calculator = ownView.unitPickable;
   const ownSectionLabel = (spec.sections ?? []).find((s) => !s.category_id)?.label ?? "item";
@@ -7143,7 +7324,9 @@ function computeItemList(
     /** DU-1 (DR5): the numbers the item above this section read (its diameter / sides), for the section's `area_basis` */
     ownerReads?: Record<string, string | number>,
   ): SectionBlockView => {
-    const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
+    // VAV-2b2 (R14, owner 2026-11-21 10:50 "2 ok"): an item of a grouped section is headed without the sheet it is priced from
+    const heading = spec.add_group?.sections.includes(r.s.id) ? spec.add_group.heading
+      : `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
       // the delegated category is not in this helper's config map: never price it with any other rules
       const reason = `${r.s.label} cannot be priced here - its rules are not loaded; price it by hand`;
@@ -7208,11 +7391,14 @@ function computeItemList(
      */
     const qtyLinked = pipe !== null && secEdit.qty === undefined && ownerQty !== undefined;
     const qtyTag = r.s.mirror?.tag ?? `from ${String(ownSectionLabel).toLowerCase()}`;
+    // VAV-2a (B7): the count the model read on the section's own item, in THIS config's `qty_attr` (the borrowed category may have no
+    // count) -- below the pricer's typed quantity and a linked one; absent key / no answer => the section's own default, as before
+    const rowQty = !qtyLinked && secEdit.qty === undefined && r.s.qty_attr && answeredItem ? sectionQtyFromRow(answeredItem, r.s.qty_attr) : undefined;
     const callEdit: ItemEdit = {
       base: modelItem ? 0 : null,
       family: secEdit.family,
       attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : refusedByPipe ? { ...secEdit.attrs, [toId!]: "" } : { ...secEdit.attrs },
-      ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : {})),
+      ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : rowQty !== undefined ? { qty: rowQty } : {})),
       ...(mirrored || refusedByPipe ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
       // ADP-1: the mirrored size is marked, so F1 does not read the pipe's mm size as a bare number the BoQ wrote
       ...(mirrored ? { mirrored: [toId!] } : {}),
@@ -7419,7 +7605,7 @@ function computeItemList(
   const ownCount = blocks.length;
   const lines = ownCount + sectionViews.length;
   const ownOk = ownCount === 0 || ownView.rowPriced;
-  const rowPriced = lines > 0 && ownOk && sectionViews.every((sv) => sv.view.rowPriced);
+  let rowPriced = lines > 0 && ownOk && sectionViews.every((sv) => sv.view.rowPriced);
   const bad = blocks.filter((b) => b.state !== "priced").length + sectionViews.filter((sv) => !sv.view.rowPriced).length;
   const values: Record<string, number> = {};
   if (rowPriced) {
@@ -7429,10 +7615,57 @@ function computeItemList(
     if (parts.every((p) => typeof p.install_rate === "number")) values.install_rate = sum("install_rate");
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
   }
+  // VAV-2b1 (B3 / B5): the row's shared items -- their per-box figures join the row total, each its own line (a share counts as an
+  // extra for the warning: owner 15:02 "option a", BOQ-26-00087); only a config declaring `sheet_shares`
+  const shares = spec.sheet_shares ? sheetSharesView(spec.sheet_shares, ctx.sheetShares ?? null, decodeShareEdits(overrides?.[SHARES_OVERRIDE_KEY]),
+    items, (id) => scopeUpliftOf(items, id), ctx.sheetWholeRow) : undefined;
+  if (rowPriced && shares && shares.priced && typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
+    values.supply_rate += shares.totals.supply_rate;
+    values.install_rate += shares.totals.install_rate;
+    values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  // VAV-2b1 v80 (owner 01:15 / 01:16 / 01:32): a row with NO item line priced by its full-rate block(s) alone -- the separate controller /
+  // DDC panel row (or the Calculator with only that block): the blocks are the row's price, per unit
+  const wholeKeys = new Set((spec.sheet_shares?.whole ?? []).map((w) => w.key));
+  const wholeBlocks = (shares?.blocks ?? []).filter((b) => wholeKeys.has(b.id));
+  if (!rowPriced && lines === 0 && shares && wholeBlocks.length && wholeBlocks.every((b) => b.figures)) {
+    rowPriced = true;
+    values.supply_rate = shares.totals.supply_rate;
+    values.install_rate = shares.totals.install_rate;
+    values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  // VAV-2b1 v80 (owner 01:16; his "b" 01:21): the share buttons stay on a row that is not a VAV box row; a share the user adds there warns
+  const nb = spec.sheet_shares?.lines.not_box_row;
+  // (a SHARE only -- a full-rate block is meant for exactly such a separate row)
+  const shareIdsNb = new Set((spec.sheet_shares?.shares ?? []).map((x) => x.id));
+  if (ctx.sheetSharesNotBox && nb && shares) for (const b of shares.blocks) if (b.origin === "user" && shareIdsNb.has(b.id)) b.notes = [...b.notes, nb];
+  // VAV-2b1 (owner 2026-11-21 01:07 / 01:09): a full-rate item the USER added while the sheet share of the same item is on the entry
+  // -> its double-count line under it (both stay in the total; the review block counts both)
+  const ua = spec.user_addable ?? [];
+  if (ua.length && shares?.blocks.length) {
+    const on = new Set(shares.blocks.map((b) => b.id));
+    const mark = (b: ItemBlockView) => { const u = ua.find((x) => x.family === b.family && x.share && on.has(x.share) && x.line); if (u) b.doubleCountLine = u.line; };
+    blocks.forEach(mark);
+    for (const sv of sectionViews) (sv.view.items ?? []).forEach(mark);
+  }
+  // VAV-2b2 (R10): a BACnet / DP block (share, full rate or the plain item) beside a DDC block (share or full rate) -> the amber
+  // "Possible double counting" block naming the count inside the panel; it REPLACES the small double-count lines of the blocks it names
+  const doubleCounting = spec.sheet_shares?.double_count && shares ? doubleCountingOf(spec.sheet_shares, blocks, sectionViews, shares.blocks) : undefined;
+  // VAV-2b2 (R9): each extra on the row with its amount, for a warning that names them (`combination_warning.names`)
+  const both = (f: Partial<Record<RateKind, number>> | undefined) => (f?.supply_rate ?? 0) + (f?.install_rate ?? 0);
+  const boxFams = new Set(spec.combination_warning?.box_families ?? []);
+  const named = spec.combination_warning?.names ? [
+    ...blocks.filter((b) => b.state === "priced" && b.family !== null && !boxFams.has(b.family)).map((b) => ({ label: b.familyLabel ?? b.family ?? "", amount: both(b.figures) })),
+    ...sectionViews.flatMap((sv) => (sv.view.items ?? []).filter((b) => b.state === "priced").map((b) => ({ label: b.familyLabel ?? b.family ?? sv.heading, amount: both(b.figures) }))),
+    ...(shares?.blocks ?? []).filter((b) => b.figures).map((b) => ({ label: b.label, amount: both(b.figures ?? undefined) })),
+  ] : undefined;
+  // VAV-2a (B9): the combination-row warning, on the row's catalogue lines (before any scope pick) -- only a config declaring it
+  const combo = rowPriced && spec.combination_warning ? combinationWarningOf(spec.combination_warning, blocks, sectionViews, values, items, shares?.priced ?? 0, named) : undefined;
   const reason = rowPriced ? undefined
     : (ownCount > 0 && !ownView.rowPriced ? ownView.reason : undefined) ?? sectionViews.find((sv) => !sv.view.rowPriced)?.view.reason ?? ownView.reason;
+  const shown = lines || wholeBlocks.length;
   const basis = rowPriced
-    ? `Rate master: ${categoryLabel(category)} · ${lines} item${lines === 1 ? "" : "s"}`
+    ? `Rate master: ${categoryLabel(category)} · ${shown} item${shown === 1 ? "" : "s"}`
     : lines === 0 ? "Add an item to price" : "Complete the missing attributes to price";
   const derivation = rowPriced
     ? [`Row total per 1 ${rowUnit}: supply ${values.supply_rate} + install ${values.install_rate}`]
@@ -7448,17 +7681,21 @@ function computeItemList(
     ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
     sections: {
       addLabel: ownSection?.add_label ?? "Add item",
-      adds: resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
+      adds: groupedAdds(spec, resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
         id: r.s.id,
         addLabel: r.s.add_label,
-        families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family)
+        families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family) && !hiddenFamilies(spec).includes(f.family)
           && items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
-      })),
+      }))),
       independent,
       lines,
       bad,
     },
     ...(sheetInsulationLines.size ? { sheetHeadingNotes: [...sheetInsulationLines].map((l) => plainPricerText(l, items)) } : {}),
+    ...(combo ? { combinationWarning: plainPricerText(combo, items) } : {}),
+    ...(combo && spec.combination_warning?.heading ? { reviewHeading: spec.combination_warning.heading } : {}),
+    ...(doubleCounting ? { doubleCounting } : {}),
+    ...(shares ? { shares } : {}),
   };
   const done: ItemListSuggestion = {
     ...ownRes,
@@ -7469,7 +7706,102 @@ function computeItemList(
   } as ItemListSuggestion;
   // VP-1 (N1): a pricing-level `scope` (Valve Package) re-prices the row's LINES -- its own items and its borrowed sections --
   // by the scope pick; ABSENT => the row as it always was. VP-1 (N5): the sheet-heading note last (display only).
-  return withSheetHeadingNotes(spec, items, ctx, spec.scope && !spec.extras ? withScope(spec, items, ctx, ext, overrides, done) : done);
+  const fin = withSheetHeadingNotes(spec, items, ctx, spec.scope && !spec.extras ? withScope(spec, items, ctx, ext, overrides, done) : done);
+  // VAV-2a (B9): a row the scope pick left unpriced carries no warning
+  const fv = combo ? (fin as ItemListSuggestion).itemList : undefined;
+  // VAV-2c1 (QR-SC2, owner 2026-11-22 20:09 "option a fopr 3"): which rows show the block is decided above, as before; its AMOUNTS follow the scope
+  if (fv?.rowPriced && fv.combinationWarning && spec.combination_warning && scopeSpecOf(spec)?.lines_follow && fv.scope && fv.scope.value !== scopeSpecOf(spec)!.options[0]) {
+    return { ...fin, itemList: { ...fv, combinationWarning: plainPricerText(scopedWarning(spec.combination_warning, fv), items) } } as ItemListSuggestion;
+  }
+  if (fv && !fv.rowPriced) {
+    const { combinationWarning: _cw, reviewHeading: _rh, ...rest } = fv;
+    return { ...fin, itemList: rest } as ItemListSuggestion;
+  }
+  return fin;
+}
+
+/**
+ * VAV-2a (B9, owner 2026-11-19 12:49 / 12:55 "option b" / 12:59 "50%"). PURE. The warning line of a priced row whose lines OTHER than the
+ * box come to more than the Pricing Input share x the box's own rate (supply + installation), else undefined. The box = the row's own
+ * priced items of `box_families`; the other lines = the row's other own items and every section line. No box (or a box rate of 0) ->
+ * nothing to compare, no warning. The share input not set -> `input_missing` whenever the row combines the box with anything.
+ */
+/** VAV-2b2 (R13 / R12, owner 2026-11-21 10:40 "the user does not need to know where it is coming from"; 10:41 "1a 2a"). PURE. The grouped
+ *  sections' add buttons become ONE (`add_group.label`) holding their entries -- each knows its section -- then the one-click combos whose
+ *  every item is offered; the other buttons as they were. No `add_group` => the list unchanged. */
+export function groupedAdds(spec: ItemListPricingSpec, adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string }> }>):
+  Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string; section?: string }>; combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> }> {
+  const g = spec.add_group;
+  if (!g) return adds;
+  const inG = adds.filter((a) => g.sections.includes(a.id));
+  if (!inG.length) return adds;
+  const families = inG.flatMap((a) => a.families.map((f) => ({ ...f, section: a.id })));
+  const offered = (x: { section: string; family: string }) => families.some((f) => f.section === x.section && f.family === x.family);
+  const combos = (g.combos ?? []).filter((c) => c.adds.length && c.adds.every(offered));
+  const at = adds.findIndex((a) => g.sections.includes(a.id));
+  const rest = adds.filter((a) => !g.sections.includes(a.id));
+  return [...rest.slice(0, at), { id: g.sections[0], addLabel: g.label, families, ...(combos.length ? { combos } : {}) }, ...rest.slice(at)];
+}
+
+/** VAV-2b2 (R10, owner 2026-11-21 10:44 "when both bacnet and ddc blocks are on a row...a more prominent warning for possible double
+ *  counting of Bacnets should be given"; 10:45 "1 yes 2 ok" -- the same for a DP sensor, share or plain item, beside a DDC block). PURE.
+ *  Any DDC block (share or full rate) on the row with any listed block or item -> one line each, naming the count inside the DDC block
+ *  (its `<part>_count` box); the small double-count lines on the blocks and items it names are taken off (the block replaces them). */
+export function doubleCountingOf(ss: NonNullable<ItemListPricingSpec["sheet_shares"]>, blocks: ItemBlockView[], sectionViews: readonly SectionBlockView[],
+  shareBlocks: SharesView["blocks"]): { heading: string; lines: string[] } | undefined {
+  const dc = ss.double_count;
+  if (!dc) return undefined;
+  const items = [...blocks, ...sectionViews.flatMap((sv) => sv.view.items ?? [])];
+  const wholeLines = new Set((ss.whole ?? []).map((w) => w.line).filter((l): l is string => !!l));
+  const lines: string[] = [];
+  for (const w of dc.with) {
+    // VAV-2b2 (A-4, owner 14:46): an entry may name its own anchor (a BACnet / DP share) in place of the DDC block
+    const ddc = shareBlocks.find((b) => (w.anchor ?? dc.ddc).includes(b.id));
+    if (!ddc) continue;
+    // (never the anchor block itself: a full-rate DDC panel is "the other block" only beside a DDC share -- QR-C1 (b), 13:59)
+    const bs = shareBlocks.filter((b) => w.blocks.includes(b.id) && b !== ddc);
+    const its = items.filter((b) => b.family !== null && w.families.includes(b.family));
+    if (!bs.length && !its.length) continue;
+    const n = Number(ddc.fields.find((f) => f.id === `${w.part}_count`)?.value ?? 0) || 0;
+    lines.push(w.line.split("{n}").join(String(n)).split("{s}").join(n === 1 ? "" : "s"));
+    for (const b of [...bs, ddc]) b.notes = b.notes.filter((l) => !wholeLines.has(l));
+    for (const b of its) delete b.doubleCountLine;
+  }
+  return lines.length ? { heading: dc.heading, lines } : undefined;
+}
+
+export function combinationWarningOf(cw: NonNullable<ItemListPricingSpec["combination_warning"]>, blocks: readonly ItemBlockView[],
+  sectionViews: readonly SectionBlockView[], values: Readonly<Record<string, number>>, items: readonly RateMasterItem[], shareLines = 0,
+  /** VAV-2b2 (R9): each extra with its amount, for a warning declaring `names` */ named?: ReadonlyArray<{ label: string; amount: number }>): string | undefined {
+  const boxes = new Set(cw.box_families);
+  const both = (f: Partial<Record<RateKind, number>> | undefined) => (f?.supply_rate ?? 0) + (f?.install_rate ?? 0);
+  const boxBlocks = blocks.filter((b) => b.state === "priced" && b.family !== null && boxes.has(b.family));
+  const box = boxBlocks.reduce((a, b) => a + both(b.figures), 0);
+  const n = blocks.length - boxBlocks.length + sectionViews.length + shareLines;
+  if (!boxBlocks.length || !(box > 0) || n === 0) return undefined;
+  const y = (values.supply_rate ?? 0) + (values.install_rate ?? 0);
+  const x = y - box;
+  const share = scopeUpliftOf(items, cw.share_input);
+  if (share === null) return cw.input_missing;
+  if (!(x > share * box + 1e-9)) return undefined;
+  const fig = (v: number) => formatToRoundedIndianRupee(v).replace(/^₹/, "");
+  // VAV-2b2 (R9, owner 2026-11-21 10:52 / 10:54 "a"): the block names each extra with its amount, then the extras total (one line each)
+  if (cw.names && named) {
+    const k = named.length;
+    return [k === 1 ? cw.names.intro_one : cw.names.intro.split("{n}").join(String(k)),
+      ...named.map((e) => cw.names!.extra.split("{label}").join(e.label).split("{x}").join(fig(e.amount))),
+      cw.names.total.split("{x}").join(fig(x)).split("{y}").join(fig(y))].join("\n");
+  }
+  const t = n === 1 && cw.line_one ? cw.line_one : cw.line;
+  return t.split("{n}").join(String(n)).split("{x}").join(fig(x)).split("{y}").join(fig(y));
+}
+
+/** VAV-2a (B7). PURE. A section item's count in `attr` when it is a positive number, as text; else undefined (the default stands). */
+export function sectionQtyFromRow(item: ExtractedListItem, attr: string): string | undefined {
+  const v = item.attributes?.[attr]?.value;
+  if (v === null || v === undefined || String(v).trim() === "" || String(v).trim() === "None") return undefined;
+  const q = typeof v === "number" ? v : Number(String(v).trim());
+  return Number.isFinite(q) && q > 0 ? String(q) : undefined;
 }
 
 /**
@@ -7702,6 +8034,416 @@ export function ductInsulationDecision(si: NonNullable<ItemListPricingSpec["shee
   return { action: "add", line: `${doubleCount} ${ratioLine}` };
 }
 
+// ── VAV-2a: THE SHEET RULES (owner rulings in each header) -- B6 existing boxes, B3 / B4 / QR-C1 an extra charged on its own row, B5 the
+//    integrator cabling. Each runs ONLY for a config declaring its key, ONLY on a BoQ row (never the calculator: it has no sheet), and
+//    acts on the MODEL'S ITEMS before pricing (dropped / changed / one added by the helper), with its lines for the row's amber box. ──
+
+type VavSheetLine = NonNullable<RowContextWithUnit["sheetLines"]>[number];
+const vre = (p: string | undefined): RegExp | null => { if (!p) return null; try { return new RegExp(p, "i"); } catch { return null; } };
+const unitKey = (u: string | null | undefined) => String(u ?? "").trim().toLowerCase();
+const headsOf = (l: VavSheetLine) => (l.headings ?? (l.heading ? [l.heading] : [])).join(" | ");
+const fillAll = (t: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), t);
+
+/** VAV-2a. PURE. "row 48" / "rows 48, 49" / "rows 1, 2, ... 10 and 3 more" (the DU-3 R8 wording, the 10-row cap). */
+export function vavRowsNamed(rows: readonly number[]): string {
+  const rs = [...new Set(rows)].sort((a, b) => a - b);
+  return `${rs.length > 1 ? "rows" : "row"} ${rs.slice(0, 10).join(", ")}${rs.length > 10 ? ` and ${rs.length - 10} more` : ""}`;
+}
+
+/** VAV-2a. PURE. The first match of `words` in `text` whose window of `nearChars` either side holds `near` and whose window of
+ *  `notNearChars` holds no `notNear` (the VAV integrator, never a heat-meter integrator); else null. */
+export function vavNearHit(text: string, words: string, near: string | undefined, nearChars = 120, notNear?: string, notNearChars = 80): { index: number } | null {
+  let g: RegExp;
+  try { g = new RegExp(words, "gi"); } catch { return null; }
+  const nr = vre(near), nn = vre(notNear);
+  for (let m = g.exec(text); m; m = g.exec(text)) {
+    if (m[0] === "") { g.lastIndex++; continue; }
+    const at = m.index, len = m[0].length;
+    // the words around the match, never the match itself ("Supply & installation of Router" names no context word -- VAV-D0 D4)
+    const win = (c: number) => `${text.slice(Math.max(0, at - c), at)} ${text.slice(at + len, at + len + c)}`;
+    if (nr && !nr.test(win(nearChars))) continue;
+    if (nn && nn.test(win(notNearChars))) continue;
+    return { index: at };
+  }
+  return null;
+}
+
+type OwnRowSpec = NonNullable<ItemListPricingSpec["own_row_check"]>;
+type CablingSpec = NonNullable<ItemListPricingSpec["integrator_cabling"]>;
+
+/** VAV-2a (B3, QR-4 (a)). PURE. Is this line a SEPARATE row of the extra `e`, by the agreed test (VAV-D0 D4, d4_qr4a_final)? */
+export function vavSeparateRow(oc: OwnRowSpec, e: OwnRowSpec["extras"][number], l: VavSheetLine): boolean {
+  const t = l.text ?? "";
+  const heads = headsOf(l);
+  const m = e.near_words ? vavNearHit(t, e.words, e.near_words, e.near_chars, e.not_near_words, e.not_near_chars) : (vre(e.words)?.exec(t) ?? null);
+  if (!m) return false;
+  // VAV-2a2 (B8; owner 2026-11-19 18:56 "4 fix in next slice", QR-C2 (a) 2026-11-20 00:34 "option a is corecet"): with `serves`, a row whose
+  // ITEM is the extra -- the extra's words in the row's own DESCRIPTION (the text before its notes), before any box words there -- names
+  // the boxes only as what it serves and counts as the extra's own row; a row naming the box first stays a box row, and words that sit
+  // only in a row's notes never make a box line the extra's row (BOQ-26-00185 / 00281 r116). `serves.extras`: the extras it applies to
+  // (the owner ruled the BACnet over IP controller; the integrator's own-row decision stays as VAV-2a built it until he rules it)
+  const box = vre(oc.box_words)?.exec(t);
+  if (box) {
+    const sv = oc.serves;
+    // VAV-2b1 (R13): `also` -- the item-first test for the VAV integrator too (the six integrator rows filed Misc)
+    if (!sv?.item_first || (sv.extras && !sv.extras.includes(e.label) && !(sv.also ?? []).includes(e.label))) return false;
+    const desc = t.split(" | ")[0];
+    const md = e.near_words ? vavNearHit(desc, e.words, e.near_words, e.near_chars, e.not_near_words, e.not_near_chars) : (vre(e.words)?.exec(desc) ?? null);
+    const bd = vre(oc.box_words)?.exec(desc);
+    if (!md || (bd && bd.index <= md.index)) return false;
+  }
+  if (vre(oc.existing_words)?.test(t)) return false;
+  const u = unitKey(l.unit);
+  if (oc.metre_units.map(unitKey).includes(u)) return false;
+  if (u !== "" && !oc.count_units.map(unitKey).includes(u)) return false;
+  const c = vre(oc.cable_words)?.exec(t);
+  if (c && c.index < m.index) return false;
+  const art = vre(oc.artefact_words);
+  if (art && (art.test(t) || art.test(heads))) return false;
+  const vav = vre(oc.vav_words);
+  if (e.needs_vav && !(vav && (vav.test(t) || vav.test(heads)))) return false;
+  if (e.not_words && vre(e.not_words)?.test(t)) return false;
+  return true;
+}
+
+/** VAV-2a (B5, owner 01:29 / 01:34 + chat-Claude's v3 test). PURE. Is this line a separate INTEGRATOR CABLING row? "yes", else why not. */
+export function vavCablingRow(ic: CablingSpec, l: VavSheetLine): string {
+  const t = l.text ?? "";
+  if (!ic.metre_units.map(unitKey).includes(unitKey(l.unit))) return "not per metre";
+  const cab = vre(ic.cable_words)?.exec(t);
+  if (!cab) return "not a cable row";
+  if (vre(ic.power_words)?.test(t)) return "power cable";
+  const con = vre(ic.conduit_words)?.exec(t);
+  if (con && con.index < cab.index) return "conduit row, not a cable row";
+  // the row's own DESCRIPTION names VAV -> it counts; VAV only in the row's own notes (a sub-heading such as "VAV and ASSOCIATED WORKS",
+  // BOQ-26-00049 r149) or in a heading above counts like a heading: not when the description names other equipment (owner 01:34)
+  const vav = vre(ic.vav_words);
+  const [desc, ...rowNotes] = t.split(" | ");
+  if (vav?.test(desc)) return "yes";
+  if (!vav?.test([...rowNotes, headsOf(l)].join(" | "))) return "VAV not named in the row or its headings";
+  return vre(ic.other_equipment_words)?.test(desc) ? "names other equipment under a VAV heading" : "yes";
+}
+
+/** VAV-2a (B5). PURE. Does this text name a VAV integrator (the words near the context words, not near the heat-meter words)? */
+export function vavIntegratorNamed(ic: CablingSpec, text: string): boolean {
+  return !!vavNearHit(text, ic.integrator_words, ic.integrator_near_words, ic.near_chars, ic.integrator_not_near_words, ic.not_near_chars);
+}
+
+export interface VavSheetOutcome {
+  ext: ExtractionRowWithItems;
+  /** the row's amber-box lines (each decision, with the rows it names) */
+  lines: string[];
+  /** B6: the factor the existing-box row's installation is multiplied by, with its working line -- or the refusal (input not set) */
+  existing?: { factor: number; line: string } | { refuse: string };
+}
+
+/**
+ * VAV-2a (B6 / B3 / B4 / QR-C1 / B5). PURE. The model's items of THIS BoQ row as the VAV sheet rules settle them, with their lines; null
+ * when no rule applies (no key, the calculator, no sheet, no model item). Order: an existing-box row is the installation alone (nothing
+ * else runs); else each extra charged on its own row; then the integrator cabling.
+ */
+export function vavSheetRules(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, items: readonly RateMasterItem[],
+  ownCategory: string, configOf: ConfigOf): VavSheetOutcome | null {
+  if (!spec.own_row_check && !spec.integrator_cabling && !spec.existing_boxes) return null;
+  if (ctx.noRow === true || !ctx.sheetLines || !ext?.items?.length) return null;
+  const extItems = ext.items;
+  const fa = familyAttr(spec);
+  const secFam = new Map(delegatedSections(spec).map((s) => {
+    const ds = itemListPricingSpec(configOf(s.category_id));
+    return [s.id, ds ? familyAttr(ds) : "item"] as [string, string];
+  }));
+  const isSec = (it: ExtractedListItem) => typeof it.section === "string" && secFam.has(it.section);
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : v === null || v === undefined ? "" : String(v));
+  const famOf = (it: ExtractedListItem) => str(it.attributes?.[isSec(it) ? secFam.get(it.section!)! : fa]?.value);
+  // VAV-2c3 FIX-2: a value the sheet rule replaces is no longer the one the row's words set -- its `chain_line` goes with it
+  const setAttr = (it: ExtractedListItem, a: string, v: string): ExtractedListItem => {
+    const { chain_line: _gone, ...keep } = (it.attributes?.[a] ?? { confidence: 1 }) as NonNullable<ExtractedListItem["attributes"][string]>;
+    return ({ ...it, attributes: { ...it.attributes, [a]: { ...keep, value: v } } }) as ExtractedListItem;
+  };
+  const qtyOf = (r: number) => { const v = ctx.rowQuantities?.[r]; return typeof v === "number" && Number.isFinite(v) ? v : null; };
+  const sumQ = (rows: readonly number[]) => rows.reduce<number | null>((a, r) => (a === null || qtyOf(r) === null ? null : a + (qtyOf(r) as number)), 0);
+  const catOf = (r: number) => ctx.sheetCategories?.[r] ?? rowCats?.get(r) ?? null;
+  const onSheet = ctx.sheetLines.filter((l) => l.sheet === undefined);
+  const lineItems = onSheet.filter((l) => !l.preamble);
+  // a separate row: a line item, or a quantity-bearing heading (a rate-editable Preamble with a unit -- BOQ-26-00071 'VAV WORKS' r56-r60)
+  const others = onSheet.filter((l) => l.row !== ctx.excelRow && (!l.preamble || String(l.unit ?? "").trim() !== ""));
+  const runItems = (r: number): ExtractedListItem[] => (r === ctx.excelRow ? extItems
+    : ((extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items ?? []));
+  const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  const lines: string[] = [];
+  let its = [...extItems];
+
+  // B6 (owner 2026-11-18 23:49; mockup screen 4): work on an existing box -- the installation SKU alone, supply 0, x the kind's factor
+  const eb = spec.existing_boxes;
+  const kind = eb ? eb.kinds.find((k) => !!vre(k.words)?.test(own)) : undefined;
+  if (eb && kind) {
+    const dvav = vre(eb.vav_words), drow = vre(eb.dismantle_row_words);
+    const dRows = kind.with_row_input ? others.filter((l) => !!drow?.test(l.text ?? "") && !!dvav?.test(l.text ?? "")).map((l) => l.row) : [];
+    const input = kind.with_row_input && dRows.length ? kind.with_row_input : kind.factor_input;
+    const factor = scopeUpliftOf(items, input);
+    const label = pricingInputLabel(input, items);
+    const attrs: Record<string, { value: string; confidence: number }> = { [fa]: { value: eb.install_family, confidence: 1 } };
+    if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: eb.install_family, confidence: 1 };
+    if (spec.scope?.model_attr && spec.scope.install_only) attrs[spec.scope.model_attr] = { value: spec.scope.install_only, confidence: 1 };
+    if (kind.with_row_input) {
+      lines.push(dRows.length ? fillAll(eb.lines.with_row, { rows: vavRowsNamed(dRows), factor: String(factor ?? "-"), share: rateShareWords(factor) })
+        : fillAll(eb.lines.alone, { factor: String(factor ?? "-") }));
+    }
+    return { ext: { ...ext, items: [{ attributes: attrs } as unknown as ExtractedListItem] }, lines,
+      existing: factor === null ? { refuse: fillAll(eb.lines.input_missing, { input: label }) }
+        : { factor, line: fillAll(eb.lines.priced, { label: kind.label, factor: String(factor), input: label }) } };
+  }
+
+  // B3 / B4 / QR-C1 (owner 23:32; QR-3a / QR-4 (a) 00:57; 01:23 rate-only; QR-C1 (a) 13:31): each extra the row prices, against the sheet
+  // VAV-2b1 (rule 4, owner 2026-11-20 21:05 "a, yes" / "same shold apply to all extras" / 21:47 "a"): with `zero_rows`, an extra's own
+  // row whose quantity is 0 / blank, on a sheet whose VAV rows carry a quantity, does NOT count as charged separately -- the extra is
+  // kept (added) with the quantity-0 line naming the row. The other side (VAV rows blank / 0) is unchanged (19 Nov 01:23).
+  const sheetVavQty = lineItems.filter((l) => catOf(l.row) === ownCategory).reduce((a, l) => a + Math.max(0, qtyOf(l.row) ?? 0), 0);
+  const allZero = (rows: readonly number[]) => rows.length > 0 && rows.every((r) => !((qtyOf(r) ?? 0) > 0));
+  const zeroFill = (t: string, label: string, rows: readonly number[], more: Record<string, string> = {}) => fillAll(t, { Extra: label.charAt(0).toUpperCase() + label.slice(1),
+    extra: label.toLowerCase(), rows: vavRowsNamed(rows), has: new Set(rows).size > 1 ? "have" : "has", ...more });
+  const oc = spec.own_row_check;
+  if (oc) {
+    const thr = scopeUpliftOf(items, oc.threshold_input);
+    const sheetRows = new Set(onSheet.map((l) => l.row));
+    for (const e of oc.extras) {
+      const carries = (it: ExtractedListItem) => (e.target.attr
+        ? !isSec(it) && (!e.target.family || famOf(it) === e.target.family) && str(it.attributes?.[e.target.attr]?.value) === (e.target.from ?? "")
+        : e.target.section ? it.section === e.target.section && famOf(it) === e.target.family
+        : !isSec(it) && famOf(it) === e.target.family);
+      if (!its.some(carries)) continue;
+      const sep = others.filter((l) => vavSeparateRow(oc, e, l)).map((l) => l.row);
+      if (!sep.length) continue;
+      const base = { extra: e.label, rows: vavRowsNamed(sep), ...countWords(sep) };
+      // VAV-2b1 (rule 4): the own row(s) all 0 / blank on a sheet with VAV quantities -> not charged separately: the extra stays, noted
+      if (oc.zero_rows && allZero(sep) && sheetVavQty > 0) {
+        lines.push(zeroFill(e.presence_only || e.target.attr ? oc.zero_rows.attr_line : oc.zero_rows.line, e.label, sep));
+        continue;
+      }
+      // VAV-2a2 (B8; owner 2026-11-20 00:37 "VAV controlers have one to many mapping. one controller for many VAVs. so quantity rule should
+      // not be applied here"): an extra `serves.presence_decides` covers (the BACnet over IP controller) is NOT added when the sheet prices it
+      // on its own row -- presence decides, no quantity test; the note names the row(s). Every other extra keeps the 90% test.
+      const sv = oc.serves;
+      if (sv?.presence_decides && (!sv.extras || sv.extras.includes(e.label)) && !e.presence_only && !e.target.attr) {
+        its = its.filter((it) => !carries(it));
+        lines.push(fillAll(oc.lines.not_added, base));
+        continue;
+      }
+      if (e.presence_only || e.target.attr) {
+        const to = e.target.to;
+        its = e.target.attr && to !== undefined ? its.map((it) => (carries(it) ? setAttr(it, e.target.attr!, to) : it)) : its.filter((it) => !carries(it));
+        lines.push(fillAll(oc.lines.attr_changed, base));
+        continue;
+      }
+      // the VAV rows of this sheet that price the same extra (the run's items), this row included
+      const naming = [...new Set([ctx.excelRow, ...[...extractionByRow.keys()].filter((r) => r !== ctx.excelRow && sheetRows.has(r)
+        && catOf(r) === ownCategory && runItems(r).some(carries))])];
+      const sq = sumQ(sep), vq = sumQ(naming);
+      if (!sq || !vq) {
+        its = its.filter((it) => !carries(it));
+        // VAV-2c1 (QR-N N3): only SOME of the quantities compared are blank or 0 -> its own line
+        const some = [...sep, ...naming].some((r) => (qtyOf(r) ?? 0) > 0);
+        lines.push(fillAll((some ? oc.lines.rate_only_some : undefined) ?? oc.lines.rate_only, base));
+        continue;
+      }
+      // VAV-2c1 (QR-N N2): the threshold is not set -> nothing was compared
+      if (thr === null) { lines.push(`${rowsStart(fillAll(oc.lines.double_count_unread ?? oc.lines.double_count, base))} ${oc.lines.threshold_missing}`); continue; }
+      const more = { ...base, pct: String(Math.round((sq / vq) * 100)), threshold: String(Math.round(thr * 100)), separate: String(sq), boxes: String(vq) };
+      if (sq / vq + 1e-9 >= thr) { its = its.filter((it) => !carries(it)); lines.push(fillAll(oc.lines.not_added, more)); }
+      else lines.push(rowsStart(fillAll(oc.lines.double_count, more)));
+    }
+  }
+
+  // B5 (owner 23:14 / 23:18; 01:29 / 01:34 / 01:39; 12:37-12:55): a box row on a sheet with a VAV integrator anywhere
+  const ic = spec.integrator_cabling;
+  if (ic && its.some((it) => !isSec(it) && famOf(it) === ic.box_family)) {
+    const chain = [own, ...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ");
+    const integ = onSheet.some((l) => vavIntegratorNamed(ic, l.text ?? "")) || vavIntegratorNamed(ic, chain);
+    if (integ) {
+      const cab0 = others.filter((l) => vavCablingRow(ic, l) === "yes").map((l) => l.row);
+      // VAV-2b1 (rule 4, owner 21:47 "a"): EVERY cabling row found with 0 / blank metres, on a sheet with VAV quantities -> not charged
+      // separately: the cabling is added as if no cabling row were there, with the quantity-0 line naming the row(s); a sheet where SOME
+      // cabling rows carry metres keeps the 19 Nov rule
+      const cabZero = !!ic.zero_rows && allZero(cab0) && sheetVavQty > 0;
+      if (cabZero) lines.push(zeroFill(ic.zero_rows!.line, ic.family, cab0, { qty: String(scopeUpliftOf(items, ic.qty_input) ?? "-") }));
+      const cab = cabZero ? [] : cab0;
+      const isCab = (it: ExtractedListItem) => !isSec(it) && famOf(it) === ic.family;
+      const perBox = scopeUpliftOf(items, ic.qty_input);
+      if (cab.length) {
+        its = its.filter((it) => !isCab(it));
+        const metres = sumQ(cab);
+        const boxRows = [...new Set([ctx.excelRow, ...lineItems.filter((l) => l.row !== ctx.excelRow && catOf(l.row) === ownCategory
+          && (!extractionByRow.has(l.row) || runItems(l.row).some((it) => !isSec(it) && famOf(it) === ic.box_family))).map((l) => l.row)])];
+        const boxes = sumQ(boxRows);
+        const share = scopeUpliftOf(items, ic.length_input);
+        // VAV-2b2 (ANSWER 18): the count words for the reworded lines ("row 300 prices it" / "rows 300, 301 price it")
+        const base = { rows: vavRowsNamed(cab), ...countWords(cab) };
+        if (metres && boxes && perBox !== null && share !== null && metres + 1e-9 < share * perBox * boxes) {
+          lines.push(fillAll(ic.lines.low_length, { ...base, metres: String(metres), need: String(Math.round(perBox * boxes * 100) / 100),
+            per_box: String(perBox), boxes: String(boxes), pct: String(Math.round(share * 100)) }));
+        } else lines.push(fillAll(ic.lines.priced_separately, base));
+      } else if (!its.some(isCab)) {
+        if (perBox === null || !(perBox > 0)) lines.push(fillAll(ic.lines.input_missing, { input: pricingInputLabel(ic.qty_input, items) }));
+        else {
+          // VAV-2c1 (R7, owner 2026-11-22 10:55 "6.2 a"): added because the sheet's cabling row has 0 metres -> the item says so too
+          const line = cabZero ? zeroFill(ic.zero_rows!.line, ic.family, cab0, { qty: String(perBox) }) : fillAll(ic.lines.added, { qty: String(perBox) });
+          const attrs: Record<string, { value: string; confidence: number }> = { [fa]: { value: ic.family, confidence: 1 },
+            [NET_LINES_ATTR]: { value: line, confidence: 1 }, [HELPER_ADDED_ATTR]: { value: line, confidence: 1 } };
+          if (spec.no_sku_named_by) attrs[spec.no_sku_named_by] = { value: ic.family, confidence: 1 };
+          if (spec.qty_attribute_id) attrs[spec.qty_attribute_id] = { value: String(perBox), confidence: 1 };
+          its.push({ attributes: attrs } as unknown as ExtractedListItem);
+        }
+      }
+    }
+  }
+  const same = its.length === extItems.length && its.every((it, i) => it === extItems[i]);
+  if (same && !lines.length) return null;
+  return { ext: same ? ext : { ...ext, items: its }, lines };
+}
+
+/** VAV-2b1 (R2 / R8; owner 2026-11-21 01:07 / 01:09). PURE. The withdrawn families NO list offers: `withdrawn_families` less the ones
+ *  the user may still add at full rate (`user_addable`). */
+export function hiddenFamilies(spec: ItemListPricingSpec): string[] {
+  const ua = new Set((spec.user_addable ?? []).map((u) => u.family));
+  return (spec.withdrawn_families ?? []).filter((f) => !ua.has(f));
+}
+
+/** VAV-2b1 (R2 / R8). PURE. The families no list offers per box any more (`hiddenFamilies`), out of the own family list. */
+export function offeredFamilies(spec: ItemListPricingSpec): ReturnType<typeof familyChoices> {
+  const w = hiddenFamilies(spec);
+  return w.length ? familyChoices(spec).filter((f) => !w.includes(f.family)) : familyChoices(spec);
+}
+
+/** VAV-2b1 (R2 / R8). PURE. The model's items without any item of a withdrawn family (own or borrowed), with one line naming each;
+ *  null when the key is absent or nothing is withdrawn from this row. */
+export function withdrawnItemsOf(spec: ItemListPricingSpec, ext: ExtractionRowWithItems | undefined, configOf: ConfigOf):
+  { ext: ExtractionRowWithItems; lines: string[] } | null {
+  const w = spec.withdrawn_families ?? [];
+  if (!w.length || !ext?.items?.length) return null;
+  const fa = familyAttr(spec);
+  const secFam = new Map(delegatedSections(spec).map((s) => {
+    const ds = itemListPricingSpec(configOf(s.category_id));
+    return [s.id, ds ? familyAttr(ds) : "item"] as [string, string];
+  }));
+  const famOf = (it: ExtractedListItem) => {
+    const a = typeof it.section === "string" && secFam.has(it.section) ? secFam.get(it.section)! : fa;
+    const v = it.attributes?.[a]?.value;
+    return typeof v === "string" ? v.trim() : "";
+  };
+  const gone = ext.items.filter((it) => w.includes(famOf(it)));
+  if (!gone.length) return null;
+  const lines = [...new Set(gone.map(famOf))].map((f) => `${f} is not added to each box. It is shared across the sheet's VAV boxes: use the share button to add it.`);
+  return { ext: { ...ext, items: ext.items.filter((it) => !gone.includes(it)) }, lines };
+}
+
+/**
+ * VAV-2b1 (B1 / B2). PURE. The sheet's shared-item decision for THIS BoQ row: the sheet's VAV rows (each with its box reading, from the
+ * run), their quantities, and each share's separate rows (the product's `vavSeparateRow`, the `sheet_shares.separate` tests on
+ * `own_row_check`'s word tables). Null when the key is absent, on the calculator, with no sheet, or when THIS row is not a counted box.
+ */
+export function vavSheetSharesOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, ownCategory: string): SheetShareDecision | null {
+  return vavSheetOf(spec, ctx, ext, extractionByRow, rowCats, ownCategory)?.decision ?? null;
+}
+
+/** VAV-2b1 v80. PURE. `vavSheetSharesOf`'s decision AND the sheet's counted VAVs (for the full-rate blocks' pre-fill, on any BoQ row of the
+ *  sheet -- a separate controller row included). Null when the key is absent, on the calculator, or with no sheet. */
+export function vavSheetOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  extractionByRow: ReadonlyMap<number, unknown>, rowCats: ReadonlyMap<number, string> | undefined, ownCategory: string):
+  { decision: SheetShareDecision | null; sheetVavs: number | null } | null {
+  const sh = spec.sheet_shares;
+  if (!sh || ctx.noRow === true || !ctx.sheetLines) return null;
+  const fa = familyAttr(spec);
+  const catOf = (r: number) => ctx.sheetCategories?.[r] ?? rowCats?.get(r) ?? null;
+  const onSheet = ctx.sheetLines.filter((l) => l.sheet === undefined);
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : v === null || v === undefined ? "" : String(v));
+  const qtyOf = (r: number) => { const v = ctx.rowQuantities?.[r]; return typeof v === "number" && Number.isFinite(v) ? v : null; };
+  const kinds = spec.existing_boxes?.kinds ?? [];
+  const rowOf = (r: number, text: string): SheetVavRow => {
+    const its = r === ctx.excelRow ? (ext?.items ?? []) : (((extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items) ?? []);
+    const own = its.filter((it) => typeof it.section !== "string");
+    const box = own.find((it) => sh.count.box_families.includes(str(it.attributes?.[fa]?.value)));
+    const known = r === ctx.excelRow ? !!ext : extractionByRow.has(r);
+    const installOnly = !!box && !!spec.scope?.model_attr && !!spec.scope.install_only
+      && str(box.attributes?.[spec.scope.model_attr]?.value) === spec.scope.install_only;
+    const existing = kinds.some((k) => { try { return new RegExp(k.words, "i").test(text); } catch { return false; } });
+    // a row the run did not read counts as a box (the VAV-2a cabling convention); it carries no reading
+    const counted = !existing && (known ? !!box && !installOnly : true);
+    const reading = box ? { controller: str(box.attributes?.[sh.reading.controller_attr]?.value),
+      byOthers: str(box.attributes?.[sh.reading.by_others_attr]?.value) === sh.reading.yes,
+      dp: str(box.attributes?.[sh.reading.dp_attr]?.value) === sh.reading.yes } : null;
+    return { row: r, counted, qty: qtyOf(r), reading };
+  };
+  const vavRows = onSheet.filter((l) => !l.preamble && catOf(l.row) === ownCategory).map((l) => rowOf(l.row, l.text ?? ""));
+  const me = vavRows.find((r) => r.row === ctx.excelRow) ?? rowOf(ctx.excelRow, [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | "));
+  // owner 19:48 N2 / 01:16 ("share should be appliacble only for rows which is pricing the vava boxes"); found by the 01:02 check
+  // (BOQ-26-00171 r153, a Lot row of BMS work): a row priced per lot is not a VAV box row -> the helper makes no share on it
+  // the VAVs every box row of the sheet counts (the same count the shares divide by)
+  const sheetVavs = sheetVavsOf(sh, vavRows);
+  if (!me.counted || isLotUnit(spec, ctx.unit)) return { decision: null, sheetVavs };
+  const rows = vavRows.some((r) => r.row === ctx.excelRow) ? vavRows : [...vavRows, me];
+  const oc = spec.own_row_check;
+  const separate: Record<string, { charged: number[]; zero: number[]; by: Record<number, SeparateRowBy> }> = {};
+  // VAV-2b2 (ANSWER 16): a row this helper prices (filed under a claims_filed category) is named as priced in the 'not added' sentence
+  const claimCats = new Set(Object.keys(spec.claims_filed?.categories ?? {}));
+  if (oc) {
+    const others = onSheet.filter((l) => l.row !== ctx.excelRow && (!l.preamble || String(l.unit ?? "").trim() !== ""));
+    for (const s of sh.shares) {
+      const exs = sh.separate.extras.filter((e) => e.share === s.id);
+      if (!exs.length) continue;
+      const oc2 = { ...oc, artefact_words: sh.separate.artefact_words?.[s.id] ?? oc.artefact_words,
+        serves: { item_first: true, extras: exs.filter((e) => e.item_first).map((e) => e.label) } };
+      const hit = new Set<number>();
+      const by: Record<number, SeparateRowBy> = {};
+      for (const e of exs) {
+        const ex = { label: e.label, target: { family: s.id }, words: e.words, needs_vav: e.needs_vav, not_words: e.not_words,
+          near_words: e.near_words, near_chars: e.near_chars, not_near_words: e.not_near_words, not_near_chars: e.not_near_chars };
+        // QR-D2 (owner 19:46 / 19:50 / 20:20): an integrator / router row is not the controller's row unless its OWN description says it
+        // controls the VAVs (the item-first integrator test, as R13 reads the integrator's own row)
+        const integ = e.not_integrator_rows ? oc.extras.find((x) => x.presence_only && x.target.attr) : undefined;
+        const ocI = { ...oc, serves: { ...(oc.serves ?? { item_first: true }), item_first: true, extras: [...(oc.serves?.extras ?? []), ...(oc.serves?.also ?? [])] } };
+        let ctl: RegExp | null = null;
+        try { ctl = e.controls_vav_words ? new RegExp(e.controls_vav_words, "i") : null; } catch { ctl = null; }
+        const integratorOnly = (l: VavSheetLine) => !!integ && vavSeparateRow(ocI, integ, l) && !(ctl && ctl.test((l.text ?? "").split(" | ")[0]));
+        for (const l of others) {
+          if (!vavSeparateRow(oc2, ex, l) || integratorOnly(l)) continue;
+          hit.add(l.row);
+          by[l.row] ??= { label: e.label, priced: claimCats.has(catOf(l.row) ?? ""), text: l.text ?? "" };
+        }
+      }
+      // owner 2026-11-20 21:05 "a, yes": a separate row with quantity 0 / blank does not count as charged separately
+      separate[s.id] = { charged: [...hit].filter((r) => (qtyOf(r) ?? 0) > 0), zero: [...hit].filter((r) => !((qtyOf(r) ?? 0) > 0)), by };
+    }
+  }
+  return { decision: decideSheetShares(sh, rows, separate), sheetVavs };
+}
+
+/** VAV-2a (B6). PURE. The existing-box row: each priced own line's installation x the factor (rounded up to the rupee), supply 0, the
+ *  working line on it; the totals and values follow. A refusal (input not set) leaves the row unpriced with the sentence. */
+export function withExistingBoxes(res: HelperResult, ex: NonNullable<VavSheetOutcome["existing"]>, items: readonly RateMasterItem[]): HelperResult {
+  if ("refuse" in ex) return withRowRefusal(res, plainPricerText(ex.refuse, items as RateMasterItem[]));
+  const r = res as ItemListSuggestion;
+  const v = r.itemList;
+  if (!v || !v.rowPriced) return res;
+  const scale = (f: Partial<Record<RateKind, number>>): Partial<Record<RateKind, number>> => {
+    const i = Math.ceil((f.install_rate ?? 0) * ex.factor - 1e-9);
+    return { supply_rate: 0, install_rate: i, combined_rate: i };
+  };
+  // the line names the installation it started from and the figure it gives ({rate} / {figure}), per line
+  const lineOf = (from: number | undefined, to: number | undefined) =>
+    plainPricerText(ex.line.split("{rate}").join(String(from ?? "-")).split("{figure}").join(String(to ?? "-")), items as RateMasterItem[]);
+  const blocks = v.items.map((b) => {
+    if (b.state !== "priced") return b;
+    const f = scale(b.figures);
+    return { ...b, figures: f, working: [...b.working, lineOf(b.figures.install_rate, f.install_rate)] };
+  });
+  const install = blocks.reduce((a, b) => a + (b.state === "priced" ? (b.figures.install_rate ?? 0) : 0), 0);
+  const values = { supply_rate: 0, install_rate: install, combined_rate: install };
+  return { ...r, values, workings: { ...r.workings, derivation: [`Row total per 1 ${v.unit}: supply 0 + install ${install}`], finalValues: { ...values } },
+           itemList: { ...v, items: blocks, totals: { ...values } } } as ItemListSuggestion;
+}
+
 export function withSheetHeadingNotes(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, res: HelperResult): HelperResult {
   const notes = spec.sheet_heading_notes;
   const view = (res as ItemListSuggestion).itemList;
@@ -7815,6 +8557,8 @@ export type ItemEditOp =
   | { op: "section"; section: string; pipe: number | null; index: number; inner: ItemEditOp }
   /** SLICE 12e-3a (owner 13:42): "+ Add insulation" -- an INDEPENDENT section of this family, blank (S1). */
   | { op: "add_section"; section: string; family: string }
+  /** VAV-2b2 (R12): one click adds several section items (each its own removable line) */
+  | { op: "add_sections"; adds: Array<{ section: string; family: string }> }
   /** SLICE 12e-3a: the x of an independent section. An attached one has none: its item's toggle removes it. */
   | { op: "remove_section"; section: string; index: number }
   /** VRF-3b (U1 / U3): the pricer's value in one field of one extra line of unit `index` */
@@ -7946,6 +8690,11 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
     }
     case "add_section":
       return done(items, { ...state.sections, [op.section]: [...(state.sections?.[op.section] ?? []), { base: null, family: op.family, attrs: {} }] });
+    case "add_sections": {
+      const secs = { ...state.sections };
+      for (const a of op.adds) secs[a.section] = [...(secs[a.section] ?? []), { base: null, family: a.family, attrs: {} }];
+      return done(items, secs);
+    }
     case "remove_section": {
       const list = [...(state.sections?.[op.section] ?? [])];
       if (op.index < 0 || op.index >= list.length) return state;

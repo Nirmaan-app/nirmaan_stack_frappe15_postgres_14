@@ -251,6 +251,6 @@ describe("VP-5 E11 -- installation only: one rule for valves and Misc", () => {
   it("NEGATIVE: a supply + installation row is untouched by E11", () => {
     const v = one([V("Ball Valve", "32", { scope: "Supply + installation" })], "Supply and installation of ball valves");
     expect(totals(v)).toEqual([1224, 1000]);
-    expect(v.scope?.note ?? "").not.toMatch(/owner E11/);
+    expect(v.scope?.note ?? "").not.toMatch(/we do end to end|refixing existing items/);   // VAV-2c1 PIN 6 (R3): BEFORE /owner E11/ (the tag is gone; the note's own words)
   });
 });

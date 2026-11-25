@@ -1,0 +1,641 @@
+{
+ "about": "VAV-2c3 FIX-2 (2026-11-24, desktop; ANSWER 19, owner 19:53 / 20:00 / 20:06 'lets proceed'): HVAC v86 = v85 + ONLY these 14 edits, all on VAV Box: D1 the three defaults' '(assumed)' notes; A1 / A2 / B2-1 as word checks in code on the stored payload (`pricing.chain_values`); B2-3 the no-unit row priced per Nos with the warning bar; E note B from the heading; B2-2 one controller per unit on a 'controller for BACnet integration' row; and the reading guidance for future reads (the VAV Box model request changes, no other category's). No item changes. Read by the vav2c3c tests and the v86 mint script.",
+ "configs": [
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "integrator_included",
+    "note"
+   ],
+   "from": null,
+   "to": "Integrator not mentioned in the BoQ - priced without it (assumed).",
+   "why": "D1 (owner 19:53 'fix'; chat-Claude's wording)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "vav_type",
+    "note"
+   ],
+   "from": null,
+   "to": "Type not named - priced as Nothing specific mentioned (assumed).",
+   "why": "D1 (owner 19:53 'fix'; chat-Claude's wording)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "shape",
+    "note"
+   ],
+   "from": null,
+   "to": "Shape not stated - priced as Rectangular (assumed).",
+   "why": "D1 (owner 19:53 'fix'; chat-Claude's wording)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "chain_values"
+   ],
+   "from": null,
+   "to": [
+    {
+     "id": "router_integrator",
+     "families": [
+      "VAV box"
+     ],
+     "attr": "integrator_included",
+     "words": "\\brouters?\\b|\\bintegrators?\\b",
+     "when": [
+      null
+     ],
+     "value": "Yes",
+     "line": "The BoQ mentions '{said}' ({where}), so the integrator is included (Integrator Included = Yes). Change it if no integrator is needed."
+    },
+    {
+     "id": "round_box",
+     "families": [
+      "VAV box"
+     ],
+     "attr": "shape",
+     "words": "\\bround\\b|\\bdia\\b|\\bdia\\.|\\bdiameter\\b|\\bcircular\\b|Ø|⌀",
+     "unless": "\\brect\\w*",
+     "when": [
+      null,
+      "Rectangular"
+     ],
+     "value": "Oval",
+     "line": "The BoQ says '{said}' ({where}), so this is priced as a round box (the Oval line). Change the shape if it is rectangular."
+    },
+    {
+     "id": "direct_output_sensor",
+     "section": "misc",
+     "attr": "item",
+     "from_attr": "item_as_written",
+     "words": "direct\\W*out\\W*put\\s+temp\\w*\\s+sensor",
+     "when": [
+      null,
+      "Temperature Gauge / Thermometer"
+     ],
+     "not_if_row_has": {
+      "attr": "item",
+      "value": "Digital Thermostat"
+     },
+     "value": "Digital Thermostat",
+     "line": "The BoQ names a direct-output temperature sensor. It is priced as the Digital Thermostat. Change it if a different sensor is needed."
+    }
+   ],
+   "why": "A1 / A2 (owner 19:53 'A1 and A2 fix'), B2-1 (owner 20:00 'map it to thermostat..and mention in note properly'): word checks in code on the stored payload"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "blank_unit_refuses"
+   ],
+   "from": true,
+   "to": null,
+   "why": "B2-3 (owner 20:00 '[no unit] price it by number'): the no-unit refusal goes; the default unit (Nos) prices"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "blank_unit_bar"
+   ],
+   "from": null,
+   "to": {
+    "title": "Warning: no unit on this row",
+    "line": "WARNING: The BoQ gives no unit for this row. Priced per number (Nos). Check the unit before using this rate."
+   },
+   "why": "B2-3 (owner 20:00 'the notes should be a stronger warning'; chat-Claude's wording)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "rule",
+    "install_heading_not"
+   ],
+   "from": null,
+   "to": "\\bsuppl\\w*|\\bsuplly\\b|\\bsuppy\\b|\\bsitc\\b|\\bs\\.\\s*i\\.\\s*t\\.\\s*c|\\bprovid\\w*|\\bprocur\\w*",
+   "why": "E (owner 19:53 'fix anyway'): note B where the nearest heading says ITC / 'Installation of' and no supply word is in the heading or the row"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "sheet_shares",
+    "whole",
+    0,
+    "fixed_when"
+   ],
+   "from": null,
+   "to": {
+    "words": "controller\\s+for\\s+bac\\s*-?\\s*net\\s+integration",
+    "fixed": {
+     "controllers": 1
+    },
+    "line": "No VAV quantities on this sheet, so this controller for BACnet integration is priced as one controller per unit of the row. Change the number of VAVs if known."
+   },
+   "why": "B2-2 (owner 20:00 '2. ok'): the BACnet controller's own row by a code rule - one controller per unit where no VAV count is known (qty 0: the rate shows, amount 0); with a VAV count the controller formula decides"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions",
+    4,
+    "note"
+   ],
+   "from": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not.",
+   "to": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not. A router or an integrator named in the row, its headings or their notes counts as mentioned (Yes), unless the sheet prices the integrator on its own row.",
+   "why": "A1 guidance (future reads)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions",
+    2,
+    "note"
+   ],
+   "from": "VAV boxes only: Rectangular or Oval, as the BoQ states.",
+   "to": "VAV boxes only: Rectangular or Oval, as the BoQ states. A round box - 'round', 'DIA' / diameter or the diameter sign written for the box - is Oval.",
+   "why": "A2 guidance (future reads)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions",
+    9,
+    "note"
+   ],
+   "from": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said.",
+   "to": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said. A row or heading that says ITC or 'Installation of ...' and never says supply is not 'Installation only': answer 'None' (the helper decides the scope from the sheet).",
+   "why": "E guidance (future reads)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions",
+    0,
+    "note"
+   ],
+   "from": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item.",
+   "to": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item. A row for a controller for BACnet integration above the VAV boxes is the BACnet over IP controller, not the VAV Integrator.",
+   "why": "B2-2 guidance (owner 20:00 'the AI should also read it correctly')"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "sections",
+    1,
+    "family_note"
+   ],
+   "from": "Which Misc item goes with THIS VAV box: Digital Thermostat (a thermostat for the box; a thermostat with a CO2 sensor or a CO2 display is TWO items - this Digital Thermostat and a CO2 Sensor under Sensor); Temperature Gauge / Thermometer = Room temperature sensor - priced at Misc's Temperature Gauge / Thermometer (a room temperature sensor with no thermostat); Transformation Pieces (a transition / transformation piece between the box and the duct). Answer 'none of these' for anything else and copy its words into 'Item as written'.",
+   "to": "Which Misc item goes with THIS VAV box: Digital Thermostat (a thermostat for the box; a thermostat with a CO2 sensor or a CO2 display is TWO items - this Digital Thermostat and a CO2 Sensor under Sensor); Temperature Gauge / Thermometer = Room temperature sensor - priced at Misc's Temperature Gauge / Thermometer (a room temperature sensor with no thermostat); Transformation Pieces (a transition / transformation piece between the box and the duct). Answer 'none of these' for anything else and copy its words into 'Item as written'. A direct-output temperature sensor supplied with the VAVs is the Digital Thermostat, not the Temperature Gauge / Thermometer.",
+   "why": "B2-1 guidance (future reads)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons"
+   ],
+   "from": [
+    {
+     "title": "^The row's unit decides",
+     "why": "VAV items are priced per Nos, the VAV Box sheet's unit; a row with no unit is refused, never assumed (an acceptance item of every category build: owner 2026-11-15 13:39 / 13:41)"
+    },
+    {
+     "title": "^The item's own kind decides",
+     "why": "the box and VAV's own extras are separate VAV items on one row (owner, 2026-11-19 00:57); the kinds = the VAV Box sheet's box and VAV Integrator, the four extras the owner made SKUs (BACnet over IP controller 2026-11-18 22:30; duct connection 23:24; conical piece 23:27 / 23:32; integrator cabling 23:14) and 'VAV installation - any size' (owner 2026-11-19 01:23 \"agree on all 3\")"
+    },
+    {
+     "title": "^A material the model could not match",
+     "why": "a row that is not a VAV item is not priced (owner point 5, 2026-11-18 23:53 \"agree on all these\")"
+    },
+    {
+     "title": "^That kind's rule for that unit",
+     "why": "every VAV item has one rate per Nos on the VAV Box sheet; integrator cabling is a per-metre rate counted per box: BCS cost 140 per metre, quoted 196 per metre (BCS x 1.4; 392 for 2 m) (owner 2026-11-18 23:14 \"2 mts of cabling per VAV at 140 per meter\"; 2026-11-19 12:35 \"the 140 per meter is BCSrate and not quoting rate\")"
+    },
+    {
+     "title": "^The facts that rule needs",
+     "why": "the VAV Box sheet prices a box by shape, type, integrator included and airflow band (the owner's workbook, 2 Nov 2026); integrator inside the rate -> Yes, else No (owner, 2026-11-18 22:37); the VAV Integrator by its type (the sheet's two lines; owner point 8, 23:53)"
+    },
+    {
+     "title": "^Then the priced steps",
+     "why": "BoQ rate = BCS x (1 + markup), rounded up to the rupee: supply x 1.4, install x 1.6 on the VAV Box sheet (the owner's workbook, 2 Nov 2026; the new SKUs 'same supply and install markup as others', owner 2026-11-18 22:30)"
+    },
+    {
+     "title": "^Multiplied by how many",
+     "why": "every extra is its own item with its own quantity per box, the user can add or remove it (owner 2026-11-18 23:15 / 23:18)"
+    },
+    {
+     "title": "^The (misc item|sensor) section's quantity per vav item is the count the row names",
+     "why": "a borrowed item's quantity is the count the row names: a thermostat -> one, \"two if two\" (owner 2026-11-18 22:35); a piece \"on either side\" -> 2 (22:38); every extra its own item the user can change (23:15 / 23:18)"
+    },
+    {
+     "title": "^The misc item section(?!'s quantity)",
+     "why": "borrowed, never copied: Digital Thermostat (owner, 2026-11-18 22:35), Temperature Gauge / Thermometer as 'Room temperature sensor' (22:35; 2026-11-19 00:57), Transformation Pieces (22:38) are priced by Misc's own rules; \"ducting should read these directly ... and not keep a second copy\" (owner 2026-11-13 00:19)"
+    },
+    {
+     "title": "^The sensor section(?!'s quantity)",
+     "why": "the CO2 sensor and the differential pressure switch are borrowed from the Sensors sheet under its own rules (owner 2026-11-18 23:14; borrow-only Sensors, 2026-11-19 00:57)"
+    },
+    {
+     "title": "^The row total adds",
+     "why": "the row total is every item; one item that needs a person makes the row need a person (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^A kind not stocked in the row's unit",
+     "why": "VAV items are stocked per Nos only; any other unit is priced by hand (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^An unstocked combination",
+     "why": "a box whose facts match no VAV Box sheet line is not priced - never a nearest pick (owner points 3 / 4, 2026-11-18 23:53: above 8,000 CFM or no airflow -> not priced)"
+    },
+    {
+     "title": "^A row priced per Lot",
+     "why": "a Lot or a job is not a VAV unit and is priced by hand (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^The BoQ scope",
+     "why": "installation only -> the installation rate only (owner agreed, 18 November 2026); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift"
+    },
+    {
+     "title": "^A row whose extras come to more than a set share",
+     "why": "\"all combination rows should have a warning that the user should review it more carefully\" (owner 2026-11-19 12:49); agreed (12:55): warn above a set share of the box rate; \"ok proceed with 50%\" (12:59), a Pricing Input the user can change; the share lowered to 25% (owner 2026-11-21 10:25 \"... lower it to 25%\")"
+    },
+    {
+     "title": "^A row whose own words are dismantling and refixing",
+     "why": "\"dsimatling and refixing 1.5 times\" on the installation rate (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^A row whose own words are dismantling of",
+     "why": "\"onl;y dismatling same asinstalltion\" (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^A row whose own words are refixing",
+     "why": "\"only refixing 0.5 times if dismantling seprate row else 1.5\" (owner 2026-11-18 23:49); the separate row must name VAV; no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^An extra the sheet charges on its own row",
+     "why": "\"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence..else prices added and declared\" (owner 2026-11-18 23:32); the same sheet, Ducting's way at 90% (owner 2026-11-19 00:57); quantities blank or 0 -> the separate row decides (01:23, agreed); a row whose own description names the extra before any VAV box counts as that extra's own row, for the BACnet over IP controller (owner 2026-11-19 18:56; 2026-11-20 00:34)"
+    },
+    {
+     "title": "^A VAV integrator priced on its own row",
+     "why": "a box whose rate includes the integrator takes the \"Integrator Included = Yes\" line (owner, 2026-11-18 22:37); a separate VAV integrator row on the same sheet -> the \"No\" line, presence decides (owner, 2026-11-19 13:31)"
+    },
+    {
+     "title": "^On a sheet with a VAV integrator anywhere",
+     "why": "\"for VAV with integrators we have to check if seprate row for cabling for integrators is there in Boq. if not then we have to include 2 mts of cabling per VAV at 140 per meter supply BCS ... if seprate cabling row is there then cabling price not included. apprpritae note given in both cases\" (owner 2026-11-18 23:14; 23:18 the user can add or remove it); \"VAV must be mentioned in cabling description\" (2026-11-19 01:29); a heading naming VAV counts (01:34 \"yes\"); \"Variable Air Volume\" written in full names VAV and a cable row's own notes naming VAV count like a heading above it (owner 2026-11-19 15:57 \"both a\"); below 70% the note asks to check the quantity (01:39); 140 is the BCS cost, not the quoted rate (12:35); the rate stays the SKU, the 2 m is a Pricing Input (12:37 / 12:55)"
+    },
+    {
+     "title": "^A fact the row does not mention",
+     "why": "shape not stated -> Rectangular, with a note (owner agreed, 2026-11-18 22:16)"
+    },
+    {
+     "title": "^A VAV box's airflow band \\(cfm\\) is worked out from its airflow",
+     "why": "a range that crosses bands -> the band of the maximum airflow (owner \"agree\", 2026-11-18 22:16); no unit = CFM, above 8,000 CFM -> not priced, \"above the largest box on the sheet\" (owner 23:53, agreed); a value exactly on an edge belongs to the lower band - 450 CFM is 0-450, 8,000 CFM is 4000-8000 and priced (owner, 2026-11-20 00:10)"
+    },
+    {
+     "title": "^With no airflow, the band comes from the inlet size table",
+     "why": "the owner's own table of inlet sizes against the sheet's airflow bands, the smallest band 6 inch to the largest 24 inch, no 18 / 20 / 22 inch step (owner 2026-11-18 22:18); in-between sizes take the next size up, the same table for rectangular boxes with a round inlet (22:21 \"agree for both\"); a size written with mm is converted, a bare tag number is not a size (2026-11-19 00:57)"
+    },
+    {
+     "title": "^No airflow and no inlet size",
+     "why": "no airflow and no size -> not priced, \"airflow not stated, enter the CFM\" (owner 2026-11-18 23:53 \"agree on all these except 9\"); in the calculator the user enters the CFM or the inlet size (owner 2026-11-19 13:31)"
+    },
+    {
+     "title": "^The user types the CFM or the inlet size",
+     "why": "\"the user should be given an option to chose either inlet size or the CFM clearly indicated that only one is required and then we price as per the CFM based on our ampping\" (owner 2026-11-19 13:31); \"also in the calculator user should be told clearly only one of these is required to price\" (13:46)"
+    },
+    {
+     "title": "^Per sheet, the first match decides which controller share",
+     "why": "first match per sheet: a DDC panel, else BACnet, else a plain controller, else nothing (owner 2026-11-20 15:19 / 15:20 \"this is correct\"); a controller counts only when it is for controlling the VAVs (15:36 / 15:40); another equipment's DDC or BACnet and a line about makes do not count (14:56; 15:05 \"1 yes 2 yes\"); by the BMS vendor / by others adds nothing (15:19 \"2 ok\"). This replaces the per-box controller and its own-row line (14:18)"
+    },
+    {
+     "title": "^A sheet's VAVs are the quantities of its VAV box rows",
+     "why": "\"totals number of VAVs in the BoQ (of all size and type)\", worked per sheet (owner 2026-11-20 14:18; 14:22 \"2 each sheet\"); quantities blank or 0 -> nothing added and a note asks the pricer to add it (14:22 \"4 yes\")"
+    },
+    {
+     "title": "^The BACnet controller share spreads",
+     "why": "\"1 backnet controlor is required for every 32 VAVs ... we calculate the total price of the backnet controlor required and then amortize it over the number of VAVs\" (owner 2026-11-20 14:18); any BACnet mention, every box gets the share, rounded to the rupee (14:22, 14:23 \"allbxes getshare also\", 14:25)"
+    },
+    {
+     "title": "^The DP sensor share spreads",
+     "why": "\"Duct Static Pressure Sensor Greystone/Honeywell ... 1 sensor per 30 boxes\", for every DP sensor mention (owner 2026-11-20 14:35 / 14:37); never counted twice with the DDC panel (14:39)"
+    },
+    {
+     "title": "^The DDC panel share spreads",
+     "why": "\"DDC controllor price is worked as a sum of (Bacnet cost + DP Sensor cost + 25000) supply BCS and 5000 install BCS. standard markups apply. 1 panel is sufficient for upto 200 VAVs ... if we are including the price of DDC, then we dont add bacnet or DP sensor price separately\" (owner 2026-11-20 14:30); \"Bacnet cost will be rate*qty required\" (14:31); 0.6 on the installation (14:39); supply only of the controllers and sensors (15:23); a DDC mention without 'inclusive' still adds it, with its note (14:42, 14:45); no minimum number of VAVs (15:02)"
+    },
+    {
+     "title": "^A shared item priced on its own row of the sheet is not added",
+     "why": "a separate row for the item -> nothing added, a note names the row; presence decides, no quantity test (owner 2026-11-20 00:37 \"VAV controlers have one to many mapping\"; 15:20); an integrator / router row counts only for the integrator, never as the controller's own row (19:46 \"integrator row does not count for controller it counts only for integrator\"; 19:50, on 'Network controller or Router' rows) -- unless its own words make it a controller FOR THE VAVs, even if also called a router (20:20 \"yes these rows are bacnet controlloer ...\": 'Router / Supervisory Controller ... to monitor and Control the VAVs'); a row whose own description says it controls the VAVs is the controller's row even with no BACnet word (20:54: BOQ-26-00098 r70 'VAV Master Controller ... monitor and control all VAV status'); a separate row with quantity 0 on a sheet whose VAV rows carry a quantity does not count as charged separately - the share is added with a note (21:05, agreed; 20:56 \"but the quantity for the master controller is zero, then we should price it with the Vav rows\")"
+    },
+    {
+     "title": "^Each shared item is its own block the user can add, remove and edit",
+     "why": "\"they should all have separate lines in the panel which can be added/deleted or edited by the user\" (owner 2026-11-20 15:02; 15:05); the number of VAVs pre-filled from the sheet on a BoQ row and empty in the calculator (18:39; 18:41); the layout approved (18:42 \"this is ok\"); the usual revert icons (18:44)"
+    },
+    {
+     "title": "^The .+ (is|are) no longer added to each box",
+     "why": "the per-box controller goes, replaced by the per-sheet share (owner 2026-11-20 14:18); the Differential Pressure Switch is no longer used for VAV (14:35 / 14:37; 15:23 \"yes and starts borrowing the Duct Static Pressure sensor\")"
+    },
+    {
+     "title": "^An airflow written as a lower limit only",
+     "why": "\"Above 3200 CFM\" / \"3700 CFM above\" -> the next band up, with a note that the BoQ gives only a lower limit (owner 2026-11-20 14:10)"
+    },
+    {
+     "title": "^A VAV integrator row naming the boxes it serves",
+     "why": "the six Misc-filed integrator rows count as separate integrator rows (owner 2026-11-20 14:10 \"2 yes\")"
+    },
+    {
+     "title": "^The combination warning is the",
+     "why": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); the layout approved (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)"
+    },
+    {
+     "title": "^An extra whose own row has quantity 0",
+     "why": "\"same shold apply to all extras\" (owner 2026-11-20 21:05) and agreed (21:47): an extra's own row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately - the extra is added with a note naming the row (integrator cabling: only when every cabling row is 0 / blank); VAV rows blank / 0 keep the 19 Nov 01:23 rule"
+    },
+    {
+     "title": "^The .* can be added by hand at (its|their) full rate",
+     "why": "owner 2026-11-21 01:07 \"i think we should be able to add a full bcakner using that. we will need it for seperate rows i think\"; 01:09 \"yes for both\" (the Duct Static Pressure Sensor at full rate, a plain item with a typed quantity, 01:21 \"2 yes\"). The helper never adds it by itself"
+    },
+    {
+     "title": "^A full-rate block prices the item per unit",
+     "why": "owner 2026-11-21 01:15 \"full rate ddc panel should have other components. but the other components qty should come from formula ad it does for ddc share calculation...only panel qty will be 1\"; 01:21 \"we are giving per unit rate which does not worry about the qty of rthe row\"; 01:31 the pre-fill \"sheet's VAVs / the row's quantity, rounded up ... yes\"; 01:32 \"same logic hosuld be used for Bcanet contorller row if given sperately and qty is more than 1\" and 01:36"
+    },
+    {
+     "title": "^The model reads, on each VAV box row, the controller",
+     "why": "owner 2026-11-20 14:25 \"i meant payload for any VAV mentions Bacnet\"; 14:37 \"thi sis true for all Dp sensor mention in VAV\"; 14:48 \"DDC panel and controllor are interchaebale\"; 15:05 \"1 yes\" (a line about makes or another equipment's DDC does not count); 15:19 \"2 ok\" (by the BMS vendor / by others: nothing added); 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+    },
+    {
+     "title": "^The '[^']*' block names each extra with its amount",
+     "why": "owner 2026-11-21 10:52 \"the warning should name the xtras included for more clarity insteda of just giving the count\"; 10:54 (name and amount)"
+    },
+    {
+     "title": "^A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel",
+     "why": "owner 2026-11-21 10:44 \"when both bacnet  and ddc blocks are on a row...a more prominent warning for possible double counting of Bacnets should be given\"; 10:45, agreed (the same for a DP sensor; the amber block above the row total); 13:59 (the same block for a DDC panel share with a full-rate DDC panel; its small line goes); 14:46 \"go with your recommendations for all cases\" (the same block for a BACnet share with a full-rate BACnet controller and a DP share with a Duct Static Pressure Sensor)"
+    },
+    {
+     "title": "^A row filed under .* that names a VAV item",
+     "why": "owner 2026-11-21 12:33 \"for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also. any other category if we need we will build as exceptions.\"; 12:34 \"agree on all 3\" (only sheets with VAV rows; only rows naming a VAV item; the row stays filed, with a note); 12:36 (the note); 13:40 (the integrator / installation rows; quantity 0 pre-fills the sheet's VAVs); 13:59 \"price touch screen controlor  or master controlor as DDC panel. give appropriate notes\" and 14:46 \"go with your recommendations for all cases\" (such a row counts as the sheet's controller and DDC panel row too)"
+    },
+    {
+     "title": "^Items borrowed from other sheets are added from one button",
+     "why": "owner 2026-11-21 10:40 \"can we combine addmisc  and add sensor into one group...the user does not  need to know where it is coming from.\"; 10:41 (\"Add other item\", VAV Box only); 10:40 (one entry adding the thermostat and the CO2 sensor); 10:50 \"ok for wrning and techincal working lines ...\" (headings without the source sheet)"
+    },
+    {
+     "title": "^The add list shows '[^']*' per",
+     "why": "owner 2026-11-21 10:38 \"intergrator cablong  change to per VAV\"; 10:40 \"1 ok\" (a label; the rate stays per metre)"
+    },
+    {
+     "title": "^A row naming an adaptor or adapter is not a BACnet controller's own row",
+     "why": "owner 2026-11-21 13:40 (BOQ-26-00020 r194 \"Unification adaptor ... on BACnet protocol\" is not a VAV item); 2026-11-20 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+    },
+    {
+     "title": "^When a share is not added because of a row of the sheet, the note says what that row is",
+     "why": "owner 2026-11-21 15:56: a separate DDC panel row with a quantity, whatever it is filed under, counts as the sheet's controller row (the standing own-row rule, 2026-11-18 23:32 \"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence\"); 15:31 \"notes should be explnatory ... so that user canunderstand why vabcnet is not being added\"; the sentences as he approved them at 15:56"
+    }
+   ],
+   "to": [
+    {
+     "title": "^The row's unit decides",
+     "why": "VAV items are priced per Nos, the VAV Box sheet's unit; a row with no unit is priced per Nos with a strong warning - owner 2026-11-24 20:00 \"[no unit] price it by number and mention it clearly in notes. the notes should be a stronger warning\" (in place of the earlier refusal, 2026-11-15 13:39 / 13:41)"
+    },
+    {
+     "title": "^The item's own kind decides",
+     "why": "the box and VAV's own extras are separate VAV items on one row (owner, 2026-11-19 00:57); the kinds = the VAV Box sheet's box and VAV Integrator, the four extras the owner made SKUs (BACnet over IP controller 2026-11-18 22:30; duct connection 23:24; conical piece 23:27 / 23:32; integrator cabling 23:14) and 'VAV installation - any size' (owner 2026-11-19 01:23 \"agree on all 3\")"
+    },
+    {
+     "title": "^A material the model could not match",
+     "why": "a row that is not a VAV item is not priced (owner point 5, 2026-11-18 23:53 \"agree on all these\")"
+    },
+    {
+     "title": "^That kind's rule for that unit",
+     "why": "every VAV item has one rate per Nos on the VAV Box sheet; integrator cabling is a per-metre rate counted per box: BCS cost 140 per metre, quoted 196 per metre (BCS x 1.4; 392 for 2 m) (owner 2026-11-18 23:14 \"2 mts of cabling per VAV at 140 per meter\"; 2026-11-19 12:35 \"the 140 per meter is BCSrate and not quoting rate\")"
+    },
+    {
+     "title": "^The facts that rule needs",
+     "why": "the VAV Box sheet prices a box by shape, type, integrator included and airflow band (the owner's workbook, 2 Nov 2026); integrator inside the rate -> Yes, else No (owner, 2026-11-18 22:37); the VAV Integrator by its type (the sheet's two lines; owner point 8, 23:53)"
+    },
+    {
+     "title": "^Then the priced steps",
+     "why": "BoQ rate = BCS x (1 + markup), rounded up to the rupee: supply x 1.4, install x 1.6 on the VAV Box sheet (the owner's workbook, 2 Nov 2026; the new SKUs 'same supply and install markup as others', owner 2026-11-18 22:30)"
+    },
+    {
+     "title": "^Multiplied by how many",
+     "why": "every extra is its own item with its own quantity per box, the user can add or remove it (owner 2026-11-18 23:15 / 23:18)"
+    },
+    {
+     "title": "^The (misc item|sensor) section's quantity per vav item is the count the row names",
+     "why": "a borrowed item's quantity is the count the row names: a thermostat -> one, \"two if two\" (owner 2026-11-18 22:35); a piece \"on either side\" -> 2 (22:38); every extra its own item the user can change (23:15 / 23:18)"
+    },
+    {
+     "title": "^The misc item section(?!'s quantity)",
+     "why": "borrowed, never copied: Digital Thermostat (owner, 2026-11-18 22:35), Temperature Gauge / Thermometer as 'Room temperature sensor' (22:35; 2026-11-19 00:57), Transformation Pieces (22:38) are priced by Misc's own rules; \"ducting should read these directly ... and not keep a second copy\" (owner 2026-11-13 00:19)"
+    },
+    {
+     "title": "^The sensor section(?!'s quantity)",
+     "why": "the CO2 sensor and the differential pressure switch are borrowed from the Sensors sheet under its own rules (owner 2026-11-18 23:14; borrow-only Sensors, 2026-11-19 00:57)"
+    },
+    {
+     "title": "^The row total adds",
+     "why": "the row total is every item; one item that needs a person makes the row need a person (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^A kind not stocked in the row's unit",
+     "why": "VAV items are stocked per Nos only; any other unit is priced by hand (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^An unstocked combination",
+     "why": "a box whose facts match no VAV Box sheet line is not priced - never a nearest pick (owner points 3 / 4, 2026-11-18 23:53: above 8,000 CFM or no airflow -> not priced)"
+    },
+    {
+     "title": "^A row priced per Lot",
+     "why": "a Lot or a job is not a VAV unit and is priced by hand (owner 2026-11-15 13:39)"
+    },
+    {
+     "title": "^The BoQ scope",
+     "why": "installation only -> the installation rate only (owner agreed, 18 November 2026); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift"
+    },
+    {
+     "title": "^A row whose extras come to more than a set share",
+     "why": "\"all combination rows should have a warning that the user should review it more carefully\" (owner 2026-11-19 12:49); agreed (12:55): warn above a set share of the box rate; \"ok proceed with 50%\" (12:59), a Pricing Input the user can change; the share lowered to 25% (owner 2026-11-21 10:25 \"... lower it to 25%\")"
+    },
+    {
+     "title": "^A row whose own words are dismantling and refixing",
+     "why": "\"dsimatling and refixing 1.5 times\" on the installation rate (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^A row whose own words are dismantling of",
+     "why": "\"onl;y dismatling same asinstalltion\" (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^A row whose own words are refixing",
+     "why": "\"only refixing 0.5 times if dismantling seprate row else 1.5\" (owner 2026-11-18 23:49); the separate row must name VAV; no extras on such a row (the approved mockup, owner 2026-11-19 00:12)"
+    },
+    {
+     "title": "^An extra the sheet charges on its own row",
+     "why": "\"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence..else prices added and declared\" (owner 2026-11-18 23:32); the same sheet, Ducting's way at 90% (owner 2026-11-19 00:57); quantities blank or 0 -> the separate row decides (01:23, agreed); a row whose own description names the extra before any VAV box counts as that extra's own row, for the BACnet over IP controller (owner 2026-11-19 18:56; 2026-11-20 00:34)"
+    },
+    {
+     "title": "^A VAV integrator priced on its own row",
+     "why": "a box whose rate includes the integrator takes the \"Integrator Included = Yes\" line (owner, 2026-11-18 22:37); a separate VAV integrator row on the same sheet -> the \"No\" line, presence decides (owner, 2026-11-19 13:31)"
+    },
+    {
+     "title": "^On a sheet with a VAV integrator anywhere",
+     "why": "\"for VAV with integrators we have to check if seprate row for cabling for integrators is there in Boq. if not then we have to include 2 mts of cabling per VAV at 140 per meter supply BCS ... if seprate cabling row is there then cabling price not included. apprpritae note given in both cases\" (owner 2026-11-18 23:14; 23:18 the user can add or remove it); \"VAV must be mentioned in cabling description\" (2026-11-19 01:29); a heading naming VAV counts (01:34 \"yes\"); \"Variable Air Volume\" written in full names VAV and a cable row's own notes naming VAV count like a heading above it (owner 2026-11-19 15:57 \"both a\"); below 70% the note asks to check the quantity (01:39); 140 is the BCS cost, not the quoted rate (12:35); the rate stays the SKU, the 2 m is a Pricing Input (12:37 / 12:55)"
+    },
+    {
+     "title": "^A fact the row does not mention",
+     "why": "shape not stated -> Rectangular, with a note (owner agreed, 2026-11-18 22:16)"
+    },
+    {
+     "title": "^A VAV box's airflow band \\(cfm\\) is worked out from its airflow",
+     "why": "a range that crosses bands -> the band of the maximum airflow (owner \"agree\", 2026-11-18 22:16); no unit = CFM, above 8,000 CFM -> not priced, \"above the largest box on the sheet\" (owner 23:53, agreed); a value exactly on an edge belongs to the lower band - 450 CFM is 0-450, 8,000 CFM is 4000-8000 and priced (owner, 2026-11-20 00:10)"
+    },
+    {
+     "title": "^With no airflow, the band comes from the inlet size table",
+     "why": "the owner's own table of inlet sizes against the sheet's airflow bands, the smallest band 6 inch to the largest 24 inch, no 18 / 20 / 22 inch step (owner 2026-11-18 22:18); in-between sizes take the next size up, the same table for rectangular boxes with a round inlet (22:21 \"agree for both\"); a size written with mm is converted, a bare tag number is not a size (2026-11-19 00:57)"
+    },
+    {
+     "title": "^No airflow and no inlet size",
+     "why": "no airflow and no size -> not priced, \"airflow not stated, enter the CFM\" (owner 2026-11-18 23:53 \"agree on all these except 9\"); in the calculator the user enters the CFM or the inlet size (owner 2026-11-19 13:31)"
+    },
+    {
+     "title": "^The user types the CFM or the inlet size",
+     "why": "\"the user should be given an option to chose either inlet size or the CFM clearly indicated that only one is required and then we price as per the CFM based on our ampping\" (owner 2026-11-19 13:31); \"also in the calculator user should be told clearly only one of these is required to price\" (13:46)"
+    },
+    {
+     "title": "^Per sheet, the first match decides which controller share",
+     "why": "first match per sheet: a DDC panel, else BACnet, else a plain controller, else nothing (owner 2026-11-20 15:19 / 15:20 \"this is correct\"); a controller counts only when it is for controlling the VAVs (15:36 / 15:40); another equipment's DDC or BACnet and a line about makes do not count (14:56; 15:05 \"1 yes 2 yes\"); by the BMS vendor / by others adds nothing (15:19 \"2 ok\"). This replaces the per-box controller and its own-row line (14:18)"
+    },
+    {
+     "title": "^A sheet's VAVs are the quantities of its VAV box rows",
+     "why": "\"totals number of VAVs in the BoQ (of all size and type)\", worked per sheet (owner 2026-11-20 14:18; 14:22 \"2 each sheet\"); quantities blank or 0 -> nothing added and a note asks the pricer to add it (14:22 \"4 yes\")"
+    },
+    {
+     "title": "^The BACnet controller share spreads",
+     "why": "\"1 backnet controlor is required for every 32 VAVs ... we calculate the total price of the backnet controlor required and then amortize it over the number of VAVs\" (owner 2026-11-20 14:18); any BACnet mention, every box gets the share, rounded to the rupee (14:22, 14:23 \"allbxes getshare also\", 14:25)"
+    },
+    {
+     "title": "^The DP sensor share spreads",
+     "why": "\"Duct Static Pressure Sensor Greystone/Honeywell ... 1 sensor per 30 boxes\", for every DP sensor mention (owner 2026-11-20 14:35 / 14:37); never counted twice with the DDC panel (14:39)"
+    },
+    {
+     "title": "^The DDC panel share spreads",
+     "why": "\"DDC controllor price is worked as a sum of (Bacnet cost + DP Sensor cost + 25000) supply BCS and 5000 install BCS. standard markups apply. 1 panel is sufficient for upto 200 VAVs ... if we are including the price of DDC, then we dont add bacnet or DP sensor price separately\" (owner 2026-11-20 14:30); \"Bacnet cost will be rate*qty required\" (14:31); 0.6 on the installation (14:39); supply only of the controllers and sensors (15:23); a DDC mention without 'inclusive' still adds it, with its note (14:42, 14:45); no minimum number of VAVs (15:02)"
+    },
+    {
+     "title": "^A shared item priced on its own row of the sheet is not added",
+     "why": "a separate row for the item -> nothing added, a note names the row; presence decides, no quantity test (owner 2026-11-20 00:37 \"VAV controlers have one to many mapping\"; 15:20); an integrator / router row counts only for the integrator, never as the controller's own row (19:46 \"integrator row does not count for controller it counts only for integrator\"; 19:50, on 'Network controller or Router' rows) -- unless its own words make it a controller FOR THE VAVs, even if also called a router (20:20 \"yes these rows are bacnet controlloer ...\": 'Router / Supervisory Controller ... to monitor and Control the VAVs'); a row whose own description says it controls the VAVs is the controller's row even with no BACnet word (20:54: BOQ-26-00098 r70 'VAV Master Controller ... monitor and control all VAV status'); a separate row with quantity 0 on a sheet whose VAV rows carry a quantity does not count as charged separately - the share is added with a note (21:05, agreed; 20:56 \"but the quantity for the master controller is zero, then we should price it with the Vav rows\")"
+    },
+    {
+     "title": "^Each shared item is its own block the user can add, remove and edit",
+     "why": "\"they should all have separate lines in the panel which can be added/deleted or edited by the user\" (owner 2026-11-20 15:02; 15:05); the number of VAVs pre-filled from the sheet on a BoQ row and empty in the calculator (18:39; 18:41); the layout approved (18:42 \"this is ok\"); the usual revert icons (18:44)"
+    },
+    {
+     "title": "^The .+ (is|are) no longer added to each box",
+     "why": "the per-box controller goes, replaced by the per-sheet share (owner 2026-11-20 14:18); the Differential Pressure Switch is no longer used for VAV (14:35 / 14:37; 15:23 \"yes and starts borrowing the Duct Static Pressure sensor\")"
+    },
+    {
+     "title": "^An airflow written as a lower limit only",
+     "why": "\"Above 3200 CFM\" / \"3700 CFM above\" -> the next band up, with a note that the BoQ gives only a lower limit (owner 2026-11-20 14:10)"
+    },
+    {
+     "title": "^A VAV integrator row naming the boxes it serves",
+     "why": "the six Misc-filed integrator rows count as separate integrator rows (owner 2026-11-20 14:10 \"2 yes\")"
+    },
+    {
+     "title": "^The combination warning is the",
+     "why": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); the layout approved (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)"
+    },
+    {
+     "title": "^An extra whose own row has quantity 0",
+     "why": "\"same shold apply to all extras\" (owner 2026-11-20 21:05) and agreed (21:47): an extra's own row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately - the extra is added with a note naming the row (integrator cabling: only when every cabling row is 0 / blank); VAV rows blank / 0 keep the 19 Nov 01:23 rule"
+    },
+    {
+     "title": "^The .* can be added by hand at (its|their) full rate",
+     "why": "owner 2026-11-21 01:07 \"i think we should be able to add a full bcakner using that. we will need it for seperate rows i think\"; 01:09 \"yes for both\" (the Duct Static Pressure Sensor at full rate, a plain item with a typed quantity, 01:21 \"2 yes\"). The helper never adds it by itself"
+    },
+    {
+     "title": "^A full-rate block prices the item per unit",
+     "why": "owner 2026-11-21 01:15 \"full rate ddc panel should have other components. but the other components qty should come from formula ad it does for ddc share calculation...only panel qty will be 1\"; 01:21 \"we are giving per unit rate which does not worry about the qty of rthe row\"; 01:31 the pre-fill \"sheet's VAVs / the row's quantity, rounded up ... yes\"; 01:32 \"same logic hosuld be used for Bcanet contorller row if given sperately and qty is more than 1\" and 01:36"
+    },
+    {
+     "title": "^The model reads, on each VAV box row, the controller",
+     "why": "owner 2026-11-20 14:25 \"i meant payload for any VAV mentions Bacnet\"; 14:37 \"thi sis true for all Dp sensor mention in VAV\"; 14:48 \"DDC panel and controllor are interchaebale\"; 15:05 \"1 yes\" (a line about makes or another equipment's DDC does not count); 15:19 \"2 ok\" (by the BMS vendor / by others: nothing added); 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+    },
+    {
+     "title": "^The '[^']*' block names each extra with its amount",
+     "why": "owner 2026-11-21 10:52 \"the warning should name the xtras included for more clarity insteda of just giving the count\"; 10:54 (name and amount)"
+    },
+    {
+     "title": "^A BACnet controller, a DP sensor or a second DDC panel beside a DDC panel",
+     "why": "owner 2026-11-21 10:44 \"when both bacnet  and ddc blocks are on a row...a more prominent warning for possible double counting of Bacnets should be given\"; 10:45, agreed (the same for a DP sensor; the amber block above the row total); 13:59 (the same block for a DDC panel share with a full-rate DDC panel; its small line goes); 14:46 \"go with your recommendations for all cases\" (the same block for a BACnet share with a full-rate BACnet controller and a DP share with a Duct Static Pressure Sensor)"
+    },
+    {
+     "title": "^A row filed under .* that names a VAV item",
+     "why": "owner 2026-11-21 12:33 \"for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also. any other category if we need we will build as exceptions.\"; 12:34 \"agree on all 3\" (only sheets with VAV rows; only rows naming a VAV item; the row stays filed, with a note); 12:36 (the note); 13:40 (the integrator / installation rows; quantity 0 pre-fills the sheet's VAVs); 13:59 \"price touch screen controlor  or master controlor as DDC panel. give appropriate notes\" and 14:46 \"go with your recommendations for all cases\" (such a row counts as the sheet's controller and DDC panel row too)"
+    },
+    {
+     "title": "^Items borrowed from other sheets are added from one button",
+     "why": "owner 2026-11-21 10:40 \"can we combine addmisc  and add sensor into one group...the user does not  need to know where it is coming from.\"; 10:41 (\"Add other item\", VAV Box only); 10:40 (one entry adding the thermostat and the CO2 sensor); 10:50 \"ok for wrning and techincal working lines ...\" (headings without the source sheet)"
+    },
+    {
+     "title": "^The add list shows '[^']*' per",
+     "why": "owner 2026-11-21 10:38 \"intergrator cablong  change to per VAV\"; 10:40 \"1 ok\" (a label; the rate stays per metre)"
+    },
+    {
+     "title": "^A row naming an adaptor or adapter is not a BACnet controller's own row",
+     "why": "owner 2026-11-21 13:40 (BOQ-26-00020 r194 \"Unification adaptor ... on BACnet protocol\" is not a VAV item); 2026-11-20 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\""
+    },
+    {
+     "title": "^When a share is not added because of a row of the sheet, the note says what that row is",
+     "why": "owner 2026-11-21 15:56: a separate DDC panel row with a quantity, whatever it is filed under, counts as the sheet's controller row (the standing own-row rule, 2026-11-18 23:32 \"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence\"); 15:31 \"notes should be explnatory ... so that user canunderstand why vabcnet is not being added\"; the sentences as he approved them at 15:56"
+    },
+    {
+     "title": "^Words in the row, its headings or their notes set the integrator",
+     "why": "owner 2026-11-24 19:53 \"A1 ... fix\": a router or integrator named in the box row or its headings / notes is a mention - the integrator is in the rate, unless the sheet prices it on its own row (BOQ-26-00149 r462-470, 'Router to be placed floor wise')"
+    },
+    {
+     "title": "^Words in the row, its headings or their notes set the shape",
+     "why": "owner 2026-11-24 19:53 \"A2 fix\": ROUND / DIA / round boxes in the row or heading = the round box, priced on the Oval line - the shape word wins (BOQ-26-00016 r117-120)"
+    },
+    {
+     "title": "^The misc item's own words set the misc item",
+     "why": "owner 2026-11-24 20:00 \"map it to thermostat..and mention in note properly\": a direct-output temperature sensor named with the VAV boxes is priced as the Digital Thermostat (BOQ-26-00137 r148-153)"
+    },
+    {
+     "title": "^A row with no unit is priced per number, with a warning bar",
+     "why": "owner 2026-11-24 20:00 \"[no unit] price it by number and mention it clearly in notes. the notes should be a stronger warning\""
+    }
+   ],
+   "why": "the Derivation tab: the new lines' reasons (A1 / A2 / B2-1 / B2-3) and the unit line's reason as B2-3 changes it"
+  }
+ ],
+ "pricing_inputs": {}
+}

@@ -85,6 +85,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.services.boq_rate_master import (cladding_cost, config_validation, csv_exporter, csv_importer,
                                                       extraction, freeze, loader)
+from nirmaan_stack.services.boq_rate_master.vav2c1_undo_support import as_v81, asset_as_v81
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
 BOM = "\ufeff"
@@ -928,6 +929,62 @@ def _without_du1b_configs(configs):
     hit = [c.get("category_id") for c in configs if c.get("category_id") == SLICE_DU1B_CATEGORY]
     assert hit == [SLICE_DU1B_CATEGORY], hit
     return [c for c in configs if c.get("category_id") != SLICE_DU1B_CATEGORY]
+
+
+SLICE_VAV1_INPUT = "vav_install_only_uplift"
+SLICE_VAV1_CATEGORIES = ("hvac_vav_box", "hvac_sensors")
+
+
+SLICE_VAV2A_INPUTS = ("vav_own_row_threshold", "vav_cabling_m_per_box", "vav_cabling_length_threshold", "vav_existing_dismantle",
+                      "vav_existing_dismantle_refix", "vav_existing_refix_with_dismantling", "vav_existing_refix_alone",
+                      "vav_combination_warning_share")
+
+
+def _without_vav2a_items(items):
+    """VAV-2a (owner QR-S (a) 2026-11-19 13:31; B3 / B5 / B6 / B9): HVAC v77's EIGHT Pricing Inputs, normalised out of a cross-version pin
+    written before they existed -- the `_without_vav1_items` idiom, applied FIRST. It asserts exactly 8, so the pin cannot pass vacuously.
+    Pinned in full by vav2aV77.test.ts / test_vav2a_keys.py."""
+    inp = [it for it in items if it.get("kind") == "hvac_pricing_input" and (it.get("attributes") or {}).get("item") in SLICE_VAV2A_INPUTS]
+    assert len(inp) == 8, len(inp)
+    return [it for it in items if it not in inp]
+
+
+SLICE_VAV2B1_INPUTS = ("vav_vavs_per_bacnet_controller", "vav_vavs_per_dp_sensor", "vav_vavs_per_ddc_panel")
+SLICE_VAV2B1_UIDS = ("rmi-51319c433867", "rmi-3654468a63fc", "rmi-d616123412ee", "rmi-e36d6423ffeb", "rmi-323d5c801232")
+
+
+def _without_vav2b1_items(items):
+    """VAV-2b1 (owner 2026-11-20 14:35 / 15:23 / 15:24): HVAC v79's FIVE new items -- the DDC Panel/ Controller (VAV Box), the Duct Static
+    Pressure Sensor (Sensors row 11) and the three VAVs-per counts -- normalised out of a cross-version pin written before they existed;
+    the `_without_vav2a_items` idiom, applied FIRST. It asserts exactly these 5 uids, so the pin cannot pass vacuously. Pinned in full by
+    test_vav2b1_keys.py."""
+    hit = [it for it in items if it.get("item_uid") in SLICE_VAV2B1_UIDS]
+    assert sorted(it["item_uid"] for it in hit) == sorted(SLICE_VAV2B1_UIDS), sorted(it.get("item_uid") for it in hit)
+    return [it for it in items if it not in hit]
+
+
+def _without_vav1_items(items):
+    """VAV-1 (owner rulings 2026-11-18 22:16 - 2026-11-19 01:39): HVAC v76's 91 VAV items, its 2 Sensors items, the 2 Misc items it adds
+    (a Misc uid v75 does not hold) and its ONE Pricing Input ("VAV - installation-only uplift"), normalised out of a cross-version pin
+    written before they existed -- the `_without_du1b_items` idiom, applied FIRST. It asserts exactly 91 + 2 + 2 + 1, so the pin cannot
+    pass vacuously. Pinned in full by `test_hvac_v76_vav1.py`."""
+    with open(_asset_path("rate_master_hvac_all_v75.json"), "r", encoding="utf-8") as fh:
+        v75 = {it["item_uid"] for it in json.load(fh)["items"]}
+    vav = [it for it in items if it.get("kind") == "hvac_vav_item"]
+    sens = [it for it in items if it.get("kind") == "hvac_sensor_item"]
+    misc = [it for it in items if it.get("kind") == "hvac_misc_item" and it.get("item_uid") not in v75]
+    inp = [it for it in items if it.get("kind") == "hvac_pricing_input" and (it.get("attributes") or {}).get("item") == SLICE_VAV1_INPUT]
+    assert (len(vav), len(sens), len(misc), len(inp)) == (91, 2, 2, 1), (len(vav), len(sens), len(misc), len(inp))
+    return [it for it in items if it.get("kind") not in ("hvac_vav_item", "hvac_sensor_item") and it not in misc and it not in inp]
+
+
+def _without_vav1_configs(configs):
+    """VAV-1: HVAC v76's new `hvac_vav_box` and borrow-only `hvac_sensors` configs, normalised out of a cross-version pin written before
+    they existed. It asserts each is there exactly once. (Misc's two new families ride on `hvac_misc`, which `_without_vp1_configs`
+    already takes out.)"""
+    hit = [c.get("category_id") for c in configs if c.get("category_id") in SLICE_VAV1_CATEGORIES]
+    assert hit == list(SLICE_VAV1_CATEGORIES), hit
+    return [c for c in configs if c.get("category_id") not in SLICE_VAV1_CATEGORIES]
 
 
 def _without_12e4b_pipe_size_near(cfg):
@@ -12053,7 +12110,7 @@ def _read_frontend_src(*parts):
 # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v57.json"`
 # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v58.json"` (VRF-3a)
 # INVERTED at VRF-9 (HVAC v65; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v64.json"` (VRF-8)
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v75.json"   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2: v72 = v71 + the Ducting config changes for the 23:57 row rulings (BEFORE v71, DU-1 Part B); DU-1 Part B: v71 = v70 + the Ducting config, its 15 duct + 5 Misc-tab items and its uplift input (BEFORE v70, DU-1 Part A); DU-1: v70 = v69 + the Valve Package / Misc declared Derivation lines (BEFORE v69, VP-5); VP-5: v69 = v68 + the VP-4 all-rows review rulings' Valve Package / Misc config changes (BEFORE v68, VP-4); VP-4: v68 = v67 + the VP-3 re-review rulings' Valve Package / Misc config changes (BEFORE v67, VP-3); VP-3: v67 = v66 + the VP-2 review rulings' Valve Package / Misc config changes (model guidance D1-D7c, C1 / C2 / C4 / C5 keys; items unchanged) (BEFORE: v66, VP-1)
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v88.json"   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2: v72 = v71 + the Ducting config changes for the 23:57 row rulings (BEFORE v71, DU-1 Part B); DU-1 Part B: v71 = v70 + the Ducting config, its 15 duct + 5 Misc-tab items and its uplift input (BEFORE v70, DU-1 Part A); DU-1: v70 = v69 + the Valve Package / Misc declared Derivation lines (BEFORE v69, VP-5); VP-5: v69 = v68 + the VP-4 all-rows review rulings' Valve Package / Misc config changes (BEFORE v68, VP-4); VP-4: v68 = v67 + the VP-3 re-review rulings' Valve Package / Misc config changes (BEFORE v67, VP-3); VP-3: v67 = v66 + the VP-2 review rulings' Valve Package / Misc config changes (model guidance D1-D7c, C1 / C2 / C4 / C5 keys; items unchanged) (BEFORE: v66, VP-1)
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
@@ -12061,6 +12118,9 @@ RETIRED_KEY_REFUSALS = [("rate_master_hvac_all_v%d.json" % n, "hvac_insulation")
 # VRF-4 (owner Q1 A "removed at VRF-4"): `calculator_only` is retired a second time -- the frozen v56..v59 hvac_vrf configs carry it
 # and are refused by name, exactly like v18..v28 above. They sort after v31 in the file walk, hence their own list.
 RETIRED_VRF_KEY_REFUSALS = [("rate_master_hvac_all_v%d.json" % n, "hvac_vrf") for n in range(56, 60)]
+# VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; PIN P14 - P19, ANSWER 28): `calculator_only` retired a THIRD time -- the frozen
+# v76..v80 hvac_vav_box configs carry it and are refused by name ('Unknown top-level config key(s): calculator_only.'), as v56..v59 above.
+RETIRED_VAV_KEY_REFUSALS = [("rate_master_hvac_all_v%d.json" % n, "hvac_vav_box") for n in range(76, 81)]
 # SLICE 12d-4aF (owner): `refuse_on_unit_class[].families` is REQUIRED (the 12d-4a form without it over-reached onto
 # Cladding Only), so the frozen v31 file is refused on that key AS A FILE -- the same class as the retired-key refusals.
 REQUIRED_KEY_REFUSALS = [("rate_master_hvac_all_v31.json", "hvac_insulation")]
@@ -12726,7 +12786,7 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         # the ONE pre-existing refusal (a bare `choice` with no values in a retired asset) and nothing else
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `... + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, refused by name
-        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))   # 12d-4aF: + v31 on `families`
+        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))   # VAV-2b2 K2: + the frozen v76..v80 VAV configs (BEFORE without them);   # 12d-4aF: + v31 on `families`
 
     # -- s03 ----------------------------------------------------------------------------------------
     def test_s03_v3_is_v2_plus_four_message_only_configs_none_eligible(self):
@@ -12933,7 +12993,7 @@ class TestHvacAliasSlice3(FrappeTestCase):
         self.assertGreaterEqual(n_configs, 571)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `... + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, refused by name
-        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))   # 12d-4aF: + v31 on `families`
+        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))   # VAV-2b2 K2: + the frozen v76..v80 VAV configs (BEFORE without them);   # 12d-4aF: + v31 on `families`
 
     # -- a03 ----------------------------------------------------------------------------------------
     def test_a03_v4_is_v3_plus_two_aliases_and_eligibility_follows_the_target_one_hop(self):
@@ -13147,7 +13207,7 @@ class TestHvacItemListSlice4(FrappeTestCase):
         self.assertGreaterEqual(n_configs, 578)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `... + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, refused by name
-        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))   # 12d-4aF: + v31 on `families`
+        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))   # VAV-2b2 K2: + the frozen v76..v80 VAV configs (BEFORE without them);   # 12d-4aF: + v31 on `families`
 
     # -- v03 ----------------------------------------------------------------------------------------
     def test_v03_v5_is_v4_plus_the_adp_extraction_shape_and_adp_stays_ineligible(self):
@@ -13400,7 +13460,26 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "family_alias_needs", "no_sku_refuse_default",
                             # INVERTED at DU-3 K1c (owner Cases 4 / 5 / 8, 2026-11-16) by mechanical authority: BEFORE the set ended at
                             # "no_sku_refuse_default". The four keys are declared by Ducting alone from v75 on; v7 predates them, ADP declares none
-                            "paint_row", "row_refusals", "partial_insulation", "two_insulations"})
+                            "paint_row", "row_refusals", "partial_insulation", "two_insulations",
+                            # INVERTED at VAV-2a K1 (owner QR-S (a) 2026-11-19 13:31; B3 / B5 / B6 / B9) by mechanical authority: BEFORE the
+                            # set ended at "two_insulations". The four keys are declared by VAV Box alone from v77 on; v7 predates them, ADP
+                            # declares none
+                            "own_row_check", "integrator_cabling", "existing_boxes", "combination_warning",
+                            # INVERTED at VAV-2a2 (owner R1-R4, 2026-11-18 / 19; HVAC v78) by mechanical authority: BEFORE the set
+                            # ended at "combination_warning". Both keys are read only by VAV Box; v7 predates them, ADP declares none
+                            "band_from", "source_tags",
+                            # INVERTED at VAV-2b1 K1 (owner 2026-11-20 14:18 - 18:44; PIN 4 accepted 20:53) by mechanical authority: BEFORE
+                            # the set ended at "source_tags". Both keys are read only by VAV Box; v7 predates them, ADP declares none
+                            "sheet_shares", "withdrawn_families",
+                            "user_addable",   # VAV-2b1 K2 (HVAC v80; PIN 23, ANSWER 44): the full-rate add's key. BEFORE the set ended at "withdrawn_families"
+                            # INVERTED at VAV-2b2 K1 (owner 2026-11-21 12:34 / 10:41 / 10:40 - R16 / R13 / R11; PIN 1 accepted 15:12) by
+                            # mechanical authority: BEFORE the set ended at "user_addable". The three keys are read only by VAV Box (v81);
+                            # v7 predates them, ADP declares none
+                            "claims_filed", "add_group", "family_units_label",
+                            # INVERTED at VAV-2c3 FIX-2 (owner 2026-11-24 19:53 / 20:00; PIN FIX2-E accepted ANSWER 24) by mechanical authority:
+                            # BEFORE the set ended at "family_units_label". Both keys are read only by VAV Box (v86 / v87); v7 predates them, ADP
+                            # declares neither
+                            "chain_values", "blank_unit_bar"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)
@@ -13491,7 +13570,7 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         self.assertGreaterEqual(n_configs, 585)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `... + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, refused by name
-        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))   # 12d-4aF: + v31 on `families`
+        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))   # VAV-2b2 K2: + the frozen v76..v80 VAV configs (BEFORE without them);   # 12d-4aF: + v31 on `families`
 
     # -- p03 ----------------------------------------------------------------------------------------
     def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings(self):
@@ -13715,7 +13794,7 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
         self.assertGreaterEqual(n_configs, 592)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `... + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, refused by name
-        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))   # 12d-4aF: + v31 on `families`
+        self.assertEqual(sorted(full_refusals), sorted([("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))   # VAV-2b2 K2: + the frozen v76..v80 VAV configs (BEFORE without them);   # 12d-4aF: + v31 on `families`
 
     # -- q03 ----------------------------------------------------------------------------------------
     def test_q03_v8_is_v7_plus_the_four_deltas_and_nothing_else(self):
@@ -16955,7 +17034,8 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
         # 12d-2: EXACTLY the frozen v18..v28 Insulation configs are refused for the retired key, nothing else
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE `assertEqual(retired,
         # RETIRED_KEY_REFUSALS)` -- + the frozen v56..v59 hvac_vrf configs, retired a second time
-        self.assertEqual(sorted(retired), sorted(RETIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS))
+        # VAV-2b2 K2 (PIN P19): + the frozen v76..v80 hvac_vav_box configs. BEFORE: RETIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS
+        self.assertEqual(sorted(retired), sorted(RETIRED_KEY_REFUSALS + RETIRED_VRF_KEY_REFUSALS + RETIRED_VAV_KEY_REFUSALS))
         self.assertEqual(required, REQUIRED_KEY_REFUSALS)   # 12d-4aF: EXACTLY the frozen v31 Insulation config, nothing else
 
 
@@ -17496,7 +17576,8 @@ class TestCladdingOnlySkus(FrappeTestCase):
         with open(_asset_path("rate_master_hvac_all_v16.json"), "r", encoding="utf-8") as fh:
             cls.v16 = json.load(fh)
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
-            cls.v17 = json.load(fh)
+            cls.v17_now = json.load(fh)
+        cls.v17 = asset_as_v81(cls.v17_now)   # VAV-2c1 K2 (HVAC v82; PIN K2-E): this slice's texts undone; v17_now = the file as it is. BEFORE: json.load(fh)
 
     @classmethod
     def _cfg(cls, asset, cat="hvac_insulation"):
@@ -17563,7 +17644,11 @@ class TestCladdingOnlySkus(FrappeTestCase):
         # SLICE 12d-1b (owner T1, pin INVERTED): the default now applies to EVERY Insulation family -- the
         # `families` scope F1 declared is GONE from the asset, and its absence is what is pinned.
         self.assertNotIn("families", nd)
-        self.assertIn("T1", nd["rule"])
+        # VAV-2c1 K2 (PIN K2-E, ANSWER 37): the pricer-facing text of the NEWEST file keeps the owner's words and loses the ruling code (R3). BEFORE:
+        # self.assertIn("T1", nd["rule"])
+        now = self._cfg(self.v17_now)["list_spec"]["pricing"]["number_defaults"]["thickness_mm"]["rule"]
+        self.assertIn("(owner 2026-10-07)", now)
+        self.assertNotIn("T1", now)
         self.assertTrue(nd["rule"].strip())
         # NEGATIVE: no OTHER number is defaulted, so a composite that states nothing still refuses
         self.assertEqual(list(pr["number_defaults"]), ["thickness_mm"])
@@ -17636,7 +17721,9 @@ class TestCladdingOnlySkus(FrappeTestCase):
         #   for c in _without_vrf1_config(_without_12e1_piping_config(self.v17["category_configs"])):)
         # DU-1 Part B: v71's `hvac_ducting` config first of all, NAMED (BEFORE:
         #   for c in _without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(self.v17["category_configs"]))):)
-        for c in _without_du1b_configs(_without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(self.v17["category_configs"])))):
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): v76's `hvac_vav_box` and `hvac_sensors` first of all, NAMED (BEFORE:
+        #   for c in _without_du1b_configs(_without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(self.v17["category_configs"])))):)
+        for c in _without_du1b_configs(_without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(_without_vav1_configs(self.v17["category_configs"]))))):
             if c["category_id"] in skip:
                 continue
             if c["category_id"] == "hvac_adp":
@@ -17724,7 +17811,12 @@ class TestCladdingOnlySkus(FrappeTestCase):
         # mechanical authority: BEFORE `assertEqual(len(used), 64, ...)`
         # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 DU-3 input (the Ducting insulation coverage threshold, read by Ducting's
         # sheet_insulation). BEFORE 65 / "... + 1 DU-1 inputs"
-        self.assertEqual(len(used), 66, "expected the seven Insulation + four Piping + three ADP + two VRF + 29 VRF extras + 13 VRF-5 + 14 VRF-6 - 9 retired + 1 VP-1 + 1 DU-1 + 1 DU-3 inputs, got %r" % sorted(used))
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): + 1 VAV-1 input ("VAV - installation-only uplift", read by VAV Box's scope pick alone). BEFORE 66 /
+        # "... + 1 DU-3 inputs"
+        # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE 67 (the list ended "+ 1 VAV-1"); + the 8 VAV-2a inputs, each read by VAV Box
+        # VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE 75 (the list ended "+ 8 VAV-2a"); + the 3 VAV-2b1 inputs, each read by VAV Box's sheet_shares
+        self.assertEqual(len(used), 78, "expected the seven Insulation + four Piping + three ADP + two VRF + 29 VRF extras + 13 VRF-5 + 14 VRF-6 - 9 retired + 1 VP-1 + 1 DU-1 + 1 DU-3 + 1 VAV-1 + 8 VAV-2a + 3 VAV-2b1 inputs, got %r" % sorted(used))
+        self.assertEqual(used[SLICE_VAV1_INPUT][1], ["hvac_vav_box"])
         self.assertIn(SLICE_VP1_INPUT, used)
         self.assertEqual(used[SLICE_DU1B_INPUT][1], [SLICE_DU1B_CATEGORY])
         for iid in (k for k in used if k.startswith("vrf_extra_")):
@@ -17750,7 +17842,16 @@ class TestCladdingOnlySkus(FrappeTestCase):
             # installation-only uplift is read by Ducting alone
             # INVERTED at DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE the Ducting branch named the installation-only uplift only --
             # the insulation coverage threshold (DU-3 R1) is read by Ducting alone too
-            self.assertEqual(used[iid][1], [SLICE_DU1B_CATEGORY] if iid in (SLICE_DU1B_INPUT, SLICE_DU3_INPUT) else ["hvac_valve_package"] if iid == SLICE_VP1_INPUT else ["hvac_vrf"] if (iid in vrf2b or iid.startswith(("vrf_extra_", "vrf_acc_")) or iid == "vrf_install_only_uplift") else ["hvac_adp"] if iid in adp1 else ["hvac_piping"] if iid in piping else ["hvac_insulation"], iid)
+            # VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE the loop had no VAV branch -- the VAV installation-only uplift is
+            # read by VAV Box alone
+            # VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE the VAV branch named the VAV-1 uplift only -- the 8 VAV-2a inputs
+            # (owner QR-S (a); B3 / B5 / B6 / B9) are read by VAV Box alone too
+            # VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority): BEFORE the VAV branch named the VAV-1 + VAV-2a inputs only -- the 3 VAV-2b1
+            # counts are read by VAV Box's sheet_shares alone too
+            self.assertEqual(used[iid][1], ["hvac_vav_box"] if iid == SLICE_VAV1_INPUT or iid in SLICE_VAV2A_INPUTS or iid in SLICE_VAV2B1_INPUTS else [SLICE_DU1B_CATEGORY] if iid in (SLICE_DU1B_INPUT, SLICE_DU3_INPUT) else ["hvac_valve_package"] if iid == SLICE_VP1_INPUT else ["hvac_vrf"] if (iid in vrf2b or iid.startswith(("vrf_extra_", "vrf_acc_")) or iid == "vrf_install_only_uplift") else ["hvac_adp"] if iid in adp1 else ["hvac_piping"] if iid in piping else ["hvac_insulation"], iid)
+        # PIN 22 (ANSWER 33): the three-line loop of PIN 8 KEPT beside the folded line (no separate vacuity run was made for its removal)
+        for k in SLICE_VAV2B1_INPUTS:
+            self.assertEqual(used[k][1], ["hvac_vav_box"], k)
         self.assertEqual({iid for iid in used if iid in piping}, piping)
 
 
@@ -18014,13 +18115,16 @@ class TestServedRatesAreStored(FrappeTestCase):
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 58)` -- + 14 - 9
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 63)` -- + "Valve - installation-only uplift"
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 64)` -- + "Ducting - installation-only uplift"
-        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 66)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 65; 12e-2: 7 + the four Piping accessories inputs; ADP-1: + 3; VRF-1: + 2; VRF-3b: + 29; VRF-5: + 13
+        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 78)   # VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): + the 3 VAV-2b1 inputs (VAVs per BACnet controller / DP sensor / DDC panel). BEFORE 75; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): + the 8 VAV-2a inputs. BEFORE 67; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): + "VAV - installation-only uplift". BEFORE 66; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 65; 12e-2: 7 + the four Piping accessories inputs; ADP-1: + 3; VRF-1: + 2; VRF-3b: + 29; VRF-5: + 13
         # INVERTED at VRF-2a (HVAC v56 LOADED; R-RETIRE; mechanical authority): BEFORE assertEqual(..., 152) -- the two Blue Star ductables retired
         self.assertEqual(counts[("HVAC", "hvac_vrf_item")], 150)   # VRF-1: the VRF catalogue; VRF-2a: - VFM-216A, VFM-264A
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `... hvac_misc_item")], 4)` -- + "MS frame / stand for ODU" (team rule)
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `... hvac_misc_item")], 5)` -- + Misc's 12 borrow-only SKUs
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `... hvac_misc_item")], 17)` -- + the 5 Misc-tab SKUs Ducting borrows
-        self.assertEqual(counts[("HVAC", "hvac_misc_item")], 22)
+        # VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE `... hvac_misc_item")], 22)` -- + Digital Thermostat, Transformation Pieces
+        self.assertEqual(counts[("HVAC", "hvac_misc_item")], 24)
+        self.assertEqual(counts[("HVAC", "hvac_vav_item")], 92)   # VAV-1: the VAV Box sheet + the owner's SKUs; VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority): + DDC Panel/ Controller. BEFORE 91
+        self.assertEqual(counts[("HVAC", "hvac_sensor_item")], 3)   # VAV-1: borrow-only Sensors; VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority): + Duct Static Pressure Sensor. BEFORE 2
         self.assertEqual(counts[("HVAC", "hvac_duct_item")], 15)   # DU-1 Part B: the Ducting sheet    # VRF-1: the four shared Misc items; VRF-6: + the frame / stand; VP-1: + 12
         self.assertEqual(counts[("HVAC", "hvac_valve_item")], 124)   # VP-1: the Valve Package
         self.assertGreaterEqual(counts[("HVAC", "hvac_adp_item")], 1)
@@ -18034,7 +18138,7 @@ class TestServedRatesAreStored(FrappeTestCase):
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `== 585` -- 124 valve SKUs, 12 Misc SKUs, 1 input added
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `... == "HVAC"), 722)` -- + 15 duct, 5 Misc-tab, 1 input
         # INVERTED at DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE `... == "HVAC"), 743)` -- + 1 Ducting input (insulation coverage threshold)
-        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 744)   # VP-1: + 137; 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2; VRF-3b: + 29; VRF-5: + 13; VRF-6: - 9 + 14 + 1 (BEFORE: 579)
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 853)   # VAV-2b1 K2 (HVAC v79 / v80 LOADED; PIN 27; mechanical authority): + DDC Panel/ Controller, Duct Static Pressure Sensor, 3 VAV-2b1 inputs (v80 adds none). BEFORE 848; VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE 840 (+ 8 VAV-2a Pricing Inputs); VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE 744 (+ 91 VAV, 2 Misc, 2 Sensors, 1 Pricing Input); VP-1: + 137; 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2; VRF-3b: + 29; VRF-5: + 13; VRF-6: - 9 + 14 + 1 (BEFORE: 579)
         # ELR-3a (owner R-9; mechanical authority): WAS 1402. v69 is live with the nine assembly-step Pricing Inputs, so the
         # served Electrical total is EALL_ITEMS (1411); the per-item byte-for-byte check above is unchanged.
         # #1608: "live" is now the seeded current asset (above), so this holds on a database not yet imported to it.
@@ -18377,7 +18481,10 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         declaring = [c["category_id"] for c in self.asset["category_configs"]
                      if "calculator_only" in c]
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE `set(declaring) <= _CALCULATOR_ONLY_CATEGORIES` (hvac_vrf allowed) -- back to 12d-2's `declaring == []`
+        # VAV-2b2 K2 (R1, owner 2026-11-19 02:55 "removed in VAV-2b"; PIN P13, ANSWER 28): back to VRF-4's `declaring == []`. BEFORE (VAV-1,
+        # 2026-11-19): `declaring == ["hvac_vav_box"]` and `set(declaring) <= _CALCULATOR_ONLY_CATEGORIES` (the switch and its set are gone)
         self.assertEqual(declaring, [])
+        self.assertNotIn(self.CAT, declaring)
         # the frozen v28 file still carries it (a historical asset is never edited) -- the negative half
         self.assertIs(self._cfg(asset=self.v28).get("calculator_only"), True)
 
@@ -19021,8 +19128,10 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         # authority: BEFORE `self.assertEqual(checked, 12, ...)`
         # INVERTED at DU-1 Part B (HVAC v71; feature standard v1.1 -- Ducting's gauge, diameter, width and height each carry their note)
         # by mechanical authority: BEFORE `self.assertEqual(checked, 14, ...)`
-        self.assertEqual(checked, 18,
-                         "ADP's width, height and area fields and its five 'Other...' fields, Insulation's two sizes, Piping's type and size, the Valve Package's and Misc's sizes, Ducting's gauge, diameter, width and height")
+        # INVERTED at VAV-2a2 K2 (HVAC v78; B3 -- VAV's CFM and inlet-size boxes each carry their note) by mechanical authority:
+        # BEFORE `self.assertEqual(checked, 18, ...)`
+        self.assertEqual(checked, 20,
+                         "ADP's width, height and area fields and its five 'Other...' fields, Insulation's two sizes, Piping's type and size, the Valve Package's and Misc's sizes, Ducting's gauge, diameter, width and height, VAV's airflow and inlet size")
 
     def test_an_05_ELECTRICAL_is_UNTOUCHED_and_the_rule_cannot_refuse_it(self):
         """⚠️ THE MECHANISM, not an exemption list. The whole block is read only when a config
@@ -19758,7 +19867,7 @@ class TestSlice12d1bAsset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19923,7 +20032,7 @@ class TestSlice12d2Asset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -20059,7 +20168,7 @@ class TestSlice12d2FAsset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -20306,7 +20415,7 @@ class TestSlice12d4aAsset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v31_02_exactly_four_new_items_every_existing_item_byte_identical_and_every_other_top_level_key_identical(self):
         prev = {it["item_uid"]: it for it in self.prev["items"]}
@@ -20503,7 +20612,7 @@ class TestSlice12d4aFAsset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v32_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -20555,7 +20664,8 @@ class TestSlice12d4aFAsset(FrappeTestCase):
     def test_v32_06_INVERTED_the_live_insulation_config_has_moved_past_v32_and_STILL_carries_the_family_list(self):
         # 12d-4c: the live config is v33's now (`TestSlice12d4cAsset.test_v33_07`); the 12d-4aF PROPERTY -- the
         # family list on the one refuse_on_unit_class rule -- survives the move and is what this pin keeps asserting
-        live = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_insulation"}, "config"))
+        # VAV-2c1 K2 (HVAC v82 LOADED; PIN K2-E): this slice's texts undone on the live side. BEFORE: _obj(...)
+        live = as_v81(_obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_insulation"}, "config")), "hvac_insulation")
         was = loader._loaded_config(copy.deepcopy(self.ins_cur), "HVAC", self.cur.get("goldens") or {})
         self.assertNotEqual(json.dumps(live, sort_keys=True), json.dumps(was, sort_keys=True))
         self.assertEqual(live["list_spec"]["pricing"]["refuse_on_unit_class"][0]["families"], self.SHEET)
@@ -20596,7 +20706,7 @@ class TestSlice12d4cAsset(FrappeTestCase):
         with open(_asset_path("rate_master_hvac_all_v32.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
-            cls.cur = json.load(fh)
+            cls.cur = asset_as_v81(json.load(fh))   # VAV-2c1 K2 (HVAC v82; PIN K2-E, ANSWER 37): this slice's texts undone. BEFORE: json.load(fh)
         cls.ins_prev = next(c for c in cls.prev["category_configs"] if c["category_id"] == "hvac_insulation")
         cls.ins_cur = next(c for c in cls.cur["category_configs"] if c["category_id"] == "hvac_insulation")
 
@@ -20626,7 +20736,7 @@ class TestSlice12d4cAsset(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v57.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v75.json")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v88.json")   # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE v87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE v86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE v85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE v84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE v83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE v82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-A, ANSWER 23): BEFORE v81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE v80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE v79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE v78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE v77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE v76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE v75; DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v71; DU-1 Part B: v71 (BEFORE v70); DU-1 Part A: v70 (BEFORE v69); VP-5: v69 (BEFORE v68); VP-4: v68 (BEFORE v67); VP-3: v67 (BEFORE: v66, VP-1)
 
     def test_v33_02_items_and_every_other_top_level_key_are_byte_identical(self):
         # 12e-1: v34 added the 40 Piping items; this pin is about the v32 -> v33 mint, so they are normalised
@@ -20643,7 +20753,13 @@ class TestSlice12d4cAsset(FrappeTestCase):
         #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(self.cur["items"])))))
         # DU-3 K2: v75's ONE Pricing Input (ducting_insulation_coverage_threshold) first of all, NAMED (BEFORE:
         #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(self.cur["items"]))))))
-        adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(self.cur["items"]))))))
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): v76's 91 VAV + 2 Sensors + 2 Misc items and 1 input first of all, NAMED (BEFORE:
+        #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(self.cur["items"])))))))
+        # VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): v77's 8 Pricing Inputs first of all, NAMED (BEFORE:
+        #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(_without_vav1_items(self.cur["items"]))))))))
+        # VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): v79's 5 items (DDC Panel/ Controller, Duct Static Pressure Sensor, 3 inputs) first of all, NAMED (BEFORE:
+        #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(_without_vav1_items(_without_vav2a_items(self.cur["items"])))))))))
+        adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(_without_vav1_items(_without_vav2a_items(_without_vav2b1_items(self.cur["items"])))))))))
         cur_items = _without_12e2_piping_inputs(_without_12e1_piping_items(adp1_back))
         self.assertEqual(len(adp1_back) - len(cur_items), 44, "exactly the 40 Piping items and the 4 Piping inputs are normalised out")
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(cur_items, sort_keys=True))
@@ -20664,8 +20780,10 @@ class TestSlice12d4cAsset(FrappeTestCase):
         #   `cur = {... _without_vrf1_config(_without_12e1_piping_config(...))}` -- v66's two new configs are normalised out too, NAMED
         # INVERTED at DU-1 Part B (HVAC v71; mechanical authority): BEFORE `self.assertEqual(len(self.cur["category_configs"]), 13)` and
         #   `cur = {... _without_vp1_configs(...)}` -- v71's `hvac_ducting` is normalised out too, NAMED
-        self.assertEqual(len(self.cur["category_configs"]), 14)
-        cur = {c["category_id"]: c for c in _without_du1b_configs(_without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(self.cur["category_configs"]))))}
+        # VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE `self.assertEqual(len(self.cur["category_configs"]), 14)` and `cur = {... _without_du1b_configs(...)}`
+        #   -- v76's `hvac_vav_box` and `hvac_sensors` are normalised out too, NAMED
+        self.assertEqual(len(self.cur["category_configs"]), 16)
+        cur = {c["category_id"]: c for c in _without_du1b_configs(_without_vp1_configs(_without_vrf1_config(_without_12e1_piping_config(_without_vav1_configs(self.cur["category_configs"])))))}
         # ADP-1: v47's ADP rules normalised out on the NEW side, NAMED (BEFORE: cur["hvac_adp"] as stored)
         # ADP-5a: v51's first of all, NAMED (BEFORE: _without_adp1_adp(_without_adp2_adp(cur["hvac_adp"])))
         cur["hvac_adp"] = _without_adp1_adp(_without_adp2_adp(_without_adp5a_adp(cur["hvac_adp"])))   # ADP-2: v48's first (BEFORE: _without_adp1_adp(cur["hvac_adp"]))
@@ -20741,7 +20859,8 @@ class TestSlice12d4cAsset(FrappeTestCase):
         self.assertEqual(_without_adp5a_removal(self.cur.get("intentional_removals")), self.prev.get("intentional_removals"))
 
     def test_v33_07_the_live_insulation_config_is_v33_second_opinion_off_notes_present_family_list_kept(self):
-        live = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_insulation"}, "config"))
+        # VAV-2c1 K2 (PIN K2-F, ANSWER 40): the live side with this slice's texts undone, like cls.cur (setUpClass). BEFORE: _obj(...)
+        live = as_v81(_obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_insulation"}, "config")), "hvac_insulation")
         want = loader._loaded_config(copy.deepcopy(self.ins_cur), "HVAC", self.cur.get("goldens") or {})
         self.assertEqual(json.dumps(live, sort_keys=True), json.dumps(want, sort_keys=True))
         self.assertIs(live["list_spec"]["second_opinion"], False)

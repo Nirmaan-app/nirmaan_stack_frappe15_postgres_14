@@ -26,6 +26,8 @@
 //
 // NOT ELIGIBLE YET (P8): nothing here is wired into `pricingSheetHelper`; `isEligibleConfig` still reads
 // `pipelines`, which the ADP config keeps empty. Slice 6 wires the panel.
+import type { SheetSharesSpec } from "./vavSheetShares";
+import type { ScopeRuleSpec } from "./scopeRule";
 import {
   buildModuleLadder,
   fitModuleLadder,
@@ -325,6 +327,55 @@ export interface DefaultSpec {
    *  the default (Outdoor Unit: discharge not stated + below the smallest Top unit of the brand -> Side). The line names that
    *  smallest size (`{n}`, `{unit}`). A STATED value always wins. ABSENT => the default as before. */
   below_smallest?: { size_attr: string; then: string; rule: string };
+  /** VAV-2c3 FIX-2 (D1, owner 2026-11-24 19:53 "fix"): the note the field shows when this default was taken ("... (assumed)").
+   *  ABSENT => the field shows no note for the default, as before. */
+  note?: string;
+  /** VAV-FIX (S1, owner 2026-11-20 17:53 "a", re-confirmed 2026-11-25 00:37): the default applies to BoQ ROWS only -- where there is
+   *  no row (the Calculator) its `absent_as_none` is not read, so the field starts blank, carries its "*" and a blank withholds the
+   *  price (`boqRowsOnlyDefaultsOff`). ABSENT => the default reads the same way on every surface, as before. */
+  boq_rows_only?: boolean;
+}
+
+/**
+ * VAV-FIX (S1, owner 2026-11-20 17:53 "a": every Calculator field starts blank; "shape not stated -> Rectangular (assumed)" is for
+ * BoQ rows only). PURE. The spec a row WITHOUT a BoQ row (the Calculator) prices on: every default declaring `boq_rows_only` loses
+ * its `absent_as_none`, so an answer nobody gave stays blank -- no ruled value, no "default" tag, no note -- and is asked for (the
+ * "*" reads the same flag, `itemFieldDefs`). A spec with no such default is returned AS IS (the same object), so every other
+ * category, and every BoQ row, is untouched.
+ */
+export function boqRowsOnlyDefaultsOff(spec: ItemListPricingSpec): ItemListPricingSpec {
+  const ds = spec.defaults;
+  if (!ds || !Object.values(ds).some((d) => d?.boq_rows_only === true && d.absent_as_none === true)) return spec;
+  const defaults = Object.fromEntries(Object.entries(ds).map(([k, d]) =>
+    [k, d?.boq_rows_only === true && d.absent_as_none === true ? { ...d, absent_as_none: false } : d]));
+  return { ...spec, defaults };
+}
+
+/**
+ * VAV-2c3 FIX-2 (owner 2026-11-24 19:53 A1 / A2, 20:00 B2-1) -- AN ANSWER SET FROM THE ROW'S OWN WORDS, BEFORE PRICING.
+ * A WORD CHECK IN CODE ON THE STORED PAYLOAD (no new reading): where `words` match in the row's chain (the row, every heading above it
+ * and each heading's note rows -- never the sheet-wide notes) or, with `from_attr`, in the item's own copied words, a MODEL answer that
+ * is one of `when` (null = not answered) becomes `value`, and the field carries `line` ({said} = the words, {where} = where they sit).
+ * `unless` words anywhere in that text stop it; `not_if_row_has` stops it where another model item of the row already holds that value.
+ * Only the model's answers: a pricer's own pick (an edit) still wins. `family` / `section` narrow the items. The Calculator has no row:
+ * the chain is empty and nothing fires.
+ */
+export interface ChainValueRule {
+  id: string;
+  /** the items: of these families (the family attribute's value) ... */
+  families?: string[];
+  /** ... or of this delegated section ("misc") */
+  section?: string;
+  attr: string;
+  words: string;
+  unless?: string;
+  /** read the item's own copied words in this attribute instead of the row's chain */
+  from_attr?: string;
+  /** the model answers it replaces; null = not answered (absent, null or "None") */
+  when: Array<string | null>;
+  not_if_row_has?: { attr: string; value: string };
+  value: string;
+  line: string;
 }
 
 /**
@@ -761,12 +812,48 @@ export interface ItemListPricingSpec {
   text_notes?: TextNote[];
   /** VP-1 (N5): a display line from the row's headings AND the sheet's row categories. ABSENT => no line. See `SheetHeadingNote`. */
   sheet_heading_notes?: SheetHeadingNote[];
+  /** VAV-2a (B9): the combination-row warning. ABSENT => no warning. See `CombinationWarning`. */
+  combination_warning?: CombinationWarning;
+  /** VAV-2a (B3 / B4 / QR-C1): an extra charged on its own row of the sheet. ABSENT => no check. See `OwnRowCheck`. */
+  own_row_check?: OwnRowCheck;
+  /** VAV-2a (B5): the integrator cabling rule. ABSENT => no rule. See `IntegratorCabling`. */
+  integrator_cabling?: IntegratorCabling;
+  /** VAV-2a (B6): work on existing boxes. ABSENT => no rule. See `ExistingBoxes`. */
+  existing_boxes?: ExistingBoxes;
+  /** VAV-2a2 (B1 / B2 / B3 / B4): the band attribute worked out from the airflow or the inlet size, never picked. ABSENT => the band
+   *  is a choice as before. See `BandFrom`. */
+  band_from?: BandFrom;
+  /** VAV-2b1 (R1 / R3 / R5 - R8, R10): the shared items of a VAV sheet (BACnet controller / DP sensor / DDC panel shares). ABSENT => none.
+   *  See `vavSheetShares.ts`. */
+  sheet_shares?: SheetSharesSpec;
+  /** VAV-2b1 (R2 / R8): own families and borrowed families no list offers and no row prices per box any more. ABSENT => as before. */
+  withdrawn_families?: string[];
+  /** VAV-2b1 (owner 2026-11-21 01:07 / 01:09 "yes for both"): withdrawn families a list STILL OFFERS, added by the USER at their full
+   *  rate (the helper never adds them; a model-read one is still dropped). `share` = the sheet share of the same item: when both are on
+   *  one entry, `line` shows under the full-rate item. ABSENT => a withdrawn family is offered nowhere (v79). */
+  user_addable?: Array<{ family: string; share?: string; line?: string }>;
+  /** VAV-2b2 (R13 / R12 / R14, owner 2026-11-21 10:40 / 10:41 "1a 2a" / 10:50): the delegated sections whose add buttons become ONE button
+   *  (`label`, "Add other item") holding what their lists held, the one-click entries that add several items (`combos`, "Thermostat with CO2
+   *  sensor"), and the heading their items carry in place of "<label> - priced by <category>'s rules". ABSENT => the buttons as before */
+  add_group?: { label: string; heading: string; sections: string[]; combos?: Array<{ label: string; adds: Array<{ section: string; family: string }> }> };
+  /** VAV-2b2 (R11, owner 2026-11-21 10:38 / 10:40 "1 ok"): an own family's unit words in the add list ("Integrator cabling" -> "per VAV"). A
+   *  label only; the rate is unchanged. ABSENT => the unit words as before */
+  family_units_label?: Record<string, string>;
+  /** VAV-2b2 (R16): the rows filed under Misc / Sensors this helper prices (vavClaims.ts). ABSENT => none */
+  claims_filed?: import("./vavClaims").ClaimsFiledSpec;
+  /** VAV-2a2 (B4, the approved mockup): a field's source tag when the BoQ stated it ("from BoQ"), by attribute. ABSENT => no tag. */
+  source_tags?: Record<string, string>;
   /** VP-1 (N1): the row's scope pick on a category WITHOUT `extras` (VRF keeps `extras.scope`; both are read as
    *  `extras?.scope ?? scope`). ABSENT => byte-identical. */
   scope?: ScopeSpec;
   /** VP-1 (N2, owner UNIT ruling 2026-11-11, all categories): a row with NO unit refuses ("no unit on this row") instead of being
    *  priced in the item's own unit -- the rule VRF already has through `vrf10On`. ABSENT => the 12c-U default unit, as before. */
   blank_unit_refuses?: boolean;
+  /** VAV-2c3 FIX-2 (B2-3, owner 2026-11-24 20:00 "price it by number and mention it clearly in notes. the notes should be a stronger
+   *  warning"): a row with NO unit that the 12c-U default unit prices shows this orange bar. ABSENT => no bar, as before. */
+  blank_unit_bar?: { title: string; line: string };
+  /** VAV-2c3 FIX-2 (A1 / A2 / B2-1): answers set from the row's chain words before pricing. See `ChainValueRule`. ABSENT => none. */
+  chain_values?: ChainValueRule[];
   /** ADP-5d (owner R6b): the default replaces an answer the row's stream cannot decide. ABSENT => every answer stands. */
   stream_heading_default?: StreamHeadingDefault[];
   /** ADP-5d (owner R4): an item code adds beside a named one. ABSENT => nothing is added. See `CompanionItem`. */
@@ -1119,6 +1206,17 @@ export interface ScopeSpec {
   uplift_input: string;
   title: string;
   lines: Record<string, string>;
+  /** VAV-2c2 (R3 a, owner 2026-11-23 13:46): the `lines` (and `normal_note`) worded for a scope the USER chose (the panel's pick) or the
+   *  Calculator's, where no BoQ said it -- "BoQ says" stays only where the helper read the scope from the BoQ. A key absent here keeps its
+   *  `lines` text; the whole key ABSENT => `lines` everywhere, as before. */
+  chosen_lines?: Record<string, string>;
+  /** VAV-2c3 (R5 F3, chat-Claude's call under the owner's 2026-11-23 13:46 word): in the CALCULATOR under Supply only, the Scope box's own
+   *  line ("Installation is not in scope: 0 on every line below.") is the only one -- the supply-only note is not repeated under it.
+   *  ABSENT => the note shows as before (Ducting, Valve Package, VRF; every BoQ row). */
+  calculator_scope_box_only?: true;
+  /** VAV-2c2 (R1 / R2, owner 2026-11-23 13:52 - 13:57; QR-SURE / QR-WORDS / QR-ASK 2026-11-24): THE SCOPE RULE (`scopeRule.ts`) -- the row's
+   *  scope from the rule, with its note, on a BoQ row with its sheet. ABSENT => the model's scope answer, as before. */
+  rule?: ScopeRuleSpec;
   /** VRF-6 (owner Q5): a supply-only row under a heading / note (`words`) saying the rates include installation -- supply only
    *  with `with_row` when the same sheet has an installation-only row of the same kind ({rows}); else supply + installation with
    *  `no_row` ({said} = the words found). ABSENT => the row's scope answer alone, as before. */
@@ -1152,6 +1250,9 @@ export interface ScopeSpec {
    *  only) defaulting to the helper's own scope; a pick re-prices the row by the calculator's rules, and `note` ({helper} = the
    *  helper's scope, {because} = its reason) says the user changed it. ABSENT => the panel shows the scope as a note only. */
   panel_pick?: { note: string };
+  /** VAV-2c1 (R5, owner 2026-11-22 10:58 / 11:02): the lines of the row follow its scope (`scopeLines.ts`); `word` = "not in scope".
+   *  ABSENT => the lines stay at their supply + installation working, as before. */
+  lines_follow?: { word: string };
   /** VP-1 (N1, owner VR9 2026-11-11 09:09 / QR-2 Q1 (a)): on a PRICING-LEVEL `scope` (a category without `extras`), the model
    *  attribute that carries the row's scope answer -- VRF reads its own from `extras.from_model.scope`. */
   model_attr?: string;
@@ -1675,7 +1776,286 @@ export interface ListSection {
    *  the item read, `formula` over those numbers (3.14 * dia_mm / 1000; 2 * (w + h) / 1000) -- rounded up to the rupee; no option
    *  readable -> the section refuses with `missing`. ABSENT => the section prices in the row's unit, as before. */
   area_basis?: Record<string, { unit: string; options: Array<{ needs: string[]; formula: string; line: string }>; missing: string }>;
+  /** VAV-2a (B7, owner 2026-11-18 22:35 "two if two" / 22:38 "on either side" -> 2): a number attribute of THIS config the model
+   *  answers on the section's own item (the borrowing category may have no count of its own -- Misc, Sensors): a positive value is the
+   *  section line's quantity per row unit; none / "None" / unreadable leaves the default 1 (marked). The pricer's typed quantity always
+   *  wins. ABSENT => the section's quantity as before (its own count, else 1), byte-identical. */
+  qty_attr?: string;
 }
+
+/**
+ * VAV-2a (B9, owner 2026-11-19 12:49 "all combination rows should have a warning that the user should review it more carefully"; 12:55
+ * "option b is ok"; 12:59 "ok proceed with 50%"). A priced row whose lines OTHER than the box (`box_families`, its own items) come to
+ * MORE than `share_input` (a Pricing Input, a factor read live) x the box's own rate (supply + installation) carries one warning line:
+ * `line` with {n} the other lines, {x} their rate and {y} the row's rate (`line_one` when n is 1). The input not set -> `input_missing`.
+ * Display only: no figure moves. ABSENT => no warning, byte-identical.
+ */
+export interface CombinationWarning {
+  /** VAV-2b1 (R11, owner 18:06 "more prominent"; screen 7): the heading of the bordered amber block above the row total. ABSENT => the
+   *  plain amber note as VAV-2a built it. */
+  heading?: string;
+  box_families: string[];
+  share_input: string;
+  line: string;
+  line_one?: string;
+  input_missing: string;
+  /** VAV-2b2 (R9, owner 2026-11-21 10:52 / 10:54 "a"): the warning names each extra with its amount -- intro ({n}), intro_one, one
+   *  `extra` line each ({label}, {x}), then `total` ({x} of {y}). ABSENT => the one-line count as before */
+  names?: { intro: string; intro_one: string; extra: string; total: string };
+}
+
+/**
+ * VAV-2a (B3 / B4 / QR-C1; owner 2026-11-18 23:32 "if they are charged seprately in any boq row, price not to be added an appropriate note
+ * to be given with row refreence..else prices added and declared"; QR-3a (a) the SAME sheet and QR-4 (a) Ducting's way, 2026-11-19 00:57;
+ * 01:23 "agree on all 3" rate-only BoQs; QR-C1 (a) 13:31 the integrator: presence decides). One extra the row may price, how a SEPARATE row
+ * of the same sheet is recognised, and what the row does then. `target`: a section's family (`section` + `family`), an own family
+ * (`family`), or a box attribute value (`attr` `from` -> `to`, presence only). A separate row = its OWN words match `words`; not a box row,
+ * not an existing-work row, not per metre, a count unit or none, no cable word before the extra's words, no artefact words in it or its
+ * headings; `needs_vav`: VAV named in it or its headings; `not_words`: never these words; `near_words` / `not_near_words` (with their
+ * character windows): the words must sit near these and not near those (the integrator vs a heat-meter integrator).
+ */
+export interface OwnRowExtra {
+  label: string;
+  target: { section?: string; family?: string; attr?: string; from?: string; to?: string };
+  words: string;
+  needs_vav?: boolean;
+  not_words?: string;
+  near_words?: string;
+  near_chars?: number;
+  not_near_words?: string;
+  not_near_chars?: number;
+  presence_only?: boolean;
+}
+/** VAV-2a (B3 / B4): the sheet check of every extra (`OwnRowExtra`); `threshold_input` the 90% Pricing Input (read live); the word tables
+ *  shared by every extra; the lines ({extra}, {rows}; {pct} / {threshold} on the ratio). Never in the calculator. ABSENT => no check. */
+export interface OwnRowCheck {
+  threshold_input: string;
+  box_words: string;
+  existing_words: string;
+  artefact_words: string;
+  cable_words: string;
+  vav_words: string;
+  metre_units: string[];
+  count_units: string[];
+  extras: OwnRowExtra[];
+  lines: { not_added: string; double_count: string; rate_only: string; attr_changed: string; threshold_missing: string;
+    /** VAV-2c1 (QR-N): the threshold input is not set (nothing compared); only SOME of the quantities compared are blank or 0 */
+    double_count_unread?: string; rate_only_some?: string };
+  /** VAV-2b1 (rule 4, owner 21:05 / 21:47): an own row with quantity 0 / blank on a sheet with VAV quantities is not charged separately.
+   *  ABSENT => presence of the row decides, as VAV-2a built it. */
+  zero_rows?: { line: string; attr_line: string };
+  /** VAV-2a2 (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34): a row whose own description names the extra before any box words
+   *  counts as that extra's own row (`item_first`), for the extras `extras` names by label (absent = every extra). ABSENT => a row naming
+   *  a box is a box row, as VAV-2a built it. */
+  serves?: { item_first: boolean; extras?: string[];
+    /** owner 2026-11-20 00:37 (one controller for many VAVs): for these extras a separate row decides by PRESENCE, no quantity test */
+    presence_decides?: boolean;
+    /** VAV-2b1 (R13, owner 2026-11-20 14:10 "2 yes"): more extras the item-first test applies to (the VAV integrator), WITHOUT the presence
+     *  removal `extras` gets. ABSENT => as VAV-2a2 built it. */
+    also?: string[] };
+}
+/**
+ * VAV-2a (B5; owner 2026-11-18 23:14 / 23:18; 2026-11-19 01:29 "VAV must be mentioned in cabling description"; 01:34 a heading naming VAV
+ * counts; 01:39 the 70% note; 12:37-12:55 the rate is the SKU, the 2 m a Pricing Input). On a sheet with a VAV integrator anywhere
+ * (`integrator_words` near `integrator_near_words`, not near `integrator_not_near_words`), every box row: a separate cabling row (per metre,
+ * a cable word, not `power_words`, not a conduit row, VAV named in its own words or in a heading above -- unless its own words name
+ * `other_equipment_words`) -> nothing added, `priced_separately`; their metres below `length_input` x `qty_input` x the sheet's boxes ->
+ * `low_length` instead; none -> the `family` SKU added by the helper at `qty_input` per box with `added`. Never in the calculator.
+ */
+export interface IntegratorCabling {
+  family: string;
+  box_family: string;
+  qty_input: string;
+  length_input: string;
+  integrator_words: string;
+  integrator_near_words: string;
+  integrator_not_near_words: string;
+  near_chars: number;
+  not_near_chars: number;
+  cable_words: string;
+  conduit_words: string;
+  power_words: string;
+  vav_words: string;
+  other_equipment_words: string;
+  metre_units: string[];
+  lines: { added: string; priced_separately: string; low_length: string; input_missing: string };
+  /** VAV-2b1 (rule 4, owner 21:47 "a"): every cabling row 0 / blank metres on a sheet with VAV quantities -> the cabling is added. ABSENT => as before. */
+  zero_rows?: { line: string };
+}
+/**
+ * VAV-2a (B6; owner 2026-11-18 23:49 "onl;y dismatling same asinstalltion, dsimatling and refixing 1.5 times, only refixing 0.5 times if
+ * dismantling seprate row else 1.5"; the approved mockup screen 4: no extras on such a row). A row whose OWN words are work on an existing
+ * box (the first `kinds` entry whose words match) is priced as `install_family` alone, supply 0, installation x the kind's factor (a
+ * Pricing Input, read live); a refix kind takes `with_row_input` when the sheet has a separate dismantling row naming VAV
+ * (`dismantle_row_words` + `vav_words`). Never in the calculator. ABSENT => no existing-box rule.
+ */
+export interface ExistingBoxes {
+  install_family: string;
+  kinds: Array<{ id: string; words: string; label: string; factor_input: string; with_row_input?: string }>;
+  dismantle_row_words: string;
+  vav_words: string;
+  lines: { priced: string; with_row: string; alone: string; input_missing: string };
+}
+
+/**
+ * VAV-2a2 (B1 / B2 / B3 / B4) -- THE BAND FROM THE AIRFLOW OR THE INLET SIZE.
+ *
+ * Owner: R1 2026-11-18 22:16 "2a agree" (a range that crosses bands -> the band of the MAXIMUM airflow), 23:53 (no unit = CFM; no
+ * airflow and no size -> not priced, "airflow not stated, enter the CFM"; above 8,000 CFM -> not priced, "above the largest box on the
+ * sheet"); R2 22:18 the inlet table (0-450 = 6 inch ... 4000-8000 = 24), 22:21 "agree for both" (in-between sizes take the next size up;
+ * the same table for rectangular boxes with a round inlet), QR-3c (a) 2026-11-19 00:57 (a size written with mm is converted, mm / 25.4
+ * then the next size up; a bare tag number is not a size); R3 13:31 / 13:46 (the user enters EITHER the CFM OR the inlet size, CFM wins,
+ * the band read-only with its source, only one of the two is needed); R4 the approved mockup's source tags.
+ *
+ * On an item of one of `families`, the band attribute `attr` is never read from the model or picked: it is worked out here -- the
+ * airflow first (`airflow_attr`, the airflow as written: the maximum of a range, its low end only for the crossing line), else the
+ * inlet size (`inlet_attr`, text: inches, or mm converted), else not priced. `bands` are the sheet's bands in order, each with its
+ * `max` CFM; `edge` says which band a value exactly on an edge takes ("lower": 450 is 0-450; "upper": 450 is 450-800, the largest
+ * band's max still in it). `inlet_table` is the owner's table as data. Every line and tag is config text. ABSENT => as before.
+ */
+export interface BandFrom {
+  attr: string;
+  families: string[];
+  airflow_attr: string;
+  inlet_attr: string;
+  bands: Array<{ value: string; max: number }>;
+  edge: "lower" | "upper";
+  inlet_table: Array<{ inch: number; band: string }>;
+  mm_per_inch: number;
+  /** the either-or group label on the two typed boxes (it says only one is needed) */
+  group: string;
+  tags: { boq: string; range_max: string; inlet: string; typed_cfm: string; typed_inlet: string };
+  lines: { crosses: string; inlet: string; mm: string; both_typed: string; none_row: string; none_typed: string; above: string;
+           inlet_above: string; not_size: string; not_cfm: string };
+  /** VAV-2b1 (R12, owner 2026-11-20 14:10 "1a"): an airflow written as a LOWER LIMIT only ("Above 3200 CFM", "3700 CFM above") takes the
+   *  band ABOVE the band of the stated figure, with `line` and the tag `tag`. ABSENT => the stated figure's band, as before. */
+  lower_limit?: { words: string; line: string; tag: string };
+}
+
+/** VAV-2a2 (B1): words glued to an airflow number that are NOT a tag (`readAirflowCfm`). */
+const AIRFLOW_WORDS: ReadonlySet<string> = new Set(["up", "upto", "to", "from", "cfm", "approx", "max", "min", "of", "about", "at"]);
+
+/** VAV-2a2 (B1): the CFM a cell states -- a number, or text: "650", "650 CFM", "8,000 cfm", "500-650", "Up to 650 CFM", "15000 -16900
+ *  CFM". The largest number is the airflow (the range's maximum), the smallest the low end when two are written. Null when nothing is
+ *  stated ("", "None", "not stated"); "unit" when the text names an airflow unit other than CFM (l/s, cmh, m3/h -- not ruled: refused). PURE. */
+export function readAirflowCfm(v: unknown): { high: number; low: number | null } | "unit" | null {
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? { high: v, low: null } : null;
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
+  if (/l\s*\/\s*s|\blps\b|\bcmh\b|m3\s*\/\s*h|m³|cu\.?\s*m/i.test(t)) return "unit";
+  // a tag or model number ("VAV-0", "Type-0", "VAV-01", "T1", "VAV-PID-150") is not an airflow: a number glued to letters (or to
+  // letters and a hyphen) is taken out before anything is read (chat-Claude's review 2026-11-20 13:16) -- UNLESS the letters are an
+  // airflow word ("Upto500", "From525 to 1000", "CFM-650"): those are split from the number and read (review 13:27)
+  const u = t.replace(/(\d),(\d{3})\b/g, "$1$2").replace(/([A-Za-z]+)([-_/]?)(\d+(?:\.\d+)?)/g,
+    (_m, w: string, sep: string, n: string) => (AIRFLOW_WORDS.has(w.toLowerCase()) ? `${w} ${sep}${n}` : " "));
+  // a range is read only where it is WRITTEN as one ("0 - 650 CFM", "500-650", "From 2525 to 3000", "651cfm - 900cfm", "1000 CFM -1500
+  // CFM": the unit may stand on both numbers -- laptop's corpus read 2026-11-20 13:53); its 0 is its low end
+  const r = u.match(/(\d+(?:\.\d+)?)\s*(?:cfm\s*)?(?:-|–|—|\bto\b)\s*(\d+(?:\.\d+)?)/i);
+  if (r) {
+    const a = Number(r[1]), b = Number(r[2]);
+    const high = Math.max(a, b), low = Math.min(a, b);
+    return high > 0 ? { high, low: low < high ? low : null } : null;
+  }
+  // otherwise the largest number left is the airflow (no unit = CFM); a lone 0 is not an airflow
+  const nums = (u.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return null;
+  return { high: Math.max(...nums), low: null };
+}
+
+/** VAV-2a2 (B2): an inlet size as written -- ONE number, in inches (a bare number, ", inch, in) or in mm (converted), with only
+ *  diameter / inlet words around it ("8 inch dia", "200 mm", "Ø 250 mm"). Anything else (a tag number "VAV-PID-150", two sizes "8x8")
+ *  is NOT a size. Null when nothing is stated. PURE. */
+export function readInletSize(v: unknown, mmPerInch: number): { inches: number; mm: number | null } | "not_size" | null {
+  if (v === null || v === undefined) return null;
+  const t = String(v).trim();
+  if (t === "" || /^(none|not\s+stated|n\/?a)$/i.test(t)) return null;
+  const nums = t.match(/\d+(?:\.\d+)?/g) ?? [];
+  if (nums.length !== 1) return "not_size";
+  const rest = t.replace(/\d+(?:\.\d+)?/, " ").toLowerCase()
+    .replace(/["″”]|\binch(es)?\b|\bin\b|\bmm\b|\bdia(meter)?\b\.?|[øØφ⌀]|\binlet\b|\bsize\b|\bround\b|\bof\b/g, " ");
+  if (/[a-z0-9]/.test(rest)) return "not_size";
+  const n = Number(nums[0]);
+  if (!(n > 0)) return "not_size";
+  return /\bmm\b/i.test(t) ? { inches: n / mmPerInch, mm: n } : { inches: n, mm: null };
+}
+
+/** VAV-2a2 (B1): the sheet band an airflow falls in, by the config's edge rule; null above the largest band. PURE. */
+export function bandForCfm(bf: Pick<BandFrom, "bands" | "edge">, cfm: number): string | null {
+  const last = bf.bands.length - 1;
+  for (let i = 0; i <= last; i++) {
+    const m = bf.bands[i].max;
+    if (bf.edge === "upper" && i < last ? cfm < m : cfm <= m + 1e-9) return bf.bands[i].value;
+  }
+  return null;
+}
+
+/** VAV-2b1 (R12). PURE. A lower-limit-only airflow ("Above 3200 CFM"): the band above the stated figure's band, its line and tag;
+ *  null when the key is absent, the text is a range or names no lower-limit word; the refusal when no band is above. */
+export function lowerLimitBand(bf: BandFrom, said: string, stated: string, low: number | null):
+  { band: string; line: string; tag: string } | { refuse: string } | null {
+  const ll = bf.lower_limit;
+  if (!ll || low !== null || !said) return null;
+  let re: RegExp;
+  try { re = new RegExp(ll.words, "i"); } catch { return null; }
+  if (!re.test(said)) return null;
+  const i = bf.bands.findIndex((b) => b.value === stated);
+  const next = i >= 0 ? bf.bands[i + 1] : undefined;
+  if (!next) return { refuse: fillBand(bf.lines.above, { cfm: said }) };
+  return { band: next.value, line: fillBand(ll.line, { said, stated, band: next.value }), tag: ll.tag };
+}
+
+/** What `bandOf` decided for one item: the band and its source, or the refusal sentence. */
+export type BandRead =
+  | { band: string; source: "boq" | "range_max" | "inlet" | "typed_cfm" | "typed_inlet"; tag: string; lines: string[] }
+  | { refuse: string };
+
+const fillBand = (tpl: string, o: Record<string, string | number>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(String(v)), tpl);
+const fmtBand = (n: number) => String(Math.round(n * 100) / 100);
+
+/**
+ * VAV-2a2 (B1 / B2 / B3). PURE. The band of ONE item from its cells: the airflow (CFM wins when both are given), else the inlet size,
+ * else the refusal (`none_typed` where nothing came from a BoQ row -- the calculator -- else `none_row`). `typedOf(id)` says whether a
+ * cell was typed by the pricer (the tag then says "you typed").
+ */
+export function bandOf(bf: BandFrom, cell: (id: string) => unknown, typedOf: (id: string) => boolean, onRow: boolean): BandRead {
+  const said = (id: string) => { const v = cell(id); return v === null || v === undefined ? "" : String(v).trim(); };
+  const air = readAirflowCfm(cell(bf.airflow_attr));
+  const inl = readInletSize(cell(bf.inlet_attr), bf.mm_per_inch);
+  if (air === "unit") return { refuse: fillBand(bf.lines.not_cfm, { said: said(bf.airflow_attr) }) };
+  if (air) {
+    const lowN = air.low;
+    const stated = bandForCfm(bf, air.high);
+    if (stated === null) return { refuse: fillBand(bf.lines.above, { cfm: fmtBand(air.high) }) };
+    const ll = lowerLimitBand(bf, said(bf.airflow_attr), stated, lowN);
+    if (ll && "refuse" in ll) return ll;
+    const band = ll ? ll.band : stated;
+    const typed = typedOf(bf.airflow_attr);
+    const lines: string[] = [];
+    if (typed && inl !== null) lines.push(bf.lines.both_typed);
+    const lowBand = lowN !== null && lowN < air.high ? bandForCfm(bf, lowN) : null;
+    if (lowBand !== null && lowBand !== band) lines.push(fillBand(bf.lines.crosses, { low: fmtBand(lowN!), high: fmtBand(air.high), low_band: lowBand, band }));
+    const source = typed ? "typed_cfm" : lowN !== null ? "range_max" : "boq";
+    if (ll) return { band, source, tag: ll.tag, lines: [...lines, ll.line] };
+    return { band, source, tag: bf.tags[source], lines };
+  }
+  if (inl === "not_size") return { refuse: fillBand(bf.lines.not_size, { said: said(bf.inlet_attr) }) };
+  if (inl) {
+    const table = [...bf.inlet_table].sort((a, b) => a.inch - b.inch);
+    const step = table.find((r) => r.inch + 1e-9 >= inl.inches);
+    if (!step) return { refuse: fillBand(bf.lines.inlet_above, { inch: fmtBand(inl.inches), largest: table[table.length - 1]?.inch ?? "" }) };
+    const typed = typedOf(bf.inlet_attr);
+    const lines: string[] = [];
+    if (inl.mm !== null) lines.push(fillBand(bf.lines.mm, { said: said(bf.inlet_attr), mm: fmtBand(inl.mm), inches: fmtBand(inl.inches), inch: step.inch }));
+    lines.push(fillBand(bf.lines.inlet, { said: said(bf.inlet_attr), inch: step.inch, band: step.band }));
+    const source = typed ? "typed_inlet" : "inlet";
+    return { band: step.band, source, tag: bf.tags[source], lines };
+  }
+  return { refuse: onRow ? bf.lines.none_row : bf.lines.none_typed };
+}
+
+/** VAV-2a (B5): a model item the HELPER added (the integrator cabling): its line; the block shows "added by the helper". */
+export const HELPER_ADDED_ATTR = "__added_by_helper";
 
 /** SLICE 12e-3a: the delegated sections a spec declares (those naming a category), in order. PURE. */
 export function delegatedSections(spec: ItemListPricingSpec): Array<ListSection & { category_id: string }> {
@@ -1867,7 +2247,9 @@ export interface ExtractedListItem {
     cleared?: boolean;
     /** ADP-1: a section's size MIRRORED from the item above it -- the size that item READ, in mm (12e-3a D3b), entered
      * as a typed cell. It carries no unit of its own, and is not a bare number the BoQ wrote: F1 never reads it so. */
-    mirrored?: boolean }>;
+    mirrored?: boolean;
+    /** VAV-2c3 FIX-2: `applyChainValues` set this answer from the row's own words; the line the field says. Absent on every other answer. */
+    chain_line?: string }>;
   /** SLICE 6 (T4, the owner's unit-rate ruling): how many of this item ONE row unit pays for. Absent => 1.
    * Blank / non-numeric / non-positive => the item refuses ("quantity per row unit is blank"). */
   qtyPerRowUnit?: number | string | null;
@@ -1973,6 +2355,8 @@ export interface LadderHop {
 }
 
 export interface ItemPriceResult {
+  /** VAV-2a2 (B1-B4): the band `band_from` worked out (its tag and lines), on an item of a band family only */
+  bandRead?: { attr: string; band: string; tag: string; lines: string[] };
   /** DU-1 (DR2 / DR3 / DR4 / DR12): the line a sheet-gauge axis read or ladder wrote, per attr -- the field's note */
   gaugeNotes?: Record<string, string>;
   /** DU-1 (DR4): the gauge the owner's size table gave (the field's amber "from the size table" mark) */
@@ -4855,6 +5239,16 @@ function priceOneItem(
       unreadable[attr] = `choose again: ${reasonName(spec, attr)} -- the value picked is not stocked with the other answers on this item`;
       continue;
     }
+    // VAV-2a2 (B1 / B2 / B3): the band of a band family is WORKED OUT -- from the airflow (CFM wins), else the inlet size -- never read
+    // from the model's band answer or picked; nothing stated refuses by name (the needs loop below outlines the boxes)
+    const bf = spec.band_from;
+    if (bf && attr === bf.attr && family !== null && bf.families.includes(family)) {
+      const r = bandOf(bf, (id) => rawValue(item, id), (id) => item.attributes?.[id]?.typed === true, rowText !== "" || ownText !== "");
+      if ("refuse" in r) { unreadable[attr] = r.refuse; continue; }
+      read[attr] = r.band;
+      out.bandRead = { attr, band: r.band, tag: r.tag, lines: r.lines };
+      continue;
+    }
     if (reader) {
       // SLICE 12d-4c (owner C3, F4): on the COMPOSE axis the layers reader runs FIRST, over the MODEL's cells
       // only (T6: a pricer's typed entry is never parsed as layers). It used to run only when the single-number
@@ -5276,6 +5670,17 @@ function priceOneItem(
    * shows the value priced with the line under it. Only a MODEL answer that differs from the default: "not mentioned"
    * already takes it, and a pricer's own pick (typed) is theirs.
    */
+  // VAV-2c3 FIX-2 (A1 / A2 / B2-1): an answer `chain_values` set from the row's own words before pricing (`applyChainValues`) is
+  // shown as an override -- the field holds the value priced and says why, in the config's words; a pricer's pick is never marked
+  for (const [a, raw] of Object.entries(item.attributes ?? {})) {
+    const line = (raw as { chain_line?: unknown } | undefined)?.chain_line;
+    if (typeof line !== "string" || (raw as { typed?: unknown }).typed === true) continue;
+    // the family attribute (B2-1's Misc item) is not in `read`: it is the family this item prices as
+    const now = a === familyAttr(spec) ? family : read[a];
+    if (String(now ?? "") !== String((raw as { value?: unknown }).value ?? "")) continue;
+    out.overrides.push({ attr: a, value: String(now), display: String(now), rule: line });
+    overridden.push(line);
+  }
   for (const rule of spec.stream_heading_default ?? []) {
     if (!rule.families.includes(family) || noneSaid.has(rule.attr)) continue;
     if (item.attributes?.[rule.attr]?.typed === true) continue;
@@ -5569,9 +5974,13 @@ function priceOneItem(
   // missing one -- the dropdowns narrow on these, and a block that refuses must still narrow.
   out.readValues = { ...read };
   // SLICE 12e-5 (AC1): the "None" answers already read into their ruled defaults, held on a refusal below
-  const held = (n: string): Pick<ItemPriceResult, "heldDefaults"> => {
+  // VAV-FIX (S5, inside the owner's 2026-11-24 16:52 / 16:58 rulings): an item of a band family (`band_from`: the VAV box) refusing here
+  // -- above the largest box, no airflow -- SHOWS the defaults it read, exactly as the same box shows them when it prices; the row
+  // stays refused with its own reason. Every other family keeps them held only (a delegated section shows them, 12e-5).
+  const bandFamily = !!spec.band_from && family !== null && spec.band_from.families.includes(family);
+  const held = (n: string): Pick<ItemPriceResult, "heldDefaults"> & Partial<Pick<ItemPriceResult, "defaulted">> => {
     const d = readDefaulted.filter((x) => needs.includes(x.attr) && !(x.attr in spec.numbers));
-    return d.length ? { heldDefaults: { need: n, defaulted: d } } : {};
+    return d.length ? { heldDefaults: { need: n, defaulted: d }, ...(bandFamily ? { defaulted: d } : {}) } : {};
   };
   // (4) the needs (R7-R10, R2): only the needed facts reach the matcher.
   // ADP-3a (U3): EVERY missing need is named, not only the first ("no width and height stated"), each one's box
@@ -6156,7 +6565,9 @@ function priceOneItem(
     let scaleAt = 0;
     let before: Record<string, unknown> = {};
     for (const st of r.steps) {
-      if (st.produced) out.working.push(`${id}: ${claddingLabel(st)} = ${fmt(st.produced.value)}`);
+      // VAV-2c2 (R3 g): a step label that already names its side ("supply: BCS cost x ...") is not given the side twice
+      const lab = st.produced ? claddingLabel(st) : "";
+      if (st.produced) out.working.push(lab.toLowerCase().startsWith(`${id.toLowerCase()}:`) ? `${lab} = ${fmt(st.produced.value)}` : `${id}: ${lab} = ${fmt(st.produced.value)}`);
       if (showNumbers && st.step === "scale") {
         const def = scaleDefs[scaleAt++] as { target?: string; formula?: string; params?: Record<string, unknown> } | undefined;
         const line = def && st.produced ? numbersLine(def, before, runSel) : null;
@@ -6666,7 +7077,7 @@ export function familyChoices(spec: ItemListPricingSpec): Array<{ family: string
     [...new Set([...Object.keys(f.units), ...Object.keys(f.convert ?? {})])].map((cls) => `per ${unitWord(spec, cls)}`).join(" / ");
   const own = Object.entries(spec.families).map(([family, f]) => ({
     family,
-    units: Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
+    units: spec.family_units_label?.[family] ?? Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
   }));
   // DU-1: an offered alias is listed with its target's units (its conversions included -- "Round (GI) - per metre" is per metre)
   const offered = (spec.family_alias_offered ?? []).filter((a) => spec.family_alias?.[a] && spec.families[spec.family_alias[a]])
@@ -6752,6 +7163,8 @@ export interface ItemFieldDef {
   /** ADP-3a (U2, B6 #5): this is the OUTER size of a `second_key` family (the square diffuser), shown beside the
    * neck it can stand in for. Absent on every other field. */
   secondKey?: true;
+  /** VAV-2a2 (B3): the band `band_from` works out -- shown read-only with its source tag, never picked. Absent on every other field. */
+  bandReadOnly?: true;
 }
 
 /**
@@ -6899,9 +7312,23 @@ export function itemFieldDefs(
   // when the attribute it names is in here, which is what stops the ADP size note inviting a depth that
   // `double-skin plenum` discards.
   const reads = new Set<string>(ids);
+  const bandFrom = spec.band_from && spec.band_from.families.includes(family) ? spec.band_from : null;
   for (const attr of ids) {
     if (seen.has(attr)) continue;
     seen.add(attr);
+    // VAV-2a2 (B3, owner 2026-11-19 13:31 / 13:46): in place of the band picker, the two typed boxes -- the CFM OR the inlet size, one
+    // either-or group whose label says only one is needed -- then the band itself, read-only (worked out, never picked)
+    if (bandFrom && attr === bandFrom.attr) {
+      for (const id of [bandFrom.airflow_attr, bandFrom.inlet_attr]) {
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        out.push({ id, label: shownLabel(defById.get(id)?.label) ?? id, allowNone: false, skuAttr: id, control: controlOf(id, "text"), axes: [attr],
+                   group: bandFrom.group, typedNote: typedFieldNote(spec, id, reads, []) });
+      }
+      seenIds.add(attr);
+      out.push({ id: attr, label: shownLabel(defById.get(attr)?.label) ?? attr, allowNone: false, skuAttr: attr, control: "text", bandReadOnly: true });
+      continue;
+    }
     const reader = spec.numbers[attr];
     if (reader) {
       const modelId = reader.from[0];
@@ -7078,7 +7505,7 @@ export function itemFieldDefs(
     return !!nd && Number.isFinite(nd.value) && (!nd.families || nd.families.includes(family));
   };
   for (const f of out) {
-    if (f.group || f.secondKey) continue;
+    if (f.group || f.secondKey || f.bandReadOnly) continue;
     const reads = f.axes ?? [f.skuAttr];
     if (reads.some((a) => needed.has(a) && !ruled(a))) f.required = true;
   }
@@ -7285,4 +7712,42 @@ export function sizeFieldHelp(
       + `or ${sizeText(smallest)}+${sizeText(smallest)} for two layers.`
     : `Type the ${name} the BoQ states, in ${reader.unit ?? "mm"} (e.g. ${egs}).`;
   return { note, lines };
+}
+
+/**
+ * VAV-2c3 FIX-2 (A1 / A2 / B2-1; see `ChainValueRule`). PURE. The model's items with each `chain_values` rule applied: a matching item's
+ * answer becomes the rule's value, carrying `chain_line` so the pricer shows it as an override with its line. `chain` = the row's chain
+ * (`chainRows`, nearest first); the sheet-wide notes are never read. No rule, no chain, or nothing matching => the SAME array back.
+ */
+export function applyChainValues(spec: ItemListPricingSpec, items: readonly ExtractedListItem[],
+  chain: ReadonlyArray<{ where: string; text: string }> | undefined): ExtractedListItem[] {
+  const rules = spec.chain_values ?? [];
+  if (!rules.length || !items.length) return items as ExtractedListItem[];
+  const rowChain = (chain ?? []).filter((c) => !/^sheet note/i.test(c.where) && c.text.trim() !== "");
+  const famOf = (it: ExtractedListItem) => { const v = it.attributes?.[familyAttr(spec)]?.value; return v === null || v === undefined ? null : String(v); };
+  const said = (it: ExtractedListItem, a: string): string | null => {
+    const v = it.attributes?.[a]?.value;
+    return v === null || v === undefined || String(v).trim() === "" || String(v) === "None" ? null : String(v);
+  };
+  let changed = false;
+  const out = items.map((it) => {
+    let next = it;
+    for (const r of rules) {
+      if (r.section !== undefined ? it.section !== r.section : (it.section !== undefined || !(r.families ?? []).includes(famOf(it) ?? "\u0000"))) continue;
+      const now = said(next, r.attr);
+      if (!r.when.includes(now)) continue;
+      if (r.not_if_row_has && items.some((o) => o !== it && o.section === it.section && said(o, r.not_if_row_has!.attr) === r.not_if_row_has!.value)) continue;
+      let re: RegExp, unless: RegExp | null;
+      try { re = new RegExp(r.words, "i"); unless = r.unless ? new RegExp(r.unless, "i") : null; } catch { continue; }
+      const texts = r.from_attr !== undefined ? [{ where: "this item", text: String(it.attributes?.[r.from_attr]?.value ?? "") }] : rowChain;
+      if (unless && texts.some((t) => unless!.test(t.text))) continue;
+      const hit = texts.map((t) => ({ t, m: re.exec(t.text) })).find((x) => x.m);
+      if (!hit) continue;
+      const line = r.line.split("{said}").join(hit.m![0].trim()).split("{where}").join(hit.t.where);
+      next = { ...next, attributes: { ...next.attributes, [r.attr]: { value: r.value, confidence: 1, chain_line: line } } };
+      changed = true;
+    }
+    return next;
+  });
+  return changed ? out : (items as ExtractedListItem[]);
 }

@@ -1,0 +1,44 @@
+{
+ "about": "VAV-2c3 FIX-2 (2026-11-24, desktop; ANSWER 21 / 22, owner present, 21:55 'yes'): HVAC v87 = v86 + ONLY these 3 edits, all on VAV Box: A2 narrowed to ROUND / OVAL / CIRCULAR naming the box (the words, the reading guidance, the Derivation reason). A new version, never a second v86 (block 47). No item changes; the VAV Box model request changes (the shape note), no other category's. Read by the vav2c3d tests and the v87 mint script.",
+ "configs": [
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "chain_values",
+    1,
+    "words"
+   ],
+   "from": "\\bround\\b|\\bdia\\b|\\bdia\\.|\\bdiameter\\b|\\bcircular\\b|Ø|⌀",
+   "to": "\\b(?:round|oval|circular)\\b",
+   "why": "ANSWER 21 (chat-Claude 21:52, owner present): A2 = ONLY round / oval / circular naming the box; DIA / dia. / diameter / the diameter sign give an inlet or sensor size, not the box shape (owner 18 Nov 22:21; 23:53 pt 12)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions",
+    2,
+    "note"
+   ],
+   "from": "VAV boxes only: Rectangular or Oval, as the BoQ states. A round box - 'round', 'DIA' / diameter or the diameter sign written for the box - is Oval.",
+   "to": "VAV boxes only: Rectangular or Oval, as the BoQ states. A box the BoQ calls round, oval or circular is Oval; 'DIA', diameter or the diameter sign give an inlet or sensor size, not the box shape.",
+   "why": "ANSWER 21: the A2 reading guidance narrowed the same way (future reads)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    50,
+    "why"
+   ],
+   "from": "owner 2026-11-24 19:53 \"A2 fix\": ROUND / DIA / round boxes in the row or heading = the round box, priced on the Oval line - the shape word wins (BOQ-26-00016 r117-120)",
+   "to": "owner 2026-11-24 19:53 \"A2 fix\": ROUND / OVAL / CIRCULAR naming the box in the row or heading = the round box, priced on the Oval line - the shape word wins (BOQ-26-00016 r117-120); 'DIA' / diameter give an inlet or sensor size, not the shape (chat-Claude's correction 21:52, ANSWER 21)",
+   "why": "ANSWER 21: the A2 line's reason as narrowed"
+  }
+ ],
+ "pricing_inputs": {}
+}

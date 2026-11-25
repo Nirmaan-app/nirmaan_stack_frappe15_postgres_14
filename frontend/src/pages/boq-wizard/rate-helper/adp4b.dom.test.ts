@@ -40,6 +40,10 @@ const H66_ITEMS: RateMasterItem[] = mergeItemsByName(H66.items.map((it) => ({ ..
 // sweep reads ITS config and items from v71 with the two configs its sections borrow (the VP-1 idiom)
 const H71 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v71.json")));
 const H71_ITEMS: RateMasterItem[] = mergeItemsByName(H71.items.map((it) => ({ ...it, discipline: H71.discipline } as RateMasterItem)));
+// VAV-1 (HVAC v76; mechanical authority): the `hvac_vav_box` category the registry now lists exists only from v76 on, so the sweep reads
+// ITS config and items from v76 with the two borrow-only configs its sections borrow (Misc, Sensors) -- the DU-1 idiom
+const H76 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v76.json")));
+const H76_ITEMS: RateMasterItem[] = mergeItemsByName(H76.items.map((it) => ({ ...it, discipline: H76.discipline } as RateMasterItem)));
 const ADP = "hvac_adp", INS = "hvac_insulation", PIP = "hvac_piping";
 const cfgOf = (a: Asset, id: string) => a.category_configs.find((c) => c.category_id === id)!;
 const ITEMS: RateMasterItem[] = mergeItemsByName(V50.items.map((it) => ({ ...it, discipline: V50.discipline } as RateMasterItem)));
@@ -67,9 +71,12 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
   // + the Valve Package (VP-1 QR-2 recommendation (a)); Misc is fetch_only and stays off the page
   // INVERTED at DU-1 Part B (HVAC v71; mechanical authority): BEFORE the title "13 Electrical + 6 HVAC categories" and `["HVAC", 6]` --
   // + Ducting (appended last in the registry)
-  it("the sweep names what it covers: 13 Electrical + 7 HVAC categories, every one rendered", () => {
-    expect(pages.map((p) => [p.discipline, p.categories.length])).toEqual([["Electrical", 13], ["HVAC", 7]]);
+  // VAV-1 (HVAC v76; mechanical authority): BEFORE the title "13 Electrical + 7 HVAC categories" and `["HVAC", 7]` -- + VAV Box (appended
+  // after Ducting); Sensors is fetch_only and stays off the page like Misc
+  it("the sweep names what it covers: 13 Electrical + 8 HVAC categories, every one rendered", () => {
+    expect(pages.map((p) => [p.discipline, p.categories.length])).toEqual([["Electrical", 13], ["HVAC", 8]]);
     expect(pages.flatMap((p) => p.categories.map((c) => c.category_id))).not.toContain("hvac_misc");
+    expect(pages.flatMap((p) => p.categories.map((c) => c.category_id))).not.toContain("hvac_sensors");
   });
 
   it("POSITIVE: the pointer names the real pricing page and its tab", () => {
@@ -93,9 +100,11 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
         // DU-1 Part B: Ducting from v71, config and items, with its BORROW-ONLY section's config (Misc) from the same asset -- as the
         // page fetches it (FIX-4: only fetch_only categories are nested; Insulation keeps its own tab)
         const duct = c.category_id === "hvac_ducting";
-        const config = duct ? cfgOf(H71, c.category_id) : valve ? cfgOf(H66, c.category_id) : c.category_id === "hvac_vrf" ? cfgOf(V55, c.category_id) : cfgOf(assetOf(p.discipline), c.category_id);
-        const sections: Record<string, RateCategoryConfig> | undefined = duct ? { hvac_misc: cfgOf(H71, "hvac_misc") } : valve ? { hvac_misc: cfgOf(H66, "hvac_misc") } : undefined;
-        const { host, cleanup } = renderDerivation(config, duct ? H71_ITEMS : valve ? H66_ITEMS : itemsOf(p.discipline), p.discipline, sections);
+        // VAV-1: VAV Box from v76, config and items, with its two borrow-only sections' configs (Misc, Sensors) from the same asset
+        const vav = c.category_id === "hvac_vav_box";
+        const config = vav ? cfgOf(H76, c.category_id) : duct ? cfgOf(H71, c.category_id) : valve ? cfgOf(H66, c.category_id) : c.category_id === "hvac_vrf" ? cfgOf(V55, c.category_id) : cfgOf(assetOf(p.discipline), c.category_id);
+        const sections: Record<string, RateCategoryConfig> | undefined = vav ? { hvac_misc: cfgOf(H76, "hvac_misc"), hvac_sensors: cfgOf(H76, "hvac_sensors") } : duct ? { hvac_misc: cfgOf(H71, "hvac_misc") } : valve ? { hvac_misc: cfgOf(H66, "hvac_misc") } : undefined;
+        const { host, cleanup } = renderDerivation(config, vav ? H76_ITEMS : duct ? H71_ITEMS : valve ? H66_ITEMS : itemsOf(p.discipline), p.discipline, sections);
         try {
           const list = host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length;
           const notice = host.querySelector('[data-testid="rate-master-derivation-notice"]')?.textContent ?? null;
@@ -167,6 +176,8 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       // DU-1 Part B: Ducting's rules list on v71 = the page (cert C6, 2026-11-15): 53 own lines + Misc's 17 nested (Insulation is not
       // borrow-only, so its lines stay on its own tab). The first pin (115) nested Insulation too - corrected (owner finding f, CH-DU1-9)
       "HVAC/hvac_ducting": "list 70",
+      // VAV-1: VAV Box's rules list on v76: 14 own lines + Misc's 17 nested + Sensors' 7 nested (both borrow-only)
+      "HVAC/hvac_vav_box": "list 38",
     });
   });
 

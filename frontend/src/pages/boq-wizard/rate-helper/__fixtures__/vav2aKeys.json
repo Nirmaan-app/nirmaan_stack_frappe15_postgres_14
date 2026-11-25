@@ -1,0 +1,299 @@
+{
+ "_source": "VAV-2a (2026-11-19): the hvac_vav_box config keys of the sheet rules (B3 / B4 / QR-C1 own_row_check, B5 integrator_cabling, B6 existing_boxes), B9 combination_warning, the B7 section qty_attr, and the VAV-2a Pricing Inputs. Word tables = VAV-D0 D4 (d4_crosssheet.py / d4_qr4a_final.py, the agreed QR-4 (a) test) and chat-Claude's v3 cabling test (owner 01:29 / 01:34 / 01:39). Read by the vav2a* tests and by the HVAC v77 mint (scripts/_instruments/mint_hvac_v77_vav2a.py) -- the one copy.",
+ "pricing": {
+  "own_row_check": {
+   "threshold_input": "vav_own_row_threshold",
+   "box_words": "\\d\\s*(cfm|l/s|lps)\\b|\\bcfm\\b|vav\\s*box|vav\\s*unit|terminal\\s*(unit|box)|\\bcav\\b|variable\\s+air\\s+volume",
+   "existing_words": "re-?fix|re-?install|dismantl|removal\\s+of|remov(e|ing)\\s+(&|and)?\\s*(handing|the\\s+exis|exis|old)",
+   "artefact_words": "\\bAHUs?\\b|air\\s*handling|plant\\s*room|fresh\\s*air|\\bTFA\\b|\\bFCUs?\\b|fan\\s*coil|\\bfans?\\b|chiller|pump|static\\s+pressure|filter|basement|car\\s*park|kitchen|\\bvrf\\b|\\bvrv\\b|\\biaq\\b|\\bvfd\\b|attenuator|plenum",
+   "cable_words": "cabl|wire|wiring",
+   "vav_words": "(?<![a-z0-9])(vav|v\\.a\\.v)s?(?![a-z0-9])|variable\\s+air\\s+volume",
+   "metre_units": [
+    "m",
+    "mt",
+    "mts",
+    "mtr",
+    "mtrs",
+    "mtrs.",
+    "rm",
+    "rmt",
+    "rmt.",
+    "rmtr",
+    "rmtrs",
+    "r.m",
+    "r.m.",
+    "meter",
+    "meters",
+    "metre",
+    "metres",
+    "lm",
+    "l.m",
+    "l.m.",
+    "running metre",
+    "running meter",
+    "running metres",
+    "running meters",
+    "rmts"
+   ],
+   "count_units": [
+    "no",
+    "nos",
+    "no.",
+    "nos.",
+    "no's",
+    "number",
+    "each",
+    "ea",
+    "set",
+    "sets",
+    "pcs",
+    "unit",
+    "units"
+   ],
+   "extras": [
+    {
+     "label": "Digital thermostat",
+     "target": {
+      "section": "misc",
+      "family": "Digital Thermostat"
+     },
+     "words": "thermostat",
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "Room temperature sensor",
+     "target": {
+      "section": "misc",
+      "family": "Temperature Gauge / Thermometer"
+     },
+     "words": "(room|space|wall)[^|]{0,30}temp(erature)?\\.?\\s*(sensor|transmitter)|temp(erature)?\\.?\\s*(sensor|transmitter)[^|]{0,30}(room|space|wall)",
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "BACnet over IP controller",
+     "target": {
+      "family": "BACnet over IP controller"
+     },
+     "words": "bac\\s*-?\\s*net[^|]{0,60}controller|controller[^|]{0,60}bac\\s*-?\\s*net",
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "Differential pressure switch",
+     "target": {
+      "section": "sensors",
+      "family": "Differential Pressure Switch"
+     },
+     "words": "differential\\s+pressure|diff\\.?\\s+pressure|\\bDP\\s*(sensor|switch|transmitter)|\\bDPS\\b",
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "CO2 sensor",
+     "target": {
+      "section": "sensors",
+      "family": "CO2 Sensor"
+     },
+     "words": "co2|co₂|carbon\\s*dioxide",
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "Conical piece",
+     "target": {
+      "family": "Conical piece"
+     },
+     "words": "conical|\\bcones?\\b|taper",
+     "needs_vav": true,
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "Transformation piece",
+     "target": {
+      "section": "misc",
+      "family": "Transformation Pieces"
+     },
+     "words": "transformation|transition",
+     "needs_vav": true,
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "Duct connection",
+     "target": {
+      "family": "Duct connection"
+     },
+     "words": "flexible\\s+duct|flexible\\s+connection|duct\\s+connection|canvas\\s+connection",
+     "needs_vav": true,
+     "not_words": "face\\s*plate|module\\s+box|to\\s+fix\\s+the|mounting\\s+box|back\\s*box"
+    },
+    {
+     "label": "VAV integrator",
+     "target": {
+      "attr": "integrator_included",
+      "from": "Yes",
+      "to": "No",
+      "family": "VAV box"
+     },
+     "words": "\\b(integrators?|routers?|gateways?)\\b",
+     "near_words": "vav|bms|router|bac\\s*-?\\s*net|modbus|controller|thermostat",
+     "near_chars": 120,
+     "not_near_words": "heat\\s*meter|btu|flow",
+     "not_near_chars": 80,
+     "presence_only": true
+    }
+   ],
+   "lines": {
+    "not_added": "{extra} is priced on its own row of this sheet ({rows}) - not added to this row. Add it here if this row should also include it.",
+    "double_count": "{extra} added - possible double counting - also priced in {rows}.",
+    "rate_only": "{extra} is priced on its own row of this sheet ({rows}) - not added to this row (the quantities are blank or 0, so the separate row decides). Add it here if this row should also include it.",
+    "attr_changed": "The VAV integrator is priced on its own row of this sheet ({rows}) - this box is priced on the 'Integrator Included = No' line.",
+    "threshold_missing": "(The Pricing Input 'VAV - own-row threshold' is not set, so it was added.)"
+   }
+  },
+  "integrator_cabling": {
+   "family": "Integrator cabling",
+   "box_family": "VAV box",
+   "qty_input": "vav_cabling_m_per_box",
+   "length_input": "vav_cabling_length_threshold",
+   "integrator_words": "\\b(integrators?|routers?|gateways?)\\b",
+   "integrator_near_words": "vav|bms|router|bac\\s*-?\\s*net|modbus|controller|thermostat",
+   "integrator_not_near_words": "heat\\s*meter|btu|flow",
+   "near_chars": 120,
+   "not_near_chars": 80,
+   "cable_words": "cabl|wire|wiring",
+   "conduit_words": "conduit",
+   "power_words": "\\bpower\\b",
+   "vav_words": "(?<![a-z0-9])(vav|v\\.a\\.v)s?(?![a-z0-9])|variable\\s+air\\s+volume",
+   "other_equipment_words": "\\b(vrf|vrv|fire\\s*dampers?|ahus?|air\\s*handling|vfds?|valves?|sensors?|odu|idu|outdoor|indoor)\\b",
+   "metre_units": [
+    "m",
+    "mt",
+    "mts",
+    "mtr",
+    "mtrs",
+    "mtrs.",
+    "rm",
+    "rmt",
+    "rmt.",
+    "rmtr",
+    "rmtrs",
+    "r.m",
+    "r.m.",
+    "meter",
+    "meters",
+    "metre",
+    "metres",
+    "lm",
+    "l.m",
+    "l.m.",
+    "running metre",
+    "running meter",
+    "running metres",
+    "running meters",
+    "rmts"
+   ],
+   "lines": {
+    "added": "{qty} m of integrator cabling added per box - no separate integrator cabling row naming VAV found on this sheet. Remove it if not needed.",
+    "priced_separately": "Integrator cabling is priced on its own row of this sheet ({rows}) - not added to this row.",
+    "low_length": "Integrator cabling is priced on its own row of this sheet ({rows}) - not added to this row. Its quantity looks low ({metres} m against {need} m = {per_box} m x {boxes} VAV boxes, below {pct}%): check the cabling quantity and add the cabling price to this row if required.",
+    "input_missing": "Integrator cabling not added: the Pricing Input '{input}' is not set."
+   }
+  },
+  "existing_boxes": {
+   "install_family": "VAV installation - any size",
+   "kinds": [
+    {
+     "id": "dismantle_refix",
+     "label": "Dismantling and refixing of an existing VAV box",
+     "words": "(dismantl\\w*|remov\\w*)[^|]{0,80}(\\bre-?(fix|install)\\w*|\\bre\\s+(fix|install)\\w*)|(\\bre-?(fix|install)\\w*|\\bre\\s+(fix|install)\\w*)[^|]{0,80}(dismantl\\w*|remov\\w*)",
+     "factor_input": "vav_existing_dismantle_refix"
+    },
+    {
+     "id": "dismantle",
+     "label": "Dismantling of an existing VAV box",
+     "words": "dismantl\\w*|removal\\s+of\\s+(the\\s+)?exist\\w*|remov(e|ing)\\s+(the\\s+)?exist\\w*",
+     "factor_input": "vav_existing_dismantle"
+    },
+    {
+     "id": "refix",
+     "label": "Refixing of an existing VAV box",
+     "words": "\\bre-?(fix|install)\\w*|\\bre\\s+(fix|install)\\w*",
+     "factor_input": "vav_existing_refix_alone",
+     "with_row_input": "vav_existing_refix_with_dismantling"
+    }
+   ],
+   "dismantle_row_words": "dismantl\\w*|removal|remov(e|ing)",
+   "vav_words": "(?<![a-z0-9])(vav|v\\.a\\.v)s?(?![a-z0-9])|variable\\s+air\\s+volume",
+   "lines": {
+    "priced": "{label}: installation {rate} x {factor} (Pricing Input '{input}') = {figure}, supply 0 - no extras on a row of work on an existing box.",
+    "with_row": "Dismantling is priced on its own row of this sheet ({rows}) - refixing alone at x {factor}.",
+    "alone": "No separate dismantling row naming VAV on this sheet - refixing priced at x {factor}.",
+    "input_missing": "Work on an existing box: the Pricing Input '{input}' is not set - price this row by hand."
+   }
+  },
+  "combination_warning": {
+   "box_families": [
+    "VAV box"
+   ],
+   "share_input": "vav_combination_warning_share",
+   "line": "This rate combines the box with {n} extras (Rs {x} of Rs {y}). Review each item before using.",
+   "line_one": "This rate combines the box with 1 extra (Rs {x} of Rs {y}). Review each item before using.",
+   "input_missing": "This rate combines the box with extras. Review each item before using (the Pricing Input 'VAV - combination warning share' is not set)."
+  }
+ },
+ "sections": {
+  "misc": {
+   "qty_attr": "qty_per_box"
+  },
+  "sensors": {
+   "qty_attr": "qty_per_box"
+  }
+ },
+ "inputs": {
+  "vav_own_row_threshold": {
+   "name": "VAV - own-row threshold",
+   "factor": 0.9,
+   "unit": "share of the VAV boxes' quantity (0.9 = 90%)",
+   "remarks": "An extra a VAV box row prices that the SAME sheet also charges on its own row: that row's quantity at or above this share of the VAV rows' quantity -> not added (a note names the rows); below -> added with 'possible double counting' (owner 2026-11-18 23:32; QR-4 (a) 2026-11-19 00:57, Ducting's 90%)."
+  },
+  "vav_cabling_m_per_box": {
+   "name": "VAV - integrator cabling metres per box",
+   "factor": 2.0,
+   "unit": "metres per VAV box",
+   "remarks": "On a sheet with a VAV integrator and no separate VAV cabling row, the helper adds this many metres of the Integrator cabling SKU per box (owner 2026-11-18 23:14 \"2 mts of cabling per VAV\"; 2026-11-19 12:55 \"the 2m is a pricing input sheet, the SKU remains the same\")."
+  },
+  "vav_cabling_length_threshold": {
+   "name": "VAV - cabling length check",
+   "factor": 0.7,
+   "unit": "share of metres per box x VAV boxes (0.7 = 70%)",
+   "remarks": "The separate VAV cabling rows' metres below this share of (metres per box x the sheet's VAV boxes) -> the note also asks to check the cabling quantity; the price never changes (owner 2026-11-19 01:39)."
+  },
+  "vav_existing_dismantle": {
+   "name": "VAV - dismantling only",
+   "factor": 1.0,
+   "unit": "x the installation rate",
+   "remarks": "Dismantling an existing VAV box: the installation rate x this, supply 0 (owner 2026-11-18 23:49 \"only dismatling same as installtion\")."
+  },
+  "vav_existing_dismantle_refix": {
+   "name": "VAV - dismantling and refixing",
+   "factor": 1.5,
+   "unit": "x the installation rate",
+   "remarks": "Dismantling and refixing an existing VAV box in one row: the installation rate x this, supply 0 (owner 2026-11-18 23:49 \"dsimatling and refixing 1.5 times\")."
+  },
+  "vav_existing_refix_with_dismantling": {
+   "name": "VAV - refixing (dismantling on its own row)",
+   "factor": 0.5,
+   "unit": "x the installation rate",
+   "remarks": "Refixing an existing VAV box when the sheet has a separate dismantling row naming VAV (owner 2026-11-18 23:49 \"only refixing 0.5 times if dismantling seprate row\")."
+  },
+  "vav_existing_refix_alone": {
+   "name": "VAV - refixing (no dismantling row)",
+   "factor": 1.5,
+   "unit": "x the installation rate",
+   "remarks": "Refixing an existing VAV box when the sheet has no separate dismantling row (owner 2026-11-18 23:49 \"else 1.5\")."
+  },
+  "vav_combination_warning_share": {
+   "name": "VAV - combination warning share",
+   "factor": 0.5,
+   "unit": "share of the box's own rate (0.5 = 50%)",
+   "remarks": "A VAV row whose extras come to more than this share of the box's own rate (supply + installation) shows a warning to review it; no figure changes (owner 2026-11-19 12:49 / 12:55 \"option b\" / 12:59 \"ok proceed with 50%\")."
+  }
+ }
+}

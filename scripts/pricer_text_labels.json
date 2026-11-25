@@ -1,0 +1,15 @@
+{
+  "about": "VAV-2c1 (owner 2026-11-22 10:49 / 13:03, R3): the internal working labels no pricer-facing HVAC text may carry. The owner's own words and the dates are never labels. Read by scripts/pricer_texts.py, frontend/src/pages/pricing/rate-master/pricerCodeTexts.harness.ts and their tests.",
+  "kinds": [
+    {"id": "answer", "re": "\\bANSWERS?\\s*\\d+(?:\\s*/\\s*\\d+)*"},
+    {"id": "qr", "re": "\\bQR-?[A-Z]?\\d*[a-z]?(?:\\s+Q\\d+[a-z]?)?(?:\\s*\\([a-z]\\))?|\\bQ-pre\\s*\\d+"},
+    {"id": "session", "re": "\\bchat-Claude(?:'s)?\\b|\\bClaude Code\\b"},
+    {"id": "slice_name", "re": "\\b(?:VAV|DU|VRF|VP|ADP|ELR|MISC|PP|RM|CU|UNIT|SR|EA|BCS)-(?:R|D|T)?\\d+[a-z]?\\d?(?:-[A-Z]\\d?)?\\b|\\b(?:[Ss]lice|SLICE)\\s+\\d+[a-z]?(?:-\\w+)?"},
+    {"id": "slice_id", "re": "(?<![\\w.])1[0-9][a-f]-\\d[a-zA-Z]?\\b"},
+    {"id": "ruling", "re": "(?<![\\w.-])(?:VR|DR|AC|PA|NR|KX)\\d{1,2}[a-z]?(?![\\w])(?:-\\d)?"},
+    {"id": "ruling_letter", "re": "(?<![\\w.%'\"-])(?:A|B|C|D|E|F|G|H|K|N|O|P|Q|R|S|T|U|V|W)-?\\d{1,2}[a-z]?(?:-\\d)?(?![\\w%.'\"-])"},
+    {"id": "ruling_hyphen", "re": "(?<![\\w-])R-[A-Z][A-Z0-9]*(?:-[A-Za-z0-9]+)*\\b|(?<![\\w-])[A-Z]-[a-z]\\b(?!\\w)"},
+    {"id": "case", "re": "\\bCase \\d+\\b|\\bcert finding(?: [a-z]\\b)?|\\bNOTE \\d+\\b|\\bboards? \\d+[a-z]?\\b"},
+    {"id": "key", "re": "(?<![\\w./'-])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\\w-])"}
+  ]
+}
