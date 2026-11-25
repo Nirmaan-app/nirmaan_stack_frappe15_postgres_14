@@ -134,3 +134,50 @@ class TestAMoveToInternalTransferIsRefused(TransferCase):
         with self.assertRaises(frappe.ValidationError):
             mark_internal_transfer(self._line(ONE_LINK).name, CARD, REASON)
         self._nothing_moved(ONE_LINK, expense)
+
+
+class TestEachPageRowSaysWhetherMoveAcceptsIt(CashbookRectifyCase):
+    """Unreconcile is hidden on a line Move accepts (story 53) and kept on a refused or Linked line (story 54). The
+    page read sends `can_move`, Move's own plan verdict for the line, so the screen keeps no copy of the rule."""
+
+    def _can_move(self) -> dict:
+        from nirmaan_stack.api.outflow_import.review import SCOPE_ALL, get_outflow_rows
+
+        rows = get_outflow_rows(scope=SCOPE_ALL, batch=self.batch, limit=100)["rows"]
+        return {row["transfer_id"][: -len(self.suffix)]: row["can_move"] for row in rows}
+
+    def test_a_created_spend_is_accepted_and_a_spend_with_its_refund_is_too(self):
+        can_move = self._can_move()
+        self.assertIs(can_move[ONE_LINK], True)
+        # Ticked alone the plan refuses each, naming the other; as a pair Move takes them, so neither offers Unreconcile.
+        self.assertIs(can_move[PART_SPEND], True)
+        self.assertIs(can_move[PART_REFUND], True)
+
+    def test_a_refused_line_is_not(self):
+        expense = self._expense(ONE_LINK)
+        frappe.db.set_value(expense.doctype, expense.name, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+        self.assertIs(self._can_move()[ONE_LINK], False)
+
+    def test_a_line_linked_to_an_existing_record_is_not(self):
+        [leg] = self._legs(ONE_LINK)
+        frappe.db.set_value("Outflow Row Match", leg.name, "created_by_import", 0, update_modified=False)
+        frappe.db.commit()
+        self.assertIs(self._can_move()[ONE_LINK], False)
+
+    def test_an_open_line_is_not(self):
+        # Every line of the statement but the Settled ones is open, skipped or an Internal Transfer.
+        settled = set(self._targets())
+        self.assertTrue(all(not moved for txn, moved in self._can_move().items() if txn not in settled))
+
+
+class TestThePlanOffersInternalTransfer(CashbookRectifyCase):
+    def test_the_wallet_is_the_own_side_every_other_place_a_far_end_and_the_spender_the_detail(self):
+        plan = self._plan(ONE_LINK)
+
+        self.assertEqual(plan["transfer"]["own_place"], WALLET)
+        self.assertIn(CARD, plan["transfer"]["other_ends"])
+        self.assertNotIn(WALLET, plan["transfer"]["other_ends"])
+        # As Mark starts it: the wallet holder who spent it.
+        [line] = plan["lines"]
+        self.assertEqual(line["transfer_detail"], "Meera Iyer")

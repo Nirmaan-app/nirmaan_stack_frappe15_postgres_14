@@ -52,8 +52,6 @@ rectified project from then on.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import frappe
 
 from nirmaan_stack.api.outflow_import.bulk_unreconcile import BULK_UNRECONCILE_LIMIT
@@ -62,6 +60,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     concurrent_writer_refusal_as_sentence,
     live_legs,
 )
+from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
@@ -70,63 +69,48 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     won_projects,
 )
 from nirmaan_stack.api.outflow_import.rectify_refusals import already_there, expense_refusal, line_refusal
+from nirmaan_stack.api.outflow_import.rectify_replace import replace_expense
 from nirmaan_stack.api.outflow_import.rectify_sources import PORTER, RectifySource
-from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE
 from nirmaan_stack.api.outflow_import.rectify_transfer import (
     TransferTo,
     move_to_internal_transfer,
     refuse_unless_transferable,
+    transfer_detail,
+    transfer_offer,
 )
 from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, stamp_reversed
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
-from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
-from nirmaan_stack.services.expense_bills.receive import move_bills
 from nirmaan_stack.services.expense_type_ledger import ledger_types
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
 
 #: The cap the bulk Unreconcile keeps: the screen works one page (50 lines) at a time.
 RECTIFY_LIMIT = BULK_UNRECONCILE_LIMIT
-
-#: `settlement_origin` of a rectified line: a person moved it off the import's plan.
-_ORIGIN = "Suggestion overridden"
 
 #: What every source's line is read with; a source adds its own (`RectifySource.line_fields`).
 _ROW_FIELDS = ("name", "import_batch", "source", "row_status", "amount", "direction", "settlement_reference")
 _LEG_FIELDS = ["name", "target_doctype", "target_name", "created_by_import"]
 
 
-@dataclass(frozen=True)
-class _ExpenseAsRow:
-    """The old Expense, in the shape `create_expense_from_row` reads a bank line by attribute.
-
-    ⚠️ THE REPLACEMENT IS BUILT FROM THE OLD EXPENSE, NOT FROM THE STATEMENT LINE. It must be identical to
-    what it replaces; the line holds what the statement said, the Expense what the app recorded.
-    """
-
-    amount: object
-    added_on_date: object
-    settlement_reference: str
-    beneficiary_name: str = ""
-    remarks: str = ""
-
-
 def plan_rectify(source: RectifySource, rows) -> dict:
     """Where each ticked line's Expense is now. WRITES NOTHING, TAKES NO LOCK.
 
-    Returns `{"lines": [...], "projects": [{name, project_name}], "types": {ledger: [type]}}` (the Won projects, and
-    the expense types each ledger takes). Each line: `row`,
+    Returns `{"lines": [...], "projects": [{name, project_name}], "types": {ledger: [type]}, "transfer"}` (the Won
+    projects, the expense types each ledger takes, and the Internal Transfer destination's `own_place` and
+    `other_ends`, or `None` where the source's lines cannot move there, #1762). Each line: `row`,
     `refusal` (`None` when it can be rectified), the source's `line_label`, and when it can move, `amount`,
-    `ledger`, `project`, `project_name`, `expense` and the source's `plan_details`.
+    `ledger`, `project`, `project_name`, `expense`, the source's `plan_details` and, when `transfer` is offered, the
+    `transfer_detail` the dialog starts with.
 
     ⚠️ A PLAN, NEVER A PROMISE. The write re-reads every line under its own lock.
     """
     require_outflow_undo_access()
     names = _ticked(source, rows)
+    transfer = transfer_offer(source.source)
     return {
-        "lines": [_plan_of(source, row, frozenset(names)) for row in names],
+        "lines": [_plan_of(source, row, frozenset(names), bool(transfer)) for row in names],
         "projects": won_projects(),
         "types": ledger_types(),
+        "transfer": transfer,
     }
 
 
@@ -279,7 +263,7 @@ def rectify_line(
                 new_doctype = INTERNAL_TRANSFER_DOCTYPE
                 new_name = move_to_internal_transfer(line, old, transfer, reason, actor, source.kept_file_url(old))
             else:
-                new_name = _replace_expense(source, line, old, new_doctype, project, expense_type, replacement, actor)
+                new_name = replace_expense(source, line, old, new_doctype, project, expense_type, replacement, actor)
             _comment_on_line_and_record(
                 line.name, actor, reason, (old.doctype, old.name, old_project), (new_doctype, new_name, project),
                 names, bulk_of,
@@ -302,63 +286,43 @@ def rectify_line(
     }
 
 
-def _replace_expense(
-    source: RectifySource, line, old, new_doctype: str, project: str | None, expense_type: str | None,
-    replacement, actor: str,
-) -> str:
-    """Steps 2-6 (but the comments) of a move to a project or Non-Project: the replacement Expense takes the old one's
-    place. Returns its name."""
-    new = create_expense_from_row(
-        _ExpenseAsRow(
-            # Money coming back is stored at minus itself; the writer books it negative only through the
-            # source's own money-in option (`Replacement.writer_fields`), from its positive amount.
-            amount=abs(old.amount),
-            added_on_date=old.payment_date,
-            settlement_reference=old.payment_ref or "",
-        ),
-        doctype=new_doctype,
-        expense_type=expense_type or old.type,
-        actor=actor,
-        project=project,
-        description=replacement.description,
-        vendor=old.get("vendor") if project else None,
-        comment=old.comment,
-        statement_file_url=None,
-        payment_by=replacement.payment_by,
-        blank_payment_by_is_actor=False,
-        invoice=ExpenseInvoice(number=old.invoice_ref, date=old.invoice_date, file_url=old.invoice_attachment),
-        **replacement.writer_fields,
-    )
-    _move_attachments(old, new.doctype, new.name, source.kept_file_url(old))
-    # BEFORE the delete: its `on_trash` would retire every bill still on the old Expense.
-    move_bills(old.doctype, old.name, new.doctype, new.name)
-    delete_created(old.doctype, old.name, None)
-    source.record_match(line, new, actor, _ORIGIN)
-    _follow_on_the_line(line.name, new, project, expense_type or old.type, actor)
-    return new.name
-
-
 def _read_line(source: RectifySource, row: str, *, for_update: bool = False):
     fields = list(dict.fromkeys(_ROW_FIELDS + source.line_fields))
     return frappe.db.get_value(ROW_DOCTYPE, row, fields, as_dict=True, for_update=for_update)
 
 
-def _plan_of(source: RectifySource, row: str, ticked: frozenset[str]) -> dict:
-    line = _read_line(source, row)
+def _ask(source: RectifySource, line, ticked: frozenset[str]):
+    """`(expense, refusal)` for `line` (as `_read_line` read it, or `None`) ticked with `ticked`: the plan's verdict.
+    `expense` is `None` when the line itself is refused."""
     legs = (
-        [frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True) for leg in live_legs(row)]
+        [frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True) for leg in live_legs(line.name)]
         if line
         else []
     )
     refusal = line_refusal(source, line, legs, ticked)
+    if refusal:
+        return None, refusal
+    [leg] = legs
+    expense = frappe.get_doc(leg.target_doctype, leg.target_name)
+    return expense, expense_refusal(expense)
+
+
+def move_accepts(source: RectifySource, row: str) -> bool:
+    """Would the plan let this line move, ticked with the lines it must move with (a wallet spend and its refund)?
+    What the page row's `can_move` says (#1762, spec #1753 story 53). WRITES NOTHING, TAKES NO LOCK."""
+    line = _read_line(source, row)
+    if not line:
+        return False
+    partners = source.partners(line)[0]
+    return _ask(source, line, frozenset({row, *partners}))[1] is None
+
+
+def _plan_of(source: RectifySource, row: str, ticked: frozenset[str], offers_transfer: bool) -> dict:
+    line = _read_line(source, row)
+    expense, refusal = _ask(source, line, ticked)
     plan = {"row": row, "refusal": refusal, **source.line_label(line)}
     if refusal:
         return plan
-    [leg] = legs
-    expense = frappe.get_doc(leg.target_doctype, leg.target_name)
-    refusal = expense_refusal(expense)
-    if refusal:
-        return {**plan, "refusal": refusal}
     project = expense.get("projects") or None
     project_name = _project_names(project).get(project)
     return {
@@ -369,6 +333,7 @@ def _plan_of(source: RectifySource, row: str, ticked: frozenset[str]) -> dict:
         "project_name": project_name,
         "expense": expense.name,
         **source.plan_details(line, expense, project_name),
+        **({"transfer_detail": transfer_detail(line)} if offers_transfer else {}),
     }
 
 
@@ -377,53 +342,6 @@ def _project_names(*projects: str | None) -> dict:
     if not wanted:
         return {}
     return dict(frappe.get_all("Projects", filters={"name": ["in", wanted]}, fields=["name", "project_name"], as_list=True))
-
-
-def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -> None:
-    """Carry over what a person attached to the old Expense, before the delete would take it.
-
-    ⚠️ RAW, AND THAT IS THE POINT. `frappe.delete_doc` deletes every `File` attached to the old Expense
-    through the document layer, and the storage app's `on_trash` then deletes the stored object -- a photo
-    someone added would be lost. Re-pointing the `File` row keeps the object and its storage key (which is
-    fixed at insert); `File` has no hook on these fields. The `payment_attachment` value is written after
-    the insert for the reason `create_expense_from_row` writes `invoice_attachment` so: a save would make a
-    second `File` row for it. Nothing is derived from either.
-
-    ⚠️ NEVER A ROW FOR `kept_file_url` (Porter: the shared invoice PDF). That PDF's one File is its Porter
-    Invoice's (`integrations/controllers/expense_files`); a copy an older save left on the old Expense stays
-    there and goes with it, through the shared-bytes-safe delete, which leaves the PDF in place.
-    """
-    if old.get("payment_attachment"):
-        frappe.db.set_value(doctype, name, "payment_attachment", old.payment_attachment, update_modified=False)
-    frappe.db.sql(
-        """UPDATE "tabFile" SET attached_to_doctype = %s, attached_to_name = %s
-           WHERE attached_to_doctype = %s AND attached_to_name = %s
-             AND file_url IS DISTINCT FROM %s""",
-        (doctype, name, old.doctype, old.name, kept_file_url),
-    )
-
-
-def _follow_on_the_line(row: str, new, project: str | None, expense_type: str, actor: str) -> None:
-    """The line's plan and pick follow the new Expense, so a later Unreconcile + Create re-creates it where
-    it was rectified to. Its status stays Settled, so the batch rollup does not move.
-
-    Raw: `Outflow Import Row` carries no doc_events.
-    """
-    frappe.db.set_value(
-        ROW_DOCTYPE,
-        row,
-        {
-            "suggested_doctype": new.doctype,
-            "resolved_project": project,
-            "suggested_expense_type": expense_type,
-            "suggested_name": new.name,
-            "outcome_note": f"Moved to {new.doctype} {new.name}.",
-            "decided_at": frappe.utils.now_datetime(),
-            "decided_by": actor,
-            "settlement_origin": _ORIGIN,
-        },
-        update_modified=False,
-    )
 
 
 def _comment_on_line_and_record(

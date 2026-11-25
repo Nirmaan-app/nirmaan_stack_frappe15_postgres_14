@@ -15,10 +15,11 @@ from __future__ import annotations
 import frappe
 
 from nirmaan_stack.api.outflow_import.cashbook_matches import cashbook_line_of
-from nirmaan_stack.api.outflow_import.porter_rectify import plan_rectify, rectify_rows
-from nirmaan_stack.api.outflow_import.rectify_sources import source_of
+from nirmaan_stack.api.outflow_import.porter_rectify import move_accepts, plan_rectify, rectify_rows
+from nirmaan_stack.api.outflow_import.rectify_sources import SOURCES, source_of
 from nirmaan_stack.api.outflow_import.rectify_transfer import INTERNAL_TRANSFER_DESTINATION, TransferTo
 from nirmaan_stack.services.outflow_import.ledgers import is_expense_doctype
+from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
 
 @frappe.whitelist()
@@ -55,6 +56,21 @@ def rectify_lines(
         else None
     )
     return rectify_rows(source_of(rows), rows, project, reason, expense_type, transfer)
+
+
+def movable_rows(rows) -> set[str]:
+    """The names of the page rows (`review.get_outflow_rows`) Move accepts: Settled lines of a wired source whose plan,
+    ticked with the lines they move with, refuses nothing (`porter_rectify.move_accepts`). On such a line the screen
+    hides Unreconcile (#1762, spec #1753 story 53); a refused or Linked line keeps it (story 54).
+
+    ⚠️ A PAGE READ, NEVER A PROMISE: the write re-asks every rule under its locks.
+    """
+    movable = set()
+    for row in rows:
+        source = SOURCES.get((row.get("source") or "").strip())
+        if source and row.get("row_status") == ROW_SETTLED and move_accepts(source, row["name"]):
+            movable.add(row["name"])
+    return movable
 
 
 @frappe.whitelist()

@@ -29,11 +29,12 @@ from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFE
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
 from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
+    hand_mark_detail,
     hand_mark_ends,
     other_end_refusal,
     own_place,
 )
-from nirmaan_stack.services.outflow_import.internal_transfers import MADE_BY_HAND
+from nirmaan_stack.services.outflow_import.internal_transfers import MADE_BY_HAND, PLACES
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
 
@@ -49,6 +50,20 @@ class TransferTo:
 
     other_end: str
     detail: str = ""
+
+
+def transfer_offer(source: str) -> dict | None:
+    """What the Move dialog offers for this destination on `source`'s lines, or `None` when they cannot move there:
+    the line's `own_place` and the `other_ends` to choose from (every place but that one), as Mark offers them."""
+    own = own_place(source)
+    if own is None:
+        return None
+    return {"own_place": own, "other_ends": [place for place in PLACES if place != own]}
+
+
+def transfer_detail(line) -> str:
+    """The detail the dialog starts with for `line`, as Mark starts it (`hand_mark_detail`: the wallet holder)."""
+    return hand_mark_detail(line.source, line.direction, line.get("added_by_raw"), line.get("beneficiary_name"))
 
 
 def refuse_unless_transferable(source: str, transfer: TransferTo) -> None:
@@ -81,7 +96,7 @@ def move_to_internal_transfer(line, old, transfer: TransferTo, reason: str, acto
 def _move_files(old, record: str, proof: str | None, kept_file_url: str | None) -> None:
     """Every File of the expense goes to the record before the delete would take it; the bill's is its `proof`.
 
-    ⚠️ RAW, AND THAT IS THE POINT -- as the core's `_move_attachments`: `frappe.delete_doc` would delete the expense's
+    ⚠️ RAW, AND THAT IS THE POINT -- as `rectify_replace._move_attachments`: `frappe.delete_doc` would delete the expense's
     Files through the document layer, and the storage app's `on_trash` the stored bytes. Re-pointing the `File` row
     keeps the object and its key; `File` has no hook on these fields. `proof` is written after the insert, by
     `set_value`, because the record refuses every save after insert (`internal_transfer.NEVER_EDITED`), and a save
