@@ -52,7 +52,6 @@ import {
     type RectifyOutcome,
     type RectifyPlan,
     type RectifyPlanLine,
-    type RectifyResult,
 } from "../porterRectify";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
@@ -161,7 +160,7 @@ const RectifyForm = ({
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
 }) => {
-    const { call } = useFrappePostCall<{ message: RectifyResult & CashbookMoveResult }>(RECTIFY_METHOD);
+    const { call } = useFrappePostCall<{ message: CashbookMoveResult }>(RECTIFY_METHOD);
     const [target, setTarget] = useState<ProjectOption | null>(null);
     // The phrase box (#1758): ticked by default; `null` phrase: not typed by hand, so the remark's applies.
     const [learn, setLearn] = useState(true);
@@ -186,7 +185,7 @@ const RectifyForm = ({
     const type =
         chosenType && typeOptions.some((option) => option.value === chosenType.value) ? chosenType.value : fallbackType;
     const toProject = cashbook && Boolean(target?.value);
-    const phrase = typedPhrase ?? (toProject && target ? suggestedPhrase(moving, target.label) : "");
+    const phrase = typedPhrase ?? (toProject ? suggestedPhrase(moving, target?.label ?? "") : "");
     const teaches = toProject && learn;
 
     const blocked = !target

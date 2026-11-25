@@ -10,47 +10,22 @@ active `Outflow Import Project Alias` (phrase -> project), which the next Cashbo
   * `phrase_refusal`: asked before any line moves. A phrase that already names ANOTHER project refuses the whole
     write, in a plain sentence, so the person changes the phrase or unticks the box.
   * `learn_phrase`: after the lines, once at least one moved. The same phrase already naming this project changes
-    nothing (a retired one is made active again: the person has just asked for it).
+    nothing (a retired one is made active again: the person has just asked for it). A save refused now, with the
+    lines already committed, comes back as the answer's reason, never as an error.
 
-⚠️ ONE PHRASE NEVER NAMES TWO PROJECTS. "Same phrase" is `project_match.alias_haystack`'s reading (case, spaces and
-punctuation do not count), the one the import matches by; the table's own unique key sees only the exact text. The
-check and the insert run under one advisory lock on the normalised phrase, reading from a snapshot taken under it
-(`learn_phrase`); the doctype's own `validate` takes the same lock (`lock_phrase`). So two Moves teaching "VR Mall" and
-"vr  mall" to two projects queue, and the second is refused. (A Desk save reads from its request's earlier snapshot,
-so a Desk save racing a Move can still miss the Move's row; the import then drops the phrase, and never misplaces a
-spend by it.)
+⚠️ ONE PHRASE NEVER NAMES TWO PROJECTS THROUGH A MOVE. "Same phrase" is `services/outflow_import/project_alias`'s;
+the table's own unique key sees only the exact text. The check and the insert run under one advisory lock on the
+normalised phrase, reading from a transaction begun under it (`learn_phrase`); the doctype's own `validate` takes the
+same lock. So two Moves teaching "VR Mall" and "vr  mall" to two projects queue, and the second is refused. (A Desk
+save reads from its request's earlier snapshot, so a Desk save racing a Move can still miss the Move's row; the
+import then drops the phrase, and never misplaces a spend by it.)
 """
 
 from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.project_match import alias_haystack
-
-ALIAS_DOCTYPE = "Outflow Import Project Alias"
-
-
-def normalised(phrase: str | None) -> str:
-    """The phrase as the import matches it: lowercase words, single spaces. Blank when nothing is left to match."""
-    return alias_haystack(phrase).strip()
-
-
-def lock_phrase(phrase: str | None) -> None:
-    """Hold this transaction's lock on the normalised phrase until it ends (Postgres advisory lock). Taken by the
-    alias doctype's `validate`, so a Desk save queues behind a Move learning the same phrase."""
-    frappe.db.sql("SELECT pg_advisory_xact_lock(hashtext(%s))", (_lock_key(phrase),))
-
-
-def holder_of(phrase: str | None):
-    """The alias row (`name`, `keyword`, `project`, `active`) that already reads as this phrase, active or not, or
-    `None`. The table is small (a curated list plus what Moves teach), so every row is read."""
-    wanted = normalised(phrase)
-    if not wanted:
-        return None
-    for row in frappe.get_all(ALIAS_DOCTYPE, fields=["name", "keyword", "project", "active"], order_by="creation asc"):
-        if normalised(row.keyword) == wanted:
-            return row
-    return None
+from nirmaan_stack.services.outflow_import.project_alias import ALIAS_DOCTYPE, holder_of, lock_key, normalised
 
 
 def phrase_refusal(phrase: str | None, project: str | None) -> str | None:
@@ -67,25 +42,30 @@ def learn_phrase(phrase: str | None, project: str | None) -> dict | None:
     """Save `phrase` as an active alias of `project`, and commit. Call it at a transaction boundary: it commits first.
 
     `None` when nothing is to be learned (no project, or a blank phrase). Else `{"phrase", "saved": bool,
-    "reason"?}`: `saved` False with no reason when it already named this project; with a reason when another project
-    took it after the write's first check.
+    "reason"?}`: `saved` False with no reason when it already named this project; with a reason when the save was
+    refused (another project took the phrase after the write's first check, or the alias's own validation).
     """
     phrase = (phrase or "").strip()
     if not project or not normalised(phrase):
         return None
-    # ⚠️ A SESSION LOCK, THEN A FRESH TRANSACTION. Postgres runs Frappe at REPEATABLE READ: a transaction reads from
-    # the snapshot its first statement took, so a lock taken inside it would not show an alias committed while it
-    # waited. This lock outlives the commit below; the next statement's snapshot is taken under it, and sees every
-    # alias a Move (or a Desk save, through `validate`'s lock) committed before.
-    frappe.db.sql("SELECT pg_advisory_lock(hashtext(%s))", (_lock_key(phrase),))
+    # ⚠️ A SESSION LOCK, THEN A FRESH TRANSACTION. Postgres runs a connection's first Frappe transaction at REPEATABLE
+    # READ: it reads from the snapshot its first statement took, so a lock taken inside it would not show an alias
+    # committed while it waited. This lock outlives the commit below; the next transaction starts under it, and sees
+    # every alias a Move (or a Desk save, through `validate`'s lock) committed before.
+    frappe.db.sql("SELECT pg_advisory_lock(hashtext(%s))", (lock_key(phrase),))
     try:
         frappe.db.commit()
         return _learn(phrase, project)
+    except frappe.ValidationError as exc:
+        # The lines have committed: the screen must hear that they moved and why the phrase did not stick.
+        frappe.db.rollback()
+        return {"phrase": phrase, "saved": False, "reason": frappe.utils.strip_html(str(exc)).strip()}
     except Exception:
         frappe.db.rollback()
         raise
     finally:
-        frappe.db.sql("SELECT pg_advisory_unlock(hashtext(%s))", (_lock_key(phrase),))
+        frappe.db.sql("SELECT pg_advisory_unlock(hashtext(%s))", (lock_key(phrase),))
+        frappe.db.commit()
 
 
 def _learn(phrase: str, project: str) -> dict:
@@ -105,10 +85,6 @@ def _learn(phrase: str, project: str) -> dict:
     )
     frappe.db.commit()
     return {"phrase": phrase, "saved": True}
-
-
-def _lock_key(phrase: str | None) -> str:
-    return f"project-alias:{normalised(phrase)}"
 
 
 def _taken(holder) -> str:

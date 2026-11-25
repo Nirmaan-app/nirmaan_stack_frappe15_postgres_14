@@ -222,3 +222,14 @@ class TestTwoMovesTeachingOnePhraseAtOnce(CashbookPhraseCase):
                 "Change the phrase, or untick the box.",
             },
         )
+
+
+class TestAPhraseThatCannotBeSavedAfterTheLinesMoved(CashbookPhraseCase):
+    def test_the_answer_says_why_and_nothing_raises(self):
+        # The project vanishes between the write's first check and the save (here: never existed), so the alias's
+        # own Link check refuses it after the lines committed.
+        answer = learn_phrase(self.phrase, "TEST-NO-SUCH-PROJECT")
+
+        self.assertEqual((answer["phrase"], answer["saved"]), (self.phrase, False))
+        self.assertTrue(answer["reason"])
+        self.assertEqual(self._aliases(), [])
