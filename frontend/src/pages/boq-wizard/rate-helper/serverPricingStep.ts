@@ -349,6 +349,7 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
       const pairOf = soft.slice(0, 14);
       const hit = new Set<string>();
       for (let i = 0; i < pairOf.length; i++) for (let j = i + 1; j < pairOf.length; j++) {
+        if (hit.has(pairOf[i]) && hit.has(pairOf[j])) continue;   // #1741: it could only add both again (only `hit` is read)
         const { attrs, its } = blanked(r, [pairOf[i], pairOf[j]]);
         if (!price(r, attrs, its).priced) { hit.add(pairOf[i]); hit.add(pairOf[j]); }
       }
