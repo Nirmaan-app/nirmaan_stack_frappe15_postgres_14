@@ -108,7 +108,7 @@ with session(a.task, a.lead, a.password) as (page, out):
     save(page, out, "02-non-project-no-box")
 
     tick = box.get_by_role("checkbox")
-    field = box.get_by_label("Phrase")
+    field = box.get_by_role("textbox", name="Phrase", exact=True)
     choose(page, dialog, "Move to", seeded["other_project_name"])
     box.wait_for(timeout=10_000)
     check(tick.get_attribute("aria-checked") == "true" and field.input_value() == ""
