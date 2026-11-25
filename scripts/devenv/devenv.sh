@@ -187,6 +187,20 @@ db_state() {
   fi
 }
 
+# The app's after_migrate hook queues the match-pool build unless the site config says nirmaan_env "dev"
+# (pool_autobuild.after_migrate). An env is a dev site, and its hook reads the config DURING the migrate, so the mark
+# goes in before it, on every migrate: an env made before this line gets it on its next one.
+mark_dev_site() {
+  python3 - "$B/sites/$SITE/site_config.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+conf = json.load(open(path))
+if conf.get("nirmaan_env") != "dev":
+    conf["nirmaan_env"] = "dev"
+    json.dump(conf, open(path, "w"), indent=1)
+PY
+}
+
 migrate() {    # frappe migrate, after clearing locks a killed or failed run left behind (else DocumentLockedError)
   pgrep -f -- "--site $SITE migrate" >/dev/null && die "a migrate is already running on $SITE"
   rm -f "$B/sites/$SITE/locks/"*.lock
@@ -196,6 +210,7 @@ migrate() {    # frappe migrate, after clearing locks a killed or failed run lef
   local next="$B/.migrated-schema.next"
   rm -f "$B/.migrated-schema"
   schema record "$next" || rm -f "$next"
+  mark_dev_site
   frappe_cmd migrate "$@" && make_safe || return
   if [ -f "$next" ]; then mv "$next" "$B/.migrated-schema"; fi
 }
