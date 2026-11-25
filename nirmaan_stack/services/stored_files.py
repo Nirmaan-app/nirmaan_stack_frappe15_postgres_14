@@ -73,3 +73,31 @@ def delete_files(filters: dict) -> int:
         else:
             frappe.delete_doc("File", file.name, ignore_permissions=True)
     return len(files)
+
+
+def reattach_files(
+    from_doctype: str,
+    from_name: str,
+    to_doctype: str,
+    to_name: str,
+    *,
+    except_url: str | None = None,
+    field_url: str | None = None,
+    field: str | None = None,
+) -> None:
+    """Every `File` attached to `from_doctype` `from_name` becomes attached to `to_doctype` `to_name`, so deleting
+    the first record deletes none of them (Move's replaced Expense and its bills, #1757, #1762; a sent-back Internal
+    Transfer record's proof, #1762). `except_url`: a file URL whose rows stay where they are (Porter's shared invoice
+    PDF). `field_url` / `field`: the row of that URL is attached to that field of the new record.
+
+    ⚠️ RAW, AND THAT IS THE POINT. `frappe.delete_doc` deletes every `File` attached to a record through the
+    document layer, and the storage app's `on_trash` then deletes the stored object. Re-pointing the row keeps the
+    object and its storage key (fixed at insert); `File` has no hook on these fields and nothing is derived from them.
+    """
+    frappe.db.sql(
+        """UPDATE "tabFile" SET attached_to_doctype = %s, attached_to_name = %s,
+               attached_to_field = CASE WHEN file_url = %s THEN %s ELSE attached_to_field END
+           WHERE attached_to_doctype = %s AND attached_to_name = %s
+             AND file_url IS DISTINCT FROM %s""",
+        (to_doctype, to_name, field_url, field, from_doctype, from_name, except_url),
+    )

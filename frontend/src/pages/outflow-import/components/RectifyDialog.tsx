@@ -6,6 +6,8 @@
 //   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
 //   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
 //     the expense type the destination takes; wording in `cashbookRectify.ts`.
+// A Cashbook line may also move to Internal Transfer (#1762, spec #1753 story 13): From, To and Detail as Mark as
+// Internal Transfer asks them; the record keeps the bill as its proof and no expense is left.
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -31,8 +33,14 @@ import {
     cashbookMoveLabel,
     cashbookOutcome,
     defaultMoveType,
+    defaultTransferDetail,
     destinationLedger,
+    INTERNAL_TRANSFER_TARGET,
+    MOVE_TO_INTERNAL_TRANSFER,
+    moveTargets,
+    transferChosenEnd,
     type CashbookPlanLine,
+    type TransferOffer,
 } from "../cashbookRectify";
 import { describeFrappeError } from "../outflowTableModel";
 import {
@@ -49,6 +57,7 @@ import {
     type RectifyPlanLine,
     type RectifyResult,
 } from "../porterRectify";
+import { PlaceSelect } from "./InternalTransferDialog";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /** A plan line of either source: Porter's fields, and a Cashbook line's beside them. */
@@ -166,10 +175,15 @@ const RectifyForm = ({
     const cashbook = plan.source === CASHBOOK_SOURCE;
     const lines: PlanLine[] = plan.lines;
 
-    const options = useMemo(() => projectOptions(plan.projects ?? []), [plan]);
+    const options = useMemo(() => moveTargets(projectOptions(plan.projects ?? []), plan.transfer), [plan]);
     const trimmed = reason.trim();
     const moving = target ? linesToMove(lines, target.value) : [];
-    const ledger = target ? destinationLedger(target.value) : null;
+    const toTransfer = target?.value === INTERNAL_TRANSFER_TARGET;
+    const [otherEnd, setOtherEnd] = useState("");
+    // `null`: not typed by hand, so the lines' own detail applies (as Mark starts it).
+    const [typedDetail, setTypedDetail] = useState<string | null>(null);
+    const detail = typedDetail ?? defaultTransferDetail(moving);
+    const ledger = target && !toTransfer ? destinationLedger(target.value) : null;
     const typeOptions = useMemo(
         () => (ledger ? (plan.types?.[ledger] ?? []).map((name) => ({ value: name, label: name })) : []),
         [plan, ledger],
@@ -182,9 +196,11 @@ const RectifyForm = ({
         ? "Choose where the expenses go."
         : !moving.length
           ? "Nothing here would move."
-          : cashbook && !type
-            ? "Choose an expense type the destination takes."
-            : !trimmed
+          : toTransfer && !otherEnd
+            ? "Choose where the money went or came from."
+            : cashbook && !toTransfer && !type
+              ? "Choose an expense type the destination takes."
+              : !trimmed
               ? "Type a reason first."
               : null;
 
@@ -195,9 +211,10 @@ const RectifyForm = ({
         try {
             const response = await call({
                 rows: JSON.stringify(moving.map((line) => line.row)),
-                project: target.value,
                 reason: trimmed,
-                ...(cashbook ? { expense_type: type } : {}),
+                ...(toTransfer
+                    ? { destination: INTERNAL_TRANSFER_TARGET, other_end: otherEnd, detail: detail.trim() }
+                    : { project: target.value, ...(cashbook ? { expense_type: type } : {}) }),
             });
             const targetName = target.value ? target.label : null;
             onRan(cashbook ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
@@ -259,7 +276,19 @@ const RectifyForm = ({
                 />
             </div>
 
-            {cashbook && target && (
+            {toTransfer && plan.transfer && (
+                <TransferEnds
+                    offer={plan.transfer}
+                    chosen={transferChosenEnd(moving)}
+                    otherEnd={otherEnd}
+                    onOtherEnd={setOtherEnd}
+                    detail={detail}
+                    onDetail={setTypedDetail}
+                    disabled={busy}
+                />
+            )}
+
+            {cashbook && target && !toTransfer && (
                 <div className="space-y-1.5">
                     <Label className="text-xs">Expense type</Label>
                     <PorterProjectSelect
@@ -300,12 +329,80 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {cashbook
-                        ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
-                        : moveOrdersLabel(moving.length || rows.length)}
+                    {toTransfer
+                        ? MOVE_TO_INTERNAL_TRANSFER
+                        : cashbook
+                          ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
+                          : moveOrdersLabel(moving.length || rows.length)}
                 </Button>
             </div>
         </div>
+    );
+};
+
+/**
+ * From, To and Detail for a move to Internal Transfer (#1762, story 13), as Mark as Internal Transfer asks them: the
+ * line's own side is fixed, the person chooses the other end. A spend moving with its refund runs each record its own
+ * way, so the choice is named "Other end".
+ */
+const TransferEnds = ({
+    offer,
+    chosen,
+    otherEnd,
+    onOtherEnd,
+    detail,
+    onDetail,
+    disabled,
+}: {
+    offer: TransferOffer;
+    chosen: "to" | "from" | "either";
+    otherEnd: string;
+    onOtherEnd: (value: string) => void;
+    detail: string;
+    onDetail: (value: string) => void;
+    disabled: boolean;
+}) => {
+    const select = <PlaceSelect id="move-it-other" value={otherEnd} onChange={onOtherEnd} choices={offer.other_ends} />;
+    const own = <span id="move-it-own">{offer.own_place}</span>;
+    return (
+        <fieldset disabled={disabled} className="space-y-1.5" data-testid="move-transfer">
+            <p className="text-xs text-muted-foreground">
+                Our own money moving between our own places: no expense is left, and the bill is kept on the Internal
+                Transfer as its proof.
+            </p>
+            <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-sm">
+                {chosen === "either" ? (
+                    <>
+                        <Label className="text-xs">Own side</Label>
+                        {own}
+                        <Label htmlFor="move-it-other" className="text-xs">
+                            Other end
+                        </Label>
+                        {select}
+                    </>
+                ) : (
+                    <>
+                        <Label htmlFor={chosen === "from" ? "move-it-other" : undefined} className="text-xs">
+                            From
+                        </Label>
+                        {chosen === "from" ? select : own}
+                        <Label htmlFor={chosen === "to" ? "move-it-other" : undefined} className="text-xs">
+                            To
+                        </Label>
+                        {chosen === "to" ? select : own}
+                    </>
+                )}
+                <Label htmlFor="move-it-detail" className="text-xs">
+                    Detail
+                </Label>
+                <Input
+                    id="move-it-detail"
+                    value={detail}
+                    placeholder="Optional: the employee, the card's last four"
+                    onChange={(event) => onDetail(event.target.value)}
+                />
+            </div>
+        </fieldset>
     );
 };
 

@@ -6,6 +6,10 @@ import {
     cashbookOutcome,
     cashbookMoveLabel,
     defaultMoveType,
+    defaultTransferDetail,
+    INTERNAL_TRANSFER_TARGET,
+    moveTargets,
+    transferChosenEnd,
     type CashbookPlanLine,
 } from "./cashbookRectify";
 import { lineMoveLabel, rectifyAffordance, rectifyButtonState, toolbarMoveLabel } from "./porterRectify";
@@ -153,5 +157,37 @@ describe("what a run reports (story 26)", () => {
         expect(cashbookOutcome({ count: 1, lines: [{ row: "OFR-1", rectified: true }] }, null).title).toBe(
             "1 expense moved to Non Project.",
         );
+    });
+});
+
+describe("the Internal Transfer destination (#1762, stories 13, 27-28)", () => {
+    const transfer = { own_place: "Cashbook Employee Wallet", other_ends: ["ICICI Credit Card", "ICICI Current Account"] };
+    const refund: CashbookPlanLine = { ...spend, row: "OFR-2", money_in: true, transfer_detail: "Meera Iyer" };
+
+    it("is offered after the projects only when the plan offers it", () => {
+        const projects = [{ value: "", label: "No project" }, { value: "PROJ-1", label: "Testorchid Heights" }];
+        expect(moveTargets(projects, transfer).map((option) => option.value)).toEqual([
+            "",
+            "PROJ-1",
+            INTERNAL_TRANSFER_TARGET,
+        ]);
+        expect(moveTargets(projects, null)).toEqual(projects);
+    });
+
+    it("the person chooses where a spend went, where a refund came from, and either end for a spend with its refund", () => {
+        expect(transferChosenEnd([spend])).toBe("to");
+        expect(transferChosenEnd([refund])).toBe("from");
+        expect(transferChosenEnd([spend, refund])).toBe("either");
+    });
+
+    it("the detail starts as the lines' shared one, as Mark starts it, else blank", () => {
+        expect(defaultTransferDetail([{ ...spend, transfer_detail: "Meera Iyer" }])).toBe("Meera Iyer");
+        expect(defaultTransferDetail([{ ...spend, transfer_detail: "Meera Iyer" }, { ...refund, transfer_detail: "Asha Menon" }])).toBe("");
+    });
+
+    it("a run reports the lines that became transfers", () => {
+        expect(
+            cashbookOutcome({ count: 1, lines: [{ row: "OFR-1", rectified: true }] }, INTERNAL_TRANSFER_TARGET).title,
+        ).toBe("1 expense moved to Internal Transfer.");
     });
 });

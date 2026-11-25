@@ -954,10 +954,14 @@ needs one vocabulary rather than one per writer.
     and one `Internal Transfer` record (unique `import_row`), inserted only by
     `api/outflow_import/internal_transfers.record_for_line`. A status-changed repeat of a move already recorded is
     an Internal Transfer line with no record of its own (`upload._stage_batch`, `recorded_line_of_move`): the move
-    is recorded once. The record's `validate` refuses every save after insert. The one change is
+    is recorded once. The record's `validate` refuses every save after insert. The two changes are
     `internal_transfers.fill_zero_records`, which gives a ₹0 Cashbook record its amount from a re-uploaded SUCCESS
-    line, by a raw `set_value`; no stored figure is built from that amount, so nothing needs a recompute. Only
-    Send back to Mismatched deletes a record. The status is terminal: the match run, Skip, Unskip, Unreconcile,
+    line, and `rectify_transfer.move_to_internal_transfer`, which writes `proof` in the transaction that inserts the
+    record; both by a raw `set_value`, and no stored figure is built from either, so nothing needs a recompute. A
+    Settled line becomes one only through Move (Rectify) to Internal Transfer (#1762): the expense the import created
+    is deleted, its Files (the latest bill's as `proof`) go to the record first, and Mark as Internal Transfer still
+    refuses a Settled line. Only Send back to Mismatched deletes a record, and it moves the record's Files to the
+    line first, so a proof is never lost. The status is terminal: the match run, Skip, Unskip, Unreconcile,
     Allocate, Create and Link all refuse such a line, and it is in no expense, inflow, payment or open-work figure
     (Still open, Total Unreconciled Outflow). Gross Outflow and Gross Inflow still include it. ⚠️ **A Cashbook move
     is never sent back** (`Bank → VA`, `VA → Wallet`, `Wallet → VA`, `internal_transfers.CASHBOOK_INTERNAL_KINDS`;

@@ -3063,6 +3063,10 @@ def get_outflow_rows(
     tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
     refund_suggestions = shown_suggestions(rows)
     cheques = _cheque_outcomes(rows)
+    # A FUNCTION-LOCAL IMPORT: the Move core imports `expenses`, which imports this module.
+    from nirmaan_stack.api.outflow_import.rectify import movable_rows
+
+    movable = movable_rows(rows)
 
     return {
         "rows": [
@@ -3072,6 +3076,8 @@ def get_outflow_rows(
                 **internal_transfer_fields(row),
                 "hand_mark": hand_mark_of_row(row),
                 "can_send_back": can_send_back(row),
+                # #1762: Move accepts this line (its plan refuses nothing), so the screen hides Unreconcile on it.
+                "can_move": row["name"] in movable,
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
