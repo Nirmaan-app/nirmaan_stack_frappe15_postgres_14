@@ -8,7 +8,7 @@ READ-ONLY. Two endpoints, both keyed on the EXPENSE, never on the Porter records
 - `get_porter_expense(doctype, name)`: the read-only Porter section of the expense dialogs (edit, the
   approval detail, the bank-lines card): CRN, booked by, from -> to, city, fare and reverse-charge GST
   from the Porter Order; invoice number and billing entity from the Porter Invoice; where the expense
-  sits now, and the import line it came from (the "Move to another project" link, #1558). `None` for an
+  sits now, and the import line it came from (the Move link, #1558; worded by #1759). `None` for an
   expense the import did not create.
 - `porter_invoice_pdf(doctype, name)`: that invoice's stored PDF, served inline.
 
@@ -72,7 +72,7 @@ def get_porter_expense(doctype: str, name: str) -> dict | None:
         "pdf_url": pdf_url(doctype, expense),
         "project": project,
         "project_name": project and frappe.db.get_value("Projects", project, "project_name"),
-        # #1558: the line "Move to another project" opens in Bulk Import (Rectify; its own access check).
+        # #1558: the Move link opens the line in Bulk Import (Rectify; its own access check).
         "import_batch": import_batch or None,
         "import_row": (import_batch and order.import_row) or None,
     }

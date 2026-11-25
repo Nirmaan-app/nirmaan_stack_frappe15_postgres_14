@@ -85,7 +85,8 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   Transfer, its bill kept as the record's proof, and Unreconcile hidden where Move accepts the line (#1762), by
   `BIN/walk_move_to_transfer.py`; Move of a card spend to a Won project, still in Pending Invoices Upload -> Credit
   Card with its holder (#1761), by `BIN/walk_card_move.py`; Move of an expense created from a bank or Cashfree line
-  (#1760), by `BIN/walk_bank_move.py`.
+  (#1760), by `BIN/walk_bank_move.py`; a Porter line's Move wording and the delivery's details in its dialog, from the
+  line and from the expense's edit dialog (#1759), by `BIN/walk_porter_move.py`.
 - [Cashbook Wallet Credits](./cashbook-credits.md): a Wallet Credit booked as a minus Expense where its remark places
   it, and a no-Expense refund placed the same way (#1720). Walked by `BIN/walk_cashbook_credits.py`.
 - [Cashbook cutoff](./cashbook-cutoff.md): the import period and the ₹0 Internal Transfer fills read only the lines

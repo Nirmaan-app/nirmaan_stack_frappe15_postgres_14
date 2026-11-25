@@ -2,13 +2,16 @@
 //
 // Rectify (on screen: Move) created import expenses: each one's Expense goes to a chosen Won project, or to
 // Non-Project, with a typed reason. One line (the Outcome cell's button, or an expense's locked-project link) or several
-// ticked together (the toolbar); the same dialog either way. The plan names the lines' source:
-//   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
-//   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
-//     the expense type the destination takes; wording in `cashbookRectify.ts`.
-//   * Card lines (#1761): Cashbook's label rule and type choice, and the card line's details (`cardRectify.ts`).
-//   * Bank and Cashfree lines whose expense was created with Create (#1760): the Cashbook label and type rules, and
-//     the line's date, UTR, beneficiary and remark (`bankRectify.ts`).
+// ticked together (the toolbar); the same dialog either way. Every source words its title and run button by the one
+// label rule (`utils/moveLabel.ts`: "Move to a project", "Change project", "Move N expenses"; #1757, #1759). The plan
+// names the lines' source:
+//   * Porter orders (#1449, ADR-0032; the delivery's details #1759): each line's details are the expense's Porter
+//     section (`porter_expense.get_porter_expense`, one read per line, keyed as the expense screens').
+//   * Cashbook lines (#1757, spec #1753): the wallet line's details with its bill and Bill check, and the expense type
+//     the destination takes (`cashbookRectify.ts`).
+//   * Card lines (#1761): Cashbook's type choice, and the card line's details (`cardRectify.ts`).
+//   * Bank and Cashfree lines whose expense was created with Create (#1760): Cashbook's type choice, and the line's
+//     date, UTR, beneficiary and remark (`bankRectify.ts`).
 // A Cashbook, bank or Cashfree line may also move to Internal Transfer (#1762, spec #1753 story 13), when the plan
 // offers it (`plan.transfer`): From, To and Detail as Mark as Internal Transfer asks them; the record keeps the bill as
 // its proof and no expense is left. Each line's details row: `RectifyLineDetails.tsx`.
@@ -31,7 +34,6 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     CASHBOOK_SOURCE,
-    cashbookMoveLabel,
     cashbookOutcome,
     defaultMoveType,
     defaultTransferDetail,
@@ -48,8 +50,8 @@ import {
     RECTIFY_METHOD,
     RECTIFY_PLAN_METHOD,
     linesToMove,
+    moveButtonLabel,
     moveDialogTitle,
-    moveOrdersLabel,
     placementText,
     rectifyOutcome,
     staysNote,
@@ -65,19 +67,11 @@ import { isBankSource, LineDetails, type PlanLine } from "./RectifyLineDetails";
 let openings = 0;
 
 /**
- * The sources whose Move picks a ledger and a type, worded by where the expense goes (Cashbook #1757, card #1761, bank
- * and Cashfree #1760): the label and type rules of `cashbookRectify.ts`. Porter keeps its own words.
+ * The sources whose Move picks a ledger and a type (Cashbook #1757, card #1761, bank and Cashfree #1760): the type
+ * rules of `cashbookRectify.ts`. A Porter order keeps its ledger's type. Every source's words are `moveLabel`'s.
  */
 const movesBetweenLedgers = (plan: RectifyPlan | undefined): boolean =>
     plan?.source === CASHBOOK_SOURCE || plan?.source === CARD_SOURCE || isBankSource(plan?.source);
-
-/** The title before the plan says the source, and for each source once it has. */
-const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
-    if (!plan) return "Move";
-    if (!movesBetweenLedgers(plan)) return moveDialogTitle(rows.length);
-    const ledgers = plan.lines.filter((line) => line.ledger).map((line) => line.ledger);
-    return cashbookMoveLabel(ledgers.length ? ledgers : plan.lines.map(() => undefined));
-};
 
 /**
  * ⚠️ RENDER IT ONLY FOR THE UNDO ROLES (`canUndoOutflow`): both endpoints refuse a plain Accountant.
@@ -134,7 +128,7 @@ const RectifyBody = ({
     return (
         <>
             <DialogHeader>
-                <DialogTitle>{titleOf(rows, plan)}</DialogTitle>
+                <DialogTitle>{plan ? moveDialogTitle(plan.lines) : "Move"}</DialogTitle>
                 <DialogDescription>
                     {plan?.source === CARD_SOURCE
                         ? "Each expense is replaced by one with the same amount, date, reference, card statement, " +
@@ -158,19 +152,17 @@ const RectifyBody = ({
                     Could not load the lines ({describeFrappeError(error, "couldn't load")}).
                 </p>
             ) : (
-                <RectifyForm rows={rows} plan={plan} onCancel={onCancel} onRan={onRan} />
+                <RectifyForm plan={plan} onCancel={onCancel} onRan={onRan} />
             )}
         </>
     );
 };
 
 const RectifyForm = ({
-    rows,
     plan,
     onCancel,
     onRan,
 }: {
-    rows: string[];
     plan: RectifyPlan;
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
@@ -339,11 +331,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {toTransfer
-                        ? MOVE_TO_INTERNAL_TRANSFER
-                        : ledgerMove
-                          ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
-                          : moveOrdersLabel(moving.length || rows.length)}
+                    {toTransfer ? MOVE_TO_INTERNAL_TRANSFER : moveButtonLabel(lines, moving)}
                 </Button>
             </div>
         </div>

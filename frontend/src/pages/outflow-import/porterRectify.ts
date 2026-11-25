@@ -7,10 +7,10 @@
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks. This only decides what to offer and how to word it.
 
-import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
+import { moveLabel } from "@/utils/moveLabel";
 
 import { BANK_MOVE_SOURCES } from "./bankRectify";
-import { CASHBOOK_SOURCE, cashbookMoveLabel } from "./cashbookRectify";
+import { CASHBOOK_SOURCE } from "./cashbookRectify";
 import { CARD_SOURCE } from "./creditCardImport";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
@@ -23,14 +23,18 @@ export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.rectify.rectify_
 
 const PROJECT_EXPENSE = "Project Expenses";
 
-/** On screen Rectify is "Move to another project" (#1558); the code and the domain keep the name Rectify. */
-export { MOVE_ORDER_LABEL };
+/**
+ * The dialog's title (story 39), by the label rule over the lines whose expense the plan read (a refused line has
+ * none); "Move to a project" when no line has one.
+ */
+export const moveDialogTitle = (lines: readonly RectifyPlanLine[]): string => {
+    const ledgers = lines.filter((line) => line.ledger).map((line) => line.ledger);
+    return moveLabel(ledgers.length ? ledgers : lines.map(() => undefined));
+};
 
-/** The toolbar's button over ticked lines, and the dialog's run button. */
-export const moveOrdersLabel = (n: number): string => `Move ${orders(n)}`;
-
-export const moveDialogTitle = (n: number): string =>
-    n === 1 ? "Move this Porter order to another project" : `Move ${n} Porter orders to another project`;
+/** The run button's words: the title's until a destination is chosen, then the lines that will move. */
+export const moveButtonLabel = (lines: readonly RectifyPlanLine[], moving: readonly RectifyPlanLine[]): string =>
+    moving.length ? moveLabel(moving.map((line) => line.ledger)) : moveDialogTitle(lines);
 
 /** One ticked line, as the plan reads it. Every field past `refusal` is absent on a refused line. */
 export interface RectifyPlanLine {
@@ -107,21 +111,12 @@ const movableSource = (row: MovableRow): string | null => {
  */
 export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean => canUndo && Boolean(movableSource(row));
 
-/**
- * The line button's words: a Porter line keeps "Move to another project" (until #1759); a Cashbook, card, bank or
- * Cashfree line says where its expense will go (`cashbookMoveLabel`).
- */
-export const lineMoveLabel = (row: MovableRow): string => {
-    const source = movableSource(row);
-    return source && source !== PORTER_SOURCE ? cashbookMoveLabel([row.suggested_doctype]) : MOVE_ORDER_LABEL;
-};
+/** The line button's words, by where the line's expense is now (`moveLabel`; a Porter line too, #1759). */
+export const lineMoveLabel = (row: MovableRow): string => moveLabel([row.suggested_doctype]);
 
-/** The toolbar's words over the ticked lines: "Move N orders" for Porter, the Cashbook label rule for the others. */
-export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string => {
-    const ticked = rows.filter((row) => selected.has(row.name));
-    if (ticked.some((row) => movableSource(row) === PORTER_SOURCE)) return moveOrdersLabel(selected.size);
-    return cashbookMoveLabel(ticked.map((row) => row.suggested_doctype));
-};
+/** The toolbar's words over the ticked lines Move is wired for, by the same rule as one line's (#1757, Porter #1759). */
+export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string =>
+    moveLabel(rows.filter((row) => selected.has(row.name) && movableSource(row)).map((row) => row.suggested_doctype));
 
 export interface RectifyButtonState {
     /** Shown once a Settled line of a wired source is ticked on this page. */

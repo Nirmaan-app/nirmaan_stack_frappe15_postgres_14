@@ -2,7 +2,7 @@
 //
 // Move an expense a person created from a bank or Cashfree line with Create (#1760, spec #1753 stories 5, 44): the
 // line's details the dialog shows. Pure: no React, no fetch. `bankRectify.test.ts` pins it; `RectifyDialog` renders
-// it. The button and title follow the Cashbook label rule (`cashbookRectify.cashbookMoveLabel`).
+// it. The button and title follow every source's one label rule (`utils/moveLabel.ts`).
 //
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks.

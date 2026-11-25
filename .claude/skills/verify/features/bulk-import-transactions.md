@@ -106,6 +106,17 @@ past imports by source and month.
   `BIN/walk_bank_move.py` (seed `BIN/bank_move_seed.py`, DB read `BIN/bank_move_db.py`), as an Accountant Lead; the
   Bulk Import search finds a line by its UTR.
 
+- `bit-porter-move` Move a Porter order's expense (#1449, ADR-0032; wording and details #1759). A Settled Porter line's
+  button, the toolbar, the dialog's title and run button, and a Porter expense's locked-project link follow the same
+  rule as Cashbook: `Move to a project` (Non Project), `Change project` (Project), `Move N expenses` (mixed). Each line in
+  the dialog shows `CRN`, booker, amount, `Now: <placement> (<expense>)`, then one row `From → To`, `City`, `Fare`,
+  `Reverse-charge GST`, `Invoice <number>` and an `Invoice PDF` link (read per line from
+  `porter_expense.get_porter_expense`). Walked read-only by `BIN/walk_porter_move.py` (DB read
+  `BIN/porter_move_db.py`, which picks the env's own Settled Porter lines, one per ledger) as an Accountant Lead: it
+  opens each dialog and cancels. Project Expenses has no Payment Ref (CRN) search, so the walk searches
+  `Amount` and takes the row holding the CRN. The browser collapses runs of spaces in a Porter address: compare with
+  whitespace normalised.
+
 ## How to get to it (user POV)
 
 - The sidebar entry `Bulk Import Transactions` (Admin, Accountant Lead, Accountant).

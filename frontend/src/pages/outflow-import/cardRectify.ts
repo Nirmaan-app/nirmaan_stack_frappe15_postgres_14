@@ -2,8 +2,7 @@
 //
 // Move a card spend's expense to a Won project (#1761, spec #1753 stories 4, 43; ADR-0039 Amendment F): the card
 // line's details in the Move dialog. Pure: no React, no fetch. `cardRectify.test.ts` pins it; `RectifyDialog`
-// renders it. The button and title wording is Cashbook's (`cashbookRectify.cashbookMoveLabel`), the same for every
-// source that moves an expense between ledgers.
+// renders it. The button and title wording is every source's one label rule (`utils/moveLabel.ts`).
 //
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`: a card refund stays Non Project); the write re-asks under its locks.
