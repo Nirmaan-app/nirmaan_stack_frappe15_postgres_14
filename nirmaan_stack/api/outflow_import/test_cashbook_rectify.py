@@ -5,7 +5,7 @@
 
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_cashbook_rectify
 
-Seam: the Move plan and write calls (`cashbook_rectify.get_cashbook_rectify_plan`, `rectify_cashbook_rows`), on a
+Seam: the Move plan and write calls (`rectify.get_rectify_plan`, `rectify.rectify_lines`), on a
 Cashbook statement imported end to end by the job run inline (`test_cashbook_bills.CashbookBillsCase`: the bill
 download and the reading replaced). Read back the way the screens read it: the line, its Settled match, the expense,
 the expense's bills.
@@ -23,7 +23,7 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
-from nirmaan_stack.api.outflow_import import cashbook_rectify
+from nirmaan_stack.api.outflow_import import rectify
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import ONE_LINK, CashbookBillsCase
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 
@@ -105,11 +105,11 @@ class CashbookRectifyCase(CashbookBillsCase):
         run_reading(bill.name, FakeReader(BillRead(total=verdict_total, invoice_no="TESTBILL-7")))
 
     def _plan(self, *txns: str) -> dict:
-        return cashbook_rectify.get_cashbook_rectify_plan(json.dumps([self._line(t).name for t in txns]))
+        return rectify.get_rectify_plan(json.dumps([self._line(t).name for t in txns]))
 
     def _move(self, txns, project, reason=REASON, expense_type=None) -> dict:
         names = [self._line(t).name for t in txns]
-        return cashbook_rectify.rectify_cashbook_rows(json.dumps(names), project or "", reason, expense_type)
+        return rectify.rectify_lines(json.dumps(names), project or "", reason, expense_type)
 
 
 class TestASpendWithItsBillMovesToAProject(CashbookRectifyCase):
@@ -401,3 +401,19 @@ class TestThePlanShowsTheWalletSpend(CashbookRectifyCase):
         self.assertIn("Material Purchases", plan["types"][PROJECT_EXPENSE])
         self.assertNotIn("Material Purchases", plan["types"][NON_PROJECT_EXPENSE])
         self.assertIn("Petty Cash", plan["types"][NON_PROJECT_EXPENSE])
+        self.assertEqual(plan["source"], "Cashbook")
+
+
+class TestTheEditDialogFindsTheExpensesLine(CashbookRectifyCase):
+    def test_a_cashbook_expense_names_its_import_line_and_txn_id_and_follows_a_move(self):
+        expense = self._expense(ONE_LINK)
+        line = self._line(ONE_LINK)
+        expected = {"import_batch": self.batch, "import_row": line.name, "transfer_id": ONE_LINK + self.suffix}
+
+        self.assertEqual(rectify.get_move_line(expense.doctype, expense.name), expected)
+        self._move([ONE_LINK], self.orchid)
+        new = self._expense(ONE_LINK)
+        self.assertEqual(rectify.get_move_line(new.doctype, new.name), expected)
+
+    def test_an_expense_with_no_import_line_has_none(self):
+        self.assertIsNone(rectify.get_move_line(NON_PROJECT_EXPENSE, "TEST-NO-SUCH-EXPENSE"))
