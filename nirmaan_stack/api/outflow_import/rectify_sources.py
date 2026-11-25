@@ -21,6 +21,7 @@ from nirmaan_stack.api.outflow_import.cashbook_matches import record_cashbook_ma
 from nirmaan_stack.api.outflow_import.cashbook_refund_spends import spend_expenses
 from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
+from nirmaan_stack.api.outflow_import.porter_records import ROW_DOCTYPE, line_names
 from nirmaan_stack.api.outflow_import.porter_records import SOURCE as PORTER_SOURCE
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -261,7 +262,7 @@ def _created_lines_holding(txn: str) -> list[tuple[str, str]]:
 CASHBOOK = RectifySource(
     source=CASHBOOK_SOURCE,
     title="Cashbook Move",
-    endpoint="rectify_cashbook_rows",
+    endpoint="rectify_lines",
     wording=RectifyWording(
         not_this_source="Only a line from a Cashbook Statement import can be moved here.",
         not_settled="This line is {status} now, not Settled, so it has no expense to move.",
@@ -288,3 +289,15 @@ CASHBOOK = RectifySource(
     kept_file_url=lambda old: None,
     partners=_cashbook_partners,
 )
+
+
+#: Every source Move is wired for, by its lines' `source`.
+SOURCES = {source.source: source for source in (PORTER, CASHBOOK)}
+
+
+def source_of(rows) -> RectifySource:
+    """The source of the first ticked line (`rows`: a JSON list of line names); Porter when that line has none wired,
+    so its lines are refused in Porter's words, as `porter_rectify` always refused them."""
+    names = line_names(rows)
+    first = frappe.db.get_value(ROW_DOCTYPE, names[0], "source") if names else None
+    return SOURCES.get((first or "").strip(), PORTER)

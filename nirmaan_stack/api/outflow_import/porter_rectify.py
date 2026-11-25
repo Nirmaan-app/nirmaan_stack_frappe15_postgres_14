@@ -8,10 +8,11 @@ where a Settled line is unreconciled, singly or ticked together, to the same peo
 Accountant Lead), and always with a typed reason.
 
 THE CORE TAKES THE SOURCE AS AN INPUT (#1754). `plan_rectify(source, rows)` and `rectify_rows(source, rows,
-project, reason)` are source-neutral; a `RectifySource` (`rectify_sources`) says what differs per import source: which lines are
-its own, its sentences, the details its plan shows, how the replacement's description and Paid by are
-written, its own writer fields, how its Settled match is recorded and which file never moves. `PORTER` is
-the one source wired so far; Cashbook, card and bank sources plug in here (spec #1753).
+project, reason, expense_type)` are source-neutral; a `RectifySource` (`rectify_sources`) says what differs per import
+source: which lines are its own, its sentences, the details its plan shows, how the replacement's description and Paid
+by are written, its own writer fields, how its Settled match is recorded, which file never moves, and which lines move
+together. `PORTER` and `CASHBOOK` (#1757) are wired; card and bank sources plug in here (spec #1753). Why a line or
+its expense cannot move is `rectify_refusals`; the Move endpoints for any wired source are `rectify`.
 
 Porter's two whitelisted endpoints are the core with `PORTER`, contract unchanged:
 
@@ -29,7 +30,8 @@ wallet spend and its refund, #1757) commit together, or none of them does
        URL, and the source's own fields (Porter: the Porter Order) -- only the ledger, the project, the
        description and Paid by (the source's rule) change
     3. any attachment a person added to the old Expense moves to the new one
-    4. the old Expense is deleted (`unreconcile_created.delete_created`: series counter kept)
+    4. its Expense bills, latest and history, follow it (`expense_bills.receive.move_bills`), then the old Expense
+       is deleted (`unreconcile_created.delete_created`: series counter kept), so its delete retires no bill
     5. a new Settled match, through the writer the source's Create uses (Porter: `record_porter_match`)
     6. the line's plan, pick and note follow the new Expense; a comment on the line and on the new Expense says
        who, why, and where from
@@ -239,7 +241,7 @@ def rectify_line(
             frappe.throw(refusal, title="Cannot rectify")
         [leg] = legs
         old = frappe.get_doc(leg.target_doctype, leg.target_name, for_update=True)
-        refusal = expense_refusal(old)
+        refusal = expense_refusal(old, lock=True)
         if refusal:
             frappe.throw(refusal, title="Cannot rectify")
         old_project = old.get("projects") or None

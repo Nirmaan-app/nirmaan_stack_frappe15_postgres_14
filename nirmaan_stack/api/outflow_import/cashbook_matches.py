@@ -13,6 +13,19 @@ from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 
 
+def cashbook_line_of(doctype: str, expense: str) -> dict | None:
+    """The Cashbook line whose live Settled match created Expense `expense`: `{import_batch, import_row,
+    transfer_id}`, or `None` (an expense no Cashbook import created, or one a person Linked)."""
+    match = frappe.db.get_value(
+        MATCH_DOCTYPE,
+        {"target_doctype": doctype, "target_name": expense, "match_kind": MATCH_SETTLED, "source": CASHBOOK_SOURCE,
+         "created_by_import": 1},
+        ["import_batch", "import_row", "transfer_id"],
+        as_dict=True,
+    )
+    return dict(match) if match else None
+
+
 def record_cashbook_match(row: str, batch: str, transfer_id: str, expense, actor: str, origin: str) -> None:
     """Insert the Settled `Outflow Row Match` of Cashbook line `row` and the Expense the import created for it.
     `expense` carries `doctype`, `name` and `amount`."""

@@ -9,9 +9,8 @@ again under the locks. Each answer is a sentence or `None`.
   * `line_refusal`: the line itself -- missing, another source's, not Settled, settled to more than one record or to
     a record its import did not create, or moving without the line it must move with (a wallet spend and its refund).
   * `expense_refusal`: the expense the line holds -- not Paid, a Reimbursement's, an Expense Request's, carrying a
-    Payment TDS Deduction, or with a bill being read. A Porter expense is none of these.
-
-A cheque line settles payments, never an expense, so it is refused as a line whose record the import did not create.
+    Payment TDS Deduction, on a Cheque (#1413: its delete would take it off the cheque), or with a bill being read.
+    A Porter expense is none of these.
 """
 
 from __future__ import annotations
@@ -21,11 +20,11 @@ from typing import Collection
 import frappe
 
 from nirmaan_stack.api.outflow_import.rectify_sources import RectifySource
+from nirmaan_stack.services.cheques.lines import cheques_naming
 from nirmaan_stack.services.expense_bills.receive import bill_being_read
-from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, is_expense_doctype
+from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PAID, is_expense_doctype
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
-_PAID = "Paid"
 _TDS_DOCTYPE = "Payment TDS Deduction"
 
 
@@ -54,9 +53,9 @@ def line_refusal(source: RectifySource, line, legs, ticked: Collection[str]) -> 
     return None
 
 
-def expense_refusal(expense) -> str | None:
-    """Why this created expense cannot be replaced, or `None`."""
-    if expense.status != _PAID:
+def expense_refusal(expense, *, lock: bool = False) -> str | None:
+    """Why this created expense cannot be replaced, or `None`. `lock` (the write): its bills are locked while asked."""
+    if expense.status != PAID:
         return f"This expense is {expense.status or 'not set'}, not Paid, so it cannot be moved."
     if expense.get("reimbursement"):
         return f"This expense belongs to Reimbursement {expense.reimbursement}, so it cannot be moved."
@@ -69,7 +68,10 @@ def expense_refusal(expense) -> str | None:
         tds = frappe.db.get_value(_TDS_DOCTYPE, {"non_project_expense": expense.name}, "name")
         if tds:
             return f"This expense carries Payment TDS Deduction {tds}, so it cannot be moved."
-    if bill_being_read(expense.doctype, expense.name):
+    cheques = cheques_naming(expense.doctype, [expense.name])
+    if cheques:
+        return f"This expense is on Cheque {cheques[0].cheque_no or cheques[0].cheque}, so it cannot be moved."
+    if bill_being_read(expense.doctype, expense.name, for_update=lock):
         return "A bill on this expense is being read right now. Move it once the Bill check is done."
     return None
 

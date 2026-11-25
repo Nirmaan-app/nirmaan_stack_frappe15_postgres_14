@@ -23,7 +23,13 @@ from frappe.utils import now_datetime
 from nirmaan_stack.services.card_invoices import is_card_spend, is_cashbook_spend
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
-from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check, system_approval
+from nirmaan_stack.services.expense_bills.reading import (
+    Reading,
+    queue_reading,
+    reading_stopped,
+    record_check,
+    system_approval,
+)
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
@@ -129,17 +135,23 @@ def retire_bills(doctype: str, expense: str) -> None:
     )
 
 
-def bill_being_read(doctype: str, expense: str) -> bool:
+def bill_being_read(doctype: str, expense: str, *, for_update: bool = False) -> bool:
     """Is a reading under way on a bill of Expense `expense`: Checking and claimed by its reader (`read_claimed_at`
-    set, `reading.claim`)? That reader holds the expense's name and writes its verdict there, so the expense must not
-    be replaced under it (Move, #1757)."""
-    return bool(
-        frappe.db.sql(
-            f"""SELECT 1 FROM "tab{BILL_DOCTYPE}"
-                WHERE expense_doctype = %s AND expense = %s AND bill_check = %s AND read_claimed_at IS NOT NULL
-                LIMIT 1""",
-            (doctype, expense, CHECKING),
-        )
+    set, `reading.claim`), and not stopped (`reading.reading_stopped`)? That reader holds the expense's name and writes
+    its verdict there, so the expense must not be replaced under it (Move, #1757). A reading that stopped never comes
+    back, so it holds nothing.
+
+    `for_update` locks every bill of the expense first, as `reading.claim` locks the bill it claims: a claim then
+    either committed before this read, and is seen, or waits for the caller's commit."""
+    rows = frappe.db.sql(
+        f"""SELECT bill_check, read_claimed_at FROM "tab{BILL_DOCTYPE}"
+            WHERE expense_doctype = %s AND expense = %s{" FOR UPDATE" if for_update else ""}""",
+        (doctype, expense),
+        as_dict=True,
+    )
+    return any(
+        row.bill_check == CHECKING and row.read_claimed_at and not reading_stopped(row.bill_check, row.read_claimed_at)
+        for row in rows
     )
 
 

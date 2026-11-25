@@ -25,6 +25,7 @@ import frappe
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import import rectify
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import ONE_LINK, CashbookBillsCase
+from nirmaan_stack.api.outflow_import.test_porter_rectify import _purge_history
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 
 REASON = "The remark names the site"
@@ -78,14 +79,9 @@ class CashbookRectifyCase(CashbookBillsCase):
     def setUp(self):
         super().setUp()
         self._run()
-        self.addCleanup(self._purge_comments)
-
-    def _purge_comments(self):
-        frappe.db.rollback()
-        frappe.db.delete("Comment", {"reference_doctype": "Outflow Import Row", "reference_name": ["in", self._lines()]})
-        for doctype, name in self._targets().values():
-            frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": name})
-        frappe.db.commit()
+        # Runs before the import's purge (cleanups are last-in, first-out), while the matches still name the expenses
+        # a Move left history on: the Porter Rectify suite's helper.
+        self.addCleanup(_purge_history, self.batch)
 
     def _line(self, txn: str):
         return frappe.get_doc("Outflow Import Row", {"import_batch": self.batch, "transfer_id": txn + self.suffix})
@@ -315,6 +311,32 @@ class TestEachRefusalIsSaidBeforeConfirmAndMovesNothing(CashbookRectifyCase):
         frappe.db.commit()
         self._refused("being read")
 
+    def test_a_reading_that_stopped_long_ago_holds_nothing(self):
+        expense = self._expense(ONE_LINK)
+        [bill] = bills_of(expense.doctype, expense.name)
+        frappe.db.set_value("Expense Bill", bill.name, "read_claimed_at", frappe.utils.add_days(frappe.utils.now_datetime(), -2))
+        frappe.db.commit()
+        [planned] = self._plan(ONE_LINK)["lines"]
+        self.assertIsNone(planned["refusal"])
+        self.assertTrue(self._move([ONE_LINK], self.orchid)["lines"][0]["rectified"])
+
+    def test_an_expense_on_a_cheque(self):
+        expense = self._expense(ONE_LINK)
+        cheque = frappe.new_doc("Cheques")
+        cheque.name = f"TEST-CHQ-{frappe.generate_hash(length=6)}"
+        cheque.cheque_no = "TEST000123"
+        cheque.db_insert()
+        line = frappe.get_doc(
+            {"doctype": "Cheque Line", "parent": cheque.name, "parenttype": "Cheques", "parentfield": "lines",
+             "payment_doctype": expense.doctype, "payment_name": expense.name}
+        )
+        line.name = f"TEST-CHQL-{frappe.generate_hash(length=6)}"
+        line.db_insert()
+        frappe.db.commit()
+        self.addCleanup(self._drop, "Cheques", cheque.name)
+        self.addCleanup(self._drop, "Cheque Line", line.name)
+        self._refused("on Cheque TEST000123")
+
     def test_a_line_settled_to_more_than_one_record(self):
         line = self._line(ONE_LINK)
         extra = frappe.get_doc(
@@ -350,8 +372,12 @@ class TestEachRefusalIsSaidBeforeConfirmAndMovesNothing(CashbookRectifyCase):
 
     def _drop(self, doctype: str, name: str):
         frappe.db.rollback()
-        frappe.db.delete(doctype, name)
-        frappe.db.commit()
+        try:
+            frappe.db.delete(doctype, name)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            print(f"cashbook rectify test purge: could not delete {doctype} {name}")
 
 
 class TestTheTypeFitsTheDestination(CashbookRectifyCase):
