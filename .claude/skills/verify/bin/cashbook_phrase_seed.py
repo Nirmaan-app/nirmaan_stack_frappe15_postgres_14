@@ -9,9 +9,15 @@ neither (the import drops a word two projects claim), and `qx` is too short to c
 "Courier charges for QX Walkmall<stamp> site" is booked Non Project, as "vr mall" is for `VR Mall Food Court`. Only a
 learned phrase places it.
 
+THE PRE-FILL (the owner's rule of 2026-11-26). For `Walkmall<stamp> Annexe` the remark's only run of its name's words,
+`Walkmall<stamp>`, is a word `QX Walkmall<stamp> Court` holds too, so nothing is pre-filled. A third project,
+`Walkmal<stamp> Depot`, has no word the remark spells exactly, so the box suggests the closest spelling,
+`Walkmall<stamp>`.
+
 `seed` makes the projects, the walk's two made-up users (as `cashbook_move_seed.py` does) and the import (the made-up
 statement of the Cashbook tests, each Txn Id stamped, the job run inline with the bill download replaced). Prints
-`txn:`, `batch:`, `project:`, `project_name:`, `other_project:`, `remark:` and `phrase:` (the words the box should
+`txn:`, `batch:`, `project:`, `project_name:`, `other_project(_name):`, `near_project(_name):`, `remark:` and
+`phrase:` (the words the box should
 start with). `again` imports the statement once more under `<stamp2>`, the same remark, and prints `txn:` and
 `batch:`. An env cannot reach the wallet's bill storage, so both imports are seeded, not uploaded. Writes only to the
 env DB.
@@ -31,6 +37,8 @@ from nirmaan_stack.services.outflow_import.parser import parse_statement
 MODE, STAMP = sys.argv[1], sys.argv[2]
 WORD = f"Walkmall{STAMP}"
 PHRASE = f"QX {WORD}"
+#: One letter short of the remark's word: the third project's name, which no remark word spells exactly.
+NEAR = f"Walkmal{STAMP}"
 REMARK = f"Courier charges for {PHRASE} site"
 
 
@@ -94,10 +102,14 @@ if MODE == "seed":
     _users()
     project = _project(f"{PHRASE} Court")
     other = _project(f"{WORD} Annexe")
+    near = _project(f"{NEAR} Depot")
     _import(f"P{STAMP}")
     print(f"project: {project}")
     print(f"project_name: {PHRASE} Court")
     print(f"other_project: {other}")
+    print(f"other_project_name: {WORD} Annexe")
+    print(f"near_project: {near}")
+    print(f"near_project_name: {NEAR} Depot")
     print(f"remark: {REMARK}")
     print(f"phrase: {PHRASE}")
 elif MODE == "again":

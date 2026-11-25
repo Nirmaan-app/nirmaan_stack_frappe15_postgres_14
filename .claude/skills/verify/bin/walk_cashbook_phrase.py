@@ -14,6 +14,10 @@ As the Accountant Lead:
  1. Sidebar Bulk Import Transactions -> Matched / Settled – Outflow -> the spend's line -> "Move to a project": the
     dialog shows no phrase box before a destination is chosen.
  2. Choose No project: no phrase box (Non Project learns nothing).
+ 3a. Choose `Walkmall<n> Annexe`: the box is ticked with the phrase blank (the remark's run "Walkmall<n>" is a word
+    `QX Walkmall<n> Court` holds too): the sentence reads "[phrase]".
+ 3b. Choose `Walkmal<n> Depot` (no remark word spelt as in its name): the phrase is pre-filled "Walkmall<n>", the
+    remark word closest in spelling.
  3. Choose `QX Walkmall<n> Court`: the box "Next time, put spends that mention “QX Walkmall<n>” on this project",
     ticked, the phrase pre-filled "QX Walkmall<n>" (the remark's words that name the project). Untick: the phrase
     field goes; tick again: it is back.
@@ -103,10 +107,22 @@ with session(a.task, a.lead, a.password) as (page, out):
     check(box.count() == 0, "1758 story 52: no phrase box for a move to Non Project")
     save(page, out, "02-non-project-no-box")
 
-    choose(page, dialog, "Move to", PROJECT_NAME)
-    box.wait_for(timeout=10_000)
     tick = box.get_by_role("checkbox")
     field = box.get_by_label("Phrase")
+    choose(page, dialog, "Move to", seeded["other_project_name"])
+    box.wait_for(timeout=10_000)
+    check(tick.get_attribute("aria-checked") == "true" and field.input_value() == ""
+          and "Next time, put spends that mention [phrase] on this project" in box.inner_text(),
+          "1758 pre-fill rule (b): a run another Won project's name holds too is not pre-filled")
+    save(page, out, "03a-shared-word-blank")
+
+    choose(page, dialog, "Move to", seeded["near_project_name"])
+    near = PHRASE.split()[-1]
+    check(field.input_value() == near,
+          f"1758 pre-fill rule (a): no remark word in the name, so the closest spelling is pre-filled ({near!r})")
+    save(page, out, "03b-close-spelling")
+
+    choose(page, dialog, "Move to", PROJECT_NAME)
     check(tick.get_attribute("aria-checked") == "true", "1758 story 47: the box is ticked by default")
     check(f"Next time, put spends that mention “{PHRASE}” on this project" in box.inner_text(),
           "1758 story 47: the box reads the sentence with the phrase")
