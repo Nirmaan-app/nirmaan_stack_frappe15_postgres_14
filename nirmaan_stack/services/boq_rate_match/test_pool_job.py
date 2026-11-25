@@ -68,7 +68,7 @@ class TestPoolJob(FrappeTestCase):
         return {"available": True, "reason": None, "stamp": None, "lists": {}, "categories": {}}
 
     def _rebuild(self, measure=None, lock_wait=0):
-        clock = J.JobClock(limit=LIMIT, now=self.time)
+        clock = J.BuildClock(limit=LIMIT, now=self.time)
         self.time.t += lock_wait                                         # RQ's clock runs while the job waits
         handler = _Recorder(self.events)
         self.logger.addHandler(handler)

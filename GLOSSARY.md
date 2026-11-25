@@ -772,3 +772,21 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 - **Graduation ledger** — `.claude/skills/verify/features/graduated.json`: for each merged walked PR, each claimed
   change mapped to its graduated walk or to `skip: <reason>`. (Owner, 2026-11-23.)
+
+## Historical matching
+
+- **Match pool** — the priced rows of earlier BoQs that historical matching may offer a row, with the index that finds
+  them; built from the live data by a background operation and kept as one file, never in the database. *Avoid*:
+  bench pool (that one is the H2 bench's own copy), cache. (DEV2-B2.)
+
+- **Migrate mark** — the note, kept beside the match pool, of which database a migrate last finished on. A match pool
+  is built only while the live database is that one: a restore makes a new database, so until the next migrate
+  finishes nothing builds one, by schedule or by itself; only a person building it by hand goes past it. *Avoid*:
+  ready flag, site ready (a flag inside the database would come back from the backup already set). (#1741, owner
+  2026-11-25.)
+
+- **Pool build clock** — the time a match pool build has used against the queue's hard limit on it, counted from the
+  moment its background operation starts (the wait for another build included). The build's slowest step, measuring
+  which fields drive a price, gets what is left of it minus a reserve for the steps after; when that is too little the
+  step is skipped and the match pool is saved without those fields, and the build says so. *Avoid*: job clock (a job is
+  a construction project here), timer. (#1741.)

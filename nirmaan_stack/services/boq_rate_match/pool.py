@@ -310,12 +310,12 @@ def _corpus(progress=None):
 def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progress=None, clock=None):
     """Build the pool and its index from the live data (READ ONLY). `as_of` (default now) sets the 3-day windows + cut-off.
     `row_order` (a list of keys) only fixes the rows' order -- and so group numbering and index ties -- to reproduce an
-    earlier build; production orders rows by key. Nothing is written. `clock` (pool_job.JobClock; the job passes its
+    earlier build; production orders rows by key. Nothing is written. `clock` (pool_job.BuildClock; the job passes its
     own) logs each stage as it ends and bounds the driving-field step."""
     from nirmaan_stack.services.boq_ai_guidance import revision_family
     from nirmaan_stack.services.boq_rate_match import pool_age, pool_job, pricing_step
 
-    clock = clock or pool_job.JobClock()
+    clock = clock or pool_job.BuildClock()
     clock.begin_build()
     at = _as_datetime(as_of)
     cut = _iso(at - datetime.timedelta(days=WINDOW_DAYS))

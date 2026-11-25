@@ -10,7 +10,7 @@ THE MIGRATE GATE: without `force` it builds nothing and takes no lock until a mi
 (pool_autobuild.site_ready). The manual entry:
 `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"`.
 
-THE JOB CLOCK starts first thing in the job, before the lock wait, because RQ counts its `long` limit
+THE POOL BUILD CLOCK starts first thing in the job, before the lock wait, because RQ counts its `long` limit
 (rate_match.POOL_REBUILD_TIMEOUT_SEC, 3600 s) from the job's start. On production the driving-field measure took 86 %
 of a 3014 s build (2026-11-25), so it is the step bounded: it gets the time left minus TAIL_RESERVE_SEC (the stages
 after it and the save, ~140 s on production, with room), and under MIN_DRIVING_SEC it is skipped. A timeout or a skip
@@ -35,7 +35,7 @@ NO_DRIVING = "Match pool built without driving fields"
 PAST_HALF = "Match pool build past half its time limit"
 
 
-class JobClock:
+class BuildClock:
     """The job's time against its limit (None: no limit, e.g. the bench's build), and the build's stage times."""
 
     def __init__(self, limit=None, now=time.monotonic):
@@ -107,7 +107,7 @@ def rebuild(force=False, clock=None):
     from nirmaan_stack.services.boq_rate_match import pool as P
     from nirmaan_stack.services.boq_rate_match import pool_autobuild
 
-    clock = clock or JobClock(limit=POOL_REBUILD_TIMEOUT_SEC)
+    clock = clock or BuildClock(limit=POOL_REBUILD_TIMEOUT_SEC)
     path = P.pool_path()
     if not force:
         not_ready = pool_autobuild.site_ready()

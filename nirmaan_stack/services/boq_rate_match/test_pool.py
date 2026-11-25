@@ -272,7 +272,7 @@ class TestRebuildPool(FrappeTestCase):
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def _build(self, **_):          # rebuild_pool passes its job clock
+    def _build(self, **_):          # rebuild_pool passes its build clock
         self.builds += 1
         return P.Pool({"format": P.POOL_FORMAT, "rows": [], "kept": set(), "sel": {}, "nxt": {}, "as_of": "x", "secs": {},
                        "pricing": {"stamp": {"code": "c", "asset": "a"}}, "driving": {"available": True, "reason": None}})
