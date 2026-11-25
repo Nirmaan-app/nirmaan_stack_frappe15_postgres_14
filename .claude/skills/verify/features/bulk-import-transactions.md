@@ -77,13 +77,15 @@ past imports by source and month.
 - `bit-cashbook-phrase` A Move to a project learns the remark's phrase (#1758, spec #1753 stories 47-52). Once `Move
   to` is a Won project (not `No project`), the Cashbook Move dialog shows a ticked box `Next time, put spends that
   mention “<phrase>” on this project` above the reason, with the phrase in a field (`Phrase`) pre-filled from the
-  remark: the longest run of remark words that are words of the project's name, blank when none is (then the run
-  button waits for a phrase or an unticked box). Unticked, the field goes and nothing is learned. The result adds
+  remark: the longest run of remark words that are words of the project's name, skipping a run whose every word one
+  other Won project's name holds too; when no remark word is in the name, the remark word closest in spelling to one
+  (one slip in five letters); else blank (then the run button waits for a phrase or an unticked box). Unticked, the field goes and nothing is learned. The result adds
   `Next time, spends that mention “<phrase>” go to <project>.`; a phrase another project already holds refuses the
   Move in a plain sentence (`'<phrase>' already puts spends on <project>, ...`). DB: an active `Outflow Import Project
   Alias` (phrase -> project, owner the mover); the next Cashbook import places a remark holding the phrase on that
   project. Walked by `BIN/walk_cashbook_phrase.py` (seed `BIN/cashbook_phrase_seed.py`: two made-up Won projects
-  sharing a word, so the remark names neither until the phrase is learned, and `again` for the next import; DB read
+  sharing a word, so the remark names neither until the phrase is learned, a third one letter off that word for the
+  close spelling, and `again` for the next import; DB read
   `BIN/cashbook_phrase_db.py`), as an Accountant Lead.
 
 ## How to get to it (user POV)
