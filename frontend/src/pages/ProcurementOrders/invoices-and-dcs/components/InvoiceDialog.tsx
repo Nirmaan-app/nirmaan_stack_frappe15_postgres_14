@@ -42,7 +42,9 @@ import {
   splitMismatch,
 } from "@/utils/invoiceAmounts";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
-import { isGstOn } from "@/utils/workOrderGst";
+import { isGstExplicitlyOff, isGstOn } from "@/utils/workOrderGst";
+import { unsignedGeneratedCopy } from "@/utils/generatedInvoices";
+import { useGeneratedInvoices } from "@/pages/ServiceRequests/hooks/useGeneratedInvoices";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeFileUpload,
@@ -269,6 +271,10 @@ export function InvoiceDialog<T extends DocumentType>({
   );
   // Read as the server reads it (`work_order_gst.gst_is_on`); nothing is said until it has loaded.
   const workOrderGstOff = isWorkOrder && !!workOrderForGst && !isGstOn(workOrderForGst);
+  // This Work Order's generated invoices, for the "generated invoice not signed" warning (same cache as the page).
+  const { state: generatedState } = useGeneratedInvoices(
+    isOpen && isWorkOrder && !isEditMode && docName ? docName : null
+  );
   // What the over-total banner calls the order (matches the server's refusal).
   const orderLabel = isWorkOrder ? "Work Order" : "PO";
 
@@ -478,6 +484,8 @@ export function InvoiceDialog<T extends DocumentType>({
         file_url: fileUrl,
         // PO invoices get line-item extraction + PO mapping; SR invoices don't.
         docname: docType === "Procurement Orders" ? docName : undefined,
+        // A Work Order's read also asks about the signature when a generated invoice awaits its signed copy.
+        work_order: docType === "Service Requests" ? docName : undefined,
       });
       const extracted = response?.message;
       if (!extracted) {
@@ -962,6 +970,19 @@ export function InvoiceDialog<T extends DocumentType>({
     invoiceData.is_credit_note
   );
   const gstShownOnGstOffWorkOrder = gstOnGstOffWorkOrder(invoiceData.gst_amount, workOrderGstOff);
+  // ADR-0050 decision 1: the upload is a generated invoice's copy the AI found unsigned. Rule 1 can't approve it;
+  // rules 2 and 3 still can, so this warns and never blocks.
+  const unsignedCopy = isEditMode
+    ? undefined
+    : unsignedGeneratedCopy({
+        generated: generatedState?.invoices ?? [],
+        gstOff: isWorkOrder && isGstExplicitlyOff(workOrderForGst),
+        aiRead: autofilledFields.size > 0 && !!selectedAttachment,
+        submittedNo: invoiceData.invoice_no,
+        extractedNo: autofillExtractedValues?.invoice_no,
+        amount: parseNumber(invoiceData.amount),
+        entities: autofillAllEntities,
+      });
 
   // Block on a GSTIN mismatch on BOTH create and edit. In edit these only carry a value
   // after the attachment is replaced (a fresh extraction), so an edit that doesn't touch
@@ -1493,6 +1514,24 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             )}
           </div>
+
+          {/* Soft-warn, right above Submit: a generated invoice's copy with an empty signature box. Submit stays enabled. */}
+          {unsignedCopy && (
+            <div className="px-6 pt-3 border-t">
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Generated invoice not signed</p>
+                  <p className="mt-0.5">
+                    {unsignedCopy.invoice_no} is this Work Order's generated invoice, but its Authorized Signature
+                    box looks empty. The System approves it only if the amounts match the Work Order total or
+                    Amount Paid; otherwise it waits for an Accountant.
+                  </p>
+                  <p className="mt-0.5 italic">You can submit. Upload the vendor's signed copy if you have it.</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="bg-gray-50/80 px-6 py-4 border-t flex justify-end gap-3">

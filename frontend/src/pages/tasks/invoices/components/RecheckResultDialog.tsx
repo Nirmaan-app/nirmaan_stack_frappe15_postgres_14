@@ -57,16 +57,61 @@ interface RecheckResultDialogProps {
     onConfirm: () => void;
     /** Names what the run covered, e.g. "the pending queue". */
     scopeLabel: string;
+    /** The tab it was pressed on: a Work Order run checks ADR-0050's rules 2 and 3, not the PO ceilings. */
+    documentType?: "Procurement Orders" | "Service Requests";
 }
+
+/** The dialog's wording for each tab's run. */
+const COPY = {
+    po: {
+        describe: (n: number, scope: string) =>
+            n === 0
+                ? `No invoice in ${scope} is waiting on a PO-value check.`
+                : `${n} invoice${n === 1 ? "" : "s"} in ${scope} waiting on a PO-value check.`,
+        passes: "now pass both checks and will be auto-approved, with approved-by recorded as System.",
+        explain:
+            "An invoice is approved when everything invoiced on its PO — this invoice plus every other pending or approved one — comes to no more than the value delivered, and no more than the PO itself. Both figures are read off the PO as it stands right now.",
+        listNote: "invoiced total is now within both ceilings",
+        none: "No invoice is waiting on a PO-value check right now.",
+        noneYet: "None of these can be auto-approved yet — the PO checks still hold them, or another reason does.",
+        footer:
+            "Re-check re-runs only the PO-value checks — nothing delivered yet, invoiced past delivered, invoiced past the PO value. Every other reason is left exactly as recorded.",
+    },
+    wo: {
+        describe: (n: number, scope: string) =>
+            n === 0
+                ? `No Work Order invoice is Pending in ${scope}.`
+                : `${n} Work Order invoice${n === 1 ? "" : "s"} Pending in ${scope}.`,
+        passes: "now match the Work Order total or Amount Paid and will be auto-approved, with approved-by recorded as System.",
+        explain:
+            "A Work Order invoice is approved when its Approved invoices plus this one equal the Work Order's total, or its Amount Paid (incl. TDS), within ₹1 — base amounts on a GST-on Work Order. Both are read off the Work Order as it stands right now.",
+        listNote: "invoiced total now matches the WO total or Amount Paid",
+        none: "No Work Order invoice is Pending right now.",
+        noneYet: "None of these can be auto-approved yet — their invoiced total matches neither the WO total nor Amount Paid.",
+        footer:
+            "Re-check runs the same Work Order check as the 5 AM job: the invoiced total against the WO total and Amount Paid. A reason that changed is rewritten with today's figures.",
+    },
+} as const;
 
 /** Reason tokens → their reviewer-facing labels, comma-joined. */
 const labelTokens = (tokens: string[]): string =>
     tokens.map((token) => describeReason(token).label).join(", ");
 
+/** Why the System approves a Work Order invoice: the ADR-0050 rule that matched and the figures it compared. */
+const ruleLine = (r: NonNullable<RecheckResultRow["rules"]>[number]): string =>
+    r.rule === 1
+        ? "Rule 1 · the signed copy of a generated invoice (GST-off Work Order)"
+        : r.rule === 2
+            ? `Rule 2 · invoiced ${formatToRoundedIndianRupee(r.invoiced)} = WO total ${formatToRoundedIndianRupee(r.target)}`
+            : `Rule 3 · invoiced ${formatToRoundedIndianRupee(r.invoiced)} = Amount Paid ${formatToRoundedIndianRupee(r.target)}${
+                  r.base ? " (base amounts, GST left out)" : ""
+              }`;
+
 /** The invoices this run releases — the only rows the dialog lists. */
-const ApprovedList: React.FC<{ rows: RecheckResultRow[]; heading: string }> = ({
+const ApprovedList: React.FC<{ rows: RecheckResultRow[]; heading: string; note: string }> = ({
     rows,
     heading,
+    note,
 }) => (
     <div className="rounded-md border border-emerald-200">
         <div className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-800">
@@ -74,9 +119,7 @@ const ApprovedList: React.FC<{ rows: RecheckResultRow[]; heading: string }> = ({
             <span>
                 {heading} · {rows.length}
             </span>
-            <span className="font-normal opacity-75">
-                invoiced total is now within both ceilings
-            </span>
+            <span className="font-normal opacity-75">{note}</span>
         </div>
         {/* Capped in HEIGHT, never in count — this is the list a reviewer is
             being asked to approve, so no row may be hidden from it. */}
@@ -95,7 +138,9 @@ const ApprovedList: React.FC<{ rows: RecheckResultRow[]; heading: string }> = ({
                                 </span>
                             ) : null}
                         </p>
-                        {row.cleared.length > 0 && (
+                        {/* PO rows: the ceiling this run cleared. Not on a Work Order row: its old reasons are the
+                            upload-time PO checks, which ADR-0050's rules never read; the rule line below says why. */}
+                        {row.cleared.length > 0 && row.wo_total == null && (
                             <p className="mt-0.5 truncate text-[10px] text-red-600">
                                 was: {labelTokens(row.cleared)}
                             </p>
@@ -104,7 +149,21 @@ const ApprovedList: React.FC<{ rows: RecheckResultRow[]; heading: string }> = ({
                             what used to be wrong; it does not say why approving
                             is safe now. These are the two comparisons the checks
                             actually made, in the order they made them. */}
-                        {row.cumulative !== null && (
+                        {row.rules?.map((r) => (
+                            <p key={r.rule} className="mt-0.5 text-[10px] font-medium text-emerald-700">
+                                ✓ {ruleLine(r)}
+                            </p>
+                        ))}
+                        {row.cumulative !== null && row.wo_total != null && !row.rules?.length && (
+                            <p className="mt-0.5 text-[10px] text-emerald-700">
+                                invoiced {formatToRoundedIndianRupee(row.cumulative)}
+                                {" · WO total "}
+                                {formatToRoundedIndianRupee(row.wo_total)}
+                                {" · Amount Paid "}
+                                {formatToRoundedIndianRupee(row.amount_paid ?? undefined)}
+                            </p>
+                        )}
+                        {row.cumulative !== null && row.wo_total == null && (
                             <p className="mt-0.5 text-[10px] text-emerald-700">
                                 invoiced {formatToRoundedIndianRupee(row.cumulative)}
                                 {" ≤ delivered "}
@@ -130,8 +189,10 @@ export const RecheckResultDialog: React.FC<RecheckResultDialogProps> = ({
     isApplying,
     onConfirm,
     scopeLabel,
+    documentType,
 }) => {
     const shown = preview;
+    const copy = documentType === "Service Requests" ? COPY.wo : COPY.po;
 
     const rows = shown?.results ?? [];
     const approved = rows.filter((r) => r.outcome === "approved");
@@ -158,11 +219,7 @@ export const RecheckResultDialog: React.FC<RecheckResultDialogProps> = ({
                     <DialogTitle>Re-check results</DialogTitle>
                     <DialogDescription>
                         {shown
-                            ? shown.checked === 0
-                                ? `No invoice in ${scopeLabel} is waiting on a PO-value check.`
-                                : `${shown.checked} invoice${
-                                      shown.checked === 1 ? "" : "s"
-                                  } in ${scopeLabel} waiting on a PO-value check.`
+                            ? copy.describe(shown.checked, scopeLabel)
                             : "Re-checking…"}
                     </DialogDescription>
                 </DialogHeader>
@@ -172,7 +229,8 @@ export const RecheckResultDialog: React.FC<RecheckResultDialogProps> = ({
                         <TailSpin color="#d03b45" height={32} width={32} />
                     </div>
                 ) : (
-                    <div className="space-y-2.5">
+                    // min-w-0: a grid item, which without it grows to its longest `truncate` line past the panel.
+                    <div className="min-w-0 space-y-2.5">
                         {approved.length > 0 && (
                             <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
                                 <span className="font-semibold">
@@ -180,30 +238,23 @@ export const RecheckResultDialog: React.FC<RecheckResultDialogProps> = ({
                                     {approved.length === 1 ? "" : "s"} ·{" "}
                                     {formatToRoundedIndianRupee(shown.approved_value)}
                                 </span>{" "}
-                                now pass both checks and will be auto-approved,
-                                with approved-by recorded as System.
+                                {copy.passes}
                             </p>
                         )}
 
                         {approved.length > 0 && (
                             <p className="text-[11px] leading-relaxed text-gray-500">
-                                An invoice is approved when everything invoiced on
-                                its PO — this invoice plus every other pending or
-                                approved one — comes to no more than the value
-                                delivered, and no more than the PO itself. Both
-                                figures are read off the PO as it stands right now.
+                                {copy.explain}
                             </p>
                         )}
 
                         {approved.length > 0 && (
-                            <ApprovedList rows={approved} heading="Will approve" />
+                            <ApprovedList rows={approved} heading="Will approve" note={copy.listNote} />
                         )}
 
                         {approved.length === 0 && (
                             <p className="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                                {shown.checked === 0
-                                    ? "No invoice is waiting on a PO-value check right now."
-                                    : "None of these can be auto-approved yet — the PO checks still hold them, or another reason does."}
+                                {shown.checked === 0 ? copy.none : copy.noneYet}
                             </p>
                         )}
 
@@ -211,9 +262,7 @@ export const RecheckResultDialog: React.FC<RecheckResultDialogProps> = ({
                             mean printing reasons from gates this run never
                             evaluated, which reads as a verdict it did not reach. */}
                         <p className="text-[10px] leading-relaxed text-gray-400">
-                            Re-check re-runs only the PO-value checks — nothing
-                            delivered yet, invoiced past delivered, invoiced past the
-                            PO value. Every other reason is left exactly as recorded.
+                            {copy.footer}
                             {stayingPending > 0 && (
                                 <>
                                     {" "}

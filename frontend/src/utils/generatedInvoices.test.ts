@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import finalCases from "./generatedInvoiceFinalCases.json";
-import { generatedInvoiceDeleteNote, isFinalAmount, syncPercentAmount, visibleGeneratedInvoices } from "./generatedInvoices";
+import {
+  generatedInvoiceDeleteNote,
+  isFinalAmount,
+  syncPercentAmount,
+  unsignedGeneratedCopy,
+  visibleGeneratedInvoices,
+} from "./generatedInvoices";
 
 describe("isFinalAmount (parity with services/wo_generated_invoices.is_final)", () => {
   for (const c of finalCases.cases) {
@@ -73,5 +79,51 @@ describe("visibleGeneratedInvoices", () => {
     const all = [row("RA-2", "Approved"), row("RA-1", "Generated")];
     visibleGeneratedInvoices(all);
     expect(all.map((r) => r.name)).toEqual(["RA-2", "RA-1"]);
+  });
+});
+
+describe("unsignedGeneratedCopy (the Add Invoice warning; server: generated_copy_verdict + signature_signed)", () => {
+  const generated = [
+    { invoice_no: "INV-26-27-00107-00990-RA-1", status: "Approved", amount: 250000 },
+    { invoice_no: "INV-26-27-00107-00990", status: "Generated", amount: 219395 },
+  ];
+  const upload = {
+    generated,
+    gstOff: true,
+    aiRead: true,
+    submittedNo: "INV-26-27-00107-00990",
+    extractedNo: "INV-26-27-00107-00990",
+    amount: 219395,
+    entities: [{ type: "authorized_signature", value: "not_signed" }],
+  };
+
+  it("warns for a Generated invoice's copy the AI found unsigned", () => {
+    expect(unsignedGeneratedCopy(upload)?.invoice_no).toBe("INV-26-27-00107-00990");
+  });
+
+  it("warns when the AI gave no signature answer, as the server counts it unsigned", () => {
+    expect(unsignedGeneratedCopy({ ...upload, entities: [] })).toBeDefined();
+  });
+
+  it("says nothing for a signed or stamped copy", () => {
+    for (const value of ["signed", "Stamped "]) {
+      expect(unsignedGeneratedCopy({ ...upload, entities: [{ type: "authorized_signature", value }] })).toBeUndefined();
+    }
+  });
+
+  it("matches the number in any case and the amount within a rupee", () => {
+    expect(unsignedGeneratedCopy({ ...upload, submittedNo: " inv-26-27-00107-00990", amount: 219396 })).toBeDefined();
+    expect(unsignedGeneratedCopy({ ...upload, amount: 219397 })).toBeUndefined();
+  });
+
+  it("says nothing when the upload is not that copy", () => {
+    expect(unsignedGeneratedCopy({ ...upload, gstOff: false })).toBeUndefined();
+    expect(unsignedGeneratedCopy({ ...upload, aiRead: false })).toBeUndefined();
+    expect(unsignedGeneratedCopy({ ...upload, submittedNo: "OTHER-1" })).toBeUndefined();
+    expect(unsignedGeneratedCopy({ ...upload, extractedNo: "" })).toBeUndefined();
+    // Already uploaded: the server refuses that one as a duplicate.
+    expect(
+      unsignedGeneratedCopy({ ...upload, submittedNo: generated[0].invoice_no, extractedNo: generated[0].invoice_no, amount: 250000 })
+    ).toBeUndefined();
   });
 });
