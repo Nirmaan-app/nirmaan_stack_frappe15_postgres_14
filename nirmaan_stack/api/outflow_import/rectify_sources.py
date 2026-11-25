@@ -99,6 +99,9 @@ class RectifySource:
     #: `(line) -> (rows, sentence)`: the lines this one moves with, in one transaction, and the refusal when they are
     #: not all ticked (with no rows: a standing refusal). Porter's lines move alone.
     partners: Callable[[Line], tuple[tuple[str, ...], str | None]] = lambda line: ((), None)
+    #: A Move of its lines may learn a phrase as a project alias (#1758). Only a Cashbook remark names a project in
+    #: the words the next upload reads; a phrase sent with any other source's lines refuses the write.
+    learns_phrases: bool = False
 
 
 # --- Porter (#1449) ---------------------------------------------------------------------------------
@@ -288,6 +291,7 @@ CASHBOOK = RectifySource(
     ),
     kept_file_url=lambda old: None,
     partners=_cashbook_partners,
+    learns_phrases=True,
 )
 
 

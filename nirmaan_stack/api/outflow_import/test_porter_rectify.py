@@ -516,3 +516,20 @@ def _delete_file(name: str) -> None:
     except Exception:
         frappe.db.rollback()
         print(f"porter rectify test purge: could not delete File {name}")
+
+
+class TestAPorterMoveLearnsNoPhrase(PorterRectifyCase):
+    """#1758, the owner's answer of 2026-11-26: only a Cashbook line's remark teaches a project alias."""
+
+    def test_a_phrase_sent_with_a_porter_line_refuses_the_write_and_nothing_moves(self):
+        from nirmaan_stack.api.outflow_import import rectify
+
+        phrase = f"vx porter {self.batch.lower()}"
+        old = self._expense_of("003")
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            rectify.rectify_lines(json.dumps([self._lines()["003"].name]), self.zephyr, REASON, None, phrase)
+
+        self.assertIn("Cashbook", str(refused.exception))
+        self.assertEqual(self._expense_of("003").name, old.name)
+        self.assertFalse(frappe.db.exists("Outflow Import Project Alias", {"keyword": phrase}))

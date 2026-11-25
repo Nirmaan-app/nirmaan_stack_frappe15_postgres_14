@@ -28,10 +28,16 @@ import frappe
 from nirmaan_stack.services.outflow_import.project_alias import ALIAS_DOCTYPE, holder_of, lock_key, normalised
 
 
-def phrase_refusal(phrase: str | None, project: str | None) -> str | None:
-    """Why this phrase cannot be learned for `project`, or `None` (also when nothing would be learned)."""
+def phrase_refusal(phrase: str | None, project: str | None, learns_phrases: bool) -> str | None:
+    """Why this phrase cannot be learned for `project`, or `None` (also when nothing would be learned).
+
+    `learns_phrases`: the lines' source's (`RectifySource.learns_phrases`). Only a Cashbook line's remark teaches a
+    phrase (the owner, 2026-11-26), so any other source's Move sent with one is refused outright.
+    """
     if not project or not normalised(phrase):
         return None
+    if not learns_phrases:
+        return "Only a Move of Cashbook lines can learn a phrase. Send it without one."
     holder = holder_of(phrase)
     if holder and holder.project != project:
         return _taken(holder)

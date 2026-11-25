@@ -140,7 +140,8 @@ def rectify_rows(
     destination ledger, or the line is refused in the writer's words.
 
     `phrase` (#1758): for a project destination, saved as an active project alias once at least one line moved
-    (`rectify_phrase`); a phrase that already names another project refuses the whole write. Ignored for Non-Project.
+    (`rectify_phrase`); a phrase that already names another project, or one sent with lines of a source that learns
+    none (`RectifySource.learns_phrases`: Porter), refuses the whole write. Ignored for Non-Project.
 
     Returns `{"count": N, "lines": [...]}` (and `"phrase"`, `learn_phrase`'s answer, when one was learned or
     refused), one entry per distinct line in the order sent: either
@@ -160,9 +161,9 @@ def rectify_rows(
     project = (project or "").strip() or None
     if project:
         refuse_unless_won(project)
-    refusal = phrase_refusal(phrase, project)
+    refusal = phrase_refusal(phrase, project, source.learns_phrases)
     if refusal:
-        frappe.throw(refusal, title="Phrase already taken")
+        frappe.throw(refusal, title="Phrase not learned")
     expense_type = (expense_type or "").strip() or None
     done: dict[str, dict] = {}
     for group in _groups(source, names):
