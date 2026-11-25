@@ -27,7 +27,7 @@ of writing, where there is somebody to tell.
 import frappe
 from frappe.model.document import Document
 
-from nirmaan_stack.services.outflow_import.project_match import alias_haystack
+from nirmaan_stack.services.outflow_import.project_alias import holder_of, lock_phrase, normalised
 
 
 class OutflowImportProjectAlias(Document):
@@ -36,31 +36,29 @@ class OutflowImportProjectAlias(Document):
         if not self.keyword:
             frappe.throw("An alias is required.", title="Missing alias")
 
-        normalized = alias_haystack(self.keyword).strip()
-        if not normalized:
+        if not normalised(self.keyword):
             # Punctuation only. It would normalise to nothing and match every remark ever typed.
             frappe.throw(
                 "An alias needs at least one letter or number.", title="Nothing to match on"
             )
 
-        for other in frappe.get_all(
-            "Outflow Import Project Alias",
-            filters={"name": ("!=", self.name or "")},
-            fields=["name", "keyword", "project"],
-        ):
-            if alias_haystack(other.keyword).strip() != normalized:
-                continue
-            if other.project == self.project:
-                frappe.throw(
-                    f"'{other.keyword}' already means this project.", title="Duplicate alias"
-                )
-            # ⚠️ THE SILENT CASE. Two projects claiming one phrase makes the builder drop it
-            # entirely, so BOTH aliases stop working -- including the one that was there first.
+        # Queue behind a Move learning the same phrase (`rectify_phrase.learn_phrase`, #1758) until it commits.
+        lock_phrase(self.keyword)
+
+        other = holder_of(self.keyword, exclude=self.name)
+        if not other:
+            return
+        if other.project == self.project:
             frappe.throw(
-                f"'{other.keyword}' already means {other.project}. A phrase claimed by two "
-                "projects is ignored altogether, so neither alias would work.",
-                title="Alias already taken",
+                f"'{other.keyword}' already means this project.", title="Duplicate alias"
             )
+        # ⚠️ THE SILENT CASE. Two projects claiming one phrase makes the builder drop it
+        # entirely, so BOTH aliases stop working -- including the one that was there first.
+        frappe.throw(
+            f"'{other.keyword}' already means {other.project}. A phrase claimed by two "
+            "projects is ignored altogether, so neither alias would work.",
+            title="Alias already taken",
+        )
 
 
 def on_doctype_update():

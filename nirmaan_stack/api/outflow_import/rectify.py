@@ -46,14 +46,16 @@ def rectify_lines(
     destination: str | None = None,
     other_end: str | None = None,
     detail: str | None = None,
+    phrase: str | None = None,
 ) -> dict:
     """`rectify_rows` for the ticked lines' source.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.rectify.rectify_lines
     Body: `rows` (a JSON list of `Outflow Import Row` names), `project` (blank: Non Project), `reason`, and
     `expense_type` (blank: each expense keeps its own). `destination` "Internal Transfer" (#1762) moves each line to
-    an Internal Transfer instead, from or to `other_end` with `detail`, as Mark as Internal Transfer asks; `project`
-    and `expense_type` are then not read.
+    an Internal Transfer instead, from or to `other_end` with `detail`, as Mark as Internal Transfer asks; `project`,
+    `expense_type` and `phrase` are then not read. `phrase` (#1758): saved as a project alias for a Cashbook Move to a
+    project (`rectify_phrase`); a move to Non Project or Internal Transfer learns nothing, another source's is refused.
     """
     destination = (destination or "").strip()
     if destination not in ("", INTERNAL_TRANSFER_DESTINATION):
@@ -63,7 +65,7 @@ def rectify_lines(
         if destination == INTERNAL_TRANSFER_DESTINATION
         else None
     )
-    return rectify_rows(source_of(rows), rows, project, reason, expense_type, transfer)
+    return rectify_rows(source_of(rows), rows, project, reason, expense_type, transfer, phrase)
 
 
 def movable_rows(rows) -> set[str]:

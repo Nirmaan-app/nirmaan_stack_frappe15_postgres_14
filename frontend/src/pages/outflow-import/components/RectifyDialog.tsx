@@ -8,7 +8,8 @@
 //   * Porter orders (#1449, ADR-0032; the delivery's details #1759): each line's details are the expense's Porter
 //     section (`porter_expense.get_porter_expense`, one read per line, keyed as the expense screens').
 //   * Cashbook lines (#1757, spec #1753): the wallet line's details with its bill and Bill check, and the expense type
-//     the destination takes (`cashbookRectify.ts`).
+//     the destination takes (`cashbookRectify.ts`). To a project, a ticked box saves the remark's phrase as a project
+//     alias (#1758), so the next Cashbook upload places it; no other source or destination offers the box.
 //   * Card lines (#1761): Cashbook's type choice, and the card line's details (`cardRectify.ts`).
 //   * Bank and Cashfree lines whose expense was created with Create (#1760): Cashbook's type choice, and the line's
 //     date, UTR, beneficiary and remark (`bankRectify.ts`).
@@ -21,6 +22,7 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowRightLeft, Ban, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Dialog,
     DialogContent,
@@ -39,9 +41,13 @@ import {
     defaultTransferDetail,
     destinationLedger,
     INTERNAL_TRANSFER_TARGET,
+    learnPhraseLabel,
+    learnsPhrase,
     MOVE_TO_INTERNAL_TRANSFER,
     moveTargets,
     transferChosenEnd,
+    suggestedPhrase,
+    type CashbookMoveResult,
     type TransferOffer,
 } from "../cashbookRectify";
 import { CARD_SOURCE } from "../creditCardImport";
@@ -57,7 +63,6 @@ import {
     staysNote,
     type RectifyOutcome,
     type RectifyPlan,
-    type RectifyResult,
 } from "../porterRectify";
 import { PlaceSelect } from "./InternalTransferDialog";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
@@ -167,8 +172,11 @@ const RectifyForm = ({
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
 }) => {
-    const { call } = useFrappePostCall<{ message: RectifyResult }>(RECTIFY_METHOD);
+    const { call } = useFrappePostCall<{ message: CashbookMoveResult }>(RECTIFY_METHOD);
     const [target, setTarget] = useState<ProjectOption | null>(null);
+    // The phrase box (#1758): ticked by default; `null` phrase: not typed by hand, so the remark's applies.
+    const [learn, setLearn] = useState(true);
+    const [typedPhrase, setTypedPhrase] = useState<string | null>(null);
     // `null`: not chosen by hand, so the default for the destination applies.
     const [chosenType, setChosenType] = useState<ProjectOption | null>(null);
     const [reason, setReason] = useState("");
@@ -193,6 +201,12 @@ const RectifyForm = ({
     const fallbackType = ledger ? defaultMoveType(moving, ledger, plan.types ?? {}) : "";
     const type =
         chosenType && typeOptions.some((option) => option.value === chosenType.value) ? chosenType.value : fallbackType;
+    const toProject = learnsPhrase(plan.source, target?.value);
+    const otherNames = (plan.projects ?? [])
+        .filter((project) => project.name !== target?.value)
+        .map((project) => project.project_name);
+    const phrase = typedPhrase ?? (toProject ? suggestedPhrase(moving, target?.label ?? "", otherNames) : "");
+    const teaches = toProject && learn;
 
     const blocked = !target
         ? "Choose where the expenses go."
@@ -202,9 +216,11 @@ const RectifyForm = ({
             ? "Choose where the money went or came from."
             : ledgerMove && !toTransfer && !type
               ? "Choose an expense type the destination takes."
-              : !trimmed
-              ? "Type a reason first."
-              : null;
+              : teaches && !phrase.trim()
+                ? "Type the phrase, or untick the box."
+                : !trimmed
+                  ? "Type a reason first."
+                  : null;
 
     const run = async () => {
         if (!target) return;
@@ -216,7 +232,11 @@ const RectifyForm = ({
                 reason: trimmed,
                 ...(toTransfer
                     ? { destination: INTERNAL_TRANSFER_TARGET, other_end: otherEnd, detail: detail.trim() }
-                    : { project: target.value, ...(ledgerMove ? { expense_type: type } : {}) }),
+                    : {
+                          project: target.value,
+                          ...(ledgerMove ? { expense_type: type } : {}),
+                          ...(teaches ? { phrase: phrase.trim() } : {}),
+                      }),
             });
             const targetName = target.value ? target.label : null;
             onRan(ledgerMove ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
@@ -272,7 +292,11 @@ const RectifyForm = ({
                 <PorterProjectSelect
                     options={options}
                     value={target}
-                    onChange={setTarget}
+                    onChange={(option) => {
+                        setTarget(option);
+                        setTypedPhrase(null);
+                        setError(null);
+                    }}
                     placeholder="Choose a Won project, or No project…"
                     isDisabled={busy}
                 />
@@ -300,6 +324,38 @@ const RectifyForm = ({
                         placeholder="Choose a type the destination takes…"
                         isDisabled={busy}
                     />
+                </div>
+            )}
+
+            {toProject && (
+                <div className="space-y-1.5 rounded-md border px-3 py-2.5" data-testid="learn-phrase">
+                    <div className="flex items-start gap-2">
+                        <Checkbox
+                            id="learn-phrase"
+                            checked={learn}
+                            disabled={busy}
+                            onCheckedChange={(checked) => {
+                                setLearn(checked === true);
+                                setError(null);
+                            }}
+                            className="mt-0.5"
+                        />
+                        <Label htmlFor="learn-phrase" className="text-sm font-normal leading-snug">
+                            {learnPhraseLabel(phrase)}
+                        </Label>
+                    </div>
+                    {learn && (
+                        <Input
+                            aria-label="Phrase"
+                            value={phrase}
+                            placeholder="The word or two that name this project"
+                            disabled={busy}
+                            onChange={(e) => {
+                                setTypedPhrase(e.target.value);
+                                setError(null);
+                            }}
+                        />
+                    )}
                 </div>
             )}
 

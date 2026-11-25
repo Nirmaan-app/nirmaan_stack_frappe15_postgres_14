@@ -230,3 +230,20 @@ class TestTheCardMovePlan(CardRectifyCase):
     def test_a_tendering_project_is_refused(self):
         self.assertRaises(frappe.ValidationError, self._move, [PARK], self.tender, REASON, PROJECT_TYPE)
         self.assertEqual(self._expense_of(PARK).doctype, NON_PROJECT_EXPENSE)
+
+
+class TestACardMoveLearnsNoPhrase(CardRectifyCase):
+    """#1758: only a Cashbook line's remark teaches a project alias; a card spend's merchant text never does."""
+
+    def test_a_phrase_sent_with_a_card_line_refuses_the_write_and_nothing_moves(self):
+        phrase = f"vx card {frappe.generate_hash(length=6).lower()}"
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            rectify.rectify_lines(
+                json.dumps([self._line(PARK).name]), self.orchid, REASON, PROJECT_TYPE, phrase=phrase
+            )
+
+        frappe.db.rollback()
+        self.assertIn("Only a Move of Cashbook lines can learn a phrase", str(refused.exception))
+        self.assertEqual(self._expense_of(PARK).doctype, NON_PROJECT_EXPENSE)
+        self.assertFalse(frappe.db.exists("Outflow Import Project Alias", {"keyword": phrase}))

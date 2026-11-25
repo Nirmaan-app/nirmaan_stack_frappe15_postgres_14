@@ -9,6 +9,9 @@ import {
     INTERNAL_TRANSFER_TARGET,
     moveTargets,
     transferChosenEnd,
+    learnPhraseLabel,
+    learnsPhrase,
+    suggestedPhrase,
     type CashbookPlanLine,
 } from "./cashbookRectify";
 import { CARD_SOURCE } from "./creditCardImport";
@@ -202,5 +205,96 @@ describe("the Internal Transfer destination (#1762, stories 13, 27-28)", () => {
         expect(
             cashbookOutcome({ count: 1, lines: [{ row: "OFR-1", rectified: true }] }, INTERNAL_TRANSFER_TARGET).title,
         ).toBe("1 expense moved to Internal Transfer.");
+    });
+});
+
+describe("the phrase a Move to a project teaches (#1758, spec #1753 stories 47-52)", () => {
+    it("is offered only for Cashbook lines moving to a project: never No project, Internal Transfer or another source", () => {
+        expect(learnsPhrase("Cashbook", "PROJ-1")).toBe(true);
+        expect(learnsPhrase("Cashbook", "")).toBe(false);
+        expect(learnsPhrase("Cashbook", undefined)).toBe(false);
+        expect(learnsPhrase("Cashbook", INTERNAL_TRANSFER_TARGET)).toBe(false);
+        for (const source of ["Porter Statement", CARD_SOURCE, "ICICI Bank Statement", "Cashfree", undefined]) {
+            expect(learnsPhrase(source, "PROJ-1")).toBe(false);
+        }
+    });
+
+    const withRemark = (remark: string): CashbookPlanLine => ({ ...spend, remark });
+
+    it("is pre-filled with the remark's words that name the destination project, as the remark writes them", () => {
+        expect(suggestedPhrase([withRemark("VR Mall local purchase")], "VR Mall Food Court")).toBe("VR Mall");
+        expect(suggestedPhrase([withRemark("Paid for tea, testorchid")], "Testorchid Heights")).toBe("testorchid");
+    });
+
+    it("takes the longest run of such words, the first on a tie", () => {
+        expect(suggestedPhrase([withRemark("food for vr-mall staff")], "VR Mall Food Court")).toBe("vr-mall");
+        expect(suggestedPhrase([withRemark("court fees mall")], "VR Mall Food Court")).toBe("court");
+    });
+
+    it("with no word of the name in any remark, takes the remark word closest in spelling to a word of the name", () => {
+        expect(suggestedPhrase([withRemark("hexware tea")], "Hexaware GIFT City")).toBe("hexware");
+        expect(suggestedPhrase([withRemark("Macoons site, cement")], "Maconns Noida")).toBe("Macoons");
+        expect(suggestedPhrase([withRemark("tea for hexawrae")], "Hexaware GIFT City")).toBe("hexawrae");
+        // The closest of two near words.
+        expect(suggestedPhrase([withRemark("hexawar hexware")], "Hexaware GIFT City")).toBe("hexawar");
+    });
+
+    it("is blank when no remark word is near enough in spelling, so the person types it", () => {
+        expect(suggestedPhrase([withRemark("sfk tea")], "Testorchid Heights")).toBe("");
+        expect(suggestedPhrase([withRemark("")], "Hexaware GIFT City")).toBe("");
+        // Short words need the exact spelling: one slip in a four-letter word is too far.
+        expect(suggestedPhrase([withRemark("gilt items")], "Hexaware GIFT City")).toBe("");
+        // Two slips in seven letters is too far.
+        expect(suggestedPhrase([withRemark("hixwere")], "Hexaware GIFT City")).toBe("");
+    });
+
+    it("does not guess a spelling once a remark word is in the name, even in a run it skipped", () => {
+        expect(suggestedPhrase([withRemark("mall hexware")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
+    });
+
+    it("does not guess a remark word another Won project's name spells as near or nearer", () => {
+        expect(suggestedPhrase([withRemark("testtower124 tea")], "Testtower123 Depot", ["Testtower124 Plaza"])).toBe("");
+        expect(suggestedPhrase([withRemark("testtowr123 tea")], "Testtower123 Depot", ["Testtower124 Plaza"])).toBe(
+            "testtowr123",
+        );
+    });
+
+    it("does not guess a word another Won project's name holds too", () => {
+        expect(suggestedPhrase([withRemark("malls")], "Hexaware Mall", ["Testpearl Mall"])).toBe("");
+    });
+
+    it("comes from the first moving line whose remark names the project", () => {
+        const lines = [withRemark("Pay via Razorpay"), withRemark("testlotus material")];
+        expect(suggestedPhrase(lines, "Testlotus Annexe")).toBe("testlotus");
+    });
+
+    it("never pre-fills a run whose every word another Won project's name also holds", () => {
+        const others = ["Testpearl Mall Annexe"];
+        expect(suggestedPhrase([withRemark("mall tea")], "VR Mall Food Court", others)).toBe("");
+        expect(suggestedPhrase([withRemark("mall tea, then vr mall")], "VR Mall Food Court", others)).toBe("vr mall");
+        // Each word in some other name, but no one other name holds both: it names only this project.
+        expect(suggestedPhrase([withRemark("vr mall")], "VR Mall Food Court", ["VR Heights", "Testpearl Mall"])).toBe(
+            "vr mall",
+        );
+    });
+
+    it("reads the box's sentence with the phrase in it", () => {
+        expect(learnPhraseLabel("vr mall")).toBe("Next time, put spends that mention “vr mall” on this project");
+        expect(learnPhraseLabel("  ")).toBe("Next time, put spends that mention [phrase] on this project");
+    });
+
+    it("says in the outcome what was learned, or why not", () => {
+        const moved = { count: 1, lines: [{ row: "OFR-1", rectified: true }] };
+        expect(cashbookOutcome({ ...moved, phrase: { phrase: "vr mall", saved: true } }, "VR Mall Food Court").notes)
+            .toEqual(["Next time, spends that mention “vr mall” go to VR Mall Food Court."]);
+        expect(cashbookOutcome({ ...moved, phrase: { phrase: "vr mall", saved: false } }, "VR Mall Food Court").notes)
+            .toEqual(["“vr mall” already puts spends on VR Mall Food Court."]);
+        expect(
+            cashbookOutcome(
+                { ...moved, phrase: { phrase: "vr mall", saved: false, reason: "'vr mall' already puts spends on X." } },
+                "VR Mall Food Court",
+            ).notes,
+        ).toEqual(["The phrase was not saved: 'vr mall' already puts spends on X."]);
+        expect(cashbookOutcome(moved, "VR Mall Food Court").notes).toEqual([]);
     });
 });

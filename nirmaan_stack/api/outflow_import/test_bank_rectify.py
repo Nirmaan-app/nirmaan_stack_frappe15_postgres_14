@@ -249,3 +249,25 @@ class TestTheTableKnowsACreatedLine(BankRectifyCase):
 
         self.assertEqual([m["created_by_import"] for m in rows[created]["matches"]], [1])
         self.assertEqual([m["created_by_import"] for m in rows[linked]["matches"]], [0])
+
+
+class TestABankMoveLearnsNoPhrase(BankRectifyCase):
+    """#1758: only a Cashbook line's remark teaches a project alias; a bank or Cashfree remark never does."""
+
+    def _assert_refused(self, source: str):
+        row, old_name = self._created(source)
+        phrase = f"vx bank {frappe.generate_hash(length=6).lower()}"
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            rectify.rectify_lines(json.dumps([row]), self._allocation_project(), REASON, None, phrase=phrase)
+
+        frappe.db.rollback()
+        self.assertIn("Only a Move of Cashbook lines can learn a phrase", str(refused.exception))
+        self.assertTrue(frappe.db.exists(NON_PROJECT_EXPENSE, old_name))
+        self.assertFalse(frappe.db.exists("Outflow Import Project Alias", {"keyword": phrase}))
+
+    def test_an_icici_line_with_a_phrase_is_refused(self):
+        self._assert_refused(ICICI)
+
+    def test_a_cashfree_line_with_a_phrase_is_refused(self):
+        self._assert_refused(CASHFREE)
