@@ -49,18 +49,31 @@ export const isPorterExpense = (expense: { porter_order?: string | null } | null
 export const isCashbookExpense = (expense: { cashbook_batch?: string | null } | null | undefined): boolean =>
 	!!expense?.cashbook_batch;
 
+/** Whether the card import created the expense: it carries its statement (`credit_card_statement`), on either ledger
+ * once a Move put it on a project (#1761). */
+export const isCardExpense = (expense: { credit_card_statement?: string | null } | null | undefined): boolean =>
+	!!expense?.credit_card_statement;
+
+/** An expense whose locked project row links to its import line's Move: a Cashbook (#1757) or card (#1761) one. */
+export const hasMoveLine = (
+	expense: { cashbook_batch?: string | null; credit_card_statement?: string | null } | null | undefined
+): boolean => isCashbookExpense(expense) || isCardExpense(expense);
+
 /**
- * The edit dialog's project field: locked on a Porter Expense and on a Cashbook expense (#1757), whose project moves
- * only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's words: Porter's
- * "Move to another project"; a Cashbook expense's by its ledger `doctype` ("Move to a project", "Change project").
- * Any other expense shows no locked row.
+ * The edit dialog's project field: locked on a Porter Expense, a Cashbook expense (#1757) and a card spend (#1761),
+ * whose project moves only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's
+ * words: Porter's "Move to another project"; the others' by their ledger `doctype` ("Move to a project", "Change
+ * project"). Any other expense shows no locked row.
  */
 export const projectField = (
-	expense: { porter_order?: string | null; cashbook_batch?: string | null } | null | undefined,
+	expense:
+		| { porter_order?: string | null; cashbook_batch?: string | null; credit_card_statement?: string | null }
+		| null
+		| undefined,
 	doctype?: string
 ): { locked: false } | { locked: true; hint: string } => {
 	if (isPorterExpense(expense)) return { locked: true, hint: MOVE_ORDER_LABEL };
-	if (isCashbookExpense(expense)) return { locked: true, hint: cashbookMoveLabel([doctype]) };
+	if (hasMoveLine(expense)) return { locked: true, hint: cashbookMoveLabel([doctype]) };
 	return { locked: false };
 };
 

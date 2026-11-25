@@ -32,6 +32,8 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "porter_order",
     // The edit dialog's locked project row and its Move link on a Cashbook expense (#1757).
     "cashbook_batch",
+    // ... and on a card spend, on either ledger (#1761).
+    "credit_card_statement",
     // An expense marked No invoice: who, when and why, in the Invoice Ref column (story 32).
     "no_invoice_reason",
     "no_invoice_by",

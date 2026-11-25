@@ -11,7 +11,7 @@ THE CORE TAKES THE SOURCE AS AN INPUT (#1754). `plan_rectify(source, rows)` and 
 project, reason, expense_type)` are source-neutral; a `RectifySource` (`rectify_sources`) says what differs per import
 source: which lines are its own, its sentences, the details its plan shows, how the replacement's description and Paid
 by are written, its own writer fields, how its Settled match is recorded, which file never moves, and which lines move
-together. `PORTER` and `CASHBOOK` (#1757) are wired; card and bank sources plug in here (spec #1753). Why a line or
+together. `PORTER`, `CASHBOOK` (#1757) and `CARD` (#1761) are wired; bank sources plug in here (spec #1753). Why a line or
 its expense cannot move is `rectify_refusals`; the Move endpoints for any wired source are `rectify`.
 
 Porter's two whitelisted endpoints are the core with `PORTER`, contract unchanged:

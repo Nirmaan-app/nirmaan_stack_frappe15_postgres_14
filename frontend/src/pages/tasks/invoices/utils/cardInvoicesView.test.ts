@@ -15,6 +15,7 @@ import {
 /** A spend on a statement covering `statement_months` (oldest first), as `get_card_invoice_queue` returns it. */
 const row = (name: string, holder: string, ...statement_months: string[]): CardInvoiceRow => ({
     name,
+    doctype: "Non Project Expenses",
     payment_date: "2026-09-10",
     amount: 100,
     expense_type: "Misc. Expenses",

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.card_create import card_line_of
 from nirmaan_stack.api.outflow_import.cashbook_matches import cashbook_line_of
 from nirmaan_stack.api.outflow_import.porter_rectify import move_accepts, plan_rectify, rectify_rows
 from nirmaan_stack.api.outflow_import.rectify_sources import SOURCES, source_of
@@ -82,10 +83,10 @@ def movable_rows(rows) -> set[str]:
 
 @frappe.whitelist()
 def get_move_line(doctype: str, name: str) -> dict | None:
-    """The import line a created Cashbook expense is Settled by, for its edit dialog's Move link:
-    `{import_batch, import_row, transfer_id}` (`cashbook_matches.cashbook_line_of`), or `None`. Asks the expense's own
-    read permission."""
+    """The import line a created Cashbook expense or card spend is Settled by, for its edit dialog's Move link:
+    `{import_batch, import_row, transfer_id}` (`cashbook_matches.cashbook_line_of`, `card_create.card_line_of`), or
+    `None`. Asks the expense's own read permission."""
     if not is_expense_doctype(doctype) or not frappe.db.exists(doctype, name):
         return None
     frappe.has_permission(doctype, "read", name, throw=True)
-    return cashbook_line_of(doctype, name)
+    return cashbook_line_of(doctype, name) or card_line_of(doctype, name)

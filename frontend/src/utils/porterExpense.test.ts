@@ -44,6 +44,12 @@ describe("projectField (the edit dialog's project lock)", () => {
 		expect(projectField(wallet, "Non Project Expenses")).toEqual({ locked: true, hint: "Move to a project" });
 		expect(projectField(wallet, "Project Expenses")).toEqual({ locked: true, hint: "Change project" });
 	});
+
+	it("locks a card spend's project the same way: it moves only through Move (#1761)", () => {
+		const card = { credit_card_statement: "CCS-26-00042" };
+		expect(projectField(card, "Non Project Expenses")).toEqual({ locked: true, hint: "Move to a project" });
+		expect(projectField(card, "Project Expenses")).toEqual({ locked: true, hint: "Change project" });
+	});
 });
 
 describe("moveOrderLink (the hint, as a link to the order's line)", () => {

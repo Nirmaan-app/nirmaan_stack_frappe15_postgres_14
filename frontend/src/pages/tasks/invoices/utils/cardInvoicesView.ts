@@ -10,6 +10,11 @@ import { canMarkCardNoInvoice, canViewPendingInvoiceUploads } from "@/constants/
 /** One card spend waiting for its invoice, as `get_card_invoice_queue` returns it. */
 export interface CardInvoiceRow {
     name: string;
+    /** The ledger: the import books a card spend Non Project; a Move may put it on a Won project (#1761). */
+    doctype: "Project Expenses" | "Non Project Expenses";
+    /** The project of a spend moved to one, else null. */
+    project?: string | null;
+    project_name?: string | null;
     payment_date: string;
     amount: number;
     expense_type: string | null;

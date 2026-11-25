@@ -10,6 +10,7 @@
 import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
 
 import { CASHBOOK_SOURCE, cashbookMoveLabel } from "./cashbookRectify";
+import { CARD_SOURCE } from "./creditCardImport";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
@@ -72,8 +73,12 @@ export interface RectifyResult {
 
 type MovableRow = { row_status: string; source?: string | null; suggested_doctype?: string | null };
 
-/** The sources Move is wired for (#1449 Porter, #1757 Cashbook), and what each calls its lines. */
-const MOVABLE_SOURCES: Record<string, string> = { [PORTER_SOURCE]: "Porter orders", [CASHBOOK_SOURCE]: "Cashbook lines" };
+/** The sources Move is wired for (#1449 Porter, #1757 Cashbook, #1761 card), and what each calls its lines. */
+const MOVABLE_SOURCES: Record<string, string> = {
+    [PORTER_SOURCE]: "Porter orders",
+    [CASHBOOK_SOURCE]: "Cashbook lines",
+    [CARD_SOURCE]: "card lines",
+};
 
 /** The line's source when it is a Settled line Move is wired for, else `null`. */
 const movableSource = (row: MovableRow): string | null => {
@@ -82,19 +87,21 @@ const movableSource = (row: MovableRow): string | null => {
 };
 
 /**
- * The Rectify (Move) button beside Unreconcile on one line: a Settled Porter or Cashbook line, for the undo roles
+ * The Rectify (Move) button beside Unreconcile on one line: a Settled Porter, Cashbook or card line, for the undo roles
  * (`outflowImportStatus.canUndoOutflow`) -- the same people who can Unreconcile it.
  */
 export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean => canUndo && Boolean(movableSource(row));
 
 /**
- * The line button's words: a Porter line keeps "Move to another project" (until #1759); a Cashbook line says where
- * its expense will go (`cashbookMoveLabel`).
+ * The line button's words: a Porter line keeps "Move to another project" (until #1759); a Cashbook or card line says
+ * where its expense will go (`cashbookMoveLabel`).
  */
-export const lineMoveLabel = (row: MovableRow): string =>
-    movableSource(row) === CASHBOOK_SOURCE ? cashbookMoveLabel([row.suggested_doctype]) : MOVE_ORDER_LABEL;
+export const lineMoveLabel = (row: MovableRow): string => {
+    const source = movableSource(row);
+    return source && source !== PORTER_SOURCE ? cashbookMoveLabel([row.suggested_doctype]) : MOVE_ORDER_LABEL;
+};
 
-/** The toolbar's words over the ticked lines: "Move N orders" for Porter, the Cashbook label rule for Cashbook. */
+/** The toolbar's words over the ticked lines: "Move N orders" for Porter, the Cashbook label rule for the others. */
 export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string => {
     const ticked = rows.filter((row) => selected.has(row.name));
     if (ticked.some((row) => movableSource(row) === PORTER_SOURCE)) return moveOrdersLabel(selected.size);
@@ -102,7 +109,7 @@ export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string
 };
 
 export interface RectifyButtonState {
-    /** Shown once a Settled Porter or Cashbook line is ticked on this page. */
+    /** Shown once a Settled line of a wired source is ticked on this page. */
     visible: boolean;
     enabled: boolean;
     count: number;
