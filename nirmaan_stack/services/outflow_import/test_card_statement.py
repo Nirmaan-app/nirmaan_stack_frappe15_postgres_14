@@ -258,6 +258,38 @@ class TestASplitLine(unittest.TestCase):
         self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
 
 
+class TestAnInternationalLine(unittest.TestCase):
+    """A line paid in a foreign currency (#1751). The bank prints the foreign amount, then its currency, then the
+    rupee amount; only the rupee amount, printed last, is read (owner, 2026-11-25). Merchant names are made up."""
+
+    def _read_with(self, rows: str, old: str = _ONE_ROW_SPEND):
+        statement = read_card_statement(_replace(_text(), old, rows))
+        [line] = [line for line in statement.lines if line.serno == "14092030373"]
+        return statement, line
+
+    def test_shape_1_on_one_row_with_0_1_or_2_decimals_in_the_foreign_amount(self):
+        for foreign in ("20", "12.7", "12.40"):
+            with self.subTest(foreign=foreign):
+                statement, line = self._read_with(
+                    f"01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 {foreign} USD 470.00\n"
+                )
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))
+                self.assertFalse(line.is_credit)
+                self.assertEqual(len(statement.lines), 47)
+
+
+    def test_shape_2_over_three_rows_is_one_line_with_the_rupee_amount(self):
+        # The opening row alone reads as a whole line ending in the foreign amount 10.25; the currency and the
+        # rupee amount sit on the two rows under it.
+        statement, line = self._read_with("01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n470.00\n")
+        self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertNotEqual(line.amount, Decimal("10.25"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(len(statement.lines), 47)
+
+
 class TestALineThatNeverCompletes(unittest.TestCase):
     """A row with a date and a SerNo whose points and amount never come within the next two rows is not read,
     and the gate refuses the statement: the reader never builds a line out of rows that are not its own."""

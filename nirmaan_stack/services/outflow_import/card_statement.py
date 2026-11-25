@@ -58,9 +58,14 @@ from nirmaan_stack.services.outflow_import.amounts import rupees
 
 # How a transaction line opens: its date and SerNo.
 _OPENING = r"(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<serno>\d{11})"
+# The optional international part between the points and the rupee amount: the foreign amount (0, 1 or 2
+# decimals) then its currency, as the bank prints it (#1751); or the currency first, then the amount with two
+# decimals, the form read before #1751 and kept so no line reads differently. Never stored: only the rupee amount,
+# printed last, is read (owner, 2026-11-25).
+_INTL = r"(?:[\d,]+(?:\.\d{1,2})?\s+[A-Z]{3}|(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})"
 _LINE = re.compile(
     rf"^{_OPENING}\s+(?P<details>.+?)\s+(?P<points>-?\d+)"
-    r"(?:\s+(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})?\s+(?P<amount>[\d,]+\.\d{2})(?P<cr>\s+CR)?\s*$"
+    rf"(?:\s+{_INTL})?\s+(?P<amount>[\d,]+\.\d{{2}})(?P<cr>\s+CR)?\s*$"
 )
 _PERIOD = re.compile(r"Statement period\s*:\s*(?P<start>[A-Za-z]+ \d{1,2}, \d{4})\s+to\s+(?P<end>[A-Za-z]+ \d{1,2}, \d{4})")
 _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
@@ -258,11 +263,15 @@ _CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
 # over the next rows, so such a row may not end the line.
 _LINE_START = re.compile(rf"^{_OPENING}\b")
 # A row a split line runs on to: its place (the city and two-letter country code, or the code alone), then or
-# instead its points, optional international amount, amount and optional CR. Any other row (an invoice number, a
+# instead its points, optional international amount, amount and optional CR; or, on an international line, its
+# currency alone, then its rupee amount and optional CR alone (shape 2, #1751). Any other row (an invoice number, a
 # page header, a card heading, the next line's opening row) is never part of a line.
 _PLACE = r"(?:\S+\s+)*[A-Z]{2}"
-_POINTS_AND_AMOUNT = r"-?\d+(?:\s+(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})?\s+[\d,]+\.\d{2}(?:\s+CR)?"
-_RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT})\s*$")
+_POINTS_AND_AMOUNT = rf"-?\d+(?:\s+{_INTL})?\s+[\d,]+\.\d{{2}}(?:\s+CR)?"
+_CURRENCY = r"[A-Z]{3}"
+_AMOUNT = r"[\d,]+\.\d{2}(?:\s+CR)?"
+_RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT}|{_CURRENCY}|{_AMOUNT})\s*$")
+_CURRENCY_ROW = re.compile(rf"^{_CURRENCY}\s*$")
 # The most rows one line has been seen to take (the 2026 Apr-Sep statements): the opening row and two more.
 _MAX_LINE_ROWS = 3
 
@@ -291,19 +300,25 @@ def _lines(rows: list[str]):
 
 def _match_line_at(rows: list[str], index: int) -> re.Match | None:
     """The `_LINE` match of the transaction line that opens at `rows[index]`: the row alone, or, when it does not
-    end there, the row with the one or two rows under it, their words joined with one space. Only a place row or a
-    points-and-amount row (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read."""
+    end there, the row with the one or two rows under it, their words joined with one space. Only a run-on row
+    (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read.
+
+    An international line's opening row may read whole on its own, ending in the foreign amount, with its currency
+    and its rupee amount on the two rows under it (shape 2, #1751). So a row that reads whole is still joined on
+    when a lone currency row follows it, and is read alone when that join does not complete."""
     row = rows[index]
-    found = _LINE.match(row)
-    if found or not _LINE_START.match(row):
-        return found
+    if not _LINE_START.match(row):
+        return None
+    alone = _LINE.match(row)
+    if alone and not (index + 1 < len(rows) and _CURRENCY_ROW.match(rows[index + 1])):
+        return alone
     for end in range(index + 1, min(index + _MAX_LINE_ROWS, len(rows))):
         if _LINE_START.match(rows[end]) or not _RUN_ON.match(rows[end]):
-            return None
+            break
         found = _LINE.match(" ".join(" ".join(rows[index : end + 1]).split()))
         if found:
             return found
-    return None
+    return alone
 
 
 def _gate(statement: CardStatement) -> None:
