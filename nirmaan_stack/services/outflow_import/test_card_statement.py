@@ -134,6 +134,11 @@ class TestMerchantKey(unittest.TestCase):
         self.assertEqual(merchant_key("UPI Payment Received"), "UPI PAYMENT RECEIVED")
         self.assertEqual(merchant_key("Autodebit Payment Recd."), "AUTODEBIT PAYMENT RECD")
 
+    def test_an_international_place_code_with_a_star_is_dropped_with_its_city(self):
+        # #1751: the bank prints a foreign merchant's country as `US*`.
+        self.assertEqual(merchant_key("FAKECLOUD SAAS FAKECLOUD.COM US*"), "FAKECLOUD SAAS")
+        self.assertEqual(merchant_key("FAKECLOUD SAAS FAKECLOUD.COM US"), "FAKECLOUD SAAS")
+
     def test_a_suffix_alone_is_never_stripped_to_nothing(self):
         self.assertEqual(merchant_key("LIMITED Pune IN"), "LIMITED")
 
@@ -288,6 +293,47 @@ class TestAnInternationalLine(unittest.TestCase):
         self.assertNotEqual(line.amount, Decimal("10.25"))
         self.assertFalse(line.is_credit)
         self.assertEqual(len(statement.lines), 47)
+
+    def test_an_international_credit_in_either_shape_is_a_credit_of_the_rupee_amount(self):
+        credit = "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n"
+        for shape, rows in (
+            ("1", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.5 USD 167.00 CR\n"),
+            ("2", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.50\nUSD\n167.00 CR\n"),
+        ):
+            with self.subTest(shape=shape):
+                statement = read_card_statement(_replace(_text(), credit, rows))
+                [line] = [line for line in statement.lines if line.serno == "14194563678"]
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("167.00"))
+                self.assertTrue(line.is_credit)
+                self.assertEqual(statement.credits_total, Decimal("276821.73"))
+
+    def test_a_statement_whose_spends_include_both_shapes_passes_the_gate(self):
+        text = _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 5.6 USD 470.00\n")
+        text = _replace(
+            text,
+            "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n",
+            "11/09/2026 14152012986 FAKEDESIGN TOOLS FAKEDESIGN.IO US* 4 4.75\nUSD\n400.00\n",
+        )
+        statement = read_card_statement(text)
+        self.assertEqual(len(statement.lines), 47)
+        self.assertEqual(statement.spends_total, Decimal("137584.99"))
+        amounts = {line.serno: line.amount for line in statement.lines}
+        self.assertEqual(amounts["14092030373"], Decimal("470.00"))
+        self.assertEqual(amounts["14152012986"], Decimal("400.00"))
+
+    def test_a_shape_2_line_cut_short_never_swallows_the_next_line(self):
+        # The rupee amount row is missing, so the next line's opening row sits under the currency row. The next line
+        # is read once, with its own amount; the cut line reads its foreign amount and the gate refuses the file.
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(
+                _replace(
+                    _text(),
+                    _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                    "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n02/09/2026 14099237561",
+                )
+            )
+        self.assertIn("spends read ₹1,37,125.24", str(caught.exception))
 
 
 class TestALineThatNeverCompletes(unittest.TestCase):

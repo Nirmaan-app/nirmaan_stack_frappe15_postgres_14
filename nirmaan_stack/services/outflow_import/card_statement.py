@@ -168,10 +168,11 @@ def merchant_key(details: str) -> str:
     """The cleaned merchant name, one key per merchant: upper case, the trailing country code and city
     dropped, punctuation removed, trailing company suffixes (PVT, P, LTD, LIMITED, INDIA) dropped.
 
-    Details with no trailing two-letter country code (a payment received, a cashback) keep every word.
+    Details with no trailing two-letter country code (a payment received, a cashback) keep every word. A foreign
+    merchant's code may carry a star (`US*`, #1751).
     """
     words = (details or "").split()
-    if len(words) >= 3 and re.fullmatch(r"[A-Za-z]{2}", words[-1]):
+    if len(words) >= 3 and re.fullmatch(r"[A-Za-z]{2}\*?", words[-1]):
         words = words[:-2]
         if len(words) >= 2 and words[-1].upper() in _CITY_PREFIXES:
             words = words[:-1]
