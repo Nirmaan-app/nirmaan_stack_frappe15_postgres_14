@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     billCheckText,
     cashbookDetailRows,
+    cashbookOutcome,
     cashbookMoveLabel,
     defaultMoveType,
     type CashbookPlanLine,
@@ -129,5 +130,28 @@ describe("the type offered (story 15)", () => {
         const courier = { ...spend, expense_type: "Postage & Courier" };
         expect(defaultMoveType([courier], PE, types)).toBe("");
         expect(defaultMoveType([spend, courier], NPE, types)).toBe("");
+    });
+});
+
+describe("what a run reports (story 26)", () => {
+    it("counts the expenses moved, and lists each one refused in the server's words", () => {
+        const outcome = cashbookOutcome(
+            {
+                count: 3,
+                lines: [
+                    { row: "OFR-1", rectified: true },
+                    { row: "OFR-2", rectified: true },
+                    { row: "OFR-3", rectified: false, reason: "This expense is Approved, not Paid, so it cannot be moved." },
+                ],
+            },
+            "Testorchid Heights",
+        );
+        expect(outcome.title).toBe("2 expenses moved to Testorchid Heights.");
+        expect(outcome.failed).toEqual([
+            { row: "OFR-3", reason: "This expense is Approved, not Paid, so it cannot be moved." },
+        ]);
+        expect(cashbookOutcome({ count: 1, lines: [{ row: "OFR-1", rectified: true }] }, null).title).toBe(
+            "1 expense moved to Non Project.",
+        );
     });
 });

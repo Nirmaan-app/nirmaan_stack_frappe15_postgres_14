@@ -10,7 +10,7 @@
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import type { RectifyPlanLine } from "./porterRectify";
+import type { RectifyOutcome, RectifyPlanLine, RectifyResult } from "./porterRectify";
 
 export const CASHBOOK_SOURCE = "Cashbook";
 
@@ -28,7 +28,7 @@ export interface MoveBill {
 
 /** A Cashbook line of the plan: the shared fields plus what the wallet statement says. */
 export interface CashbookPlanLine extends Omit<RectifyPlanLine, "crn"> {
-    txn_id: string | null;
+    txn_id?: string | null;
     date?: string | null;
     kind?: string;
     /** A wallet refund or credit: money back into the wallet, booked at minus itself. */
@@ -67,6 +67,21 @@ export const billCheckText = (bill: MoveBill | null | undefined): string => {
     if (!bill) return "No bill";
     const reason = (bill.check_reason || "").trim();
     return reason ? `${bill.check}: ${reason}` : bill.check;
+};
+
+/** What a run reports: how many expenses moved where, and each line that did not, in the server's own words. */
+export const cashbookOutcome = (result: RectifyResult, targetName: string | null): RectifyOutcome => {
+    const moved = result.lines.filter((line) => line.rectified).length;
+    return {
+        moved,
+        title: moved
+            ? `${moved} ${moved === 1 ? "expense" : "expenses"} moved to ${targetName || "Non Project"}.`
+            : "Nothing was moved.",
+        notes: [],
+        failed: result.lines
+            .filter((line) => !line.rectified)
+            .map((line) => ({ row: line.row, reason: line.reason ?? "Not moved." })),
+    };
 };
 
 /** The ledger an expense moving to `target` lands on ("" is No project). */

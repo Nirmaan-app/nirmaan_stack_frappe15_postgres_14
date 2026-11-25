@@ -26,6 +26,10 @@ import {
 } from "@/utils/porterExpense";
 
 const PORTER_EXPENSE_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.get_porter_expense";
+const MOVE_LINE_METHOD = "nirmaan_stack.api.outflow_import.rectify.get_move_line";
+
+/** Where an expense's Move link leads: its import and line, and what Bulk Import searches it by. */
+type MoveLine = Pick<PorterExpenseSection, "crn" | "import_batch" | "import_row">;
 
 /** The "Porter" tag on a list row the Porter Statement import created. Renders nothing on any other. */
 export const PorterBadge = ({ expense }: { expense: { porter_order?: string | null } | null | undefined }) =>
@@ -45,7 +49,7 @@ export const PorterBadge = ({ expense }: { expense: { porter_order?: string | nu
  */
 export const MoveOrderHint: React.FC<{
 	hint: string;
-	section: PorterExpenseSection | null;
+	section: MoveLine | null;
 	onFollow: () => void;
 	className?: string;
 }> = ({ hint, section, onFollow, className }) => {
@@ -61,23 +65,45 @@ export const MoveOrderHint: React.FC<{
 };
 
 /**
- * An edit dialog's locked Project row on a Porter Expense (#1558): the project it is on, read-only, and under
- * it the Move hint. Shared by the Project and Non-Project Expense edit dialogs.
+ * An edit dialog's locked Project row on a Porter Expense (#1558) or a Cashbook expense (#1757): the project it is
+ * on, read-only, and under it the Move link (`hint`, from `projectField`). Shared by the Project and Non-Project
+ * Expense edit dialogs.
  */
 export const PorterProjectLock: React.FC<{
 	id: string;
 	value: string;
-	section: PorterExpenseSection | null;
+	section: MoveLine | null;
 	onFollow: () => void;
-}> = ({ id, value, section, onFollow }) => (
-	<div className="grid grid-cols-4 items-center gap-4">
-		<Label htmlFor={id} className="text-right">Project</Label>
-		<div className="col-span-3">
-			<Input id={id} value={value} disabled readOnly />
-			<MoveOrderHint hint={MOVE_ORDER_LABEL} section={section} onFollow={onFollow} className="mt-1 text-xs text-muted-foreground" />
+	hint?: string;
+	/** Show the Move link only to those who may Move (`canUndoOutflow`): a Cashbook expense's (#1757). */
+	undoOnly?: boolean;
+}> = ({ id, value, section, onFollow, hint = MOVE_ORDER_LABEL, undoOnly = false }) => {
+	const { role, user_id } = useUserData();
+	const showHint = !undoOnly || canUndoOutflow(role, user_id);
+	return (
+		<div className="grid grid-cols-4 items-center gap-4">
+			<Label htmlFor={id} className="text-right">Project</Label>
+			<div className="col-span-3">
+				<Input id={id} value={value} disabled readOnly />
+				{showHint && (
+					<MoveOrderHint hint={hint} section={section} onFollow={onFollow} className="mt-1 text-xs text-muted-foreground" />
+				)}
+			</div>
 		</div>
-	</div>
-);
+	);
+};
+
+/**
+ * A Cashbook expense's import line, for its Move link (#1757): `rectify.get_move_line`, searched in Bulk Import by
+ * its Txn Id. `enabled` false fetches nothing (SWR key null).
+ */
+export const useCashbookMoveLine = (doctype: string, name: string | undefined, enabled: boolean): MoveLine | null => {
+	const { data } = useFrappeGetCall<{
+		message: { import_batch: string; import_row: string; transfer_id: string } | null;
+	}>(MOVE_LINE_METHOD, { doctype, name }, enabled && name ? `cashbook_move_line_${doctype}_${name}` : null);
+	const line = data?.message;
+	return line ? { crn: line.transfer_id, import_batch: line.import_batch, import_row: line.import_row } : null;
+};
 
 /** The Porter section's data. `enabled` false fetches nothing (SWR key null). */
 export const usePorterExpense = (doctype: string, name: string | undefined, enabled: boolean) => {

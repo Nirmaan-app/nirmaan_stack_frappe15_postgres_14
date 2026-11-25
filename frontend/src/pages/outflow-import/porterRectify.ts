@@ -4,7 +4,7 @@
 // the dialog and the run's result say. Pure: no React, no fetch. `porterRectify.test.ts` pins it;
 // `OutflowRowsTable`, `OutflowMasterPage` and `RectifyDialog` render it.
 //
-// ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`porter_rectify.get_porter_rectify_plan`
+// ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks. This only decides what to offer and how to word it.
 
 import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
@@ -15,8 +15,9 @@ import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
 import { orders } from "./porterWords";
 
-export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.get_porter_rectify_plan";
-export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.rectify_porter_rows";
+/** The Move endpoints for any wired source (#1757): each takes the source from the ticked lines. */
+export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.rectify.get_rectify_plan";
+export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.rectify.rectify_lines";
 
 const PROJECT_EXPENSE = "Project Expenses";
 
@@ -49,6 +50,10 @@ export interface RectifyPlan {
     lines: RectifyPlanLine[];
     /** The Won projects: the only ones an order can move to. */
     projects: { name: string; project_name: string }[];
+    /** The ticked lines' source (`rectify.get_rectify_plan`, #1757). */
+    source?: string;
+    /** The expense types each ledger takes, for the type a Cashbook Move offers. */
+    types?: Record<string, string[]>;
 }
 
 export interface RectifyResultLine {
@@ -143,7 +148,7 @@ const alreadyThere = (line: RectifyPlanLine, target: string): boolean =>
     target ? line.ledger === PROJECT_EXPENSE && line.project === target : line.ledger !== PROJECT_EXPENSE;
 
 /** The lines a Rectify to `target` (a project, or "" for Non-Project) would move: not refused, not there already. */
-export const linesToMove = (lines: readonly RectifyPlanLine[], target: string): RectifyPlanLine[] =>
+export const linesToMove = <T extends RectifyPlanLine>(lines: readonly T[], target: string): T[] =>
     lines.filter((line) => !line.refusal && !alreadyThere(line, target));
 
 /** Why a line will not move to `target`, or `null` when it will. */
