@@ -58,6 +58,22 @@ past imports by source and month.
   (#1710; the screen shows no Tier column since 7c9bcdf81, only the export), AUTO / L1 / L1+L2 on the rest
   (`BIN/approval_tier_export_db.py`).
 
+- `bit-cashbook-move` Move a Cashbook spend's expense (#1757, spec #1753; the domain's Rectify). On a Settled Cashbook
+  line whose expense the import created, Admin and Accountant Lead see `Move to a project` (a Non Project Expense)
+  or `Change project` (a Project Expense) beside Unreconcile; ticked Cashbook lines get the same in the toolbar, or
+  `Move N expenses` when their ledgers are mixed. An Accountant sees none. The dialog (titled the same) shows each
+  line's Txn Id, amount, `Now: <placement> (<expense>)`, then `Date`, `Spent by` / `Paid to` (`Back to` / `From` on
+  money coming back), `Remark`, and `Bill: Open <verdict>: <remark>`; then `Move to` (Won projects and `No project
+  (Non-Project expense)`), `Expense type` (the ledger's types, its own when it fits), `Reason (required)`, and the
+  run button in the title's words. The result reads `N expense(s) moved to <project | Non Project>.` A refused line
+  says why before confirm (not Paid, a Reimbursement's, an Expense Request's, a Payment TDS Deduction, a split line, a
+  bill being read, a spend without its refund ticked). The same dialog opens from a Cashbook expense's edit dialog
+  (Project or Non-Project Expenses -> Paid -> the pencil): its Project row is locked, with the link `Change project` /
+  `Move to a project` to the line in Bulk Import (`?move=<line>`), for the undo roles only. Walked by
+  `BIN/walk_cashbook_move.py` (seed `BIN/cashbook_move_seed.py`, DB read `BIN/cashbook_move_db.py`), as an
+  Accountant Lead and an Accountant. The Expense lists have no Txn Id search: the walk searches by `Comment`,
+  `Imported from <batch>`.
+
 ## How to get to it (user POV)
 
 - The sidebar entry `Bulk Import Transactions` (Admin, Accountant Lead, Accountant).
