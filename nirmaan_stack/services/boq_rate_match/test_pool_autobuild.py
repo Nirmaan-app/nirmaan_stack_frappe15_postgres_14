@@ -30,6 +30,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+import redis
 from filelock import FileLock
 from frappe.tests.utils import FrappeTestCase
 from rq.job import JobStatus
@@ -367,34 +368,51 @@ class TestMigrateGate(FrappeTestCase):
         self.assertEqual(frappe.get_hooks("after_migrate", app_name="nirmaan_stack")[-1],
                          "nirmaan_stack.services.boq_rate_match.pool_autobuild.after_migrate")
 
+    def _redis_down_get_queue(self):
+        """get_queue failing the way Frappe's in_migrate fallback catches (redis.exceptions.ConnectionError, not the
+        builtin): with in_migrate set, a real frappe.enqueue then runs the job INLINE through frappe.call."""
+        def get_queue(*a, **k):
+            raise redis.exceptions.ConnectionError("redis down")
+        return get_queue
+
+    def _inline_recorders(self):
+        """rebuild_pool / build_pool replaced by recorders, not by raisers: the after-migrate callback swallows every
+        exception, so a raising stand-in would hide an inline run."""
+        self.ran = []
+        return (patch.object(P, "rebuild_pool", new=lambda *a, **k: self.ran.append("rebuild_pool")),
+                patch.object(P, "build_pool", new=lambda *a, **k: self.ran.append("build_pool")))
+
     def _after_migrate(self, env, redis_up=True):
         """after_migrate() as migrate calls it, then the commit that ends post_schema_updates runs its callbacks
-        (still inside migrate: in_migrate is set, so a real enqueue with Redis down would run the job inline)."""
+        (still inside migrate: in_migrate is set, so a real enqueue with Redis down would run the job inline).
+        Redis up: frappe.enqueue is recorded, not run. Redis down: the REAL frappe.enqueue runs (wrapped, so each call
+        is counted), against a get_queue that raises Frappe's own ConnectionError."""
         from frappe.utils import background_jobs as BJ
         callbacks = []
-        real_get_queue = BJ.get_queue
+        self.enqueue_calls = []
+        real_enqueue = frappe.enqueue
 
-        def get_queue(*a, **k):
-            if not redis_up:
-                raise ConnectionError("redis down")
-            return real_get_queue(*a, **k)
+        def spy_enqueue(*a, **k):
+            self.enqueue_calls.append((a, k))
+            return real_enqueue(*a, **k)
 
         with patch.object(frappe.db, "after_commit", SimpleNamespace(add=callbacks.append)):
             AB.after_migrate()
         self.assertFalse(os.path.exists(AB.mark_path()))                 # nothing before the commit
         old_flag = frappe.local.flags.in_migrate
         frappe.local.flags.in_migrate = True
+        rebuild, build = self._inline_recorders()
         try:
-            with patch.dict(frappe.conf, {"nirmaan_env": env}), patch.object(BJ, "get_queue", side_effect=get_queue), \
-                    patch.object(P, "rebuild_pool", side_effect=AssertionError("never run inline")), \
-                    patch.object(P, "build_pool", side_effect=AssertionError("never run inline")):
+            with patch.dict(frappe.conf, {"nirmaan_env": env}), rebuild, build:
                 if redis_up:
                     with self._record():
                         for cb in callbacks:
                             cb()
                 else:
-                    for cb in callbacks:
-                        cb()                                              # the real frappe.enqueue: no inline run
+                    with patch.object(BJ, "get_queue", side_effect=self._redis_down_get_queue()), \
+                            patch.object(frappe, "enqueue", side_effect=spy_enqueue):
+                        for cb in callbacks:
+                            cb()
         finally:
             frappe.local.flags.in_migrate = old_flag
         return callbacks
@@ -405,16 +423,45 @@ class TestMigrateGate(FrappeTestCase):
         self.assertIsNone(AB.site_ready())                                # the mark holds the live oid
         self.assertEqual(len(self.enqueued), 1)
         self.assertEqual(self.enqueued[0][0], (AB.REBUILD_METHOD,))
+        self.assertEqual(self.ran, [])
 
     def test_after_a_migrate_on_a_dev_site_the_mark_is_written_and_nothing_queued(self):
         self._after_migrate("dev")
         self.assertIsNone(AB.site_ready())
         self.assertEqual(self.enqueued, [])
+        self.assertEqual(self.ran, [])
 
     def test_after_a_migrate_with_redis_down_nothing_is_queued_or_run(self):
         self._after_migrate("prod", redis_up=False)
         self.assertIsNone(AB.site_ready())
-        self.assertEqual(self.enqueued, [])
+        self.assertEqual(self.enqueue_calls, [])                          # frappe.enqueue is never even called
+        self.assertEqual(self.ran, [])                                    # and nothing ran inline inside the migrate
+
+    def test_a_redis_that_drops_after_the_ping_raises_instead_of_running_inline(self):
+        with patch.object(AB, "_long_queue_answers", return_value=True):  # it answered the ping, then went down
+            self._after_migrate("prod", redis_up=False)
+        self.assertIsNone(AB.site_ready())
+        self.assertEqual(len(self.enqueue_calls), 1)                      # the enqueue was tried ...
+        self.assertEqual(self.ran, [])                                    # ... and raised: no inline run
+
+    def test_the_redis_down_outage_above_is_the_one_frappe_runs_inline(self):
+        """The control for the test above: the same outage, inside a migrate, makes a bare frappe.enqueue run the job
+        inline. Without this, a fake outage Frappe does not catch would leave the test above passing for nothing."""
+        from frappe.utils import background_jobs as BJ
+        old_flag = frappe.local.flags.in_migrate
+        frappe.local.flags.in_migrate = True
+        rebuild, build = self._inline_recorders()
+        try:
+            with rebuild, build, patch.object(BJ, "get_queue", side_effect=self._redis_down_get_queue()):
+                frappe.enqueue(AB.REBUILD_METHOD, queue=AB.REBUILD_QUEUE)
+        finally:
+            frappe.local.flags.in_migrate = old_flag
+        self.assertEqual(self.ran, ["rebuild_pool"])
+
+    def test_with_redis_down_the_queue_does_not_answer(self):
+        from frappe.utils import background_jobs as BJ
+        with patch.object(BJ, "get_queue", side_effect=self._redis_down_get_queue()):
+            self.assertFalse(AB._long_queue_answers())
 
     def test_the_after_migrate_callback_never_raises(self):
         def _raise(fn):
