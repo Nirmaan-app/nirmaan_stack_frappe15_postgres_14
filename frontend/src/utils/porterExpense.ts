@@ -8,6 +8,7 @@
 import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
 import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
 import { encodeFiltersForUrl } from "@/hooks/useServerDataTable";
+import { cashbookMoveLabel } from "@/pages/outflow-import/cashbookRectify";
 import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
@@ -44,11 +45,24 @@ export interface PorterExpenseSection {
 export const isPorterExpense = (expense: { porter_order?: string | null } | null | undefined): boolean =>
 	!!expense?.porter_order;
 
-/** The edit dialog's project field: locked on a Porter Expense; any other expense shows no project row. */
+/** Whether the Cashbook import created the expense: it carries the wallet marker (`cashbook_batch`, #1592). */
+export const isCashbookExpense = (expense: { cashbook_batch?: string | null } | null | undefined): boolean =>
+	!!expense?.cashbook_batch;
+
+/**
+ * The edit dialog's project field: locked on a Porter Expense and on a Cashbook expense (#1757), whose project moves
+ * only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's words: Porter's
+ * "Move to another project"; a Cashbook expense's by its ledger `doctype` ("Move to a project", "Change project").
+ * Any other expense shows no locked row.
+ */
 export const projectField = (
-	expense: { porter_order?: string | null } | null | undefined
-): { locked: false } | { locked: true; hint: string } =>
-	isPorterExpense(expense) ? { locked: true, hint: MOVE_ORDER_LABEL } : { locked: false };
+	expense: { porter_order?: string | null; cashbook_batch?: string | null } | null | undefined,
+	doctype?: string
+): { locked: false } | { locked: true; hint: string } => {
+	if (isPorterExpense(expense)) return { locked: true, hint: MOVE_ORDER_LABEL };
+	if (isCashbookExpense(expense)) return { locked: true, hint: cashbookMoveLabel([doctype]) };
+	return { locked: false };
+};
 
 /**
  * Where the hint links: Bulk Import on the order's import, the Settled tab searched to its CRN, with the move
