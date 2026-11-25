@@ -166,10 +166,12 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_match": {
-   "seconds": 18.5,
+   "seconds": 14.8,
    "series": [],
    "writes": [],
-   "reads": []
+   "reads": [
+    "tabMilestone Tracker"
+   ]
   },
   "nirmaan_stack.api.boq.test_rate_match_feedback": {
    "seconds": 19.7,
@@ -190,13 +192,11 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_suggest": {
-   "seconds": 42.3,
+   "seconds": 35.3,
    "series": [
     "BOQN-26-",
     "BQSH-26-",
-    "BRCT-26-",
     "BRSE-26-",
-    "BRSR-26-",
     "PROJ-"
    ],
    "writes": [
@@ -224,6 +224,7 @@
     "tabBoQ General Specs Sheet",
     "tabBoQ Rate Category Config",
     "tabBoQ Rate Master Item",
+    "tabBoQ Rate Match Feedback",
     "tabBoQ Rate Match Run",
     "tabBoQ Review Row",
     "tabBoQ Row BCS Rate",
@@ -232,6 +233,7 @@
     "tabBoQ Sheet Pricing Lock",
     "tabCEO Hold Reason",
     "tabCritical PO Tasks",
+    "tabGoogle Calendar",
     "tabMilestone Tracker",
     "tabProject Drive Link Child Table",
     "tabProject Schedule",
@@ -267,15 +269,56 @@
    ]
   },
   "nirmaan_stack.api.boq.test_suggest_never_read_12e5b": {
-   "seconds": 15.8,
+   "seconds": 14.1,
    "series": [],
    "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.api.boq.test_suggest_operations": {
+   "seconds": 33.6,
+   "series": [
+    "BOQN-26-",
+    "BQSH-26-",
+    "PROJ-"
+   ],
+   "writes": [
+    "tabBOQ Nodes",
+    "tabBOQs",
+    "tabBoQ Rate Match Run",
+    "tabBoQ Rate Suggestion Run",
+    "tabBoQ Row Category",
+    "tabBoQ Sheet",
+    "tabProjects"
+   ],
    "reads": [
     "tabAssignment Rule",
+    "tabBOQ Node Qty By Area",
     "tabBlock Module",
     "tabBoQ AI Run Log",
+    "tabBoQ Category Truth Snapshot",
+    "tabBoQ Cell Amount Formula",
+    "tabBoQ Cell Color",
+    "tabBoQ Cell Dismissal",
+    "tabBoQ Cell Pricing",
+    "tabBoQ Cell Reconciliation Choice",
+    "tabBoQ Cell Remark",
+    "tabBoQ Committed Sheet Grid",
+    "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Review Row",
+    "tabBoQ Row BCS Rate",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet Draft",
+    "tabBoQ Sheet Pricing Lock",
+    "tabCEO Hold Reason",
+    "tabCritical PO Tasks",
     "tabMilestone Tracker",
+    "tabProject Drive Link Child Table",
+    "tabProject Schedule",
+    "tabProject Work Headers",
+    "tabProject Work Package Category Make",
+    "tabProject Zone Child Table",
     "tabServer Script",
     "tabWorkflow"
    ]
@@ -426,10 +469,9 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_ai_assist": {
-   "seconds": 38.0,
+   "seconds": 34.9,
    "series": [
     "BOQ-26-",
-    "BOQRR-26-",
     "PROJ-"
    ],
    "writes": [
@@ -453,9 +495,12 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
@@ -471,10 +516,9 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_ai_run_log": {
-   "seconds": 48.3,
+   "seconds": 41.9,
    "series": [
     "BOQ-26-",
-    "BOQRR-26-",
     "PROJ-"
    ],
    "writes": [
@@ -497,6 +541,7 @@
     "tabBoQ Cell Reconciliation Choice",
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
+    "tabBoQ Rate Match Feedback",
     "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
@@ -579,12 +624,11 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_classify": {
-   "seconds": 40.0,
+   "seconds": 48.1,
    "series": [
     "BCTS-26-",
     "BOQN-26-",
     "BQSH-26-",
-    "BRCT-26-",
     "PROJ-"
    ],
    "writes": [
@@ -609,32 +653,24 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Review Row",
     "tabBoQ Row BCS Rate",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet Draft",
     "tabBoQ Sheet Pricing Lock",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
-    "tabCheques",
     "tabCritical PO Tasks",
     "tabMilestone Tracker",
-    "tabNirmaan Users",
-    "tabPO Adjustments",
-    "tabPO Payment Terms",
-    "tabPO Revisions",
-    "tabProcurement Orders",
-    "tabProcurement Request Item Detail",
-    "tabProcurement Requests",
     "tabProject Drive Link Child Table",
-    "tabProject Payments",
     "tabProject Schedule",
     "tabProject Work Headers",
     "tabProject Work Package Category Make",
     "tabProject Zone Child Table",
-    "tabSent Back Category",
     "tabServer Script",
-    "tabService Requests",
     "tabWorkflow"
    ],
    "serial": true,
@@ -910,10 +946,9 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_create_from_template": {
-   "seconds": 36.8,
+   "seconds": 65.0,
    "series": [
     "BOQ-26-",
-    "BOQRR-26-",
     "BOQTPL-",
     "PROJ-"
    ],
@@ -942,13 +977,17 @@
     "tabBoQ Cell Reconciliation Choice",
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Pricing Lock",
     "tabCEO Hold Reason",
     "tabCritical PO Tasks",
+    "tabGoogle Calendar",
     "tabMilestone Tracker",
     "tabNirmaan Users",
     "tabProject Drive Link Child Table",
@@ -1128,10 +1167,9 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_gemini_assist": {
-   "seconds": 34.4,
+   "seconds": 34.5,
    "series": [
     "BOQ-26-",
-    "BOQRR-26-",
     "PROJ-"
    ],
    "writes": [
@@ -1155,9 +1193,12 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
@@ -1224,16 +1265,15 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_match_settings": {
-   "seconds": 11.7,
+   "seconds": 12.9,
    "series": [],
    "writes": [],
    "reads": []
   },
   "nirmaan_stack.api.boq.wizard.test_parse_run": {
-   "seconds": 47.1,
+   "seconds": 47.9,
    "series": [
     "BOQN-26-",
-    "BOQRR-26-",
     "BQSH-26-",
     "PROJ-"
    ],
@@ -1260,9 +1300,12 @@
     "tabBoQ Cell Reconciliation Choice",
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
     "tabCritical PO Tasks",
@@ -1422,10 +1465,9 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_review_flags": {
-   "seconds": 43.6,
+   "seconds": 39.3,
    "series": [
     "BOQ-26-",
-    "BOQRR-26-",
     "PROJ-"
    ],
    "writes": [
@@ -1449,9 +1491,12 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
@@ -1526,10 +1571,8 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_revision_entry": {
-   "seconds": 47.1,
+   "seconds": 45.7,
    "series": [
-    "ATT-02308-",
-    "ATT-02311-",
     "BOQ-26-",
     "PROJ-"
    ],
@@ -1555,34 +1598,25 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid Row",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Review Row",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Pricing Lock",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
-    "tabCheques",
     "tabCritical PO Tasks",
-    "tabGoogle Calendar",
     "tabMilestone Tracker",
-    "tabNirmaan Users",
-    "tabPO Adjustments",
-    "tabPO Payment Terms",
-    "tabPO Revisions",
-    "tabProcurement Orders",
-    "tabProcurement Request Item Detail",
-    "tabProcurement Requests",
     "tabProject Drive Link Child Table",
-    "tabProject Payments",
     "tabProject Schedule",
     "tabProject Work Headers",
     "tabProject Work Package Category Make",
     "tabProject Zone Child Table",
-    "tabSent Back Category",
     "tabServer Script",
-    "tabService Requests",
     "tabWork Headers",
     "tabWorkflow"
    ]
@@ -2241,11 +2275,8 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_upload_file": {
-   "seconds": 32.2,
+   "seconds": 28.4,
    "series": [
-    "ATT-02349-",
-    "ATT-02351-",
-    "ATT-02352-",
     "BOQ-26-",
     "PROJ-"
    ],
@@ -2269,16 +2300,20 @@
     "tabBoQ Cell Remark",
     "tabBoQ Committed Sheet Grid",
     "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
     "tabBoQ Rate Suggestion Run",
     "tabBoQ Review Row",
     "tabBoQ Row BCS Rate",
     "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet",
     "tabBoQ Sheet Pricing Lock",
     "tabBoQ Sheet Work Package",
     "tabCEO Hold Reason",
     "tabCritical PO Tasks",
     "tabMilestone Tracker",
+    "tabNirmaan Users",
     "tabProject Drive Link Child Table",
     "tabProject Schedule",
     "tabProject Work Headers",
@@ -2867,12 +2902,10 @@
    "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
-   "seconds": 34.8,
+   "seconds": 27.6,
    "series": [],
    "writes": [],
-   "reads": [
-    "tabBOQ Nodes"
-   ]
+   "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_cards": {
    "seconds": 16.7,
@@ -3036,6 +3069,12 @@
     "tabBoQ Rate Master Item",
     "tabBoQ Rate Master Snapshot"
    ]
+  },
+  "nirmaan_stack.services.boq_rate_match.test_site_ai_slots": {
+   "seconds": 13.4,
+   "series": [],
+   "writes": [],
+   "reads": []
   },
   "nirmaan_stack.services.boq_revision.test_carry": {
    "seconds": 14.2,
