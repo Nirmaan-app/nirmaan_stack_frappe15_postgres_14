@@ -159,6 +159,18 @@ class TestPoolJob(FrappeTestCase):
         self.assertEqual((out["secs"]["corpus"], out["secs"]["pricing_step"]), (7, 3))
         self.assertEqual(out["secs"]["total"], 7 + 3 + 1)                 # the build's own time, lock wait apart
 
+    # ---- the clock's limit is the running queue job's own ----
+    def test_the_clock_takes_the_running_jobs_timeout(self):
+        from types import SimpleNamespace
+        with patch("rq.get_current_job", return_value=SimpleNamespace(timeout=1234)):
+            self.assertEqual(J.BuildClock.for_this_run().limit, 1234)
+
+    def test_a_build_by_hand_has_no_limit_and_never_bounds_the_driving_step(self):
+        with patch("rq.get_current_job", return_value=None):
+            clock = J.BuildClock.for_this_run()
+        self.assertIsNone(clock.limit)
+        self.assertEqual(clock.driving_timeout(), PS.MEASURE_TIMEOUT_S)
+
 
 class _Recorder(logging.Handler):
     def __init__(self, events):

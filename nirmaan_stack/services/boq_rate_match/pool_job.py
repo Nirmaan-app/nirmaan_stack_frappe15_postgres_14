@@ -43,6 +43,15 @@ class BuildClock:
         self.started = self._build = self._mark = now()
         self.secs, self._warned = {}, False
 
+    @classmethod
+    def for_this_run(cls):
+        """The limit is the running RQ job's own timeout (rate_match.POOL_REBUILD_TIMEOUT_SEC when queued as today);
+        a build by hand (`bench execute`) runs under no queue limit, so its clock has none."""
+        import rq
+        job = rq.get_current_job()
+        timeout = getattr(job, "timeout", None)
+        return cls(limit=timeout if isinstance(timeout, (int, float)) and timeout > 0 else None)
+
     def elapsed(self):
         return self.now() - self.started
 
@@ -103,11 +112,10 @@ def measure_driving(clock, page_rows, step_rows, asset):
 
 
 def rebuild(force=False, clock=None):
-    from nirmaan_stack.api.boq.rate_match import POOL_REBUILD_TIMEOUT_SEC
     from nirmaan_stack.services.boq_rate_match import pool as P
     from nirmaan_stack.services.boq_rate_match import pool_autobuild
 
-    clock = clock or BuildClock(limit=POOL_REBUILD_TIMEOUT_SEC)
+    clock = clock or BuildClock.for_this_run()
     path = P.pool_path()
     if not force:
         not_ready = pool_autobuild.site_ready()

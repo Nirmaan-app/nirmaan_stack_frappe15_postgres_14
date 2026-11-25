@@ -512,7 +512,7 @@ class FakeProviderOn:
             os.rename(path + PARKED_POOL, path)
             return
         print("match: no earlier-BoQ pool file on this env; building one", flush=True)
-        built = match_pool.rebuild_pool()
+        built = match_pool.rebuild_pool(force=True)          # a dev env has no migrate mark (#1741)
         print(f"match: pool built, {built['rows']} rows in {built['secs']}", flush=True)
 
     def __exit__(self, *exc):
