@@ -193,6 +193,9 @@ class TestPoolCache(FrappeTestCase):
         self.dir = tempfile.mkdtemp(prefix="pool_cache_test_")
         self.path = os.path.join(self.dir, "match_pool_v1.pkl")
         self.builds = 0
+        ready = patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None)      # a migrated site (the gate: test_pool_autobuild)
+        ready.start()
+        self.addCleanup(ready.stop)
         self.stamp = {"code": "c1", "asset": "a1"}
 
     def tearDown(self):
@@ -262,6 +265,9 @@ class TestRebuildPool(FrappeTestCase):
         self.dir = tempfile.mkdtemp(prefix="pool_rebuild_test_")
         self.path = os.path.join(self.dir, "match_pool_v1.pkl")
         self.builds = 0
+        ready = patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None)      # a migrated site (the gate: test_pool_autobuild)
+        ready.start()
+        self.addCleanup(ready.stop)
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)

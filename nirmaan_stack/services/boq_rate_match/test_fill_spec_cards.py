@@ -157,9 +157,10 @@ class TestSelection(FrappeTestCase):
         self.assertEqual(p["usd"], round((23000 * 0.1 + 28 * FSC.OUT_TOKENS_PER_ROW * 0.5) / 1e6, 4))
         self.assertEqual(p["minutes"], round(2 * FSC.SECS_PER_CALL / 60, 1))   # one wave a sheet at 50 at once
 
-    def test_the_rebuild_command_names_the_pool_rebuild(self):
+    def test_the_rebuild_command_names_the_pool_rebuild_past_the_migrate_gate(self):
         self.assertEqual(FSC.rebuild_command("x.site"),
-                         "bench --site x.site execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool")
+                         "bench --site x.site execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool "
+                         "--kwargs \"{'force': True}\"")
 
 
 # --- the run, on a fixture BoQ ---------------------------------------------------------------------------------------

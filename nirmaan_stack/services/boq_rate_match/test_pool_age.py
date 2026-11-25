@@ -267,7 +267,7 @@ class TestBuildPoolCutoff(FrappeTestCase):
         try:
             built = self._build(self.OLD_SHEETS)
             with patch.object(P, "pool_path", return_value=os.path.join(d, "match_pool_v1.pkl")), \
-                    patch.object(P, "build_pool", return_value=built):
+                    patch.object(P, "build_pool", return_value=built), patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None):
                 out = P.rebuild_pool()
             self.assertTrue(SUMMARY_KEYS <= set(out))
             self.assertEqual((out["cutoff_date"], out["rows_left_out_by_age"], out["sheets_left_out_by_age"], out["boqs_left_out_by_age"],

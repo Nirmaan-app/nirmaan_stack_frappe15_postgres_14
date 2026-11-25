@@ -147,7 +147,7 @@ class TestJobPool(FrappeTestCase):
         self.assertIsNone(pool)
         with patch.object(self.P, "pool_path", return_value=self.path), \
                 patch.object(self.P, "_current_stamp", return_value=dict(self.stamp)), \
-                patch.object(self.P, "build_pool", side_effect=self._builder):
+                patch.object(self.P, "build_pool", side_effect=self._builder), patch("nirmaan_stack.services.boq_rate_match.pool_autobuild.site_ready", return_value=None):
             out = self.P.rebuild_pool()                       # what daily_pool_rebuild enqueues at 06:00
         self.assertEqual((self.builds, out["path"]), (1, self.path))
         pool, info = self._run()

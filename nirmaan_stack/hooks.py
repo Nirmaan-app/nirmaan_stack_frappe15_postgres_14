@@ -96,6 +96,9 @@ after_migrate = [
     # Records without review drops a profile that raises no type, judged on the types the migrate
     # ends with (a patch may merge or remove types).
     "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+    # Last: once the migrate commits, mark this database as migrated (the pool build gate) and queue the first match
+    # pool build after a deploy (#1741).
+    "nirmaan_stack.services.boq_rate_match.pool_autobuild.after_migrate",
 ]
 
 # Uninstallation

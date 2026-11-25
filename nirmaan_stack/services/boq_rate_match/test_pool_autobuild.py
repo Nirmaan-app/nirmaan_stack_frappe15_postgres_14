@@ -21,6 +21,7 @@ enqueued, the live pool file is never touched, the database is never written, no
                  the check
 """
 import os
+import json
 import shutil
 import tempfile
 import time
@@ -62,7 +63,7 @@ class TestAutobuild(FrappeTestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def _check(self, **extra):
-        with patch.object(P, "pool_path", return_value=self.path), \
+        with patch.object(P, "pool_path", return_value=self.path), patch.object(AB, "site_ready", return_value=None), \
                 patch.object(AB, "_TRIES_KEY", self.tries_key), patch.object(AB, "_TRIES_TTL_SEC", 600), \
                 patch.object(frappe, "enqueue", side_effect=lambda *a, **k: self.enqueued.append((a, k))), \
                 patch("frappe.utils.background_jobs.get_job",
@@ -140,7 +141,8 @@ class TestAutobuild(FrappeTestCase):
     def test_the_fixed_job_id_is_the_0600_jobs(self):
         from nirmaan_stack.api.boq import rate_match
         seen = []
-        with patch.object(frappe, "enqueue", side_effect=lambda *a, **k: seen.append((a, k))):
+        with patch.object(frappe, "enqueue", side_effect=lambda *a, **k: seen.append((a, k))), \
+                patch.object(AB, "site_ready", return_value=None):
             rate_match.daily_pool_rebuild()
         self._check()
         self.assertEqual(seen, self.enqueued)                             # same method, queue, timeout, job id, dedupe
@@ -254,3 +256,175 @@ class TestHealerCarriesTheCheck(FrappeTestCase):
             with self.assertRaises(RuntimeError):
                 H.heal_stale_match_runs()
         ab.assert_called_once_with()
+
+
+class TestMigrateGate(FrappeTestCase):
+    """THE MIGRATE GATE (#1741; owner 2026-11-25 "go"): no pool build is queued or run while the database is not the one
+    a migrate finished on. A restore drops and recreates the database, so its oid changes; the migrate mark beside the
+    pool file holds the oid the last migrate finished on. Temp paths and mocks only: nothing is really enqueued."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="pool_gate_test_")
+        self.path = os.path.join(self.dir, "boq_rate_match", f"match_pool_v{P.POOL_FORMAT}.pkl")
+        self.enqueued = []
+        self.tries_key = f"{AB._TRIES_KEY}_test_{frappe.generate_hash(length=10)}"
+        self._p = [patch.object(P, "pool_path", return_value=self.path),
+                   patch.object(AB, "_TRIES_KEY", self.tries_key), patch.object(AB, "_TRIES_TTL_SEC", 600),
+                   patch.object(AB, "_memo_get", return_value=None), patch.object(AB, "_memo_set"),
+                   patch("frappe.utils.background_jobs.get_job", return_value=None)]
+        for p in self._p:
+            p.start()
+
+    def tearDown(self):
+        for p in self._p:
+            p.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _mark(self, oid):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(AB.mark_path(), "w") as f:
+            json.dump({"oid": oid, "at": "2026-11-25 10:00:00"}, f)
+
+    def _live_oid(self):
+        return int(frappe.db.sql("select oid from pg_database where datname = current_database()")[0][0])
+
+    def _record(self):
+        return patch.object(frappe, "enqueue", side_effect=lambda *a, **k: self.enqueued.append((a, k)))
+
+    # ---- site_ready ----
+    def test_the_mark_sits_beside_the_pool_file(self):
+        self.assertEqual(os.path.dirname(AB.mark_path()), os.path.dirname(self.path))
+
+    def test_no_mark_is_not_ready(self):
+        self.assertIn("no migrate", AB.site_ready())
+
+    def test_a_mark_for_another_database_is_not_ready(self):
+        self._mark(self._live_oid() + 1)                                  # a restore made a new database
+        self.assertIn("another database", AB.site_ready())
+
+    def test_a_mark_holding_the_live_oid_is_ready(self):
+        self._mark(self._live_oid())
+        self.assertIsNone(AB.site_ready())
+
+    def test_an_unreadable_mark_is_a_refusal(self):
+        os.makedirs(os.path.dirname(self.path))
+        with open(AB.mark_path(), "w") as f:
+            f.write("{not json")
+        self.assertIn("cannot be read", AB.site_ready())
+        with open(AB.mark_path(), "w") as f:
+            f.write("[1, 2]")
+        self.assertIsNotNone(AB.site_ready())
+
+    def test_a_failing_oid_read_is_a_refusal_never_a_build(self):
+        self._mark(self._live_oid())
+        with patch.object(AB.frappe.db, "sql", side_effect=RuntimeError("db gone")):
+            why = AB.site_ready()
+        self.assertIsNotNone(why)
+
+    # ---- the three automatic paths refuse ----
+    def test_the_5_minute_check_queues_nothing_before_a_migrate(self):
+        with self._record(), patch.object(P, "build_pool", side_effect=AssertionError("no build")):
+            out = AB.autobuild_pool()
+        self.assertFalse(out["queued"])
+        self.assertIn("no migrate", out["why"])
+        self.assertEqual(self.enqueued, [])
+
+    def test_the_5_minute_check_queues_after_the_mark_holds_the_live_oid(self):
+        self._mark(self._live_oid())
+        with self._record():
+            self.assertTrue(AB.autobuild_pool()["queued"])
+        self.assertEqual(len(self.enqueued), 1)
+
+    def test_the_0600_job_queues_nothing_before_a_migrate(self):
+        from nirmaan_stack.api.boq import rate_match
+        with self._record():
+            self.assertFalse(rate_match.daily_pool_rebuild())
+        self.assertEqual(self.enqueued, [])
+
+    def test_the_0600_job_queues_after_a_migrate(self):
+        from nirmaan_stack.api.boq import rate_match
+        self._mark(self._live_oid())
+        with self._record():
+            self.assertTrue(rate_match.daily_pool_rebuild())
+        self.assertEqual(len(self.enqueued), 1)
+
+    def test_the_job_body_builds_nothing_and_takes_no_lock_before_a_migrate(self):
+        with patch.object(P, "build_pool", side_effect=AssertionError("no build")):
+            out = P.rebuild_pool()
+        self.assertFalse(out["built"])
+        self.assertIn("no migrate", out["why"])
+        self.assertFalse(os.path.exists(self.path + ".lock"))
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_the_manual_path_forces_a_build_before_a_migrate(self):
+        with patch.object(P, "build_pool", return_value=_pool()):
+            out = P.rebuild_pool(force=True)
+        self.assertTrue(out["built"])
+        self.assertTrue(os.path.exists(self.path))
+
+    # ---- the after-migrate hook ----
+    def test_after_migrate_is_the_last_after_migrate_hook(self):
+        self.assertEqual(frappe.get_hooks("after_migrate", app_name="nirmaan_stack")[-1],
+                         "nirmaan_stack.services.boq_rate_match.pool_autobuild.after_migrate")
+
+    def _after_migrate(self, env, redis_up=True):
+        """after_migrate() as migrate calls it, then the commit that ends post_schema_updates runs its callbacks
+        (still inside migrate: in_migrate is set, so a real enqueue with Redis down would run the job inline)."""
+        from frappe.utils import background_jobs as BJ
+        callbacks = []
+        real_get_queue = BJ.get_queue
+
+        def get_queue(*a, **k):
+            if not redis_up:
+                raise ConnectionError("redis down")
+            return real_get_queue(*a, **k)
+
+        with patch.object(frappe.db, "after_commit", SimpleNamespace(add=callbacks.append)):
+            AB.after_migrate()
+        self.assertFalse(os.path.exists(AB.mark_path()))                 # nothing before the commit
+        old_flag = frappe.local.flags.in_migrate
+        frappe.local.flags.in_migrate = True
+        try:
+            with patch.dict(frappe.conf, {"nirmaan_env": env}), patch.object(BJ, "get_queue", side_effect=get_queue), \
+                    patch.object(P, "rebuild_pool", side_effect=AssertionError("never run inline")), \
+                    patch.object(P, "build_pool", side_effect=AssertionError("never run inline")):
+                if redis_up:
+                    with self._record():
+                        for cb in callbacks:
+                            cb()
+                else:
+                    for cb in callbacks:
+                        cb()                                              # the real frappe.enqueue: no inline run
+        finally:
+            frappe.local.flags.in_migrate = old_flag
+        return callbacks
+
+    def test_after_a_migrate_on_a_live_site_exactly_one_build_is_queued(self):
+        cbs = self._after_migrate("prod")
+        self.assertEqual(len(cbs), 1)
+        self.assertIsNone(AB.site_ready())                                # the mark holds the live oid
+        self.assertEqual(len(self.enqueued), 1)
+        self.assertEqual(self.enqueued[0][0], (AB.REBUILD_METHOD,))
+
+    def test_after_a_migrate_on_a_dev_site_the_mark_is_written_and_nothing_queued(self):
+        self._after_migrate("dev")
+        self.assertIsNone(AB.site_ready())
+        self.assertEqual(self.enqueued, [])
+
+    def test_after_a_migrate_with_redis_down_nothing_is_queued_or_run(self):
+        self._after_migrate("prod", redis_up=False)
+        self.assertIsNone(AB.site_ready())
+        self.assertEqual(self.enqueued, [])
+
+    def test_the_after_migrate_callback_never_raises(self):
+        def _raise(fn):
+            raise RuntimeError("boom")
+
+        callbacks = []
+        with patch.object(frappe.db, "after_commit", SimpleNamespace(add=callbacks.append)):
+            AB.after_migrate()
+        with patch.object(AB, "write_mark", side_effect=OSError("disk full")), \
+                patch.object(AB, "autobuild_pool", side_effect=AssertionError("no build without a mark")):
+            callbacks[0]()                                                # no exception
+        with patch.object(frappe.db, "after_commit", SimpleNamespace(add=_raise)):
+            AB.after_migrate()                                            # no exception

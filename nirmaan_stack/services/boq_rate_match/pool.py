@@ -41,8 +41,8 @@ bundle's measureDrivingFields on EVERY stored row; DEV2-B4 rule (iii): the price
 nothing is stored in code, so a pricing-config change reaches W1 at the next build. Step unavailable or no readings ->
 no v1 tokens (W1 without V1).
 
-THE DAILY REBUILD: `rebuild_pool()` (no arguments, under the same lock) is the entry point the 06:00 IST job calls
-(rate_match.daily_pool_rebuild); its summary adds the cut-off's counts. `ensure_pool` (the bench) keeps its 24 h check.
+THE DAILY REBUILD: `rebuild_pool()` (pool_job.rebuild, under the same lock) is the job the 06:00 IST entry and the
+auto-build queue; its summary adds the cut-off's counts. `ensure_pool` (the bench) keeps its 24 h check.
 
 THE INDEX (owner G6 (a)) is built with the pool and cached in the same file: per heading level a TF-IDF over word
 tokens + bigrams (self / parent / upper), a TF-IDF over character 3-grams of the description, BM25 postings over all
@@ -470,16 +470,11 @@ def _usable(path, stamp):
     return pool
 
 
-def rebuild_pool():
-    """THE DAILY REBUILD (no arguments): build the pool now and replace the cached file, under the same lock as
-    ensure_pool. The entry point a scheduled job calls as it is (B4 adds the 06:00 IST entry). -> a short summary."""
-    path = pool_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with FileLock(path + '.lock', timeout=REBUILD_WAIT_SEC):
-        pool = build_pool()
-        save_pool(pool, path)
-    return {'path': path, 'rows': len(pool.rows), 'kept': len(pool.kept), 'as_of': pool.as_of, 'secs': pool.secs,
-            'pricing': pool.pricing, 'driving': {k: pool.driving[k] for k in ('available', 'reason')}, **getattr(pool, 'age', {})}
+def rebuild_pool(force=False):
+    """THE DAILY REBUILD, the job the 06:00 entry and the auto-build queue (pool_job.rebuild: the migrate gate, the job
+    clock, the stage log); force=True is the manual entry. -> a short summary."""
+    from nirmaan_stack.services.boq_rate_match import pool_job
+    return pool_job.rebuild(force=force)
 
 
 def ensure_pool(path=None, builder=None):

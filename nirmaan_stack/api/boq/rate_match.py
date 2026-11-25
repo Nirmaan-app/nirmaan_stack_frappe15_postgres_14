@@ -32,7 +32,8 @@ System Settings time_zone): production must hold Asia/Kolkata for 06:00 to be IS
 POOL ONLY AT 06:00 (DEV2-B8, owner 2026-11-06 12:41 / 12:42): the 06:00 job is the ONLY automatic build. A user's match
 run never builds the pool and never queues a rebuild (match_run.job_pool); a build on production takes ~20 minutes
 and holds one of its N `long` workers for that time. The manual entry point stays: `bench --site <site> execute
-nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`, after hours.
+nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"`, after hours (force: past the
+migrate gate, pool_autobuild.site_ready).
 
 THE WAIT ESTIMATE (owner 2026-11-03 11:11: "it should give total estinmate _ suggest rate + historical rates -- with
 splits -- give a safe number"): PACES below, measured at p90; the dialog adds the two phases, each rounded UP to whole
@@ -449,7 +450,15 @@ def get_match_detail(boq=None, sheet_name=None, excel_row=None, match_run=None, 
 
 def daily_pool_rebuild():
     """THE 06:00 IST ENTRY (hooks.py cron "0 6 * * *"): enqueue pool.rebuild_pool on long with its own timeout (a
-    Cron job itself runs on `default` at 300 s). One at a time (deduplicated job id). -> True when enqueued."""
+    Cron job itself runs on `default` at 300 s). One at a time (deduplicated job id). -> True when enqueued.
+    THE MIGRATE GATE (#1741, pool_autobuild.site_ready): nothing is queued, and False returned, until a migrate has
+    finished on this database (a restore in progress, or one not yet migrated)."""
+    from nirmaan_stack.services.boq_rate_match import pool_autobuild
+
+    not_ready = pool_autobuild.site_ready()
+    if not_ready is not None:
+        pool_autobuild.logger().info("match pool 06:00 rebuild: not queued: %s", not_ready)
+        return False
     frappe.enqueue("nirmaan_stack.services.boq_rate_match.pool.rebuild_pool", queue="long",
                    timeout=POOL_REBUILD_TIMEOUT_SEC, job_id="boq_match_pool_daily_rebuild", deduplicate=True)
     return True

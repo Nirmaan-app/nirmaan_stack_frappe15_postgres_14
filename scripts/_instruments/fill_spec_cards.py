@@ -62,8 +62,9 @@ TOP_BOQS = 20
 
 
 def rebuild_command(site):
-    """The one command that rebuilds the pool after a fill-in (printed, never run here)."""
-    return f"bench --site {site} execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool"
+    """The one command that rebuilds the pool after a fill-in (printed, never run here); force: a manual build passes
+    the migrate gate (pool_autobuild.site_ready)."""
+    return f"bench --site {site} execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs \"{{'force': True}}\""
 
 
 # --- the rows (read only) ----------------------------------------------------------------------------------------
