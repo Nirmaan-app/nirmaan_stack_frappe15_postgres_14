@@ -1022,6 +1022,7 @@ def create_expense_from_row(
     blank_payment_by_is_actor: bool = True,
     card_refund: bool = False,
     cashbook_money_in: bool = False,
+    carried: dict | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1045,6 +1046,9 @@ def create_expense_from_row(
     Expense, so no other caller can write a negative expense through here.
     `cashbook_money_in` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
     refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
+    `carried` is Move's (Rectify, owner 2026-11-26): fields of the expense being replaced (its pay-to account and
+    approval dates) set as they are before the insert, so the save hooks see them: a pay-to account present is not
+    refilled from the vendor (`payees.pay_to.fill_from_vendor`).
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1137,6 +1141,8 @@ def create_expense_from_row(
         doc.credit_card_statement = credit_card_statement
     if cashbook_batch:
         doc.cashbook_batch = cashbook_batch
+    if carried:
+        doc.update(carried)
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.

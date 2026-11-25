@@ -179,3 +179,37 @@ class TestALinkedLineIsRefused(BankRectifyCase):
         self.assertFalse(line["rectified"])
         self.assertIn("Unreconcile it instead", line["reason"])
         self.assertTrue(frappe.db.exists(NON_PROJECT_EXPENSE, name))
+
+
+#: What the replacement keeps that Create never writes (owner, 2026-11-26): the account paid into, the approval dates.
+CARRIED = {
+    "pay_to_account_name": "Testvendor Hardware Stores",
+    "pay_to_account_number": "000111222333",
+    "pay_to_ifsc": "TEST0001234",
+    "pay_to_bank_name": "Testbank",
+    "pay_to_bank_branch": "Testnagar",
+    "approval_date": "2026-10-12",
+    "ceo_approval_date": "2026-10-13",
+}
+
+
+class TestAMoveKeepsWhatAPersonAddedLater(BankRectifyCase):
+    def test_the_pay_to_account_approval_dates_and_a_persons_comment_follow_the_expense(self):
+        row, old_name = self._created(CASHFREE)
+        # As a data fix or a person left them on the Paid expense, after Create.
+        frappe.db.set_value(NON_PROJECT_EXPENSE, old_name, CARRIED, update_modified=False)
+        frappe.get_doc(NON_PROJECT_EXPENSE, old_name).add_comment("Comment", text="Type corrected from Office Rent")
+        frappe.db.commit()
+
+        result = self._move([row], self._allocation_project())
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        [leg] = self._live_leg(row)
+        new = frappe.get_doc(leg.target_doctype, leg.target_name)
+        self.assertEqual({k: str(new.get(k)) for k in CARRIED}, CARRIED)
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": new.doctype, "reference_name": new.name, "comment_type": "Comment"},
+            pluck="content",
+        )
+        self.assertIn("Type corrected from Office Rent", comments)

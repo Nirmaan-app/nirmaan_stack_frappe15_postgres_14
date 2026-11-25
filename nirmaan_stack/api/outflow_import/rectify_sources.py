@@ -4,8 +4,9 @@
 """What an import source plugs into the Rectify core, and the sources wired so far (#1754, spec #1753).
 
 The core (`porter_rectify.plan_rectify` / `rectify_rows`) runs the same seven steps for every source; a
-`RectifySource` says what differs. `PORTER` (#1449) and `CASHBOOK` (#1757) are wired; card and bank sources
-are added here by the spec's later tickets.
+`RectifySource` says what differs. `PORTER` (#1449), `CASHBOOK` (#1757), and `ICICI` and `CASHFREE` (#1760: an
+expense a person created from a bank or Cashfree line with Create) are wired; the card source is added here by a
+later ticket of the spec.
 """
 
 from __future__ import annotations

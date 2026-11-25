@@ -11,7 +11,8 @@ THE CORE TAKES THE SOURCE AS AN INPUT (#1754). `plan_rectify(source, rows)` and 
 project, reason, expense_type)` are source-neutral; a `RectifySource` (`rectify_sources`) says what differs per import
 source: which lines are its own, its sentences, the details its plan shows, how the replacement's description and Paid
 by are written, its own writer fields, how its Settled match is recorded, which file never moves, and which lines move
-together. `PORTER` and `CASHBOOK` (#1757) are wired; card and bank sources plug in here (spec #1753). Why a line or
+together. `PORTER`, `CASHBOOK` (#1757), `ICICI` and `CASHFREE` (#1760) are wired; the card source plugs in here
+(spec #1753). Why a line or
 its expense cannot move is `rectify_refusals`; the Move endpoints for any wired source are `rectify`.
 
 Porter's two whitelisted endpoints are the core with `PORTER`, contract unchanged:
@@ -27,9 +28,9 @@ wallet spend and its refund, #1757) commit together, or none of them does
     1. its Settled match -> Reversed, with the reason (`unreconcile.stamp_reversed`)
     2. the replacement Expense, through Create's own writer (`settle.create_expense_from_row`), from the
        OLD EXPENSE's figures: amount, payment date, reference, type, comment, invoice number / date / file
-       URL, and the source's own fields (Porter: the Porter Order) -- only the ledger, the project, the
-       description and Paid by (the source's rule) change
-    3. any attachment a person added to the old Expense moves to the new one
+       URL, its pay-to account and approval dates (owner, 2026-11-26), and the source's own fields (Porter: the
+       Porter Order) -- only the ledger, the project, the description and Paid by (the source's rule) change
+    3. any attachment a person added to the old Expense, and every comment people wrote on it, moves to the new one
     4. its Expense bills, latest and history, follow it (`expense_bills.receive.move_bills`), then the old Expense
        is deleted (`unreconcile_created.delete_created`: series counter kept), so its delete retires no bill
     5. a new Settled match, through the writer the source's Create uses (Porter: `record_porter_match`)
@@ -55,6 +56,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import frappe
+from frappe.core.doctype.comment.comment import update_comment_in_doc
 
 from nirmaan_stack.api.outflow_import.bulk_unreconcile import BULK_UNRECONCILE_LIMIT
 from nirmaan_stack.api.outflow_import.expenses import (
@@ -76,6 +78,7 @@ from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills.receive import move_bills
 from nirmaan_stack.services.expense_type_ledger import ledger_types
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
 
@@ -88,6 +91,10 @@ _ORIGIN = "Suggestion overridden"
 #: What every source's line is read with; a source adds its own (`RectifySource.line_fields`).
 _ROW_FIELDS = ("name", "import_batch", "source", "row_status")
 _LEG_FIELDS = ["name", "target_doctype", "target_name", "created_by_import"]
+
+#: What the replacement keeps as it is, though Create never writes it (owner, 2026-11-26): the account the money was
+#: paid into (locked once Paid, ADR-0033 Amendment A, so nobody could put it back) and the approval dates.
+_CARRIED = PAY_TO_FIELDS + ("approval_date", "ceo_approval_date")
 
 
 @dataclass(frozen=True)
@@ -278,9 +285,11 @@ def rectify_line(
                 invoice=ExpenseInvoice(
                     number=old.invoice_ref, date=old.invoice_date, file_url=old.invoice_attachment
                 ),
+                carried={field: old.get(field) for field in _CARRIED if old.get(field)},
                 **replacement.writer_fields,
             )
             _move_attachments(old, new.doctype, new.name, source.kept_file_url(old))
+            _move_comments(old, new.doctype, new.name)
             # BEFORE the delete: its `on_trash` would retire every bill still on the old Expense.
             move_bills(old.doctype, old.name, new.doctype, new.name)
             delete_created(old.doctype, old.name, None)
@@ -371,6 +380,30 @@ def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -
              AND file_url IS DISTINCT FROM %s""",
         (doctype, name, old.doctype, old.name, kept_file_url),
     )
+
+
+def _move_comments(old, doctype: str, name: str) -> None:
+    """Carry over what people wrote on the old Expense (comment type Comment) before the delete leaves it on a name
+    that no longer exists (owner, 2026-11-26), as `_move_attachments` carries its `File` rows.
+
+    RAW RE-POINT, as for the `File` rows: a `Comment` row's hooks only notify and refresh its parent's `_comments`
+    list-view cache, which `update_comment_in_doc` refreshes here for the new Expense; the old Expense's cache goes
+    with it.
+    """
+    moved = frappe.get_all(
+        "Comment",
+        filters={"reference_doctype": old.doctype, "reference_name": old.name, "comment_type": "Comment"},
+        pluck="name",
+        order_by="creation asc",
+    )
+    if not moved:
+        return
+    frappe.db.sql(
+        """UPDATE "tabComment" SET reference_doctype = %s, reference_name = %s WHERE name IN %s""",
+        (doctype, name, tuple(moved)),
+    )
+    for comment in moved:
+        update_comment_in_doc(frappe.get_doc("Comment", comment))
 
 
 def _follow_on_the_line(row: str, new, project: str | None, expense_type: str, actor: str) -> None:
