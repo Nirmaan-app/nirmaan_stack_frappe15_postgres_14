@@ -294,3 +294,38 @@ class TestRebuildPool(FrappeTestCase):
                     with self.assertRaises(Timeout):
                         P.rebuild_pool()
         self.assertEqual(self.builds, 0)
+
+
+class TestBuildReleasesReadLocks(FrappeTestCase):
+    """#1741: the build's read transaction ends after the `inputs` stage, before the node steps (pricing step, driving
+    fields: up to ~50 minutes), so its read locks cannot hold a restore's or migrate's DDL. The live corpus is replaced
+    by one real read of `tabBoQ Row Category`; the node steps are stand-ins that look at this connection's locks."""
+
+    def _holds_row_category_lock(self):
+        import frappe
+        return bool(frappe.db.sql('''select 1 from pg_locks l join pg_class c on c.oid = l.relation
+            where l.pid = pg_backend_pid() and c.relname = 'tabBoQ Row Category' '''))
+
+    def test_no_read_lock_is_held_while_the_node_steps_run(self):
+        import frappe
+        seen = {}
+
+        def corpus(progress=None):
+            frappe.db.sql('select count(*) from "tabBoQ Row Category"')
+            seen["after_corpus"] = self._holds_row_category_lock()
+            return {}, [], [], {}, {}, []
+
+        def price_rows(*a, **k):
+            seen["pricing_step"] = self._holds_row_category_lock()
+            return {"rows": {}, "available": False, "reason": "fixture", "stamp": None}
+
+        def driving(*a, **k):
+            seen["driving_fields"] = self._holds_row_category_lock()
+            return {"available": False, "reason": "fixture", "lists": {}, "categories": {}}
+
+        with patch.object(P, "_corpus", side_effect=corpus), patch.object(P, "check_swg_table"), \
+                patch.object(P, "build_index", return_value={}), \
+                patch("nirmaan_stack.services.boq_rate_match.pricing_step.price_rows", side_effect=price_rows), \
+                patch("nirmaan_stack.services.boq_rate_match.pricing_step.measure_driving_fields", side_effect=driving):
+            P.build_pool(asset=({"configs": {}}, "v"))
+        self.assertEqual(seen, {"after_corpus": True, "pricing_step": False, "driving_fields": False})

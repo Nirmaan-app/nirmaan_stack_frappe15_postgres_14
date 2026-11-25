@@ -368,6 +368,9 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
         page_rows.update(p)
         step_rows += rr
     t_inputs = time.time()
+    # #1741: end the read transaction before the node steps (minutes): its read locks held a restore's DDL. Nothing
+    # was written (no caller holds writes here: rebuild_pool's job, ensure_pool's bench), so a rollback ends it.
+    frappe.db.rollback()
     step = pricing_step.price_rows(page_rows, step_rows, asset=asset)
     t_priced = time.time()
     driving = pricing_step.measure_driving_fields(page_rows, step_rows, asset=asset)
