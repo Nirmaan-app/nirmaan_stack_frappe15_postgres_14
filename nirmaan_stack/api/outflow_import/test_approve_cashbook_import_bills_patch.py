@@ -21,7 +21,7 @@ from PIL import Image
 
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
 from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
-from nirmaan_stack.api.expenses.test_expense_bill_approval import _as
+from nirmaan_stack.api.expenses.test_expense_bill_approval import _as, keeping_versions
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import (
     FOUR_LINKS,
@@ -130,7 +130,8 @@ class TestTheBackFill(CashbookBillsCase):
         before = {name: self._bill(name) for name in (self.waiting_bill, self.rejected_bill)}
         expenses_before = {e.name: self._expense_state(e) for e in (self.mismatched, self.rejected)}
 
-        approved = approve_import_bills(expenses=self.ours)
+        with keeping_versions():
+            approved = approve_import_bills(expenses=self.ours)
 
         self.assertEqual(sorted(approved), sorted([self.waiting_bill, self.rejected_bill]))
         for name in (self.waiting_bill, self.rejected_bill):

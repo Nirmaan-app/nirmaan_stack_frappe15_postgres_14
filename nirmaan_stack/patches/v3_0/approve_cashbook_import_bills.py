@@ -99,8 +99,7 @@ def approve_import_bills(expenses: list[str] | None = None) -> list[str]:
             continue  # decided or replaced since it was listed
         bill.update(system_approval())
         bill.update({"rejection_reason": None, "rejected_by": None, "rejected_on": None})
-        # A Version kept even where Frappe skips them by default (under tests): the history is this patch's promise.
-        bill.save(ignore_permissions=True, ignore_version=False)
+        bill.save(ignore_permissions=True)
         approved.append(bill.name)
     return approved
 
