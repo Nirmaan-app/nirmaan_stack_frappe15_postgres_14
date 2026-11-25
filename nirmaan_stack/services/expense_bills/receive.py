@@ -23,7 +23,13 @@ from frappe.utils import now_datetime
 from nirmaan_stack.services.card_invoices import is_card_spend, is_cashbook_spend
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
-from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check, system_approval
+from nirmaan_stack.services.expense_bills.reading import (
+    Reading,
+    queue_reading,
+    reading_stopped,
+    record_check,
+    system_approval,
+)
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
@@ -126,6 +132,43 @@ def retire_bills(doctype: str, expense: str) -> None:
         f"""UPDATE "tab{BILL_DOCTYPE}" SET is_latest = 0
             WHERE expense_doctype = %s AND expense = %s AND is_latest = 1""",
         (doctype, expense),
+    )
+
+
+def bill_being_read(doctype: str, expense: str, *, for_update: bool = False) -> bool:
+    """Is a reading under way on a bill of Expense `expense`: Checking and claimed by its reader (`read_claimed_at`
+    set, `reading.claim`), and not stopped (`reading.reading_stopped`)? That reader holds the expense's name and writes
+    its verdict there, so the expense must not be replaced under it (Move, #1757). A reading that stopped never comes
+    back, so it holds nothing.
+
+    `for_update` locks every bill of the expense first, as `reading.claim` locks the bill it claims: a claim then
+    either committed before this read, and is seen, or waits for the caller's commit."""
+    rows = frappe.db.sql(
+        f"""SELECT bill_check, read_claimed_at FROM "tab{BILL_DOCTYPE}"
+            WHERE expense_doctype = %s AND expense = %s{" FOR UPDATE" if for_update else ""}""",
+        (doctype, expense),
+        as_dict=True,
+    )
+    return any(
+        row.bill_check == CHECKING and row.read_claimed_at and not reading_stopped(row.bill_check, row.read_claimed_at)
+        for row in rows
+    )
+
+
+def move_bills(old_doctype: str, old: str, new_doctype: str, new: str) -> None:
+    """Every Expense bill of Expense `old`, latest and history, becomes Expense `new`'s as it is: its Bill check, its
+    approval and its `is_latest` unchanged (Move, #1757, spec #1753 stories 18-19). Run BEFORE `old` is removed, so
+    its `on_trash` (`retire_bills`) finds none to retire. A bill's file is a plain URL (`bill_file`); the expense's
+    one `File` follows with the expense's own attachments.
+
+    The Bill check stays true: it compared the bill with its statement line (`statement_line`, `line_amount`), and a
+    Move keeps both.
+    """
+    # Raw: `Expense Bill` has no doc_events, and nothing is derived from which expense holds a bill.
+    frappe.db.sql(
+        f"""UPDATE "tab{BILL_DOCTYPE}" SET expense_doctype = %s, expense = %s
+            WHERE expense_doctype = %s AND expense = %s""",
+        (new_doctype, new, old_doctype, old),
     )
 
 

@@ -35,7 +35,7 @@ import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
 import { unreconcileButtonState } from "./bulkUnreconcileView";
 import { RectifyDialog } from "./components/RectifyDialog";
 import { InternalTransferDialog, type InternalTransferAction } from "./components/InternalTransferDialog";
-import { moveOrdersLabel, rectifyButtonState } from "./porterRectify";
+import { rectifyButtonState, toolbarMoveLabel } from "./porterRectify";
 import { MOVE_URL_KEY } from "@/utils/porterExpense";
 import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
 import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
@@ -1574,7 +1574,7 @@ export const OutflowMasterPage = () => {
                                     <Undo2 className="mr-1.5 h-3.5 w-3.5" />
                                     Unreconcile {unreconcileState.count}
                                 </Button>
-                                {/* #1449: ticked Porter orders move together with Rectify ("Move N orders", #1558). */}
+                                {/* #1449, #1757: ticked Porter orders or Cashbook lines move together with Rectify (on screen: Move). */}
                                 {rectifyState.visible && (
                                     <Button
                                         variant="outline"
@@ -1589,7 +1589,7 @@ export const OutflowMasterPage = () => {
                                         }
                                     >
                                         <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
-                                        {moveOrdersLabel(rectifyState.count)}
+                                        {toolbarMoveLabel(rows, selected)}
                                     </Button>
                                 )}
                                 </>

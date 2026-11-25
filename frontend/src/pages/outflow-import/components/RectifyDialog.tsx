@@ -1,13 +1,15 @@
 // src/pages/outflow-import/components/RectifyDialog.tsx
 //
-// Rectify created Porter orders (#1449, ADR-0032): move each one's Expense to a chosen Won project, or to
-// Non-Project, with a typed reason. One line (the Outcome cell's button) or several ticked together (the
-// toolbar's "Move N orders"); the same dialog either way. On screen Rectify is "Move to another project"
-// (#1558). Wording and offers: `porterRectify.ts`.
+// Rectify (on screen: Move) created import expenses: each one's Expense goes to a chosen Won project, or to
+// Non-Project, with a typed reason. One line (the Outcome cell's button, or an expense's locked-project link) or several
+// ticked together (the toolbar); the same dialog either way. The plan names the lines' source:
+//   * Porter orders (#1449, ADR-0032; #1558 "Move to another project"): wording in `porterRectify.ts`, unchanged.
+//   * Cashbook lines (#1757, spec #1753): the label rule, the wallet line's details with its bill and Bill check, and
+//     the expense type the destination takes; wording in `cashbookRectify.ts`.
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowRightLeft, Ban, Loader2 } from "lucide-react";
+import { ArrowRightLeft, Ban, Loader2, Paperclip } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +21,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import {
+    CASHBOOK_SOURCE,
+    billCheckText,
+    cashbookDetailRows,
+    cashbookMoveLabel,
+    cashbookOutcome,
+    defaultMoveType,
+    destinationLedger,
+    type CashbookPlanLine,
+} from "../cashbookRectify";
 import { describeFrappeError } from "../outflowTableModel";
 import {
     RECTIFY_METHOD,
@@ -33,12 +46,24 @@ import {
     staysNote,
     type RectifyOutcome,
     type RectifyPlan,
+    type RectifyPlanLine,
     type RectifyResult,
 } from "../porterRectify";
 import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
+/** A plan line of either source: Porter's fields, and a Cashbook line's beside them. */
+type PlanLine = RectifyPlanLine & Partial<CashbookPlanLine>;
+
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
+
+/** The title before the plan says the source, and for each source once it has. */
+const titleOf = (rows: string[], plan: RectifyPlan | undefined): string => {
+    if (!plan) return "Move";
+    if (plan.source !== CASHBOOK_SOURCE) return moveDialogTitle(rows.length);
+    const ledgers = plan.lines.filter((line) => line.ledger).map((line) => line.ledger);
+    return cashbookMoveLabel(ledgers.length ? ledgers : plan.lines.map(() => undefined));
+};
 
 /**
  * ⚠️ RENDER IT ONLY FOR THE UNDO ROLES (`canUndoOutflow`): both endpoints refuse a plain Accountant.
@@ -65,72 +90,103 @@ export const RectifyDialog = ({
         <Dialog open={Boolean(rows)} onOpenChange={(open) => !open && close()}>
             <DialogContent className="max-h-[85vh] w-[min(92vw,760px)] overflow-y-auto sm:max-w-none">
                 {rows && (
-                    <>
-                        <DialogHeader>
-                            <DialogTitle>
-                                {moveDialogTitle(rows.length)}
-                            </DialogTitle>
-                            <DialogDescription>
-                                Each expense is replaced by one identical in amount, date, reference and invoice,
-                                on the project you choose. Its old placement is kept as reversed, with your reason.
-                            </DialogDescription>
-                        </DialogHeader>
-                        {outcome ? (
-                            <OutcomeBox outcome={outcome} onClose={close} />
-                        ) : (
-                            <RectifyForm rows={rows} onCancel={onClose} onRan={setOutcome} />
-                        )}
-                    </>
+                    <RectifyBody rows={rows} outcome={outcome} onCancel={onClose} onRan={setOutcome} onClose={close} />
                 )}
             </DialogContent>
         </Dialog>
     );
 };
 
+const RectifyBody = ({
+    rows,
+    outcome,
+    onCancel,
+    onRan,
+    onClose,
+}: {
+    rows: string[];
+    outcome: RectifyOutcome | null;
+    onCancel: () => void;
+    onRan: (outcome: RectifyOutcome) => void;
+    onClose: () => void;
+}) => {
+    const [opening] = useState(() => ++openings);
+    const { data, isLoading, error } = useFrappeGetCall<{ message: RectifyPlan }>(
+        RECTIFY_PLAN_METHOD,
+        { rows: JSON.stringify(rows) },
+        `rectify-plan-${opening}`,
+    );
+    const plan = data?.message;
+    const cashbook = plan?.source === CASHBOOK_SOURCE;
+    return (
+        <>
+            <DialogHeader>
+                <DialogTitle>{titleOf(rows, plan)}</DialogTitle>
+                <DialogDescription>
+                    {cashbook
+                        ? "Each expense is replaced by one with the same amount, date, Txn Id, bill and Bill check, " +
+                          "where you choose. Its old placement is kept as reversed, with your reason."
+                        : "Each expense is replaced by one identical in amount, date, reference and invoice, " +
+                          "on the project you choose. Its old placement is kept as reversed, with your reason."}
+                </DialogDescription>
+            </DialogHeader>
+            {outcome ? (
+                <OutcomeBox outcome={outcome} onClose={onClose} />
+            ) : isLoading ? (
+                <p className="rounded-md border px-3 py-2.5 text-sm text-muted-foreground">Loading the lines…</p>
+            ) : error || !plan ? (
+                <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                    Could not load the lines ({describeFrappeError(error, "couldn't load")}).
+                </p>
+            ) : (
+                <RectifyForm rows={rows} plan={plan} onCancel={onCancel} onRan={onRan} />
+            )}
+        </>
+    );
+};
+
 const RectifyForm = ({
     rows,
+    plan,
     onCancel,
     onRan,
 }: {
     rows: string[];
+    plan: RectifyPlan;
     onCancel: () => void;
     onRan: (outcome: RectifyOutcome) => void;
 }) => {
-    const [opening] = useState(() => ++openings);
-    const { data, isLoading, error: planError } = useFrappeGetCall<{ message: RectifyPlan }>(
-        RECTIFY_PLAN_METHOD,
-        { rows: JSON.stringify(rows) },
-        `porter-rectify-plan-${opening}`,
-    );
     const { call } = useFrappePostCall<{ message: RectifyResult }>(RECTIFY_METHOD);
     const [target, setTarget] = useState<ProjectOption | null>(null);
+    // `null`: not chosen by hand, so the default for the destination applies.
+    const [chosenType, setChosenType] = useState<ProjectOption | null>(null);
     const [reason, setReason] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const plan = data?.message;
+    const cashbook = plan.source === CASHBOOK_SOURCE;
+    const lines: PlanLine[] = plan.lines;
 
-    const options = useMemo(() => projectOptions(plan?.projects ?? []), [plan]);
-
-    if (isLoading) {
-        return <p className="rounded-md border px-3 py-2.5 text-sm text-muted-foreground">Loading the orders…</p>;
-    }
-    if (planError || !plan) {
-        return (
-            <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                Could not load the orders ({describeFrappeError(planError, "couldn't load")}).
-            </p>
-        );
-    }
-
+    const options = useMemo(() => projectOptions(plan.projects ?? []), [plan]);
     const trimmed = reason.trim();
-    const moving = target ? linesToMove(plan.lines, target.value) : [];
+    const moving = target ? linesToMove(lines, target.value) : [];
+    const ledger = target ? destinationLedger(target.value) : null;
+    const typeOptions = useMemo(
+        () => (ledger ? (plan.types?.[ledger] ?? []).map((name) => ({ value: name, label: name })) : []),
+        [plan, ledger],
+    );
+    const fallbackType = ledger ? defaultMoveType(moving, ledger, plan.types ?? {}) : "";
+    const type =
+        chosenType && typeOptions.some((option) => option.value === chosenType.value) ? chosenType.value : fallbackType;
+
     const blocked = !target
-        ? "Choose where the orders go."
+        ? "Choose where the expenses go."
         : !moving.length
           ? "Nothing here would move."
-          : !trimmed
-            ? "Type a reason first."
-            : null;
+          : cashbook && !type
+            ? "Choose an expense type the destination takes."
+            : !trimmed
+              ? "Type a reason first."
+              : null;
 
     const run = async () => {
         if (!target) return;
@@ -141,8 +197,10 @@ const RectifyForm = ({
                 rows: JSON.stringify(moving.map((line) => line.row)),
                 project: target.value,
                 reason: trimmed,
+                ...(cashbook ? { expense_type: type } : {}),
             });
-            onRan(rectifyOutcome(response.message, target.value ? target.label : null));
+            const targetName = target.value ? target.label : null;
+            onRan(cashbook ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
         } catch (err) {
             setError(describeFrappeError(err, "Nothing was moved."));
         } finally {
@@ -153,12 +211,16 @@ const RectifyForm = ({
     return (
         <div className="space-y-4">
             <ul className="overflow-hidden rounded-md border">
-                {plan.lines.map((line) => {
+                {lines.map((line) => {
                     const stays = target ? staysNote(line, target.value) : line.refusal;
                     return (
-                        <li key={line.row} className={`space-y-0.5 border-t px-3 py-2 first:border-t-0 ${stays ? "bg-muted/30" : ""}`}>
+                        <li
+                            key={line.row}
+                            data-testid="move-line"
+                            className={`space-y-0.5 border-t px-3 py-2 first:border-t-0 ${stays ? "bg-muted/30" : ""}`}
+                        >
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
-                                <span className="font-mono text-xs">{line.crn ?? line.row}</span>
+                                <span className="font-mono text-xs">{line.crn ?? line.txn_id ?? line.row}</span>
                                 {line.booked_by && <span>{line.booked_by}</span>}
                                 {line.amount !== undefined && (
                                     <span className="tabular-nums">{formatToRoundedIndianRupee(line.amount)}</span>
@@ -169,6 +231,7 @@ const RectifyForm = ({
                                     </span>
                                 )}
                             </div>
+                            {cashbook && line.ledger && <CashbookDetails line={line} />}
                             {line.description_edited && (
                                 <p className="text-xs text-muted-foreground">
                                     Its description was edited by hand, so it is kept as it is.
@@ -196,12 +259,25 @@ const RectifyForm = ({
                 />
             </div>
 
+            {cashbook && target && (
+                <div className="space-y-1.5">
+                    <Label className="text-xs">Expense type</Label>
+                    <PorterProjectSelect
+                        options={typeOptions}
+                        value={typeOptions.find((option) => option.value === type) ?? null}
+                        onChange={setChosenType}
+                        placeholder="Choose a type the destination takes…"
+                        isDisabled={busy}
+                    />
+                </div>
+            )}
+
             <div className="space-y-1.5">
-                <Label htmlFor="porter-rectify-reason" className="text-xs">
+                <Label htmlFor="rectify-reason" className="text-xs">
                     Reason (required)
                 </Label>
                 <Input
-                    id="porter-rectify-reason"
+                    id="rectify-reason"
                     value={reason}
                     placeholder="Why does it belong there?"
                     disabled={busy}
@@ -224,12 +300,42 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {moveOrdersLabel(moving.length || rows.length)}
+                    {cashbook
+                        ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
+                        : moveOrdersLabel(moving.length || rows.length)}
                 </Button>
             </div>
         </div>
     );
 };
+
+/** The wallet line's details, one compact row (stories 42, 45): the statement's facts, then the bill and its Bill check. */
+const CashbookDetails = ({ line }: { line: PlanLine }) => (
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="move-details">
+        {cashbookDetailRows(line)
+            .filter((row) => row.label !== "Amount")
+            .map((row) => (
+                <span key={row.label}>
+                    <span className="text-muted-foreground">{row.label}: </span>
+                    {row.value}
+                </span>
+            ))}
+        <span>
+            <span className="text-muted-foreground">Bill: </span>
+            {line.bill?.file && (
+                <a
+                    href={SITEURL + line.bill.file}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mr-1 inline-flex items-center gap-0.5 text-primary hover:underline"
+                >
+                    <Paperclip className="h-3 w-3" /> Open
+                </a>
+            )}
+            <span>{billCheckText(line.bill)}</span>
+        </span>
+    </div>
+);
 
 const OutcomeBox = ({ outcome, onClose }: { outcome: RectifyOutcome; onClose: () => void }) => (
     <div className="space-y-3">

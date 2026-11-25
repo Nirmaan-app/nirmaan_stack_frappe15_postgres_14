@@ -38,6 +38,12 @@ describe("projectField (the edit dialog's project lock)", () => {
 		expect(projectField({ porter_order: "" })).toEqual({ locked: false });
 		expect(projectField({})).toEqual({ locked: false });
 	});
+
+	it("locks a Cashbook expense's project and words its Move by where it is (#1757)", () => {
+		const wallet = { cashbook_batch: "OFI-26-00099" };
+		expect(projectField(wallet, "Non Project Expenses")).toEqual({ locked: true, hint: "Move to a project" });
+		expect(projectField(wallet, "Project Expenses")).toEqual({ locked: true, hint: "Change project" });
+	});
 });
 
 describe("moveOrderLink (the hint, as a link to the order's line)", () => {
