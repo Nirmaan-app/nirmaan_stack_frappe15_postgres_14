@@ -13,6 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+from frappe import _dict as Line
+from frappe.model.document import Document
+
 from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_records import SOURCE as PORTER_SOURCE
 from nirmaan_stack.services.outflow_import.porter import statement_line
@@ -66,24 +69,29 @@ class RectifySource:
     wording: RectifyWording
     line_fields: tuple[str, ...]
     #: `(line or None) -> dict`: on every plan line, refused or not.
-    line_label: Callable
+    line_label: Callable[[Line | None], dict]
     #: `(line, expense, project_name) -> dict`: on a plan line that can move.
-    plan_details: Callable
+    plan_details: Callable[[Line, Document, str | None], dict]
     #: `(old_expense, line, from_project_name, to_project_name) -> Replacement`.
-    replacement: Callable
+    replacement: Callable[[Document, Line, str | None, str | None], Replacement]
     #: `(line, new_expense, actor, origin) -> None`: the new Settled match.
-    record_match: Callable
+    record_match: Callable[[Line, Document, str, str], None]
     #: `(old_expense) -> str | None`: a file URL whose `File` rows never move with the Expense.
-    kept_file_url: Callable
+    kept_file_url: Callable[[Document], str | None]
 
 
 # --- Porter (#1449) ---------------------------------------------------------------------------------
 
 
+def _porter_booker(line: Line) -> str:
+    """Who booked the order, from its statement line (Create writes it as Paid by)."""
+    return booked_by(statement_line(line.porter_line))
+
+
 def _porter_replacement(old, line, from_name: str | None, to_name: str | None) -> Replacement:
     """Description rewritten unless hand-edited; Paid by kept, or on a move from Non-Project the booked-by
     name; the Porter Order kept."""
-    booker = booked_by(statement_line(line.porter_line))
+    booker = _porter_booker(line)
     return Replacement(
         description=rectified_description(old.description, booker, from_name, to_name),
         # Project side only: who booked it, kept as the old Project Expense had it.
@@ -94,7 +102,7 @@ def _porter_replacement(old, line, from_name: str | None, to_name: str | None) -
 
 
 def _porter_plan_details(line, expense, project_name: str | None) -> dict:
-    booker = booked_by(statement_line(line.porter_line))
+    booker = _porter_booker(line)
     return {
         "booked_by": booker,
         "description": expense.description,
