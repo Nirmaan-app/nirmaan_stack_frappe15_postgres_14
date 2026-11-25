@@ -69,6 +69,7 @@ from nirmaan_stack.api.outflow_import.rectify_sources import PORTER, RectifySour
 from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, stamp_reversed
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
+from nirmaan_stack.services.expense_bills.receive import move_bills
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -191,7 +192,9 @@ def rectify_line(
             stamp_reversed(leg.name, actor, reason, frappe.utils.now_datetime())
             new = create_expense_from_row(
                 _ExpenseAsRow(
-                    amount=old.amount,
+                    # Money coming back is stored at minus itself; the writer books it negative only through the
+                    # source's own money-in option (`Replacement.writer_fields`), from its positive amount.
+                    amount=abs(old.amount),
                     added_on_date=old.payment_date,
                     settlement_reference=old.payment_ref or "",
                 ),
@@ -211,6 +214,8 @@ def rectify_line(
                 **replacement.writer_fields,
             )
             _move_attachments(old, new.doctype, new.name, source.kept_file_url(old))
+            # BEFORE the delete: its `on_trash` would retire every bill still on the old Expense.
+            move_bills(old.doctype, old.name, new.doctype, new.name)
             delete_created(old.doctype, old.name, None)
             source.record_match(line, new, actor, _ORIGIN)
             _follow_on_the_line(line.name, new, project, actor)

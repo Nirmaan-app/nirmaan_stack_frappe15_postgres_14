@@ -129,6 +129,37 @@ def retire_bills(doctype: str, expense: str) -> None:
     )
 
 
+def bill_being_read(doctype: str, expense: str) -> bool:
+    """Is a reading under way on a bill of Expense `expense`: Checking and claimed by its reader (`read_claimed_at`
+    set, `reading.claim`)? That reader holds the expense's name and writes its verdict there, so the expense must not
+    be replaced under it (Move, #1757)."""
+    return bool(
+        frappe.db.sql(
+            f"""SELECT 1 FROM "tab{BILL_DOCTYPE}"
+                WHERE expense_doctype = %s AND expense = %s AND bill_check = %s AND read_claimed_at IS NOT NULL
+                LIMIT 1""",
+            (doctype, expense, CHECKING),
+        )
+    )
+
+
+def move_bills(old_doctype: str, old: str, new_doctype: str, new: str) -> None:
+    """Every Expense bill of Expense `old`, latest and history, becomes Expense `new`'s as it is: its Bill check, its
+    approval and its `is_latest` unchanged (Move, #1757, spec #1753 stories 18-19). Run BEFORE `old` is removed, so
+    its `on_trash` (`retire_bills`) finds none to retire. A bill's file is a plain URL (`bill_file`); the expense's
+    one `File` follows with the expense's own attachments.
+
+    The Bill check stays true: it compared the bill with its statement line (`statement_line`, `line_amount`), and a
+    Move keeps both.
+    """
+    # Raw: `Expense Bill` has no doc_events, and nothing is derived from which expense holds a bill.
+    frappe.db.sql(
+        f"""UPDATE "tab{BILL_DOCTYPE}" SET expense_doctype = %s, expense = %s
+            WHERE expense_doctype = %s AND expense = %s""",
+        (new_doctype, new, old_doctype, old),
+    )
+
+
 def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str | None, Decimal]:
     """The statement line that recorded the spend and that line's amount, read through the one live-link read
     (`outflow_import.expense_links.list_expense_lines`).
