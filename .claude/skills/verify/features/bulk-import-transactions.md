@@ -73,6 +73,15 @@ past imports by source and month.
   `BIN/walk_cashbook_move.py` (seed `BIN/cashbook_move_seed.py`, DB read `BIN/cashbook_move_db.py`), as an
   Accountant Lead and an Accountant. The Expense lists have no Txn Id search: the walk searches by `Comment`,
   `Imported from <batch>`.
+- `bit-card-move` Move a card spend's expense to a Won project (#1761, spec #1753 stories 4, 43, 55-59; ADR-0039
+  Amendment F). On a Settled Credit Card line, the same button, toolbar, dialog and run as `bit-cashbook-move`, for the
+  same roles. The dialog's details row reads `Date`, `Card holder`, `Merchant`, `Statement: <months> · <statement>`;
+  a card spend's type (Misc. Expenses) is Non Project only, so `Expense type` starts blank on a move to a project. A
+  card refund's line is refused ("This is a card refund, which stays a Non Project Expense. ..."). The moved spend
+  keeps its statement link and is still listed in Vendor Invoice Recon -> Pending Invoices Upload -> `Credit Card`,
+  its Holder the card holder (the Project Expense's Paid by). Walked by `BIN/walk_card_move.py` (seed
+  `BIN/card_move_seed.py`, a made-up card import Created inline; DB read `BIN/card_move_db.py`), as an Accountant
+  Lead. The Settled tab's search finds the card line by its SerNo; the Credit Card tab's by the holder.
 
 ## How to get to it (user POV)
 
