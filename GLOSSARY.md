@@ -290,6 +290,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, and a company top-up is never one (that is an Internal Transfer). It is recorded as a *Wallet credit expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment E](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 - **Wallet credit expense** — the *Paid* Expense of minus a *Wallet credit*'s amount. It goes on a project when its remark names exactly one, typed from the remark; otherwise it is a Non-Project Expense typed from the remark, else Petty Cash. It needs no bill, and it counts as no payment. (Owner, 2026-11-18.)
 
+- **Project alias** — a nickname people write in a wallet spend's remark for a Won project whose own name the remark does not carry: a shorter name, a short initialism, or a habitual misspelling. A remark naming the alias names that project. (Owner, 2026-11-25, #1756.)
+  *Avoid*: project keyword, project rule (a rule gives an expense type).
+
+- **Expense-type rule** — a word in a wallet spend's remark that gives its *Expense type*, set separately for the Project and the Non-Project ledger, so one word can mean a different type on each (courier: transport on a project, postage otherwise). When several rules' words appear, the longest word decides; when none does, or two types tie, the spend is Petty Cash. (Owner, 2026-11-25, #1756.)
+  *Avoid*: keyword map, expense rule, category rule.
+
 ## Expense bills
 
 - **Expense bill** — the bill attached to a wallet spend or a card spend, kept as its own record with its own approval. A replaced or rejected bill stays as history; only the latest one counts. Expense bills are kept apart from *Vendor Invoices* for now and are meant to join them in one place later (ADR-0045). (Owner, 2026-11-07.)
