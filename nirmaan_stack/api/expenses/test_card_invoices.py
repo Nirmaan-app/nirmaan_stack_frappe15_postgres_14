@@ -20,11 +20,13 @@ from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
 from nirmaan_stack.cloud_file_fixture import cloud_url
+from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
 from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE
 
 PMO = "Nirmaan PMO Executive Profile"
 PROCUREMENT = "Nirmaan Procurement Executive Profile"
 NPE = "Non Project Expenses"
+PE = "Project Expenses"
 STATEMENT = "Credit Card Statement"
 
 
@@ -202,3 +204,90 @@ class TestMarkingNoInvoice(CardInvoiceCase):
         self.assertRaisesRegex(frappe.ValidationError, "Type the reason", mark_card_no_invoice, name, "  ")
         invoiced = self._expense(self.statement, serno="70000000002", invoice_attachment=cloud_url("inv.pdf"))
         self.assertRaisesRegex(frappe.ValidationError, "already has its invoice", mark_card_no_invoice, invoiced, "x")
+
+
+def bills_of(doctype: str, expense: str) -> list:
+    """Every Expense bill of `expense`, oldest first."""
+    return frappe.get_all(
+        BILL_DOCTYPE, filters={"expense_doctype": doctype, "expense": expense}, fields=["*"], order_by="creation asc"
+    )
+
+
+class TestACardSpendOnAProject(CardInvoiceCase):
+    """A card spend moved to a Won project is a Project Expense that keeps its statement link (#1761, ADR-0039
+    Amendment F): it waits in the same tab, and both actions take it by its ledger."""
+
+    def setUp(self):
+        super().setUp()
+        project = frappe.new_doc("Projects")
+        project.project_name = f"Testcard Site {frappe.generate_hash(length=4)}"
+        project.tendering_status = "Won"
+        project.project_start_date = frappe.utils.now()[:19]
+        project.project_end_date = frappe.utils.add_to_date(frappe.utils.now()[:19], years=1)[:19]
+        project.project_scopes = {"scopes": []}
+        project.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.project = project.name
+        self.project_expenses = []
+        self.addCleanup(self._purge_project)
+
+    def _purge_project(self):
+        frappe.db.rollback()
+        purge_expense_bills(self.project_expenses)
+        purge_records(PE, self.project_expenses)
+        purge_records("Projects", [self.project])
+
+    def _project_expense(self, statement, serno="70000000101", **extra):
+        doc = frappe.get_doc(
+            {
+                "doctype": PE,
+                "projects": self.project,
+                "type": "Petty Cash",
+                "status": "Paid",
+                "amount": 640,
+                "payment_date": "2026-09-12",
+                "payment_ref": f"Swiggy Limited Bangalore IN - {serno}",
+                "description": "Card spend",
+                "payment_by": self.holder,
+                "credit_card_statement": statement,
+                **extra,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.project_expenses.append(doc.name)
+        return doc.name
+
+    def test_it_is_listed_on_its_ledger_and_project_with_its_holder(self):
+        name = self._project_expense(self.statement)
+        row = self._queue()[name]
+        self.assertEqual(
+            (row["doctype"], row["project"], row["holder"], row["merchant"], float(row["amount"])),
+            (PE, self.project, self.holder, "SWIGGY", 640.0),
+        )
+        # A Non Project card spend says its ledger too, and has no project.
+        non_project = self._expense(self.statement)
+        other = self._queue()[non_project]
+        self.assertEqual((other["doctype"], other["project"]), (NPE, None))
+
+    def test_attaching_on_its_ledger_records_its_expense_bill_and_it_leaves_the_list(self):
+        name = self._project_expense(self.statement)
+        self._as(self.users.make(ACCOUNTANT), attach_card_invoice, name, cloud_url("swiggy.pdf"), doctype=PE)
+        self.assertEqual(frappe.db.get_value(PE, name, "invoice_attachment"), cloud_url("swiggy.pdf"))
+        # It is a card spend, so its bill is an Expense bill (`receive.is_wallet_or_card_spend`).
+        [bill] = bills_of(PE, name)
+        self.assertEqual((bill.bill_check, bill.status, bill.bill_file), ("Checking", "Pending", cloud_url("swiggy.pdf")))
+        self.assertNotIn(name, self._queue())
+
+    def test_no_invoice_on_its_ledger_marks_it(self):
+        lead = self.users.make(ACCOUNTANT_LEAD)
+        name = self._project_expense(self.statement)
+        self._as(lead, mark_card_no_invoice, name, "Toll booth", doctype=PE)
+        self.assertEqual(frappe.db.get_value(PE, name, ["no_invoice_reason", "no_invoice_by"]), ("Toll booth", lead))
+        self.assertNotIn(name, self._queue())
+
+    def test_a_project_expense_without_the_link_is_not_listed_and_is_refused(self):
+        name = self._project_expense(None)
+        self.assertNotIn(name, {r["name"] for r in get_card_invoice_queue()})
+        self.assertRaisesRegex(
+            frappe.ValidationError, "not a card spend", attach_card_invoice, name, cloud_url("f.pdf"), doctype=PE
+        )

@@ -1035,8 +1035,9 @@ def create_expense_from_row(
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
     `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
     names nobody: Paid by is who booked the order, and the importer did not.
-    `credit_card_statement` is the card import's (#1568, ADR-0039): the `Non Project Expenses` link that
-    marks the expense a card spend.
+    `credit_card_statement` is the card import's (#1568, ADR-0039): the link that marks the expense a card spend.
+    The import books it on `Non Project Expenses`; a Move to a Won project carries it to `Project Expenses`
+    (#1761, ADR-0039 Amendment F).
     `cashbook_batch` is the Cashbook job's (#1592, ADR-0015 Amendment B): the import batch that made the expense,
     on either ledger. It is the marker that puts the wallet spend in Pending Invoices Upload -> Cashbook.
     `card_refund` is the card import's too (#1673, ADR-0039 Amendment D): the line is an *Unpaired card refund*,

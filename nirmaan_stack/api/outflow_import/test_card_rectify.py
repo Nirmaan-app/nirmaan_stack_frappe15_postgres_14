@@ -27,7 +27,11 @@ from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, 
 from nirmaan_stack.api.outflow_import import rectify
 from nirmaan_stack.api.outflow_import.test_card_create import CardCreateCase
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
+from nirmaan_stack.api.outflow_import.test_card_refunds import REFUND_DETAILS
 from nirmaan_stack.api.outflow_import.test_porter_rectify import _purge_history
+from nirmaan_stack.services.expense_type_ledger import ledger_types
+from nirmaan_stack.services.outflow_import.card_memory import recall
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
 from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 
@@ -50,6 +54,7 @@ class CardRectifyCase(CardCreateCase):
         self.addCleanup(self._purge_projects)
         self.orchid = self._project("Testorchid Heights", "Won")
         self.tender = self._project("Testtender Plaza", "Tendering")
+        self._press_create()
         self._run_create()
         frappe.db.commit()
         # Runs before `_purge_created` (cleanups are last-in, first-out), while the matches still name the expenses.
@@ -154,3 +159,56 @@ class TestACardSpendMovedToAProject(CardRectifyCase):
             (listed[bill.name]["expense"], listed[bill.name]["paid_by"], listed[bill.name]["project"]),
             (moved.name, self.holder, self.orchid),
         )
+
+    def test_moved_back_to_non_project_it_keeps_its_statement_link(self):
+        self._move([PARK], self.orchid, expense_type=PROJECT_TYPE)
+
+        result = self._move([PARK], None, expense_type=PROJECT_TYPE)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        back = self._expense_of(PARK)
+        self.assertEqual((back.doctype, back.credit_card_statement), (NON_PROJECT_EXPENSE, self.statement))
+        queued = {row["name"]: row for row in get_card_invoice_queue()}
+        self.assertEqual(queued[back.name]["doctype"], NON_PROJECT_EXPENSE)
+
+    def test_editing_its_type_on_the_project_teaches_the_merchant_memory_nothing(self):
+        self._move([PARK], self.orchid, expense_type=PROJECT_TYPE)
+        remembered = recall(["PARK RESIDENCY"])
+        moved = self._expense_of(PARK)
+        other = next(t for t in ledger_types()[PROJECT_EXPENSE] if t != PROJECT_TYPE)
+
+        moved.type = other
+        moved.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Merchant memory learns from Non Project card spends only.
+        self.assertEqual(recall(["PARK RESIDENCY"]), remembered)
+
+
+class TestTheCardMovePlan(CardRectifyCase):
+    def test_it_shows_the_holder_merchant_statement_amount_and_date(self):
+        [line] = self._plan(PARK)["lines"]
+
+        self.assertIsNone(line["refusal"])
+        self.assertEqual(
+            (line["holder"], line["merchant"], line["statement"], line["amount"], line["date"], line["ledger"]),
+            (self.holder, "PARK RESIDENCY", self.statement, 1933.0, "2026-09-23", NON_PROJECT_EXPENSE),
+        )
+        self.assertEqual(line["statement_months"], ["2026-09", "2026-10"])
+        self.assertEqual(self._plan(PARK)["source"], CARD_STATEMENT_SOURCE)
+
+    def test_a_card_refund_is_refused_and_stays_non_project(self):
+        refund = next(row for row in self._rows(self.batch) if row.remarks == REFUND_DETAILS and row.direction == "Credit")
+        expense = refund.suggested_name
+
+        [line] = rectify.get_rectify_plan(json.dumps([refund.name]))["lines"]
+        self.assertEqual(
+            line["refusal"], "This is a card refund, which stays a Non Project Expense. Only a card spend can be moved."
+        )
+        [moved] = rectify.rectify_lines(json.dumps([refund.name]), self.orchid, REASON, PROJECT_TYPE)["lines"]
+        self.assertFalse(moved["rectified"])
+        self.assertTrue(frappe.db.exists(NON_PROJECT_EXPENSE, expense))
+
+    def test_a_tendering_project_is_refused(self):
+        self.assertRaises(frappe.ValidationError, self._move, [PARK], self.tender, REASON, PROJECT_TYPE)
+        self.assertEqual(self._expense_of(PARK).doctype, NON_PROJECT_EXPENSE)
