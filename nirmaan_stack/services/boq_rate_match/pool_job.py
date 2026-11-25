@@ -53,12 +53,15 @@ class BuildClock:
         return cls(limit=timeout if isinstance(timeout, (int, float)) and timeout > 0 else None)
 
     def elapsed(self):
+        """Seconds since the job started (the lock wait included: the queue limit counts from there)."""
         return self.now() - self.started
 
     def begin_build(self):
+        """The build starts now (after the lock wait); stage and total times count from here."""
         self._build = self._mark = self.now()
 
     def stage(self, name):
+        """End stage `name`: record and log its time; past half the limit, alarm once."""
         t = self.now()
         self.secs[name] = round(t - self._mark, 1)
         self._mark = t
@@ -70,6 +73,7 @@ class BuildClock:
                                   f"{name}; stage times so far: {self.secs}")
 
     def finish(self, **counts):
+        """Log the build's total and stage times with `counts`; -> the pool's `secs`."""
         self.secs["total"] = round(self.now() - self._build, 1)
         _log().info("match pool build: done in %.1f s (job at %.0f s%s): %s; secs %s", self.secs["total"], self.elapsed(),
                     f" of {self.limit} s" if self.limit else "", counts, self.secs)
@@ -83,6 +87,7 @@ class BuildClock:
         return int(self.limit - self.elapsed() - TAIL_RESERVE_SEC)
 
     def alarm(self, title, message):
+        """A WARNING line and one Error Log row, committed at once inside a job so a later kill keeps it."""
         _log().warning("match pool build: %s: %s", title, message)
         frappe.log_error(title=title, message=message)
         if self.limit:
@@ -112,6 +117,8 @@ def measure_driving(clock, page_rows, step_rows, asset):
 
 
 def rebuild(force=False, clock=None):
+    """The pool.rebuild_pool job body: refuse (no lock, no build) until site_ready() unless `force`, then build and
+    save the pool under the build lock. -> a short summary with "built"."""
     from nirmaan_stack.services.boq_rate_match import pool as P
     from nirmaan_stack.services.boq_rate_match import pool_autobuild
 
