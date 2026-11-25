@@ -337,9 +337,10 @@ def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: i
     """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
     through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
     who confirmed the import, approved on arrival by the system (#1755: the Cashbook approval tab holds only bills a
-    person uploaded; the Bill check still records its verdict), its reading queued once this commits; `saved` merged from `bill_count` > 1 links is
-    recorded Not checked and never read. Returns whether it attached (and then
-    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already typed on the Expense is kept."""
+    person uploaded; the Bill check still records its verdict), its reading queued once this commits; `saved` merged
+    from `bill_count` > 1 links is recorded Not checked and never read. Returns whether it attached (and then
+    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already
+    typed on the Expense is kept."""
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False

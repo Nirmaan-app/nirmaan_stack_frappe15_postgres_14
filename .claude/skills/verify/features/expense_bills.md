@@ -11,7 +11,7 @@ spend with two or more bill links is **Not checked** at once (its total the line
 (spec #1753) every bill the import copies is **approved on arrival** (Approved, auto-approved, by System; it reads
 "Auto-approved"): its reading still records the verdict and remark, and a Matched one still fills the number and
 date. The one-off patch `patches/v3_0/approve_cashbook_import_bills` approved the import's bills that waited or were
-rejected before it (236 on the 2026-11-25 data; a second run approves 0).
+rejected before it; a second run approves none.
 
 A bill a person uploaded that is not Matched waits for a person in Vendor Invoice Recon -> Pending Invoice Approvals, on the
 **Cashbook** and **Credit Card** pills (#1644; PO and WO are the Vendor Invoices beside them). Admin, Accountant and

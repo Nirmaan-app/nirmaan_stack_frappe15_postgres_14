@@ -13,8 +13,6 @@ Run: DEVENV test --module nirmaan_stack.api.outflow_import.test_approve_cashbook
 """
 
 import io
-import random
-from decimal import Decimal
 
 import frappe
 from PIL import Image
@@ -31,6 +29,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_bills import (
     CashbookBillsCase,
     _fake_bills,
 )
+from nirmaan_stack.api.outflow_import.test_cashbook_expense_bills import _line_amount
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, _Users
 from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.patches.v3_0.approve_cashbook_import_bills import approve_import_bills
@@ -51,7 +50,8 @@ def _unique_bills() -> dict:
     file afresh)."""
     def image(fmt: str) -> BillFile:
         out = io.BytesIO()
-        Image.new("RGB", (300, 400), tuple(random.randrange(256) for _ in range(3))).save(out, format=fmt)
+        colour = bytes.fromhex(frappe.generate_hash(length=6))
+        Image.new("RGB", (300, 400), tuple(colour)).save(out, format=fmt)
         return BillFile(out.getvalue(), fmt.lower())
 
     return {
@@ -59,10 +59,6 @@ def _unique_bills() -> dict:
         (FOUR_LINKS, "1.jpeg"): image("JPEG"),
         (NON_PROJECT_ONE_LINK, "1.pdf"): image("PNG"),
     }
-
-
-def _line_amount(expense) -> Decimal:
-    return Decimal(str(expense.amount)).quantize(Decimal("0.01"))
 
 
 def _as_before_1755(bill: str) -> None:
@@ -151,12 +147,13 @@ class TestTheBackFill(CashbookBillsCase):
         self.assertEqual(self._bill(self.named_upload).status, "Pending")
         self.assertEqual(self._bill(self.old_rejected_bill).status, "Rejected")
 
+    def _modified(self) -> dict:
+        return {b.name: b.modified for e in (self.mismatched, self.rejected, self.replaced, self.no_link)
+                for b in bills_of(e.doctype, e.name)}
+
     def test_a_second_run_changes_nothing(self):
         approve_import_bills(expenses=self.ours)
-        after_first = {b.name: b.modified for e in (self.mismatched, self.rejected, self.replaced, self.no_link)
-                       for b in bills_of(e.doctype, e.name)}
+        after_first = self._modified()
 
         self.assertEqual(approve_import_bills(expenses=self.ours), [])
-        after_second = {b.name: b.modified for e in (self.mismatched, self.rejected, self.replaced, self.no_link)
-                        for b in bills_of(e.doctype, e.name)}
-        self.assertEqual(after_second, after_first)
+        self.assertEqual(self._modified(), after_first)

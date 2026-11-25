@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from drive import save, session, sidebar
 
@@ -101,8 +102,9 @@ def pill(page, label: str) -> None:
 
 def file_name_of(bill_file: str) -> str:
     """The name a bill's URL carries: the cloud app's `file_name=`, else the path's last part."""
-    m = re.search(r"[?&]file_name=([^&]+)", bill_file)
-    return m.group(1) if m else bill_file.rsplit("/", 1)[-1]
+    parts = urlsplit(bill_file or "")
+    named = parse_qs(parts.query).get("file_name")
+    return named[0] if named else unquote(parts.path.rsplit("/", 1)[-1])
 
 
 # 1. The import's bills, approved on arrival.

@@ -20,13 +20,10 @@ from nirmaan_stack.api.expenses.expense_bill_approval import get_pending_expense
 from nirmaan_stack.api.expenses.test_expense_bill_approval import _as
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import NO_LINK, ONE_LINK, CashbookBillsCase
+from nirmaan_stack.api.outflow_import.test_cashbook_expense_bills import _line_amount
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, _Users
 from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
-
-
-def _line_amount(expense) -> Decimal:
-    return Decimal(str(expense.amount)).quantize(Decimal("0.01"))
 
 
 class TestAnImportBillIsApprovedOnArrival(CashbookBillsCase):
