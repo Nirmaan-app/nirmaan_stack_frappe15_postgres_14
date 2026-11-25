@@ -93,7 +93,8 @@ with session(a.task, a.lead, a.password) as (page, out):
     page.get_by_role("heading", name="Bulk Import Transactions").wait_for()
     page.get_by_role("button", name=SETTLED_TAB).click()
     search(page, TXN)
-    row = page.get_by_role("row").filter(has_text=seeded["remark"])
+    # The remark wraps in its cell; its first clause is unique to this run.
+    row = page.get_by_role("row").filter(has_text=seeded["remark"].split(",")[0])
     row.first.wait_for(timeout=30_000)
     check(row.count() == 1, f"the search finds the one line of {TXN}")
     save(page, out, "01-settled-line")
