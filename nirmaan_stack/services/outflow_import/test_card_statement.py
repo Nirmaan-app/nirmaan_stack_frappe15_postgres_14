@@ -134,6 +134,11 @@ class TestMerchantKey(unittest.TestCase):
         self.assertEqual(merchant_key("UPI Payment Received"), "UPI PAYMENT RECEIVED")
         self.assertEqual(merchant_key("Autodebit Payment Recd."), "AUTODEBIT PAYMENT RECD")
 
+    def test_an_international_place_code_with_a_star_is_dropped_with_its_city(self):
+        # #1751: the bank prints a foreign merchant's country as `US*`.
+        self.assertEqual(merchant_key("FAKECLOUD SAAS FAKECLOUD.COM US*"), "FAKECLOUD SAAS")
+        self.assertEqual(merchant_key("FAKECLOUD SAAS FAKECLOUD.COM US"), "FAKECLOUD SAAS")
+
     def test_a_suffix_alone_is_never_stripped_to_nothing(self):
         self.assertEqual(merchant_key("LIMITED Pune IN"), "LIMITED")
 
@@ -256,6 +261,126 @@ class TestASplitLine(unittest.TestCase):
         with self.assertRaises(CardStatementError) as caught:
             self._read_with("01/09/2026 14092030373 FAKESHOP PAY\nInvoice No: 1574010400030670\n0 470.00\n")
         self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
+
+
+class TestAnInternationalLine(unittest.TestCase):
+    """A line paid in a foreign currency (#1751). The bank prints the foreign amount, then its currency, then the
+    rupee amount; only the rupee amount, printed last, is read (owner, 2026-11-25). Merchant names are made up."""
+
+    def _read_with(self, rows: str, old: str = _ONE_ROW_SPEND, serno: str = "14092030373"):
+        statement = read_card_statement(_replace(_text(), old, rows))
+        [line] = [line for line in statement.lines if line.serno == serno]
+        return statement, line
+
+    def test_shape_1_on_one_row_with_0_1_or_2_decimals_in_the_foreign_amount(self):
+        for foreign in ("20", "12.7", "12.40"):
+            with self.subTest(foreign=foreign):
+                statement, line = self._read_with(
+                    f"01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 {foreign} USD 470.00\n"
+                )
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))
+                self.assertFalse(line.is_credit)
+                self.assertEqual(len(statement.lines), 47)
+
+    def test_shape_2_over_three_rows_is_one_line_with_the_rupee_amount(self):
+        # The opening row ends in the foreign amount (with 2 decimals it even reads whole alone); the currency and
+        # the rupee amount sit on the two rows under it.
+        for foreign in ("10", "10.2", "10.25"):
+            with self.subTest(foreign=foreign):
+                statement, line = self._read_with(
+                    f"01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 {foreign}\nUSD\n470.00\n"
+                )
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))  # never the foreign amount
+                self.assertFalse(line.is_credit)
+                self.assertEqual(len(statement.lines), 47)
+
+    def test_a_split_line_ending_in_the_foreign_amount_joins_the_shape_2_rows_under_it(self):
+        for rows in (
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n9 10.25\nUSD\n470.00\n",
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n9 10\nUSD\n470.00\n",
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US* 9 10.2\nUSD\n470.00\n",
+        ):
+            with self.subTest(rows=rows):
+                statement, line = self._read_with(rows)
+                self.assertEqual(line.details, "FAKECLOUD SUBSCRIPTION FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("470.00"))
+                self.assertEqual(len(statement.lines), 47)
+
+    def test_a_split_line_with_a_starred_place_and_the_foreign_amount_on_its_last_row(self):
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 FAKECLOUD SUBSCRIPTION\nFAKECLOUD.COM US*\n18 20 USD 470.00\n"
+        )
+        self.assertEqual(line.details, "FAKECLOUD SUBSCRIPTION FAKECLOUD.COM US*")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertEqual(line.merchant_key, "FAKECLOUD SUBSCRIPTION")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_an_international_credit_in_either_shape_is_a_credit_of_the_rupee_amount(self):
+        credit = "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n"
+        for shape, rows in (
+            ("1", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.5 USD 167.00 CR\n"),
+            ("2", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2.50\nUSD\n167.00 CR\n"),
+            ("2, 0 decimals", "19/09/2026 14194563678 FAKECLOUD SAAS FAKECLOUD.COM US* -2 2\nUSD\n167.00 CR\n"),
+        ):
+            with self.subTest(shape=shape):
+                statement, line = self._read_with(rows, old=credit, serno="14194563678")
+                self.assertEqual(line.details, "FAKECLOUD SAAS FAKECLOUD.COM US*")
+                self.assertEqual(line.amount, Decimal("167.00"))
+                self.assertTrue(line.is_credit)
+                self.assertEqual(statement.credits_total, Decimal("276821.73"))
+
+    def test_a_statement_whose_spends_include_both_shapes_passes_the_gate(self):
+        text = _replace(
+            _text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 12 5.6 USD 470.00\n"
+        )
+        text = _replace(
+            text,
+            "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n",
+            "11/09/2026 14152012986 FAKEDESIGN TOOLS FAKEDESIGN.IO US* 4 4.75\nUSD\n400.00\n",
+        )
+        statement = read_card_statement(text)
+        self.assertEqual(len(statement.lines), 47)
+        self.assertEqual(statement.spends_total, Decimal("137584.99"))
+        amounts = {line.serno: line.amount for line in statement.lines}
+        self.assertEqual(amounts["14092030373"], Decimal("470.00"))
+        self.assertEqual(amounts["14152012986"], Decimal("400.00"))
+
+    def test_a_shape_2_line_cut_short_never_swallows_the_next_line(self):
+        # The rupee amount row is missing, so the next line's opening row sits under the currency row. The next line
+        # is read once, with its own amount; the cut line reads its foreign amount and the gate refuses the file.
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(
+                _replace(
+                    _text(),
+                    _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                    "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10.25\nUSD\n02/09/2026 14099237561",
+                )
+            )
+        self.assertIn("spends read ₹1,37,125.24", str(caught.exception))
+
+    def test_a_shape_2_line_cut_short_with_a_whole_foreign_amount_is_unread_and_refused(self):
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(
+                _replace(
+                    _text(),
+                    _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                    "01/09/2026 14092030373 FAKECLOUD SAAS FAKECLOUD.COM US* 9 10\nUSD\n02/09/2026 14099237561",
+                )
+            )
+        self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
+
+    def test_a_domestic_line_never_joins_a_three_letter_row_and_the_points_and_amount_under_it(self):
+        # Only shape 2 joins on to a row that reads whole: a currency row, then the rupee amount ALONE. A line that
+        # is complete keeps its own amount whatever stray rows follow it.
+        _, line = self._read_with(_ONE_ROW_SPEND + "ABC\n0 50.00\n")
+        self.assertEqual(line.details, "BLINK COMMERCE PVT LTD BANGALORE IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+
+    def test_a_one_row_line_keeps_its_details_as_printed(self):
+        _, line = self._read_with("01/09/2026 14092030373 FAKE ARTS GIFT  TOYS Bangalore IN 0 470.00\n")
+        self.assertEqual(line.details, "FAKE ARTS GIFT  TOYS Bangalore IN")
 
 
 class TestALineThatNeverCompletes(unittest.TestCase):

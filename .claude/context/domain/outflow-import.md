@@ -7514,10 +7514,21 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    ⚠️ **A line may be split over two or three rows** (pypdf breaks details too wide for their column; read by
    `_match_line_at`): a row that opens
    with date + SerNo but does not end the line is joined with the one or two rows under it, words joined with one
-   space. Only a place row (city and country code, or the code alone) or a points-and-amount row is joined on
+   space. Only a place row (city and country code, or the code alone; a foreign merchant's code starred, `US*`)
+   or a points-and-amount row (its foreign amount and currency included, `18 20 USD 1,933.78`) is joined on
    (`_RUN_ON`), never the next line's opening row, a card heading or an invoice number. A line not complete in
    three rows is unread and the gate refuses the file.
-3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
+   ⚠️ **An international line** (#1751) prints `points <foreign amount> <CUR> <rupee amount> [CR]`, the foreign
+   amount with 0, 1 or 2 decimals (`12 12.7 USD 1,086.93`, `19 20 USD 1,702.10`). Its amount is the rupee amount,
+   printed last; the foreign amount and currency are not stored (owner, 2026-11-25). Shape 1 is one row. Shape 2 is
+   three rows: the opening row ends in the foreign amount, with any decimals (`... US* 9 10.25`, `... US* 19 20`),
+   then the currency alone (`USD`), then the rupee amount and any `CR` alone (`877.60`). `_match_line_at` joins
+   exactly those two rows on, tried first, after the opening row or after the rows a split line runs on to (whose
+   last row may then hold only points and the foreign amount, `9 20`); a row that reads whole joins nothing else.
+   A shape-2 line cut short reads its foreign amount (2 decimals) or is unread (0 or 1), and the gate refuses the
+   file either way. The older currency-first form (`USD 10.25 877.60`) is still read, so no line reads differently.
+3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code (or one with a
+   star, `US*`, #1751) AND the city
    before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
    INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no
    country code (a payment received, a cashback) keeps every word. #1567 pairs refunds on it; #1568 keys
