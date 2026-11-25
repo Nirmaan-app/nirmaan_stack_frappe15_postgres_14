@@ -78,9 +78,8 @@ from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
 from nirmaan_stack.services.expense_bills.receive import move_bills
 from nirmaan_stack.services.expense_type_ledger import ledger_types
-from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
+from nirmaan_stack.services.outflow_import.settle import CARRIED_FIELDS, ExpenseInvoice, create_expense_from_row
 
 #: The cap the bulk Unreconcile keeps: the screen works one page (50 lines) at a time.
 RECTIFY_LIMIT = BULK_UNRECONCILE_LIMIT
@@ -91,11 +90,6 @@ _ORIGIN = "Suggestion overridden"
 #: What every source's line is read with; a source adds its own (`RectifySource.line_fields`).
 _ROW_FIELDS = ("name", "import_batch", "source", "row_status")
 _LEG_FIELDS = ["name", "target_doctype", "target_name", "created_by_import"]
-
-#: What the replacement keeps as it is, though Create never writes it (owner, 2026-11-26): the account the money was
-#: paid into (locked once Paid, ADR-0033 Amendment A, so nobody could put it back) and the approval dates.
-_CARRIED = PAY_TO_FIELDS + ("approval_date", "ceo_approval_date")
-
 
 @dataclass(frozen=True)
 class _ExpenseAsRow:
@@ -285,7 +279,7 @@ def rectify_line(
                 invoice=ExpenseInvoice(
                     number=old.invoice_ref, date=old.invoice_date, file_url=old.invoice_attachment
                 ),
-                carried={field: old.get(field) for field in _CARRIED if old.get(field)},
+                carried={field: old.get(field) for field in CARRIED_FIELDS if old.get(field)},
                 **replacement.writer_fields,
             )
             _move_attachments(old, new.doctype, new.name, source.kept_file_url(old))
@@ -384,7 +378,8 @@ def _move_attachments(old, doctype: str, name: str, kept_file_url: str | None) -
 
 def _move_comments(old, doctype: str, name: str) -> None:
     """Carry over what people wrote on the old Expense (comment type Comment) before the delete leaves it on a name
-    that no longer exists (owner, 2026-11-26), as `_move_attachments` carries its `File` rows.
+    that no longer exists (owner, 2026-11-26), as `_move_attachments` carries its `File` rows. Only what people wrote,
+    as the owner asked: the old Expense's own history (Info, Edit, Attachment entries) stays with it.
 
     RAW RE-POINT, as for the `File` rows: a `Comment` row's hooks only notify and refresh its parent's `_comments`
     list-view cache, which `update_comment_in_doc` refreshes here for the new Expense; the old Expense's cache goes

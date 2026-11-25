@@ -130,26 +130,45 @@ class TestACreatedBankExpenseMovesToAProject(BankRectifyCase):
 
 class TestThePlanShowsTheBankLine(BankRectifyCase):
     def test_it_shows_the_lines_remark_utr_beneficiary_amount_and_date(self):
-        row, name = self._created(CASHFREE)
-        utr = frappe.db.get_value(ROW_DOCTYPE, row, "transfer_id")
+        for source in (ICICI, CASHFREE):
+            with self.subTest(source):
+                row, name = self._created(source)
+                utr = frappe.db.get_value(ROW_DOCTYPE, row, "transfer_id")
 
-        plan = rectify.get_rectify_plan(json.dumps([row]))
+                plan = rectify.get_rectify_plan(json.dumps([row]))
 
-        self.assertEqual(plan["source"], CASHFREE)
-        [line] = plan["lines"]
-        self.assertIsNone(line["refusal"])
-        self.assertEqual(
-            {k: line[k] for k in ("remark", "utr", "beneficiary", "amount", "date", "ledger", "expense")},
-            {
-                "remark": "site cement Testorchid",
-                "utr": utr,
-                "beneficiary": "Testvendor Hardware Stores",
-                "amount": 4250.0,
-                "date": "2026-10-14",
-                "ledger": NON_PROJECT_EXPENSE,
-                "expense": name,
-            },
-        )
+                self.assertEqual(plan["source"], source)
+                [line] = plan["lines"]
+                self.assertIsNone(line["refusal"])
+                self.assertEqual(
+                    {k: line[k] for k in ("remark", "utr", "beneficiary", "amount", "date", "ledger", "expense")},
+                    {
+                        "remark": "site cement Testorchid",
+                        "utr": utr,
+                        "beneficiary": "Testvendor Hardware Stores",
+                        "amount": 4250.0,
+                        "date": "2026-10-14",
+                        "ledger": NON_PROJECT_EXPENSE,
+                        "expense": name,
+                    },
+                )
+
+
+class TestAMovedBankExpenseMovesBackToNonProject(BankRectifyCase):
+    def test_a_project_expense_goes_back_to_non_project_with_its_money_date_and_utr(self):
+        row, old_name = self._created(ICICI)
+        old = frappe.get_doc(NON_PROJECT_EXPENSE, old_name)
+        self._move([row], self._allocation_project())
+
+        result = self._move([row], None)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        [leg] = self._live_leg(row)
+        self.assertEqual((leg.target_doctype, leg.created_by_import), (NON_PROJECT_EXPENSE, 1))
+        back = frappe.get_doc(NON_PROJECT_EXPENSE, leg.target_name)
+        self.assertNotEqual(back.name, old_name)
+        for field in _KEPT:
+            self.assertEqual(str(back.get(field)), str(old.get(field)), field)
 
 
 class TestALineSettledToMoreThanOneRecordIsRefused(BankRectifyCase):

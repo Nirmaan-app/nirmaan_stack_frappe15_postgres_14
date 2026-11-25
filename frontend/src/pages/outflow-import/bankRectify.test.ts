@@ -61,7 +61,7 @@ describe("Move on a bank or Cashfree line in Bulk Import (story 5)", () => {
 
     it("is not offered where the line was Linked to a record that already existed", () => {
         expect(rectifyAffordance(line("a", "Cashfree", 0), true)).toBe(false);
-        expect(rectifyAffordance({ name: "b", row_status: "Settled", source: "Cashfree" }, true)).toBe(false);
+        expect(rectifyAffordance({ row_status: "Settled", source: "Cashfree" }, true)).toBe(false);
     });
 
     it("labels the button by where the expense is", () => {

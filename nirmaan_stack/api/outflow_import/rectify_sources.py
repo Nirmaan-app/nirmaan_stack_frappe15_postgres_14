@@ -297,8 +297,8 @@ CASHBOOK = RectifySource(
 
 
 def _bank_replacement(old, line, from_name: str | None, to_name: str | None) -> Replacement:
-    """The description as it is; Paid by kept, or on a move from Non Project the person who created it, as Create
-    writes Paid by on a bank line (the person recording it)."""
+    """The description as it is; Paid by kept, or where the old expense has none (a Non Project Expense) the person who
+    created it, as Create writes Paid by on a bank line (the person recording it)."""
     return Replacement(description=old.description, payment_by=old.get("payment_by") or old.owner or None)
 
 

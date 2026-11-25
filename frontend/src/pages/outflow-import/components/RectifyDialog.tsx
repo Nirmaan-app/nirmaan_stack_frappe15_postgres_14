@@ -177,7 +177,7 @@ const RectifyForm = ({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // A Cashbook, bank or Cashfree plan: the expense label, the type the destination takes, the expense outcome.
-    const cashbook = movesExpenses(plan);
+    const byExpense = movesExpenses(plan);
     const lines: PlanLine[] = plan.lines;
 
     const options = useMemo(() => projectOptions(plan.projects ?? []), [plan]);
@@ -196,7 +196,7 @@ const RectifyForm = ({
         ? "Choose where the expenses go."
         : !moving.length
           ? "Nothing here would move."
-          : cashbook && !type
+          : byExpense && !type
             ? "Choose an expense type the destination takes."
             : !trimmed
               ? "Type a reason first."
@@ -211,10 +211,10 @@ const RectifyForm = ({
                 rows: JSON.stringify(moving.map((line) => line.row)),
                 project: target.value,
                 reason: trimmed,
-                ...(cashbook ? { expense_type: type } : {}),
+                ...(byExpense ? { expense_type: type } : {}),
             });
             const targetName = target.value ? target.label : null;
-            onRan(cashbook ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
+            onRan(byExpense ? cashbookOutcome(response.message, targetName) : rectifyOutcome(response.message, targetName));
         } catch (err) {
             setError(describeFrappeError(err, "Nothing was moved."));
         } finally {
@@ -278,7 +278,7 @@ const RectifyForm = ({
                 />
             </div>
 
-            {cashbook && target && (
+            {byExpense && target && (
                 <div className="space-y-1.5">
                     <Label className="text-xs">Expense type</Label>
                     <PorterProjectSelect
@@ -319,7 +319,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {cashbook
+                    {byExpense
                         ? cashbookMoveLabel((moving.length ? moving : lines).map((line) => line.ledger))
                         : moveOrdersLabel(moving.length || rows.length)}
                 </Button>
