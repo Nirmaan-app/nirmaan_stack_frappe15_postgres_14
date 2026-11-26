@@ -1,0 +1,20 @@
+[
+ ["DC / MIR", "Delivery Challan (the paper that comes with a delivery) and Material Inspection Report (the site's check of it). Both are uploaded on the PO or ITM page with the items and quantities they cover."],
+ ["DN", "Delivery Note: what the site records as received. Received (DN) on the card is the item's received quantity."],
+ ["DC-wise / Item-wise", "The two views of the \"Delivery Challans & MIRs\" card this branch adds: one row per document (as before), or one row per PO or ITM item with its DC and MIR quantities added up."],
+ ["DC Pending", "Received minus DC Qty. Red when the DCs are short; red \"+N extra\" when the DCs cover more than was received."],
+ ["S.No. label", "How Item-wise names a DC or MIR that has no Ref No.: its row number in the DC-wise list, e.g. \"S.No. 2 (DC, no Ref No.)\". The internal id (PDD-...) is never shown, because the DC-wise list does not show it."],
+ ["Layout that fits the card", "Item-wise shows the widest of three layouts that fits the card itself (not the screen): the full table, a compact table without the Unit and DC/MIR-numbers columns, or one card per item."],
+ ["DN > DC Report", "Project › DC & MIR tab › DN > DC Report: per PO (source Purchase Orders) or per ITM (source Transfer Memos), each item's status. The branch leaves both reports' statuses as develop has them."],
+ ["PO rule", "Develop's rule for PO items, five statuses in order: Pending DN, Partially Delivered, No DC Update, Mismatch, Matched (2.5% tolerance against the ordered quantity for decimals). A row no rule claims reads Matched."],
+ ["ITM rule", "Develop's rule for ITM items (the Transfer Memos report's): Pending DN when nothing is received but a DC is filed, Matched when the DCs cover what was received, No DC Update when something is received and no DC, else Mismatch. No tolerance, Transfer Qty unused, no Partially Delivered. The ITM card uses it too."],
+ ["\"–\" on the ITM card", "An ITM item with nothing received and no DC. The ITM rule alone would call it Matched; the card shows \"–\", and the report leaves such items out."],
+ ["Rollup", "One status for a whole PO or ITM in the report: the loudest of its items' statuses. Purchase Orders: Mismatch > No DC Update > Pending DN > Partially Delivered > Matched. Transfer Memos: Mismatch > No DC Update > Pending DN > Matched."],
+ ["ITM", "Internal Transfer Memo: material sent from one project, or the warehouse, to another project."],
+ ["Transfer Qty", "On an ITM, the quantity sent; it takes the place of Ordered on the ITM card. The ITM rule does not use it."],
+ ["Non-Billable item", "A PO item whose cost is not billed to the client; no DC can be filed for it, so the card shows \"Not Billable\" and \"–\"."],
+ ["Old record (stub)", "A DC or MIR saved before items were recorded. DC-wise shows N/A in Items; Item-wise counts it in no row and names it in a note."],
+ ["Work Order", "An order for services from a vendor (a Service Request in older screens). Its page uses the same attachments component as the PO page."],
+ ["Before / After", "Before is develop at 31d29db45, where the branch starts. After is the branch at 30c45081d."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]
