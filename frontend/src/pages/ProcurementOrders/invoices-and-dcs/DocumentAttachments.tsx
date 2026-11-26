@@ -29,6 +29,9 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { InvoiceTable } from "./components/InvoiceTable"; // Adjust import path
 import { RejectApprovedInvoiceDialog } from "./components/RejectApprovedInvoiceDialog";
 import { DeliveryChallanTable } from "./components/DeliveryChallanTable"; // Adjust import path
+import { DCMIRItemWiseTable } from "./components/DCMIRItemWiseTable";
+import { DCMIRViewSwitch } from "./components/DCMIRViewSwitch";
+import { useDCMIRView } from "./hooks/useDCMIRView";
 import SITEURL from "@/constants/siteURL"; // Adjust import path
 import { CirclePlus, Upload } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -149,6 +152,14 @@ export const DocumentAttachments = <T extends DocumentType>({
     dcType: "Delivery Challan" | "Material Inspection Report";
     existingDoc?: PODeliveryDoc;
   }>({ open: false, mode: "create", dcType: "Delivery Challan" });
+
+  // Delivery Challans & MIRs card on the PO page: DC-wise (default, one row per document) or
+  // Item-wise (one row per PO item).
+  const dcmir = useDCMIRView();
+  const poItems = useMemo(
+    () => (docType === "Procurement Orders" ? (documentData as ProcurementOrder | null | undefined)?.items ?? [] : []),
+    [docType, documentData]
+  );
 
   // Map PO items for the upload dialog's item selector
   const poItemsForSelector = useMemo(() => {
@@ -696,17 +707,29 @@ export const DocumentAttachments = <T extends DocumentType>({
                 )}
               </CardTitle>
             </CardHeader>
+            {/* DC-wise / Item-wise switch: PO page only (the Work Order page shares this card). */}
+            {isPO && <DCMIRViewSwitch view={dcmir.view} onChange={dcmir.setView} />}
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <DeliveryChallanTable
+              {isPO && dcmir.view === "item" ? (
+                <DCMIRItemWiseTable
+                  kind="po"
+                  items={poItems}
                   documents={pddDocs || []}
-                  onEdit={handlePDDEdit}
-                  onDelete={handlePDDDelete}
-                  canDelete={() => canDeletePDD}
-                  deletingName={deletingPddName}
-                  getUserName={getUserName}
+                  onDocClick={dcmir.openDoc}
                 />
-              </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <DeliveryChallanTable
+                    documents={pddDocs || []}
+                    onEdit={handlePDDEdit}
+                    onDelete={handlePDDDelete}
+                    canDelete={() => canDeletePDD}
+                    deletingName={deletingPddName}
+                    getUserName={getUserName}
+                    focusName={dcmir.focusedDocName}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         )

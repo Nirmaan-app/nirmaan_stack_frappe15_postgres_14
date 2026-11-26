@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CirclePlus, Upload } from "lucide-react";
 
 import { DeliveryChallanTable } from "@/pages/ProcurementOrders/invoices-and-dcs/components/DeliveryChallanTable";
+import { DCMIRItemWiseTable } from "@/pages/ProcurementOrders/invoices-and-dcs/components/DCMIRItemWiseTable";
+import { DCMIRViewSwitch } from "@/pages/ProcurementOrders/invoices-and-dcs/components/DCMIRViewSwitch";
+import { useDCMIRView } from "@/pages/ProcurementOrders/invoices-and-dcs/hooks/useDCMIRView";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 
@@ -45,7 +48,9 @@ const CLOSED: UploadDialogState = {
  *   visible at every ITM status (including Approved / Dispatched / future closed
  *   states).
  * - The UPLOAD BUTTONS are gated by `canUpload` (status ∈ {Partially Delivered,
- *   Delivered}), mirroring PO's `showDcTable` gate at DocumentAttachments.tsx:625.
+ *   Delivered}), mirroring PO's `showDcTable` gate in DocumentAttachments.tsx.
+ * - A DC-wise (default) | Item-wise switch sits under the header, shared with the PO
+ *   card (`DCMIRViewSwitch` + `useDCMIRView`); Item-wise uses the ITM status rule.
  */
 export const ITMAttachmentSection: React.FC<ITMAttachmentSectionProps> = ({
   itmName,
@@ -61,7 +66,7 @@ export const ITMAttachmentSection: React.FC<ITMAttachmentSectionProps> = ({
     [role, user_id]
   );
 
-  // Mirror PO upload-button gate (DocumentAttachments.tsx:625):
+  // Mirror PO upload-button gate (DocumentAttachments.tsx `showDcTable`):
   // showDcTable = status ∈ {"Delivered", "Partially Delivered"}.
   const canUpload = itmStatus === "Partially Delivered" || itmStatus === "Delivered";
 
@@ -69,6 +74,9 @@ export const ITMAttachmentSection: React.FC<ITMAttachmentSectionProps> = ({
     canView ? itmName : null,
     "Internal Transfer Memo"
   );
+
+  // DC-wise (default) | Item-wise switch, shared with the PO page's card.
+  const dcmir = useDCMIRView();
 
   const itemsForSelector = useMemo(
     () =>
@@ -142,16 +150,25 @@ export const ITMAttachmentSection: React.FC<ITMAttachmentSectionProps> = ({
             )}
           </CardTitle>
         </CardHeader>
+        <DCMIRViewSwitch view={dcmir.view} onChange={dcmir.setView} />
         <CardContent className="p-0">
           {isLoading ? (
             <div className="text-center py-4 text-sm text-muted-foreground">
               Loading...
             </div>
+          ) : dcmir.view === "item" ? (
+            <DCMIRItemWiseTable
+              kind="itm"
+              items={items}
+              documents={documents || []}
+              onDocClick={dcmir.openDoc}
+            />
           ) : (
             <div className="overflow-x-auto">
               <DeliveryChallanTable
                 documents={documents || []}
                 onEdit={canUpload ? handleEdit : undefined}
+                focusName={dcmir.focusedDocName}
               />
             </div>
           )}
