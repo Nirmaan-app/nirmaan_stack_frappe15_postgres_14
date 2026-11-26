@@ -114,6 +114,12 @@ out=$(swap --new "$T/dev/missing.git" --apply); rc=$?
 ok "a swap before prepare refuses" '[ $rc -eq 2 ] && [[ "$out" == *"run prepare first"* ]]'
 out=$(swap --new "$T/Nirmaan-app/$R.git" --apply); rc=$?
 ok "a swap onto the main repo refuses" '[ $rc -eq 2 ] && [[ "$out" == *"is the main repo"* ]]'
+out=$(swap --new "https://github.com/nirmaan-app/$R.git" --apply); rc=$?
+ok "a swap onto the main repo spelled in lower case refuses" '[ $rc -eq 2 ] && [[ "$out" == *"--new is the main repo"* ]]'
+git remote set-url origin "https://github.com/nirmaan-app/$R.git" && git remote set-url --push origin "$OLDF"
+out=$(swap --new "$NEW" --apply); rc=$?
+ok "an origin fetching the main repo spelled in lower case refuses, and nothing changes" \
+  '[ $rc -eq 2 ] && [[ "$out" == *"origin is the main repo"* ]] && ! git remote get-url old-public >/dev/null 2>&1'
 cd ..
 
 mkdir -p bin

@@ -28,6 +28,11 @@ run() { if [ "$apply" = 1 ]; then "$@" || die "failed: $*"; else echo "would run
 try() { if [ "$apply" = 1 ]; then "$@" || echo "warning: failed: $*; the check below shows what is missing"; else echo "would run: $*"; fi; }
 field() { gh api "repos/$1" -q "$2" 2>/dev/null; }
 is_private_fork() { [ "$(field "$1" .parent.full_name)" = "$MAIN_REPO" ] && [ "$(field "$1" .private)" = true ]; }
+# GitHub owner and repo names ignore case, so github.com/nirmaan-app/... is the main repo too.
+names_main_repo() {
+  local u m; u=$(printf '%s' "$1" | tr 'A-Z' 'a-z'); m=$(printf '%s' "$MAIN_REPO" | tr 'A-Z' 'a-z')
+  case "$u" in *"$m"*) return 0 ;; esac; return 1
+}
 
 prepare() {
   local login=$1 fork=$1/$NEW_NAME old=$1/$REPO_NAME
@@ -91,9 +96,10 @@ swap() {
   else
     first=1 old_url=$url
     [ "$old_url" != "$new_url" ] || die "$remote already points at $new_url and there is no $OLD remote"
-    case "$old_url" in *"$MAIN_REPO"*) die "$remote is the main repo; pass --remote <your old fork's remote>, or add one first: git remote add origin <old fork url>" ;; esac
+    ! names_main_repo "$old_url" ||
+      die "$remote is the main repo; pass --remote <your old fork's remote>, or add one first: git remote add origin <old fork url>"
   fi
-  case "$new_url" in *"$MAIN_REPO"*) die "--new is the main repo; pass your new fork" ;; esac
+  ! names_main_repo "$new_url" || die "--new is the main repo; pass your new fork"
   git ls-remote "$new_url" HEAD >/dev/null 2>&1 || die "cannot read the new fork at $new_url; run prepare first"
   if ! is_local_path "$new_url"; then
     local gh_repo; gh_repo=$(github_repo "$new_url")
@@ -138,7 +144,7 @@ swap() {
     r=$(remotes_pushing_to "$old_url" | tr '\n' ' ')
     [ -z "$r" ] || die "remote(s) $r still push to the old fork $old_url; fix them before pushing"
   fi
-  if ! git remote -v | grep -q "$MAIN_REPO"; then
+  if ! names_main_repo "$(git remote -v)"; then
     if git remote get-url upstream >/dev/null 2>&1; then die "remote upstream exists but is not $MAIN_REPO"; fi
     run git remote add upstream "$UPSTREAM_URL"
   fi
