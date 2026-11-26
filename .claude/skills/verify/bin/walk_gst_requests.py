@@ -22,6 +22,13 @@ from feature_walk import FeatureWalk, pin, settle, sidebar  # noqa: E402
 from record import inr  # noqa: E402
 
 fw = FeatureWalk("GST Payment Requests", "gst-requests.md")
+# How many of the matched elements have a word split across two lines (a word's text range with rects on more than
+# one row). Wrapping between words, as "Speedtest Accountant" does, is not counted.
+BROKEN = ("els => els.filter(e => [...e.childNodes].filter(n => n.nodeType === 3).some(n => { "
+          "const re = /\\S+/g; let m; while ((m = re.exec(n.data))) { const r = document.createRange(); "
+          "r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length); "
+          "if (new Set([...r.getClientRects()].map(x => Math.round(x.top))).size > 1) return true; } "
+          "return false; })).length")
 w = fw.w
 STATE = fw.out / "state.json"
 state: dict = json.loads(STATE.read_text()) if STATE.exists() else {}
@@ -41,7 +48,8 @@ w.change("lead", "Accountant Lead approves too", "₹25,000 approved by the Acco
 w.change("base", "Base payments keep the amount rule", "A ₹20,000 base payment on the same WO is Requested and waits "
          "in L1's queue.")
 w.change("tab", "GST Requests tab", "Ready-to-pay wording; vendor card on the vendor name; Reviewed column (also in "
-         "the CSV) except on Pending; Actions except on Approved.")
+         "the CSV) except on Pending; Actions except on Approved. On All and Approved, Reviewed keeps at least 155px "
+         "with no reviewer name broken, and every Work Order ID and payment ID sits on one line (#1747).")
 w.change("reject", "Reject needs a reason; over GST left is blocked",
          "Reject is disabled until a reason is typed and frees the GST. A request over GST left cannot be sent.")
 w.change("errors", "Dialogs show the server's own reason",
@@ -49,7 +57,8 @@ w.change("errors", "Dialogs show the server's own reason",
 w.change("summary", "Payment Summary current at once",
          "Right after a GST approval, Approved But not Paid already counts the new payment.")
 w.change("bell", "Admins' note: for information",
-         "Admin-profile users get 'GST payment PAY-… approved by <decider> from GPR-…', 140 characters at most.")
+         "Admin-profile users, the CEO included (owner, 2026-11-24), get 'GST payment PAY-… approved by <decider> from "
+         "GPR-….', with no 'Ready to pay: no L1 or CEO' line (#1747), 140 characters at most.")
 
 
 # ---------------------------------------------------------------- reads
@@ -236,9 +245,12 @@ def approve() -> None:
         longest = max((len(b["description"] or "") for b in r["bells"]), default=0)
         w.check("bell", "Admins", "for-information note, 140 characters or fewer", f"{len(r['bells'])} notes, longest "
                 f"{longest} chars", bool(r["bells"]) and longest <= 140)
-        w.check("bell", "CEO", "the CEO is told nothing (the design; left open by #1738)",
+        noisy = [b["description"] for b in r["bells"] if "no L1 or CEO" in (b["description"] or "")]
+        w.check("bell", "Admins", "the note has no 'Ready to pay: no L1 or CEO' line (#1747)",
+                noisy[0][:140] if noisy else "no such line", not noisy)
+        w.check("bell", "CEO", "the CEO gets the note too (owner, 2026-11-24)",
                 "the CEO got it" if any(b["recipient"] == CEO for b in r["bells"]) else "nothing",
-                not any(b["recipient"] == CEO for b in r["bells"]), kind="should")
+                any(b["recipient"] == CEO for b in r["bells"]))
         page.get_by_role("button", name=re.compile(r"^Payment need to paid \d+$")).first.click()
         page.wait_for_timeout(700)
         sum1 = approved_count(page)
@@ -338,13 +350,24 @@ def tab() -> None:
         for pill in ("Pending", "Approved", "All"):
             page.get_by_role("tab", name=pill, exact=True).click()
             settle(page, 2000)
-            heads = [h.strip() for h in page.get_by_role("columnheader").all_inner_texts()]
+            heads = [h.strip() for h in page.locator("thead th").all_inner_texts()]
             has_rev, has_act = "Reviewed" in heads, "Actions" in heads
             want_rev, want_act = pill != "Pending", pill != "Approved"
             w.check("tab", role, f"{pill}: Reviewed {'shown' if want_rev else 'hidden'}, Actions {'shown' if want_act else 'hidden'}",
                     f"Reviewed {'shown' if has_rev else 'hidden'}, Actions {'shown' if has_act else 'hidden'}",
                     (has_rev, has_act) == (want_rev, want_act))
-            pins = [pin(page.get_by_role("columnheader", name="Reviewed"), "Who decided it, and when.", "info")] \
+            if pill in ("All", "Approved") and has_rev:
+                # #1747: Reviewed keeps its width across pills, and IDs never break mid-word.
+                rev_w = round(page.locator("thead th").filter(has_text=re.compile(r"^\s*Reviewed\s*$")).bounding_box()["width"])
+                col = heads.index("Reviewed") + 1
+                rev_broken = page.locator(f"tbody tr td:nth-child({col}) span.break-words").evaluate_all(BROKEN)
+                wo_broken = page.locator("tbody tr a[href*='/service-requests/']").evaluate_all(BROKEN)
+                pay_broken = page.locator("tbody tr span.font-mono").evaluate_all(BROKEN)
+                w.check("tab", role, f"{pill}: Reviewed at least 155px, no reviewer name broken mid-word",
+                        f"{rev_w}px, {rev_broken} broken", rev_w >= 155 and rev_broken == 0)
+                w.check("tab", role, f"{pill}: every Work Order ID and payment ID on one line",
+                        f"Work Order broken {wo_broken}, payment ID broken {pay_broken}", wo_broken == 0 and pay_broken == 0)
+            pins = [pin(page.locator("thead th").filter(has_text=re.compile(r"^\s*Reviewed\s*$")), "Who decided it, and when.", "info")] \
                 if pill == "All" and has_rev else []
             w.step(page, "tab", "after", role, user, f"GST Requests › {pill}. Columns: {', '.join(h for h in heads if h)}.",
                    pins=pins)
@@ -413,8 +436,8 @@ def queues() -> None:
                 settle(page, 2500)
                 note = page.get_by_text(re.compile(rf"GST payment {state['big_pay']} approved by")).first
                 w.step(page, "bell", "after", role, user, "The CEO's notifications.",
-                       pins=[pin(note, "The CEO gets the admins' for-information note; the design says the CEO is told "
-                                       "nothing (left open by #1738).", "should")] if note.count() else [])
+                       pins=[pin(note, "The CEO gets the admins' for-information note (owner, 2026-11-24).", "info")]
+                       if note.count() else [])
 
 
 fw.run([("approve", setup), ("approve", raise_big), ("approve", approve), ("errors", errors),

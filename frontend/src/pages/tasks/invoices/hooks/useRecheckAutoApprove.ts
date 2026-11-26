@@ -1,8 +1,9 @@
 /**
  * Re-run the auto-approve gates on Pending invoices, preview first.
  *
- * Only the two PO-value ceilings are re-evaluated (owner ruling) — they are the
- * only gates reading data that keeps moving after the invoice is filed. A PO
+ * On a PO invoice only the two PO-value ceilings are re-evaluated (owner ruling) — they are the
+ * only gates reading data that keeps moving after the invoice is filed. On a Work Order invoice
+ * (the WO tab) ADR-0050's rules 2 and 3 are, as the 05:00 job runs them. A PO
  * delivered later still carries `nothing_delivered_yet`, and its invoice still
  * sits in the queue. Every other stored reason is carried through untouched,
  * and invoices that are not ceiling candidates never enter a run at all.
@@ -46,7 +47,14 @@ export interface RecheckResultRow {
     /** The figures the two checks compared — the evidence behind the verdict. */
     po_total: number | null;
     po_delivered: number | null;
+    /** Invoiced total with this invoice: PO-tab against the ceilings, WO-tab against rules 2 and 3. */
     cumulative: number | null;
+    /** A Work Order invoice's: rule 2 compares `cumulative` with the WO total, rule 3 with Amount Paid. */
+    wo_total?: number | null;
+    amount_paid?: number | null;
+    /** A Work Order invoice's matched ADR-0050 rules: 1 (signed copy), 2 (= WO total), 3 (= Amount Paid; `base`
+     * when a GST-on WO compared base amounts), with the two figures each compared. */
+    rules?: { rule: 1 | 2 | 3; base?: boolean; target?: number; invoiced?: number }[] | null;
     detail?: string | null;
 }
 
@@ -66,7 +74,7 @@ export interface RecheckResponse {
  * target different sets.
  */
 export type RecheckScope =
-    | { kind: "queue" }
+    | { kind: "queue"; documentType: "Procurement Orders" | "Service Requests" }
     | { kind: "invoices"; ids: string[] };
 
 interface UseRecheckAutoApproveProps {
@@ -92,7 +100,7 @@ export const useRecheckAutoApprove = ({
         async (target: RecheckScope, dryRun: boolean): Promise<RecheckResponse> => {
             const response =
                 target.kind === "queue"
-                    ? await callQueue({ dry_run: dryRun })
+                    ? await callQueue({ dry_run: dryRun, document_type: target.documentType })
                     : await callInvoices({
                           invoice_ids: target.ids,
                           dry_run: dryRun,

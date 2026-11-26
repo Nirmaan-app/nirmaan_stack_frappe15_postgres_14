@@ -102,6 +102,16 @@ export const AUDIT_RANGE_PARAM = "audit_range";
 export const auditRangeChosenAtLoad = (selectionKind: string, rangeParam: string | null | undefined): boolean =>
   selectionKind !== "all" || rangeParam === "1";
 
+/**
+ * Whether a row's own record name (`id`: the PO / WO number, or the expense's name) contains the search text, in any
+ * case. The table's search also reads this, since the Against column shows an expense's description, not its name
+ * (PR #1736 walk: searching qs21qubbrb found 0 rows).
+ */
+export const auditIdMatches = (id: string | null | undefined, search: unknown): boolean => {
+  const term = String(search ?? "").trim().toLowerCase();
+  return term !== "" && !!id && id.toLowerCase().includes(term);
+};
+
 interface AuditTabMeta {
   title: string;
   /** The date each tab is dated by, lower case ("Dated by <basis>"). */

@@ -432,7 +432,9 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
     // INVERTED at ADP-3a (owner H2 / U2, B6 #5: the outer size is shown beside the neck as one either-or group) by mechanical authority: BEFORE the same detail ending at "... counts as that size"
     // INVERTED at ADP-4a (owner A1 / D1: every ADP line ends with its reason, "reason not recorded" where no ruling exists)
     // by mechanical authority. BEFORE: the same detail, ending at "... and with neither stated the row refuses naming both".
-    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size; the outer size is shown beside the neck size as one either-or group, and with neither stated the row refuses naming both -- why: reason not recorded");
+    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size; the outer size is shown beside the neck size as one either-or group, and with neither stated the row refuses naming both");
+    // INVERTED at VAV-2c2 (R3 e, PIN 2): BEFORE the same detail ending " -- why: reason not recorded"
+    expect(outer.detail).not.toContain("reason not recorded");
     expect(outer.reason).toBe("reason not recorded");
     const ladder = lines.find((l) => /^Fitting the stated diameter/.test(l.title))!;
     expect(outer.n).toBeLessThan(ladder.n);

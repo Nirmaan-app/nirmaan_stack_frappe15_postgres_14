@@ -52156,3 +52156,244 @@ Replay du3end = du3k2 byte-equal. **Cert C1-C12** PASS (41 screenshots), dev_iso
 **Open (follow-up list):** the stray ")" in the stored note "BoQ says round / spiral / oval with no duct type - priced as Spiral /
 Oval)" (owner "option a", 2026-11-17 00:15; 2 rows, wording only); the mixed-shape ruling applied generally was RE-RULED removal-only
 (CH-DU3-17) - nothing open there; the "stainless-steel VALVE row" cert step has no corpus row (unit tests hold it).
+
+## Slice VAV-R0 (desktop) - VAV Box read-only recon - 2026-11-18
+981 VAV Box rows (76 BoQs / 84 sheets) exported to `BoQ main lane\VAV-R0\VAV_Payload_Library`; `hvac_vav_box` existed only in the
+classifier (no item, config or registry line); price source = the 2 Nov workbook's VAV Box tab (86 lines) + 4 Misc-tab lines; paid-run
+estimate 92 calls, central 1.79M tokens. Replay baseline vavpost (33,346 rows, ac7 cadcbc9e / ac7v2 c98df656). No commit, no write.
+
+## Slice VAV-D0 (desktop) - VAV Box design (read-only) - 2026-11-19
+Design `2026-11-19_VAV-D0_Design.md` (D1-D10): 58 rulings mapped; own extras as VAV families + borrowed Misc / Sensors items as sections
+(QR-1 (a)); borrow-only Sensors config (QR-2 (a)); same-sheet charged-separately check, two items for conical + connection, mm inlet
+sizes converted, room sensor at the Misc thermometer rate (QR-3a-d (a)); cabling by positive words (QR-4 (a)); catalogue draft 86 + 4;
+13 fixtures; plan VAV-1 -> VAV-2a / VAV-2b -> VAV-3. No commit, no write.
+
+## Slice VAV-1 (desktop) - VAV Box price sheet into the Rate Master: HVAC v76, the Rate Master tab and the Calculator - 2026-11-19
+**Asset v76** = v75 + `hvac_vav_box` (91 items: the VAV Box tab's 86 lines read from the workbook, BCS noise cleaned, "AHRI Certified";
++ BACnet over IP controller 33,000 + 2,000, Duct connection and Conical piece 1,200 + 0, Integrator cabling 140 + 0 per Mtr, "VAV
+installation - any size" 0 + 1,500; markups 0.4 / 0.6) + borrow-only `hvac_sensors` (CO2 Sensor, Differential Pressure Switch,
+Greystone/Honeywell) + Misc + Digital Thermostat / Transformation Pieces (22 -> 24) + `vav_install_only_uplift` 0 (QR-B (a): the other
+VAV-2 inputs come with their code). Every other config / item byte-identical; the model's question identical for every v75 category.
+Mint `scripts/_instruments/mint_hvac_v76_vav1.py`; loaded after a PROVED backup (vav1_pre_v76_20261119_042636.dump, 442 tables,
+row-count md5 = live), batch rmbulk-98c3f98a68a2, snapshot BRMS-26-00967, verify 0 / 0; Electrical v72 unchanged.
+**Owner rulings in the slice:** QR-A (a) "optiom a" -- the temporary `calculator_only` switch revived for hvac_vav_box ONLY (VRF-2a
+shape): the Rate Master tab and the Calculator work, every VAV-filed BoQ row stays "coming soon" and out of Suggest; QR-C2 (a) the
+integrator's second line is "Imported" (the tab's word); QR-C3 (a) the two nested Misc lines on the Valve / Ducting Derivation tabs
+change ("9 kinds", + the two items); AC16 / T10 calculator = sheet on every line.
+**Validator (B6):** `numbers` may be an empty object (choice-only categories).
+**Proofs:** T1 parity 86 / 86 + 5; T10 calculator = sheet 86 / 86 (26 differ only by rounding below a rupee) + the borrowed five exact;
+T2 reachability 91 / 91; D2 34,720 + 2,900 (+ cabling and DP 37,282 + 3,800; minus the cone 31,360 + 2,900); coverage 0 / 0 / 0;
+replay vav1k2 = vav1p0 byte-identical (0 moves); PF3 30 PASS / 5 N/A-until-VAV-2 / 15 N/A / 0 FAIL; vacuity 5 breaks red.
+**Commits (not pushed, on ab86a7a65):** K1 83a6db950 (the calculator_only switch, the empty-numbers validator fix, the mint script,
+switch tests, 12 + 2 pins inverted), K2 a0274159d (HVAC v76, registry lines, VAV tests, pin moves), K3 this docs commit; K1 / K2 / K3
+with --no-verify (owner VAV1-19 (a): the desktop host hook cannot run; container residence check saved per commit).
+**Cert C1-C9 PASS** (22 cropped screenshots; the owner signed in at :8080): Rate Master > HVAC > VAV Box 91 items + Derivation; the
+Calculator D2 34,720 + 2,900 from the dropdowns and add buttons; Valve / Ducting unchanged; a VAV-filed row = coming soon;
+dev_isolate --yes / --verify PASS. **Suites (VAV-2a's before):** Python 139 / 5,108; vitest boq-wizard + pricing 204 / 8,281; tsc 0 new (1,185). Logs in
+`BoQ main lane\VAV-1\logs\2026-11-19_VAV-1_S3_*`.
+**OPEN 1 - OWED IN VAV-2b:** remove the `calculator_only` key from the VAV config AND the switch (invert K1 83a6db950's switch:
+config_validation allowlist + `_CALCULATOR_ONLY_CATEGORIES` + `_validate_calculator_only`, extraction `config_is_eligible` clauses,
+`isCalculatorOnlyConfig` / `calculatorSurface` in pricingSheetHelper.ts and PricingCalculator.tsx; re-invert the pins listed in
+`VAV-1_K1_pin_inversions.md`). Other open items: the host pre-commit hook (no node for J1; S1 counts approvalsTable.config.ts, an
+upstream 538-line file) - K1 committed with --no-verify, first time; the BOQ-26-00215 cross-sheet CO2 blind spot (VAV-D0).
+
+## Slice VAV-2a (desktop) - the VAV sheet rules (own-row check, rate-only, integrator cabling, existing boxes), the quantity per box, the combination warning + HVAC v77 - 2026-11-19
+**Scope (owner QR-S (a), 2026-11-19 13:31 "1 and 2 ok"):** split -- this slice = B3 own-row check, B4 rate-only, B5 integrator cabling,
+B6 existing boxes, B7 quantity per box, B9 combination warning + HVAC v77; the NEXT slice = B1 band from the CFM, B2 inlet-size table, B8
+source tags, v78, the product preview of all VAV rows (B11), cert C5. QR-C1 (a): the VAV integrator in the own-row check -- presence
+decides, the box on the "Integrator Included = No" line. QR-B (owner 13:31 / 13:48 "confirmed"): next slice -- the user enters EITHER the
+CFM OR the inlet size (CFM wins), the band read-only with its source tag, mm accepted, the calculator says only one is required.
+**Code (K1):** each piece behind a NEW key of hvac_vav_box -- `own_row_check`, `integrator_cabling`, `existing_boxes`,
+`combination_warning`, sections' `qty_attr` (pricingSheetHelper `vavSheetRules` / `withExistingBoxes` / `combinationWarningOf` /
+`sectionQtyFromRow`; itemListPricing types; config_validation shapes + `vav_sheet_input_ids`; itemListRuleOrder lines; pricingInputReach;
+RateHelperPanel: the warning box and "added by the helper"). Key values in ONE file `__fixtures__/vav2aKeys.json` (tests + mint).
+**Asset v77 (K2)** = v76 + those keys on hvac_vav_box + 8 Pricing Inputs (own-row 0.9, cabling 2 m / 70%, existing 1.0 / 1.5 / 0.5 / 1.5,
+combination 0.5); calculator_only unchanged; every other config and item byte-identical; every model request identical.
+**84-sheet reproduction (AC3):** the product's own cabling functions over VAV-D0's dump = chat-Claude's v3 on every sheet (53 / 800;
+45 / 705 not added; 8 / 95 get 2 m; 0 low; 6 unchecked) after four reading fixes found by it (quantity-bearing Preamble cable rows; the
+near-window excludes the integrator word itself; "variable air volume" names VAV; a row's own note counts like a heading).
+**Commits (not pushed, on b4a0c58a6):** K1 ccb522bb6 (the opt-in pieces + tests + the v77 mint script), K2 315c90484 (HVAC v77 + pins +
+vav2aV77.test.ts), K3 this docs commit; each through the host hook first, --no-verify for S1 approvalsTable.config.ts only (not ours).
+**Data:** v77 loaded on the desktop after a PROVED backup (vav2a_pre_v77_20261119_160138.dump), batch rmbulk-5d28ad9efc5d, verify 0 / 0 / 0;
+replay of 33,346 stored rows byte-identical to P0. **Tests:** K1 / K2 targeted Python 52 modules / 1,545; vitest related 132 / 126 files;
+tsc 0 new; the full Python run that started 4 s before the owner withdrew full suites (17:33) was left to finish: 140 / 5,116 all OK.
+**Cert:** C2-C4, C6, C7 PASS; C1 NOT MET (wording) - lines 9 / 11 of the VAV Box Derivation show the borrowed-section reason, not the
+B7 rulings (the reason list is first-match); owner 18:21 "ok b": fixed in the NEXT VAV slice together with a coverage check that fails on
+a present-but-wrong reason. **Open:** the QR-B entry design (next slice); the frontend served fixture is two assets behind; the Docker
+limit step after BCS-0 and VAV-2a (owner's go).
+
+## Slice VAV-2a2 (desktop) - the VAV band from the airflow or the inlet size, the CFM-or-inlet entry, source tags, the BACnet controller row, the reasons check, the thermowell-with-valve fix + HVAC v78 - 2026-11-19 / 20
+**Scope:** the part of VAV-2a the owner split off (QR-S (a)): B1 band from the maximum airflow, B2 inlet-size table, B3 the CFM-or-inlet
+typed entry (Calculator now, the panel at VAV-2b), B4 source tags + the shape default, B5 / B6 the Derivation reasons and a check that fails
+on a wrong one, B7 the Valve fixes (R7), B8 the controller-row blind spot, B9 HVAC v78, B10 the product preview of all VAV rows (stub
+answers, no model call). Rulings: QR-V (a) thermowell with valve = the thermowell; QR-E (a) an edge value -> the lower band; QR-C2 (a) for
+the BACnet over IP controller only -- its own row (description names it before any box words) decides by presence (owner 00:34 - 00:37).
+**Code:** K1 ecd6784f3 (band_from / source_tags / serves / the reasons check / E13, + tests), K1b 09c9bd2a7 (a range written from 0 is a
+range), K2 12cf88ff9 (HVAC v78 + the FINAL airflow reader + PIN 1-7 + the R7 tie test). The airflow reader changed three times -- K1 and
+K1b carry earlier versions; the final one (K2) drops a number glued to letters (a tag: VAV-0, Type-0, VAV-PID-150) unless the letters are
+an airflow word (Upto500, From525), reads a range only where written as one (the unit allowed on both numbers: 651cfm - 900cfm), and takes
+a lone 0 as no airflow. Corpus proof on 957 box rows (K1 / K1b / final): band, high and priced / not-priced changes 0; stub-vs-final range
+checks 0 / 0 (accepted 14:01). The 17 "Upto 500 max (min 50)" rows read 500 alone (a turn-down, not a range; chat-Claude 14:01).
+**Asset v78 (K2)** = v77 + the VAV keys above + the Valve Package E13 line with the two "(owner VR9)" tags stripped; every item and every
+other config byte-identical (PF2 on the live DB); loaded after a PROVED backup (vav2a_pre_v78_20261120_014901.dump), batch
+rmbulk-4aab6d0655db, snapshot BRMS-26-01166. **Replay (PF1):** 33,346 rows; 4 figure moves = exactly the four R7 thermowell rows (not priced
+-> 720 + 100); 0 else. The replay harness records no scope note, so the VR9 strip is shown by the cert (C7) and pinned by tests.
+**Preview (B10, loaded v78, stub, no model call):** 981 VAV rows, 912 priced / 69 not; ROUGH Rs 17.57 cr as built, 14.86 cr with no BACnet
+controller; extras share > 10 / 25 / 50 / 100 / 150 / 200 % = 648 / 226 / 205 / 194 / 193 / 66 of 897; 205 warnings; the K1 reader swapped
+into the same bundle moves 0 prices (162 rows change tag / note only). `2026-11-20_VAV-2a2_Preview.xlsx` (14 tabs) in the slice folder.
+**Tests:** Python 33 modules (the moved-pin files + every reader of the newest asset; 8 live pins found only by the run -> PIN 6 / 7) +
+test_vav2a2_keys 11; vitest related 135 / 135 files, 6,397; tsc 0 new (1,185); K1 / K1b / K2 through the host hook first, --no-verify for
+S1 only (K2: the count 320 = HEAD, no new oversized file; proof log, chat-Claude 14:42). **Cert:** C1-C10 PASS (21 cropped screenshots);
+the Calculator's untouched Shape stays blank (as built; absent_as_none not built). **Owed to VAV-2b (owner rulings, not built here):**
+QR-A2 (a) a lower limit only ("Above 3200 CFM") -> the next band up with a note (5 rows; as built meanwhile = the band of the stated figure);
+the six Misc-filed integrator rows count as integrator rows (YES); the per-sheet BACnet rule (controllers = VAVs on the sheet / 32 rounded
+up, shared over every box; replaces the per-box controller); the DDC panel rule (VAVs / 200 rounded up); the Duct Static Pressure Sensor
+one per 30 boxes. **Not pushed.**
+## Slice VAV-2b1 (desktop) - the VAV shared items per sheet (BACnet controller / DDC panel / DP sensor), the shared-item and "Review before using" blocks, the quantity-0 own rows, the full-rate add, HVAC v79 + v80 - 2026-11-20 / 21
+**Scope:** R1 - R16 of the VAV-2b1 prompt (owner rulings 2026-11-20 14:10 - 19:51), then the owner's rulings during the run: QR-N (b), N1 - N3,
+QR-D2 / QR-D (r70) / QR-D3 (a), rule 4 (an extra's own row with quantity 0 does not count as charged separately; 21:05 / 21:47 / 23:30), and
+2026-11-21 01:07 - 01:39 (the full-rate add of the BACnet controller, DDC panel and Duct Static Pressure Sensor; shares only on rows that price
+VAV boxes; the DDC full rate with its components by the share's formula, per unit; the BoQ-row pre-fill; the separate BACnet row by the
+formula; "explain how the price came"). calculator_only stays ON (VAV BoQ rows "coming soon" until VAV-2b2). No model call, no paid run.
+**Code:** K1 df1667dcd (vavSheetShares.ts, SharedItemBlock.tsx, the shares in pricingSheetHelper / itemListPricing / itemListRuleOrder /
+config_validation, + tests), K1b 8ce6b2e94 (rule 4), K2 6d15674da (HVAC v79 + v80 files and mints, the full-rate (whole, per-unit) mode,
+user_addable, the Lot guard, the not-a-box warning, c2 in extraction.build_items_spec, every PIN as answered, + tests), K2b 9e8d1371b (the
+cert's wording findings: three Derivation sentences and "per unit" on full-rate blocks). All S1-only --no-verify with proof (count 320 = HEAD).
+**Assets:** v79 = v78 + the DDC Panel/ Controller SKU, the Duct Static Pressure Sensor item, three VAVs-per Pricing Inputs and the VAV keys
+(loaded 2026-11-20 23:48:53, rmbulk-4b66bb34b935, after a PROVED backup); v80 = v79 + only the full-rate add (VAV config + the Sensors
+DSP family; 853 items unchanged; loaded 2026-11-21 02:04:52, rmbulk-d53681678a0c, backup vav2a_pre_v80_vav2b1_20261121_020200.dump proved).
+v79 was live on the desktop only. Requests byte-identical v79 -> v80 except hvac_sensors' own (never sent).
+**Proofs:** PF1 the replay 33,346 rows = the P0 baseline byte for byte at K2 and at K2b (ac7 49b20b9a, ac7v2 0f40a9cb); PF2 848 v78 items
+byte-identical in v80, 14 / 16 configs identical, Electrical = v72. Preview (stub, v80): 981 VAV rows, 912 priced, 631 with a share, ROUGH
+15.40 cr (14.90 cr without shares); `2026-11-20_VAV-2b1_Preview.xlsx` (14 tabs incl. Owner review rows, Quantity-0 own rows, Ctrl row no
+longer counted).
+**Tests:** Python K2 set 49 / 49 modules; vitest related 104 / 104 files (5,092 at K2b); tsc 0 new (1,185); oxlint 0. **Cert:** C1 - C12 PASS
+(C1 with three wording lines, fixed in K2b and re-shot); owner cases S1 - S17 in `screenshots\owner_cases\` (five BoQ-row-only cases as notes);
+dev_isolate --verify PASS last. **Owed to VAV-2b2:** the model's three reading attributes; the row panel; removing calculator_only; routing
+the separate controller / DDC / DP rows to the VAV helper; the paid run; the 50% warning share; the misspelt-existing blind spot. **Not pushed.**
+
+## Slice VAV-2b2 (desktop) - VAV rows live on BoQs: the model's reading, rows filed Misc / Sensors, the 21 Nov screen items + HVAC v81 - 2026-11-21
+
+SPLIT at M1 by the owner (13:40 "all 7 option a", QR-S (a)): this slice = B1 - B11 + tests + PF1 - PF3 + the cert, on a DECLARED stub run of
+whole sheets (owner 14:55 / 14:57; the 11-sheet list 15:28 "1a") plus the Calculator; NO model call of any kind. MOVED to the next slice: the
+paid run (B12), its pack (B13), PF4, AC0 on real answers, AC11, AC12, R19 - R21.
+
+As built (commits, figures and counts: the report `BoQ main lane\VAV-2b2\<date>_VAV-2b2_Report.md`):
+- K1 95f592c0c - the reading questions (controller_mention / controller_by_others / dp_sensor_mention); rows filed Misc / Sensors claimed on
+  the server (vav_claims.py, parity-pinned to the client's own-row tests on 815 real rows) and priced on the panel (vavClaims.ts); the
+  adaptor rule; the named warning; the double-counting block; "Add other item" + "Thermostat with CO2 sensor" + "per VAV" + "Other item"
+  headings; "cost" / "Number of VAVs" / "for N panels"; Derivation lines with reasons; PIN 1 (the pricing-key allowlist).
+- K1b ac9e2abcb - "A": touch screen / master controller rows priced as a DDC panel and counted as the sheet's controller + DDC row; "2a": a
+  DDC panel row with a quantity, whatever it is filed under, counts as the controller's row; the "not added" sentence per test
+  (not_added_by, owner 15:56 "1a 2a 3b"); vavNotAdded.ts (an S1 split of vavSheetShares.ts); the TEMPORARY amber test-run line
+  (stubRunMark.ts: a run whose run_id starts "STUB-VAV-2b2-" shows "These answers were written by hand for a test, not read by the model."
+  on VAV rows) - VAV-3 removes it, with a test.
+- K2 e99b9e2cd - HVAC v81 (the warning share 0.25 + the hvac_vav_box keys; calculator_only removed in code and data; 35 version pins and the
+  PIN-file moves as accepted; the served-prices snapshot parityMaster.json refreshed).
+- K3 - docs (this entry; boq-rate-master.md "VAV Box (HVAC v81)").
+- The stub run: 11 sheets, the product's own worker with two parts replaced (the model client, the capture writer); 11 new active runs
+  BRSR-26-02714 .. 02724 (run_id STUB-VAV-2b2-<boq>-01 .. 11), 210 rows (185 box + 25 claimed); 1,344 carried rows byte-equal; the 10 old
+  active runs now inactive (listed in the report's CLOSE-OUT); BOQ-26-00098's first run.
+- PF1 at C18: 33,346 stored rows unchanged on both harnesses; the 210 new rows = exactly the declared stub rows. Capture log unchanged.
+- The cert C1 - C18 PASS with named gaps (no stub row with a CO2 sensor; no BACnet controller row with qty above 1; no DP share added on a
+  box row; the "not priced by this helper" DDC sentence - BOQ-26-00442 is not a stub sheet). Findings for VAV-3 / the owner: Derivation
+  line 44 names two items twice; the warning input's Unit says "(0.5 = 50%)"; line 35 "no VAVs typed: one controller" against the empty
+  full-rate block that withholds its price ("price this share"); the added cabling item's "none found" line beside a sheet note naming a
+  0 m row; a supply-duct static pressure row for the AHU / VFD claimed as the VAVs' DP sensor row (a QUESTION); an item's own supply shown
+  under "Installation only" (display only - the row's supply is 0).
+
+## Slice VAV-2c1 (desktop) - the words a pricer reads, the Scope box with lines that follow it, internal labels off every HVAC screen, Pricing Input texts that follow the live value + HVAC v82 - 2026-11-22
+
+Wording and display only: no rate, rule, row price or model request moves; no model call. Rulings 2026-11-21 23:22 - 2026-11-22 20:13 (R1 - R14,
+QR-M / QR-SC / QR-V / QR-C / N1 - N3, all "a"; the capture file VAV_Rulings_Capture_2026-11-18.md).
+
+As built (figures and counts: the report `BoQ main lane\VAV-2c1\<date>_VAV-2c1_Report.md`):
+- K1 1241baa3f - scope working lines (scopeLines.ts, `scope.lines_follow`), ScopeBox.tsx, the live reading of Pricing Inputs (helperWording.ts), the
+  headings, the full-rate "item" wording and empty-count rule, 11 VRF / Valve / Ducting scope notes and the rules page without labels, the
+  validators (config_validation.py), the label / texts program, the no-key harness (scripts/_instruments/no_key.py), tests vav2c1*, PIN 1 - 6.
+- K2 6ebf1b5ea - HVAC v82 (435 config texts and keys + 66 Pricing Input texts of one edits file), the version pins, parityMaster.json, the guards
+  and the mint parity.
+- K3 - docs (this entry; boq-rate-master.md "HVAC v82").
+- v82 (sha256 3c9dc559) loaded on the desktop 2026-11-22 22:23 (batch rmbulk-45d6870461ac, verify 0 / 0 / 0) after a proved backup
+  (vav2c1_pre_v82_20261122_222054.dump). No model call; capture log unchanged; the 11 stub runs and the amber line as before.
+- PF1: the replay of 33,556 stored rows, both harnesses: 0 row totals, values, kinds or reasons move; text moves are label removals and the
+  declared sentences, plus the working lines of 19 scope rows; 16 LINE figures on 4 Supply-only Valve rows (BOQ-26-00231 / 00243 r73, r75)
+  became 0 (R5 b; owner 2026-11-23 00:00 "a"). The replay DOES run the scope step for Valve: the VAV-2c1 prompt said it could not.
+- The old tests that compared the live / newest catalogue with older files read v82's texts undone (undoVav2c1, vav2c1_undo_support.py):
+  pins K2-A, K2-B, K2-C (C1, C2), K2-E, K2-F, the served-prices fixture K2-D.
+- The cert C1 - C13 (panel and Calculator, three scopes, four categories) PASS; open findings for the owner: the "Installation only" note's
+  trailing colon when the uplift is 0%; a VRF note carrying "(owner 11:50 / 11:55)"; the rules page calling the box "the BoQ scope".
+
+## Slice VAV-2c2 (desktop) - the scope rule for VAV Box with a note for every case, the wording clean-ups, the "Use this value" test + HVAC v83 - 2026-11-24
+
+No model call. The owner's scope rule (2026-11-23 13:52 - 13:57) built for VAV Box, with his answers of 2026-11-24 00:18 - 01:25 (QR-SURE, QR-WORDS,
+QR-ASK, QR-S, (d) - (g), the DOUBT-sheet notes, "every component under the scope", "the installation row carries every component"); R3
+wording clean-ups (chat-Claude's list under his 13:46 word, VAV-2c2_Cleanups.tsv; the ADP clause by his own 00:18 "ok to remove").
+
+As built (figures and counts: the report `BoQ main lane\VAV-2c2\<date>_VAV-2c2_Report.md`):
+- K1a 5eb90318a - the R3 code: the scope note of a user's / the Calculator's scope (`scope.chosen_lines`), the 0% colon, the doubled side prefix
+  on working lines, the Calculator's VAV count line, ADP's "reason not recorded" clause off, "the 'Scope of this rate' box"; R4 / T6 the
+  "Use this value" DOM test; vav2c2Texts; the edits file part 1.
+- K1b b1e5d4bc6 - scopeRule.ts (shared, wired by `pricing.scope.rule`, VAV Box only) and its wiring in pricingSheetHelper (the installation row prices
+  the installation item + the covered box row's extras and shared items); vav2c2Rule (T1 - T3, to the rupee); the edits file part 2.
+- K2 fe21d88f2 - HVAC v83 (sha256 bafd6d26; no item changed), mint_hvac_v83_vav2c2.py, the validators, parityMaster.json, the version pins
+  (PIN K2-A, 78 lines), the undo chain for older comparisons (vav2c2_undo_support.py / vav2c2Edits.harness.ts), test_vav2c2_keys, vav2c2V83.
+- K3 - docs (this entry; boq-rate-master.md "HVAC v83").
+- v83 loaded on the desktop 2026-11-24 02:13 (batch rmbulk-5c7c5a28d29a, verify 0 / 0 / 0) after a proved backup
+  (vav2c2_pre_v83_20261124_021118.dump). Capture log unchanged; the 11 stub runs and the amber line as before.
+- PF1: the standard replay (33,556 rows x 2) moves 0 figures (it has no sheet); the sheet-aware replay of the 11 stored sheets moves 17
+  figures = the ruled list: BOQ-26-00239 box rows Supply only (-52,496) and r193 0 / 3,088 (+52,496, sheet net 0); BOQ-26-00313 r183 0 / 2,900
+  (+95,700, DOUBT); BOQ-26-00218 HVAC-2F r162 0 / 3,000 (+9,600, DOUBT).
+
+## Slice VAV-2c3 (desktop) - the small wordings (HVAC v84), the PAID reading of every VAV row, VAV Box's ruled defaults (HVAC v85), the row's own words (HVAC v86 / v87) - 2026-11-24
+
+The owner's 2026-11-24 10:36 / 10:43 words (R5 wordings; the paid reading with a planned stop; the pack for chat-Claude's independent
+analysis), his 11:43 QR-GATE (c), and his 16:52 - 17:02 "lets fix the buuild first" (the ruled defaults). Figures and counts: the report
+`BoQ main lane\VAV-2c3\2026-11-24_VAV-2c3_Report.md`.
+- K1 0a5a13689 - the amber test-run line removed; the rules-page scope line for the scope rule; the Calculator's Supply-only switch; the
+  installation-row wording overlay; the validator keys; the v84 edits file; vav2c3.test.ts, test_vav2c3_keys.
+- K2 d62323455 - HVAC v84 (sha256 9c6b87f9; loaded 12:41, batch rmbulk-18082806a96a, after the proved backup vav2c3_pre_v84_20261124_123729.dump);
+  the version pins, the served-prices fixture, the v84 undo step; vav2c3V84.
+- The formulas on BOQ-26-00033 'VAV' (H, I) and BOQ-26-00047 'VAV Works' (G) declared through the product's step (owner 11:43 "option c").
+- THE PAID READING 15:04 - 16:19: 84 / 84 sheets, 1,083 rows (981 VAV-filed + 102 claimed), 96 calls, 2,093,077 tokens of the 4,100,000 cap;
+  payload integrity 1,083 / 1,083 (block byte-equal, replied, EA-7); archive in BoQ main lane\VAV-2c3\payload_archive.
+- M6 found the build defect (929 rows refused for "could not tell integrator / type / shape" where rulings give the value).
+- K-FIX b5935e87d - HVAC v85 (sha256 bc49096b; loaded 17:26, batch rmbulk-dc5a33dbf33c, after the proved backup
+  vav2c3_pre_v85_20261124_172254.dump): VAV Box's three ruled defaults (no code); the stored answers re-priced 154 -> 1,003 of 1,083; 0 rows
+  moved for any other reason; vav2c3Defaults, test_vav2c3b_keys; the version pins, the fixture, the v85 undo step.
+- K3 a55ca104c - T4: the point-4 answer from real replies cut from the run's capture.
+- PF1: before the run 0 figure moves on 33,556 stored rows; after the run and after v85, 0 rows outside the run's declared rows changed.
+- K-FIX2 (hash in the report) - HVAC v86 (sha256 ada01ad5; loaded 21:0x, batch rmbulk-1eac373cb994, after the proved backup
+  vav2c3_pre_v86_20261124_210227.dump): the owner's 19:53 / 20:00 fix set as word checks in code on the stored payload - A1 router / integrator
+  -> Yes, A2 round / DIA -> Oval, B2-1 direct-output temperature sensor -> Digital Thermostat (`chain_values`), D1 the '(assumed)' notes, B2-3 a
+  no-unit row per Nos with the warning bar, E note B from an installation heading, B2-2 one BACnet controller per unit where the sheet has no
+  VAV count; B1 already as ruled. The reading guidance is a VAV-only model-request change. Moved rows on the 84 run sheets: 893, 0 outside the
+  fixes; PF1 on every stored row: 0 outside the declared rows. vav2c3Fix2.test.ts, test_vav2c3c_keys; pins, fixture, the v86 undo step.
+  HVAC v87 (sha256 1a98fe23; loaded 22:2x, batch rmbulk-f84f0a211f2e, after the proved backup vav2c3_pre_v87_20261124_222502.dump): A2
+  narrowed to ROUND / OVAL / CIRCULAR naming the box (ANSWER 21 / 22) - exactly BOQ-26-00016 r117-120; v85 -> v87 892 rows, 0 outside the
+  fixes; test_vav2c3d_keys, the v87 undo step, pins and fixture one version on.
+- The cert C1 - C13 PASS on 2e66b1b9c (2026-11-25 00:00 - 00:20, the owner's sign-in; C4 by search): the FIX-2 cases, the split / doubt
+  pairs, the rules page, the Calculator, Electrical unchanged; dev_isolate --verify PASS after --yes. Screenshots: BoQ main lane\VAV-2c3\cert_screenshots.
+
+## Slice VAV-FIX (desktop) - the final fix slice of the VAV Box build: S1 - S6 of chat-Claude's VAV-2c3 review, HVAC v88, the full BoQ sets (the pre-deploy run), the cert - 2026-11-25
+
+The owner's 2026-11-25 00:37 / 00:41 words ("put it back to blank in the final fix slice - agree and review accepted"; "draft and launch
+tonight"); chat-Claude's calls S2 - S6 under his 2026-11-23 13:46 word; QR-C1 (a) confirmed ANSWER 2; option (b) ANSWER 7. Figures and
+counts: the report `BoQ main lane\VAV-FIX\2026-11-25_VAV-FIX_Report.md`.
+- K1 04c2f6aeb - the Calculator starts blank (`boq_rows_only` read where there is no row), one note per defaulted field, one no-unit warning,
+  a refused box shows its defaults, no "as written (BoQ)" on a helper-added item; vavfix.test.ts, vavfix.harness.ts, the v88 edits file.
+- K1b fe9205711 - the switch reads an explicit Calculator flag set by calculatorCtx, never the unit (ANSWER 6 / 7).
+- K2 fa732cc63 - HVAC v88 (sha256 38e80217; loaded 01:55, batch rmbulk-369a52daebf4, pre-load snapshot BRMS-26-01898, after the proved
+  backup vavfix_pre_v88_20261125_015227.dump; verify 0 / 0 / 0); the validator key; test_vavfix_keys, vavfixV88; the 78 version pins (F-A),
+  the v88 undo step (F-B), the served-prices fixture diffed first (F-C), two vav1VavParity checks inverted (F-D); the runner's plan measures
+  the four VAV-2c3 key modules and test_vavfix_keys in.
+- K1c 1b5e1e35d - a default stated by its own blue note is not restated in the working (found by PF1, ANSWER 8).
+- PF1: the standard replay (34,429 rows, both harnesses) 0 figure moves, 0 non-VAV rows changed, VAV wording 53 (S5 31, S3 23); the
+  sheet-aware replay of the 84 run sheets (7,282 rows) 0 figure moves, 0 unattributed (S2 873, S3 24 + 24, S5 31, S6 159).
+- THE FULL BoQ SETS (the pre-deploy run) on 1b5e1e35d: Python 149 / 149 modules OK; vitest 242 / 242 files (boq-wizard 179 + 12 DOM,
+  pricing 46 + 5 DOM); tsc 0 new; oxlint BoQ folders 0 / 0 (the repo-wide lint's 3 ProjectPayments errors predate the build).
+- The cert C1 - C8 PASS on 1b5e1e35d (2026-11-25 09:57 - 10:07, the owner's 09:52 sign-in; read-only): the Calculator blank then priced
+  (22,400 / 2,400 at 700 CFM), one note per defaulted field and one no-unit sentence (00140 r237, 00029 r29), rules page line 52 without the
+  label (VRF page scanned too), a refused box's defaults (00140 r263), no "as written (BoQ)" on the helper's cabling, VRF / Ducting orange
+  lines kept, Electrical Conduit 59.5 / 20; C9 counts unchanged, no AI call; dev_isolate --verify PASS after --yes. Screenshots: BoQ main
+  lane\VAV-FIX\cert_screenshots.

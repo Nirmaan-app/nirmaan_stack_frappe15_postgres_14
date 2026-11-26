@@ -56,5 +56,16 @@
   "bell": "walk_gst_requests.py",
   "patch": "skip: a one-time migration (v3_0.gst_payments_waiting_to_approved) that ran on every env's migrate; a fresh env holds no GST payment an approved request left at Requested / CEO Pending (0 on the 17 Nov 2026 backup), so there is nothing for a walk to move. The PR walk ran it on such payments in a rolled-back DB script, and test_gst_payment_requests covers it",
   "live": "skip: envs serve no realtime (Socket.IO), so the GST badge's live update across windows cannot be seen on one"
+ },
+ "1747": {
+  "bell": "walk_gst_requests.py",
+  "gst_width": "walk_gst_requests.py",
+  "audit_card": "walk_audit_view.py",
+  "audit_keep": "walk_audit_view.py",
+  "audit_search": "walk_audit_view.py",
+  "cheque_width": "walk_vendor_cheques.py",
+  "reimb_badge": "walk_reimbursements.py",
+  "pay_dialog": "walk_reimbursements.py",
+  "docs": "skip: docs only (expenses.md, reimbursements.md); no screen to walk"
  }
 }

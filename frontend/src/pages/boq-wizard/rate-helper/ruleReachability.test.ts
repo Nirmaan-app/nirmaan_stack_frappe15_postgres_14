@@ -2602,11 +2602,11 @@ describe("VRF-10 (v65) -- R-39: every Derivation-tab line VRF-10 adds or changes
     ancestorNotes: ["Supply, port clearance, transport of units", "Supply, Installation, testing & commissioning of the VRV system"] });
   const nu = (s: typeof v65) => s({ items: [{ item: "Outdoor Unit", capacity: "16 HP" }], unit: "", text: "16 hp" });
   const CASES: Array<{ rule: string; kind: "pos" | "neg"; ok: () => boolean }> = [
-    { rule: VT.dflt, kind: "pos", ok: () => hw(v65).scope?.value === "Supply + installation" && /owner F6/.test(hw(v65).scope?.note ?? "") },
+    { rule: VT.dflt, kind: "pos", ok: () => hw(v65).scope?.value === "Supply + installation" && /installation is included unless the BoQ says/.test(hw(v65).scope?.note ?? "") },   // VAV-2c1 PIN 4 (R3): BEFORE /owner F6/
     { rule: VT.dflt, kind: "neg", ok: () => hw(v64).scope?.value === "Supply only" },
     { rule: VT.frame, kind: "pos", ok: () => fr(v65).totals?.install_rate === 40 },
     { rule: VT.frame, kind: "neg", ok: () => fr(v64).totals?.install_rate === 0 },
-    { rule: VT.both, kind: "pos", ok: () => /owner F2/.test(f2(v65).scope?.note ?? "") },
+    { rule: VT.both, kind: "pos", ok: () => /reads as supply, but/.test(f2(v65).scope?.note ?? "") },   // VAV-2c1 PIN 4 (R3): BEFORE /owner F2/
     { rule: VT.both, kind: "neg", ok: () => !f2(v64).scope?.note },
     { rule: "unit", kind: "pos", ok: () => nu(v65).reason === "no unit on this row" },
     { rule: "unit", kind: "neg", ok: () => nu(v64).rowPriced === true },

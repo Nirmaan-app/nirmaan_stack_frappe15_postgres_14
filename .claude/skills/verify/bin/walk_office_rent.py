@@ -212,7 +212,7 @@ with session(a.task, a.accountant, a.password) as (page, out):
     dlg.get_by_role("button", name="Choose Receipt (PDF or image)").set_input_files(str(receipt))
     dlg.get_by_role("textbox", name="Payment Ref *").fill(f"WALK-UTR-{STAMP}")
     save(page, out, "07-accountant-pay-dialog")
-    dlg.get_by_role("button", name="Mark as Paid").click()
+    dlg.get_by_role("button", name="Mark as Reconciled").click()
     dlg.wait_for(state="hidden", timeout=30_000)
     paid = db(out, "07-accountant-paid")
     expect(paid["expense"]["status"] == "Paid" and paid["expense"]["amount"] == 108000

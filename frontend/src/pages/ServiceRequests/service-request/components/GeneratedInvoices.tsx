@@ -411,7 +411,7 @@ interface UploadSignedCopyDialogProps {
   onUploaded: () => void;
 }
 
-/** Upload the vendor's signed copy: the record turns Signed and a Pending Vendor Invoice is made (#1547). */
+/** Upload the vendor's signed copy: its Vendor Invoice is made and approved by the System (#1547, ADR-0050). */
 const UploadSignedCopyDialog = ({ workOrder, row, onClose, onUploaded }: UploadSignedCopyDialogProps) => {
   const { toast } = useToast();
   const { uploadSignedCopy, uploading } = useGeneratedInvoiceActions();
@@ -436,7 +436,11 @@ const UploadSignedCopyDialog = ({ workOrder, row, onClose, onUploaded }: UploadS
       const record = await uploadSignedCopy(row.name, sent.file_url);
       toast({
         title: "Signed copy uploaded",
-        description: `${record.invoice_no} is waiting for approval as ${record.vendor_invoice}.`,
+        // The server decides (ADR-0050 rule 1): an approved copy needs no Accountant.
+        description:
+          record.status === "Approved"
+            ? `${record.invoice_no} is approved by the System as ${record.vendor_invoice}.`
+            : `${record.invoice_no} is waiting for approval as ${record.vendor_invoice}.`,
         variant: "success",
       });
       close();
@@ -452,8 +456,8 @@ const UploadSignedCopyDialog = ({ workOrder, row, onClose, onUploaded }: UploadS
         <DialogHeader>
           <DialogTitle>Upload signed copy of {row?.invoice_no}</DialogTitle>
           <DialogDescription>
-            This books the vendor's signed invoice: a Pending Vendor Invoice for {row ? formatToIndianRupee(row.amount) : ""}{" "}
-            (no GST) goes to Accountants for approval. It can be uploaded once.
+            This books the vendor's signed invoice: a Vendor Invoice for {row ? formatToIndianRupee(row.amount) : ""}{" "}
+            (no GST), approved by the System. It can be uploaded once.
           </DialogDescription>
         </DialogHeader>
         <CustomAttachment

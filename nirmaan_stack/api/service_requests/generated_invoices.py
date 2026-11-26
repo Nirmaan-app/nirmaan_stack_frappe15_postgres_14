@@ -32,9 +32,12 @@ from frappe import _
 from frappe.utils import cint, cstr, flt, getdate, today
 
 from nirmaan_stack.api.delivery_notes.update_invoice_data import create_attachment_doc, create_vendor_invoice
+from nirmaan_stack.api.invoices._auto_approve import apply_auto_approval
+from nirmaan_stack.api.invoices._wo_auto_approve import unsigned_copy_reasons
 from nirmaan_stack.api.sr_remarks import assert_can_read_work_order
 from nirmaan_stack.integrations.Notifications.pr_notifications import get_users_who_see_project
 from nirmaan_stack.services import wo_generated_invoices as gi
+from nirmaan_stack.services import work_order_invoice_rules as wo_rules
 from nirmaan_stack.services.outflow_import.amounts import rupees
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_PROFILES,
@@ -174,21 +177,63 @@ def delete_generated_invoice(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def upload_signed_copy(name: str, file_url: str) -> dict:
-    """Book the vendor's signed copy of a generated invoice: one save attaches the scan, creates its
-    Pending Vendor Invoice (the record's number, date and amount; base = amount, GST = 0) and moves the
-    record to Signed. Accountants on the project are told. A record is uploaded once."""
+    """Book the vendor's signed copy of a generated invoice (`book_signed_copy`): attach the scan, create its
+    Vendor Invoice (the record's number, date and amount; base = amount, GST = 0), move the record to Signed,
+    and approve it as the System by rule 1: the copy is trusted as signed and the file is not checked (ADR-0050
+    decision 1), so the record ends Approved. The project's Accountants are told only if it is still Pending
+    (decision 9). A record is uploaded once."""
     assert_generate_wo_invoice_access(frappe.session.user)
     work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
     if not work_order:
         raise frappe.DoesNotExistError(_("Generated invoice {0} not found.").format(name))
     _readable(work_order)
+    record = frappe.db.get_value(gi.DOCTYPE, name, ["invoice_no", "invoice_date", "amount"], as_dict=True)
+    # Not `doc, _`: that would make `_` (the translator) local to this function, so the "not found" above would
+    # raise UnboundLocalError instead.
+    doc, _invoice = book_signed_copy(
+        name, file_url,
+        invoice_data={"invoice_no": record.invoice_no, "date": record.invoice_date, "amount": record.amount},
+        split={"invoice_base_amount": flt(record.amount), "invoice_gst_amount": 0},
+        signed=True,
+    )
+    return _row(doc)
+
+
+def add_invoice_copy_of(work_order: str, invoice_no, extracted_no, ai_read: bool, amount) -> str | None:
+    """The generated invoice an Add Invoice upload on `work_order` is the signed copy of, or None for a normal
+    Work Order invoice (ADR-0050 decision 1; the rule is `work_order_invoice_rules.generated_copy_verdict`).
+    Refuses a number already Signed or Approved as a duplicate."""
+    records = frappe.get_all(gi.DOCTYPE, filters={"work_order": work_order},
+                             fields=["name", "invoice_no", "status", "amount"])
+    if not records:
+        return None
+    verdict, name = wo_rules.generated_copy_verdict(
+        submitted_no=invoice_no, extracted_no=extracted_no, ai_read=ai_read, amount=amount,
+        gst_off=gst_is_explicitly_off(frappe.db.get_value(SR, work_order, "gst")), records=records,
+    )
+    if verdict == wo_rules.DUPLICATE:
+        _refuse_duplicate(frappe.get_doc(gi.DOCTYPE, name))
+    return name if verdict == wo_rules.LINK else None
+
+
+def book_signed_copy(name: str, file_url: str, invoice_data: dict, split: dict, signed: bool,
+                     invoice_fields: dict | None = None):
+    """Book a generated invoice's signed copy: under the Work Order's billing lock, attach the scan, create its
+    Vendor Invoice (`invoice_data`, `split` and `invoice_fields` as `create_vendor_invoice` takes them), move the
+    record to Signed linked to it, then decide it (ADR-0050 decision 1): `signed` approves it as the System by
+    rule 1, in the same save, so `follow_generated_invoice` moves the record on to Approved. Not signed (the AI
+    found the box empty), rule 1 can't, so rules 2 and 3 judge it as any Work Order invoice: approved when one
+    matches, else Pending with the unsigned reason and theirs. A decision that fails leaves it Pending. Commits,
+    then tells the project's Accountants only of a copy still Pending (decision 9). Returns (record, invoice)."""
+    work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
+    if not work_order:
+        raise frappe.DoesNotExistError(_("Generated invoice {0} not found.").format(name))
     if not cstr(file_url).strip():
         frappe.throw(_("Attach the vendor's signed copy."))
     with _billing_lock(work_order):
         doc = frappe.get_doc(gi.DOCTYPE, name)
         if doc.status == gi.SIGNED or doc.status == gi.APPROVED:
-            frappe.throw(_("This invoice is already uploaded: it is {0}, as Vendor Invoice {1}.").format(
-                doc.status, doc.vendor_invoice))
+            _refuse_duplicate(doc)
         if doc.status != gi.GENERATED:
             frappe.throw(_("A {0} invoice can't be uploaded. Generate a new one.").format(doc.status))
         sr = frappe.get_doc(SR, work_order)
@@ -198,12 +243,8 @@ def upload_signed_copy(name: str, file_url: str) -> dict:
             frappe.throw(_("{0} is no longer a GST-off Work Order, so this generated invoice can't be uploaded: "
                            "a GST vendor sends their own tax invoice. Void it.").format(sr.name))
         attachment = create_attachment_doc(sr, cstr(file_url).strip(), "sr invoice")
-        invoice = create_vendor_invoice(
-            parent_doc=sr,
-            invoice_data={"invoice_no": doc.invoice_no, "date": doc.invoice_date, "amount": doc.amount},
-            attachment_id=attachment.name,
-            split={"invoice_base_amount": flt(doc.amount), "invoice_gst_amount": 0},
-        )
+        invoice = create_vendor_invoice(parent_doc=sr, invoice_data=invoice_data, attachment_id=attachment.name,
+                                        split=split, **(invoice_fields or {}))
         frappe.db.set_value("Nirmaan Attachments", attachment.name,
                             {"associated_doctype": "Vendor Invoices", "associated_docname": invoice.name},
                             update_modified=False)
@@ -211,9 +252,26 @@ def upload_signed_copy(name: str, file_url: str) -> dict:
         doc.vendor_invoice = invoice.name
         doc.signed_attachment = attachment.name
         doc.save(ignore_permissions=True)
+        frappe.db.savepoint("signed_copy_decision")
+        try:
+            apply_auto_approval(invoice, fail_reasons=None if signed else unsigned_copy_reasons(invoice))
+            invoice.save(ignore_permissions=True)
+        except Exception:
+            # As at any upload, a failed System decision never blocks the booking: the copy waits Pending.
+            frappe.db.rollback(save_point="signed_copy_decision")
+            frappe.log_error(title="Signed copy auto-approval failed", message=frappe.get_traceback())
+            invoice.reload()
+        doc.reload()
         frappe.db.commit()
-    _notify_accountants(sr, doc)
-    return _row(doc)
+    if invoice.status == "Pending":
+        # Decision 9: the Accountants are told only of a copy still waiting for them.
+        _notify_accountants(sr, doc)
+    return doc, invoice
+
+
+def _refuse_duplicate(record):
+    frappe.throw(_("Invoice {0} is already uploaded: it is {1}, as Vendor Invoice {2}.").format(
+        record.invoice_no, record.status, record.vendor_invoice))
 
 
 SIGNED_UPLOAD_EVENT = "wo_invoice:signed_uploaded"

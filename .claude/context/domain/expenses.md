@@ -195,6 +195,19 @@ Both share one approval lifecycle and are entered/managed together in a single u
   patch edited in place + tag-bumped (`#v2`→`#v3`) to force a re-run, not a new file.
 
 ### Unified Expense module (frontend)
+
+> **Not in use: the Project Expenses (`/expense/project`) and Non-Project Expenses
+> (`/expense/non-project`) list pages.** They are not in the sidebar or the Expense menu (the tab
+> strip was removed, see `pages/Expenses/ExpenseLayout.tsx`); `/expense` lands on Requests.
+> Expenses are approved, paid and reconciled on Project Payment & Expense, and reimbursements on
+> the Reimbursements page. The routes still resolve for old links and bookmarks, and two ways in
+> remain: the Accountant / Accountant Lead home dashboard cards "Project Expenses" and
+> "Non-Project Expenses" (`components/layout/dashboards/dashboard-accountant.tsx`), and the
+> Outflow Report (Non-Project) in Reports, which embeds `NonProjectExpensesPage` read-only.
+> Their row button still says **Mark as Paid** while the dialog it opens says **Record Payment &
+> Mark as Reconciled**; this mismatch is left as it is because the pages are not in use.
+> The rest of this section describes how the module was first built.
+
 - New `/expense` route with URL-driven tabs: `/expense/project` (Misc Project Expense)
   and `/expense/non-project` (Non-Project Expense) — `pages/Expenses/ExpenseLayout.tsx`
   (pill tab strip + `<Outlet/>`). Index redirects to `/expense/project`; legacy

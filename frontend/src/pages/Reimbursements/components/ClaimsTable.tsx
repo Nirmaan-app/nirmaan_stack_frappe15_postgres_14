@@ -25,7 +25,7 @@
  * gets only their own claims whatever the tab says, and only the CEO may list Pending CEO Approval.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { CheckCircle2, Download, IndianRupee, XCircle } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -85,6 +85,8 @@ interface Props {
     /** Paid and All, for those who see every claim: the picked month ("YYYY-MM" or "all") and its setter. */
     month?: string;
     onMonthChange?: (month: string) => void;
+    /** The list's total after each load (its month, column filters and search): the open tab's badge (`badgeCounts`). */
+    onTotalCount?: (count: number) => void;
 }
 
 /** The columns that carry a facet filter (their ids are the claim fields they filter). */
@@ -108,7 +110,7 @@ const MONTH_AGGREGATES: SimpleAggregationConfig[] = [{ field: "amount", function
 
 export function ClaimsTable({
     tab, userId, getUserName, onOpen, onEdit, onDelete, isAdmin, selectable, canAct, cannotActReason, onDecide,
-    onBulkDecide, onMarkPaid, onExport, onReconcile, clearTicks, month, onMonthChange,
+    onBulkDecide, onMarkPaid, onExport, onReconcile, clearTicks, month, onMonthChange, onTotalCount,
 }: Props) {
     const columns = useMemo(
         () => getReimbursementColumns({
@@ -164,6 +166,15 @@ export function ClaimsTable({
     }, [refetch]);
 
     useEffect(() => { if (clearTicks) table.resetRowSelection(); }, [clearTicks, table]);
+
+    // The badge follows the list: report its total once a load has finished. The hook starts not loading with a total
+    // of 0, so nothing is reported before the first load (no 0 flashes on the badge while a tab opens); a failed load
+    // reports nothing, leaving the server's count.
+    const loadedOnce = useRef(false);
+    useEffect(() => {
+        if (isLoading) { loadedOnce.current = true; return; }
+        if (loadedOnce.current && !error) onTotalCount?.(totalCount);
+    }, [isLoading, error, totalCount, onTotalCount]);
 
     const selected = table.getSelectedRowModel().rows.map((r) => r.original);
     const selectedTotal = selected.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);

@@ -38,6 +38,7 @@
  * Pure module, no React — unit-tested, per ADR-0010 F4.
  */
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 /**
  * - `eligibility` — structural; the invoice was never an auto-approve candidate
@@ -102,17 +103,68 @@ export const AUTO_APPROVE_REASON_LABELS: Readonly<
             "Nothing to fix. Review it the normal way. To make future invoices eligible, upload the document and use Autofill rather than typing the values.",
         tier: "eligibility",
     },
+    // No longer written (ADR-0050): the 05:00 re-check replaces it with the Work Order reasons below.
     not_procurement_order: {
         label:
-            "Work Order invoice — auto-approval is PO-only",
+            "Work Order invoice — waits for the daily re-check",
         gate: "Gate 2 · Purchase Orders only",
         detail:
-            "Gate 2 limits auto-approval to invoices raised against a Purchase Order. This one sits on a Work Order (Service Request).",
+            "Gate 2 kept every Work Order invoice out of PO auto-approval. This one was uploaded before Work Order invoices got their own three rules.",
         impact:
-            "The two money ceilings that make auto-approval safe — PO value and delivered value — have no equivalent on a Work Order, so there is no amount the system could approve against.",
+            "The reason says nothing about this invoice's amounts: the Work Order rules have not judged it yet.",
         action:
-            "Review it against the Work Order by hand. This is a deliberate scope limit, not a problem with the invoice.",
+            "Review it by hand, or leave it: the daily re-check judges it by the Work Order rules and shows their figures, or approves it.",
         tier: "eligibility",
+    },
+
+    // --- Work Order invoices (ADR-0050): why the System did not approve it -----
+    wo_total_mismatch: {
+        label:
+            "Invoiced doesn't match WO total",
+        gate: "WO rule 2 · Total Amount",
+        detail:
+            "Rule 2 approves a Work Order invoice when the Approved invoices on the Work Order plus this one equal its total amount (GST included), within ₹1. Pending invoices do not count. Here the two differ.",
+        impact:
+            "The invoices do not close out the Work Order, so nothing here says the amount is right.",
+        action:
+            "Check the amount against the Work Order and its earlier invoices before approving.",
+        tier: "check",
+    },
+    wo_paid_mismatch: {
+        label:
+            "Invoiced doesn't match Amount Paid",
+        gate: "WO rule 3 · Amount Paid",
+        detail:
+            "Rule 3 approves a Work Order invoice when the Approved invoices plus this one equal the Work Order's Amount Paid (TDS included), within ₹1. Here the two differ.",
+        impact:
+            "The invoices do not match what has been paid: either it bills ahead of payment, or earlier payments are still uninvoiced.",
+        action:
+            "Compare it with the payments on the Work Order. The daily re-check approves it once the figures meet.",
+        tier: "check",
+    },
+    wo_base_paid_mismatch: {
+        label:
+            "Base invoiced doesn't match base paid",
+        gate: "WO rule 3 · Amount Paid (GST-on)",
+        detail:
+            "On a GST-on Work Order rule 3 compares base with base: the Amount Paid less its GST payments, against the Approved invoices' base plus this one's, within ₹1. Here the two differ.",
+        impact:
+            "The base billed does not match the base paid. GST payments are left out because one can only be requested after an invoice is approved.",
+        action:
+            "Compare the base amounts with the Work Order's payments. The daily re-check approves it once the figures meet.",
+        tier: "check",
+    },
+    wo_generated_copy_not_signed: {
+        label:
+            "Generated invoice not signed",
+        gate: "WO rule 1 · signed copy",
+        detail:
+            "This upload is the copy of a generated invoice, linked to it. Reading the file, the AI found its Authorized Signature box empty.",
+        impact:
+            "Rule 1 approves a generated invoice only once the vendor has signed or stamped it. Unsigned, it was checked by rules 2 and 3 like any WO invoice; the reasons beside this one say why neither matched.",
+        action:
+            "Open the attachment. Approve it if the vendor did sign it; otherwise reject it and ask for the signed copy.",
+        tier: "check",
     },
 
     // --- Blockers: evidence of a real problem ------------------------------
@@ -525,8 +577,35 @@ export const humanizeReasonToken = (token: string): string => {
     return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
+/**
+ * A Work Order reason carries the two figures it compared, `<name>:<left>:<right>`
+ * (`services/work_order_invoice_rules.reason`): its label shows them.
+ */
+const WO_FIGURE_LABELS: Readonly<Record<string, (left: string, right: string) => string>> = {
+    wo_total_mismatch: (total, invoiced) => `Invoices + this ${invoiced} ≠ WO total ${total}`,
+    wo_paid_mismatch: (paid, invoiced) => `Invoices + this ${invoiced} ≠ Amount Paid ${paid}`,
+    wo_base_paid_mismatch: (paid, invoiced) => `Base invoiced + this ${invoiced} ≠ base paid ${paid}`,
+};
+
+/**
+ * True for a Work Order reason the 05:00 daily re-check judges again (ADR-0050 decision 5): the figure reasons.
+ * An unsigned generated copy waits for a person; the daily check skips it.
+ */
+export const isDailyWorkOrderReason = (token: string): boolean =>
+    token.split(":")[0] in WO_FIGURE_LABELS;
+
 /** Resolves one token to its full write-up, with the humanized fallback. */
 export const describeReason = (token: string): AutoApproveReason => {
+    const [name, left, right] = token.split(":");
+    const withFigures = WO_FIGURE_LABELS[name];
+    if (withFigures && left !== undefined && right !== undefined) {
+        const entry = AUTO_APPROVE_REASON_LABELS[name];
+        return {
+            token,
+            ...entry,
+            label: withFigures(formatToRoundedIndianRupee(left), formatToRoundedIndianRupee(right)),
+        };
+    }
     const known = AUTO_APPROVE_REASON_LABELS[token];
     if (known) return { token, ...known };
     return {
@@ -552,21 +631,46 @@ export const REASON_TIER_ORDER: readonly ReasonTier[] = [
     "legacy",
 ] as const;
 
+/** The Vendor Invoices `document_type` of a Pending Approval tab: PO or WO. */
+export type InvoiceDocumentType = "Procurement Orders" | "Service Requests";
+
+/**
+ * The only reasons a Work Order invoice gets since ADR-0050: rule 2 and rule 3 with their figures (rule 3 as base vs
+ * base on a GST-on Work Order), and a generated invoice's copy the AI found unsigned. None of the PO gates.
+ */
+export const WORK_ORDER_REASONS: ReadonlySet<string> = new Set([
+    "wo_total_mismatch",
+    "wo_paid_mismatch",
+    "wo_base_paid_mismatch",
+    "wo_generated_copy_not_signed",
+]);
+
+/**
+ * Is `token` a reason an invoice on this document type can be given? `not_procurement_order` is neither tab's: no
+ * longer written (a Work Order invoice from before ADR-0050 shows it until the daily re-check rewrites it).
+ */
+const isReasonOf = (token: string, documentType: InvoiceDocumentType): boolean =>
+    documentType === "Service Requests"
+        ? WORK_ORDER_REASONS.has(token)
+        : !WORK_ORDER_REASONS.has(token) && token !== "not_procurement_order";
+
 /**
  * Every reason this screen knows about, grouped by tier in display order — the
- * catalogue behind the reason key above the pending table.
+ * catalogue behind the reason key above the pending table. Given a document type,
+ * only the reasons an invoice on it can carry: the WO tab lists the Work Order
+ * rules' reasons, the PO tab the PO gates'.
  *
  * Reads straight off AUTO_APPROVE_REASON_LABELS, so a token added to (or
  * commented out of) the map appears in (or vanishes from) the key with it.
  */
-export const listReasonsByTier = (): Array<{
+export const listReasonsByTier = (documentType?: InvoiceDocumentType): Array<{
     tier: ReasonTier;
     reasons: AutoApproveReason[];
 }> =>
     REASON_TIER_ORDER.map((tier) => ({
         tier,
         reasons: Object.entries(AUTO_APPROVE_REASON_LABELS)
-            .filter(([, entry]) => entry.tier === tier)
+            .filter(([token, entry]) => entry.tier === tier && (!documentType || isReasonOf(token, documentType)))
             .map(([token, entry]) => ({ token, ...entry })),
     })).filter((group) => group.reasons.length > 0);
 

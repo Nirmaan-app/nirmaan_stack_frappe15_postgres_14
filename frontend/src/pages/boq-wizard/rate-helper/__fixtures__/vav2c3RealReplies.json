@@ -1,0 +1,25 @@
+{
+ "about": "VAV-2c3 K3 (T4): two model replies CUT verbatim from the paid run of 2026-11-24 (the keeper copy of the capture log, capture_run.jsonl; payload_archive rows files) - the point-4 answer as the model really gave it. Read by vav2c3RealReply.test.ts.",
+ "rows": [
+  {
+   "boq": "BOQ-26-00016",
+   "sheet": "Dismantling-ELE",
+   "excel_row": 33,
+   "run_id": "8b4e3471ecad96887042d08aa92f5d26",
+   "capture_line": "capture_run:15",
+   "batch_ts": "2026-11-24 15:10:14.720894",
+   "description": "Removing & handing over / storing of existing VAV's along with all accessories including VCD, Thermostats, Cone piece, wiring and mounting arrangement complete & storing in a designated place identified by the site in charge along with proper handover list",
+   "raw_reply": "{\"id\": 33, \"items\": [{\"attributes\": {\"vav_item\": {\"value\": \"none of these\", \"confidence\": 0.85}, \"vav_item_as_written\": {\"value\": \"Removing & handing over / storing of existing VAV's along with all accessories\", \"confidence\": 0.8}, \"shape\": {\"value\": \"None\", \"confidence\": 0.9}, \"vav_type\": {\"value\": \"None\", \"confidence\": 0.9}, \"integrator_included\": {\"value\": \"None\", \"confidence\": 0.9}, \"airflow_cfm\": {\"value\": \"None\", \"confidence\": 0.9}, \"inlet_size\": {\"value\": \"None\", \"confidence\": 0.9}, \"cfm_range\": {\"value\": \"None\", \"confidence\": 0.9}, \"qty_per_box\": {\"value\": \"None\", \"confidence\": 0.9}, \"controller_mention\": {\"value\": \"None\", \"confidence\": 0.8}, \"controller_by_others\": {\"value\": \"None\", \"confidence\": 0.8}, \"dp_sensor_mention\": {\"value\": \"None\", \"confidence\": 0.8}, \"needs_installing\": {\"value\": \"No\", \"confidence\": 0.6}, \"no_install_reason\": {\"value\": \"Removing & handing over / storing of existing VAV's\", \"confidence\": 0.6}}}]}"
+  },
+  {
+   "boq": "BOQ-26-00003",
+   "sheet": "PUNE HVAC BOQ",
+   "excel_row": 248,
+   "run_id": "2750ed2ddc82001e57c7af490d8deeff",
+   "capture_line": "capture_run:2",
+   "batch_ts": "2026-11-24 15:05:43.315169",
+   "description": "Up to 650 CFM",
+   "raw_reply": "{\"id\":248,\"items\":[{\"attributes\":{\"vav_item\":{\"value\":\"VAV box\",\"confidence\":0.95},\"vav_item_as_written\":{\"value\":\"Variable Air Volume (VAV) Units\",\"confidence\":0.9},\"shape\":{\"value\":\"Rectangular\",\"confidence\":0.95},\"vav_type\":{\"value\":\"Nothing specific mentioned\",\"confidence\":0.85},\"integrator_included\":{\"value\":\"None\",\"confidence\":0.85},\"airflow_cfm\":{\"value\":\"Up to 650 CFM\",\"confidence\":0.95},\"inlet_size\":{\"value\":\"None\",\"confidence\":0.9},\"cfm_range\":{\"value\":\"450-800\",\"confidence\":0.85},\"qty_per_box\":{\"value\":\"None\",\"confidence\":0.9},\"scope\":{\"value\":\"Supply + installation\",\"confidence\":0.9},\"controller_mention\":{\"value\":\"controller\",\"confidence\":0.9},\"controller_by_others\":{\"value\":\"No\",\"confidence\":0.85},\"dp_sensor_mention\":{\"value\":\"No\",\"confidence\":0.8},\"needs_installing\":{\"value\":\"Yes\",\"confidence\":0.95},\"no_install_reason\":{\"value\":\"None\",\"confidence\":0.95}}}]}"
+  }
+ ]
+}

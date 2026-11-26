@@ -3,9 +3,10 @@
  *
  * The "Not Auto-Approved Reason" column can only afford a one-line label per
  * flag — enough to scan, not enough to act on. This panel is the other half:
- * every reason the 12 gates can record, grouped by how urgent it is, with a
- * three-part breakdown one hover away — what the gate checked, WHY that blocks
- * the invoice, and what to do about it.
+ * every reason an invoice on this tab can carry (the PO gates' on the PO tab,
+ * the Work Order rules' on the WO tab, ADR-0050), grouped by how urgent it is,
+ * with a three-part breakdown one hover away — what the gate checked, WHY that
+ * blocks the invoice, and what to do about it.
  *
  * The middle part is the one the column can never carry, and the reason this
  * panel exists: "Invoiced total exceeds what's been delivered" tells a reviewer
@@ -42,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
     AutoApproveReason,
+    InvoiceDocumentType,
     ReasonTier,
     listReasonsByTier,
 } from "../utils/autoApproveReasons";
@@ -166,6 +168,8 @@ const ReasonCard: React.FC<{
 
 interface AutoApproveReasonKeyProps {
     className?: string;
+    /** The tab's document type: the key lists only the reasons an invoice on it can carry (ADR-0050). */
+    documentType?: InvoiceDocumentType;
     /**
      * Re-run the gates across the pending queue. Omitted for a reviewer who may
      * not action approvals — the key is then read-only, exactly as before.
@@ -176,12 +180,13 @@ interface AutoApproveReasonKeyProps {
 
 export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
     className,
+    documentType,
     onRecheck,
     isRechecking,
 }) => {
     const groups = useMemo(
-        () => listReasonsByTier().filter((g) => !HIDDEN_TIERS.has(g.tier)),
-        []
+        () => listReasonsByTier(documentType).filter((g) => !HIDDEN_TIERS.has(g.tier)),
+        [documentType]
     );
     const total = useMemo(
         () => groups.reduce((sum, g) => sum + g.reasons.length, 0),
@@ -297,7 +302,11 @@ export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
                         variant="outline"
                         onClick={onRecheck}
                         disabled={isRechecking}
-                        title="Re-run the PO-value checks against current PO data now (they also run every morning at 5 AM). Nothing is approved until you confirm."
+                        title={
+                            documentType === "Service Requests"
+                                ? "Re-run the Work Order check (invoiced against the WO total and Amount Paid) now; it also runs every morning at 5 AM. Nothing is approved until you confirm."
+                                : "Re-run the PO-value checks against current PO data now (they also run every morning at 5 AM). Nothing is approved until you confirm."
+                        }
                         className="h-7 shrink-0 gap-1.5 border-red-300 px-2 text-[11px] text-red-600 hover:border-red-400 hover:bg-red-50 hover:text-red-700"
                     >
                         <RefreshCw
@@ -356,14 +365,23 @@ export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
 
                     <p className="flex items-start gap-1.5 border-t border-gray-100 pt-2 text-[10px] leading-relaxed text-gray-400">
                         <Info className="mt-px h-3 w-3 shrink-0" />
-                        <span>
-                            Hover a reason for what was checked, why it blocks and what to do —
-                            click to keep it open. Reasons are recorded when the invoice is
-                            created. The PO-value ones (nothing delivered yet, invoiced past
-                            delivered, invoiced past the PO value) are re-checked against the PO
-                            every morning at 5 AM, and whatever now passes is approved; Re-check
-                            runs the same check now. Every other reason stays as recorded.
-                        </span>
+                        {documentType === "Service Requests" ? (
+                            <span>
+                                Hover a reason for what was checked, why it blocks and what to do —
+                                click to keep it open. Work Order invoices are checked again every
+                                morning at 5 AM against the WO total and Amount Paid, and whatever now
+                                matches is approved; Re-check runs the same check now.
+                            </span>
+                        ) : (
+                            <span>
+                                Hover a reason for what was checked, why it blocks and what to do —
+                                click to keep it open. Reasons are recorded when the invoice is
+                                created. The PO-value ones (nothing delivered yet, invoiced past
+                                delivered, invoiced past the PO value) are re-checked against the PO
+                                every morning at 5 AM, and whatever now passes is approved; Re-check
+                                runs the same check now. Every other reason stays as recorded.
+                            </span>
+                        )}
                     </p>
                 </div>
             )}

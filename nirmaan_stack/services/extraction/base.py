@@ -27,6 +27,22 @@ CHEQUE = "cheque"
 # A vendor's Udyam (MSME) registration certificate (owner, 2026-11-19): Udyam number, enterprise
 # name and type. Read by `api/vendor/msme_autofill.py`.
 MSME_CERTIFICATE = "msme_certificate"
+# An invoice read for a GST-off Work Order with a generated invoice still waiting for its signed copy
+# (ADR-0050 decision 1): the invoice read plus one question, is the printed "Authorized Signature" box signed?
+# Asked of no other file, so a PO invoice, an expense bill or a porter PDF is read exactly as an INVOICE.
+INVOICE_WITH_SIGNATURE = "invoice_with_signature"
+#: Its extra question; `work_order_invoice_rules.signature_signed` reads the answer.
+SIGNATURE_FIELD = "authorized_signature"
+SIGNATURE_PROMPT = (
+    "- authorized_signature = only if an 'Authorized Signature' / 'Authorised Signatory' box is printed: "
+    "'signed' (a handwritten signature in it), 'stamped' (only a stamp or seal), 'not_signed' (empty).\n"
+)
+_DATES_LINE = "- Dates in YYYY-MM-DD format.\n"
+
+
+def with_signature(fields: tuple, prompt: str) -> tuple[tuple, str]:
+    """An invoice read's fields and prompt with the signature question added (before the dates line)."""
+    return fields + (SIGNATURE_FIELD,), prompt.replace(_DATES_LINE, SIGNATURE_PROMPT + _DATES_LINE, 1)
 
 
 class Entity(TypedDict):

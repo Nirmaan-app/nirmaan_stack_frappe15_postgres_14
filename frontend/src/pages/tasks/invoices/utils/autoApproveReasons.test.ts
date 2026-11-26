@@ -5,10 +5,12 @@ import {
     describeApprovalNarrative,
     describeReason,
     humanizeReasonToken,
+    isDailyWorkOrderReason,
     listReasonsByTier,
     REASON_TIER_ORDER,
     parseSkipReasons,
     summariseSkipReasons,
+    WORK_ORDER_REASONS,
 } from "./autoApproveReasons";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
@@ -70,6 +72,53 @@ describe("describeReason", () => {
     it("keeps the retired low-confidence tokens readable", () => {
         expect(describeReason("low_confidence_amount").tier).toBe("legacy");
         expect(describeReason("low_confidence_amount").label).toContain("retired");
+    });
+});
+
+// ADR-0050 decision 8: a Work Order invoice's reasons say why not, with the two figures each compared.
+describe("Work Order reasons", () => {
+    it("shows the WO total against the Approved invoices plus this one", () => {
+        const r = describeReason("wo_total_mismatch:100000.00:30000.00");
+        expect(r.token).toBe("wo_total_mismatch:100000.00:30000.00");
+        expect(r.label).toBe("Invoices + this ₹30,000 ≠ WO total ₹1,00,000");
+        expect(r.tier).toBe("check");
+    });
+
+    it("shows Amount Paid against the same", () => {
+        expect(describeReason("wo_paid_mismatch:40000.00:30000.50").label).toBe(
+            "Invoices + this ₹30,001 ≠ Amount Paid ₹40,000"
+        );
+    });
+
+    it("shows base against base on a GST-on Work Order", () => {
+        expect(describeReason("wo_base_paid_mismatch:60000.00:50000.00").label).toBe(
+            "Base invoiced + this ₹50,000 ≠ base paid ₹60,000"
+        );
+    });
+
+    it("names an unsigned generated invoice upload", () => {
+        expect(describeReason("wo_generated_copy_not_signed").label).toBe("Generated invoice not signed");
+    });
+
+    it("lists each in the key without figures", () => {
+        const tokens = listReasonsByTier().flatMap((g) => g.reasons.map((r) => r.token));
+        expect(tokens).toEqual(expect.arrayContaining(["wo_total_mismatch", "wo_paid_mismatch",
+            "wo_base_paid_mismatch", "wo_generated_copy_not_signed"]));
+    });
+
+    it("says the daily re-check takes the figure reasons, not an unsigned copy's", () => {
+        expect(isDailyWorkOrderReason("wo_paid_mismatch:40000.00:30000.00")).toBe(true);
+        expect(isDailyWorkOrderReason("wo_base_paid_mismatch:1.00:2.00")).toBe(true);
+        expect(isDailyWorkOrderReason("wo_generated_copy_not_signed")).toBe(false);
+        expect(isDailyWorkOrderReason("nothing_delivered_yet")).toBe(false);
+    });
+
+    it("flags a Work Order invoice's reasons in the summary", () => {
+        const s = summariseSkipReasons(inv("wo_total_mismatch:100000.00:30000.00,wo_paid_mismatch:40000.00:30000.00"));
+        expect(s.flags.map((r) => r.label)).toEqual([
+            "Invoices + this ₹30,000 ≠ WO total ₹1,00,000",
+            "Invoices + this ₹30,000 ≠ Amount Paid ₹40,000",
+        ]);
     });
 });
 
@@ -195,9 +244,10 @@ describe("map integrity", () => {
     });
 
     // The gate tag is what lets a reviewer trace a flag back to _auto_approve.py.
-    it("tags every mapped token with the gate that recorded it", () => {
+    // A PO invoice's reasons come from numbered gates; a Work Order invoice's from ADR-0050's three rules.
+    it("tags every mapped token with the gate or Work Order rule that recorded it", () => {
         for (const [token, entry] of Object.entries(AUTO_APPROVE_REASON_LABELS)) {
-            expect(entry.gate, token).toMatch(/^Gate \d+ · /);
+            expect(entry.gate, token).toMatch(/^(Gate|WO rule) \d+ · /);
         }
     });
 });
@@ -221,6 +271,31 @@ describe("listReasonsByTier", () => {
         for (const g of listReasonsByTier()) {
             for (const r of g.reasons) expect(r.tier, r.token).toBe(g.tier);
         }
+    });
+
+    const tokensOf = (documentType: "Procurement Orders" | "Service Requests") =>
+        listReasonsByTier(documentType).flatMap((g) => g.reasons.map((r) => r.token));
+
+    it("lists only the Work Order rules' reasons on the WO tab (ADR-0050)", () => {
+        expect(tokensOf("Service Requests").sort()).toEqual([
+            "wo_base_paid_mismatch",
+            "wo_generated_copy_not_signed",
+            "wo_paid_mismatch",
+            "wo_total_mismatch",
+        ]);
+    });
+
+    it("lists no Work Order reason on the PO tab, and every PO gate's", () => {
+        const po = tokensOf("Procurement Orders");
+        expect(po.filter((t) => WORK_ORDER_REASONS.has(t))).toEqual([]);
+        expect(po).not.toContain("not_procurement_order");
+        expect(po).toEqual(expect.arrayContaining(["would_exceed_delivered", "supplier_gstin_mismatch",
+            "autofill_not_used"]));
+    });
+
+    it("splits the catalogue between the two tabs, leaving out only the retired not_procurement_order", () => {
+        const both = [...tokensOf("Procurement Orders"), ...tokensOf("Service Requests")].sort();
+        expect(both).toEqual(Object.keys(AUTO_APPROVE_REASON_LABELS).filter((t) => t !== "not_procurement_order").sort());
     });
 });
 
@@ -272,5 +347,20 @@ describe("describeApprovalNarrative", () => {
     it("reports a clean invoice", () => {
         const i = inv(undefined, "Pending", 0);
         expect(describeApprovalNarrative(i, summariseSkipReasons(i))).toBe("clean");
+    });
+});
+
+describe("the Work Order reasons' labels read in words (owner, 2026-11-25)", () => {
+    const labels = Object.fromEntries(
+        listReasonsByTier("Service Requests").flatMap((g) => g.reasons).map((r) => [r.token, r.label])
+    );
+
+    it("not '+ this' and '≠'", () => {
+        expect(labels).toEqual({
+            wo_total_mismatch: "Invoiced doesn't match WO total",
+            wo_paid_mismatch: "Invoiced doesn't match Amount Paid",
+            wo_base_paid_mismatch: "Base invoiced doesn't match base paid",
+            wo_generated_copy_not_signed: "Generated invoice not signed",
+        });
     });
 });

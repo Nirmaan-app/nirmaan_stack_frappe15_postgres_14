@@ -152,6 +152,13 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // DU-1 Part B (DU-D0 + the owner's rulings DR1-DR18): Ducting -- its own panel, calculator and Rate Master tab; it borrows
       // Insulation (live) and Misc (Paint / Fire Retardant / Air Balancing) through its sections. Appended LAST: no entry moves.
       { category_id: "hvac_ducting", label: "Ducting" },
+      // VAV-1 (HVAC v76; owner 2026-11-19 00:11 "just build like what we have for other catgories"): VAV Box -- its Rate Master tab and
+      // its Calculator, the 86 VAV Box sheet lines + the owner's new SKUs; it borrows Misc and Sensors through its sections. Appended
+      // after Ducting: no entry moves, so every earlier calculator sentinel row is unchanged.
+      { category_id: "hvac_vav_box", label: "VAV Box" },
+      // VAV-1 (owner QR-2 (a), 2026-11-19 00:57): Sensors & Controls is BORROW-ONLY, as Misc at VP-1 -- fetched so VAV Box prices its CO2
+      // sensor and differential pressure switch under Sensors' own rules, listed neither in the calculator nor on the Rate Master page.
+      { category_id: "hvac_sensors", label: "Sensors & Controls", fetch_only: true },
     ],
   },
 ];

@@ -11,7 +11,8 @@
  * * Reconciliation Pending -- Admin and Accounts: Mark Reconciled (UTR and proof), which turns the claim Paid.
  * * Paid · Reimbursement Raised By Me (everyone; Edit / Delete their own) · All (rejected claims included).
  * Admin, Accounts and HR see every tab but the CEO's; the CEO sees all eight; everyone else only Raised By Me.
- * Each badge is the number of rows the tab lists (`queue.get_claim_tab_counts`). Paid and All have a month picker
+ * Each badge is the number of rows the tab lists (`queue.get_claim_tab_counts`); the open tab's badge is its list's own
+ * total, so its month, column filters and search change it too (`badgeCounts`). Paid and All have a month picker
  * with the month's totals for Admin, HR and Accounts, kept in `?reimb_<tab>_month=` (`utils/reimbursements/claimMonth`).
  *
  * The header's right action, "Raise Reimbursement", flips `newReimbursementDialog`; the dialog is mounted here. The
@@ -40,11 +41,13 @@ import {
     TAB_LABELS,
     TAB_PENDING,
     actsOn,
+    badgeCounts,
     claimantName,
     groupsTabs,
     isReimbursementAdmin,
     resolveTab,
     tabsFor,
+    type OpenTabCount,
     type ReimbursementTab,
     type Viewer,
 } from "@/utils/reimbursements/rules";
@@ -116,7 +119,10 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
 
     const { data: countsData, mutate: mutateCounts } =
         useFrappeGetCall<{ message: ClaimTabCounts }>(COUNTS_API, undefined, `reimb_tab_counts:${userId}`);
-    const counts = countsData?.message ?? {};
+    // The open tab's own list total (its month, column filters and search) replaces its server count (`badgeCounts`).
+    const [openCount, setOpenCount] = useState<OpenTabCount | null>(null);
+    const onTotalCount = useCallback((count: number) => setOpenCount({ tab, count }), [tab]);
+    const counts = useMemo(() => badgeCounts(countsData?.message ?? {}, tab, openCount), [countsData, tab, openCount]);
 
     // An approve creates a claim's expense and a delete removes it, but neither changes the claims on screen, so the
     // payments cached for them are refreshed explicitly (code review finding 5).
@@ -252,6 +258,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 clearTicks={clearTicks}
                 month={month}
                 onMonthChange={byMonth ? changeMonth : undefined}
+                onTotalCount={onTotalCount}
             />
 
             <RaiseReimbursementDialog open={formOpen} onOpenChange={closeForm} editingName={editingName} onSaved={refreshAll} />

@@ -330,7 +330,9 @@ describe("VP-2 K1: the Derivation scope line names each screen's own options", (
     expect(d).toContain("the panel's scope pick ('Supply + installation', 'Supply only', 'Installation only') re-prices the row");
     // INVERTED at DU-1 FIX-2 (VP-DRV R40 / R41: the scope line states VP-5 E11 as built; mechanical authority): BEFORE
     // "the calculator's 'BoQ scope' choice does the same and also offers 'Installation only (supply quoted on another row)' (the normal installation rate, no uplift)"
-    expect(d).toContain("the calculator's 'BoQ scope' choice prices as picked, and also offers 'Installation only (supply quoted on another row)' (the normal installation rate)");
+    // INVERTED at VAV-2c2 (R3 f, PIN 1 accepted by chat-Claude ANSWER 10): BEFORE "the calculator's 'BoQ scope' choice prices as picked, ..."
+    expect(d).toContain("the 'Scope of this rate' box prices as picked, and also offers 'Installation only (supply quoted on another row)' (the normal installation rate)");
+    expect(d).not.toContain("'BoQ scope' choice");
     expect(d).not.toContain("only when the sheet quotes no supply row");
     expect(d).toContain("'Valve - installation-only uplift'");
   });
@@ -346,7 +348,9 @@ describe("VP-2 K1: the Derivation scope line names each screen's own options", (
     const d = scopeLine(cfg)?.detail ?? "";
     expect(d).toContain("the panel's scope pick ('Supply + installation', 'Supply only', 'Installation only') re-prices the row");
     // INVERTED at DU-1 FIX-2: BEFORE toContain("the calculator's 'BoQ scope' choice does the same")
-    expect(d).toContain("the calculator's 'BoQ scope' choice prices as picked");
+    // INVERTED at VAV-2c2 (R3 f, PIN 1): BEFORE toContain("the calculator's 'BoQ scope' choice prices as picked")
+    expect(d).toContain("the 'Scope of this rate' box prices as picked");
+    expect(d).not.toContain("'BoQ scope' choice");
     expect(d).not.toContain("also offers");
   });
 });

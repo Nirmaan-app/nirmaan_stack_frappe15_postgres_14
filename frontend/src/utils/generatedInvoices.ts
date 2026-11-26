@@ -47,3 +47,46 @@ export const generatedInvoiceDeleteNote = (
  */
 export const visibleGeneratedInvoices = <T extends { status: string }>(generated: T[]): T[] =>
   generated.filter((g) => g.status !== "Approved");
+
+/** What the AI answers for a signed "Authorized Signature" box (server: `work_order_invoice_rules.SIGNED_ANSWERS`). */
+const SIGNED_ANSWERS = ["signed", "stamped"];
+/** How far the amount may be from the generated invoice's and still be its copy (server: `TOLERANCE`). */
+const COPY_TOLERANCE = 1;
+
+const invoiceNumber = (text: string | null | undefined): string => String(text ?? "").trim().toUpperCase();
+
+/**
+ * The generated invoice an Add Invoice upload is the copy of, when the AI found its Authorized Signature box
+ * empty; else undefined. Mirrors the server (`work_order_invoice_rules.generated_copy_verdict` linking it: a
+ * GST-off Work Order, a Generated one whose number is the one read and submitted, amount ± ₹1; then
+ * `signature_signed`). Rule 1 can't approve such a copy, so the dialog warns; rules 2 and 3 still can.
+ */
+export const unsignedGeneratedCopy = <T extends { invoice_no: string; status: string; amount: number }>({
+  generated,
+  gstOff,
+  aiRead,
+  submittedNo,
+  extractedNo,
+  amount,
+  entities,
+}: {
+  generated: T[];
+  gstOff: boolean;
+  aiRead: boolean;
+  submittedNo: string;
+  extractedNo: string | null | undefined;
+  amount: number;
+  entities: { type: string; value: string }[] | null | undefined;
+}): T | undefined => {
+  const extracted = invoiceNumber(extractedNo);
+  if (!gstOff || !aiRead || !extracted || invoiceNumber(submittedNo) !== extracted) return undefined;
+  const copyOf = generated.find(
+    (g) =>
+      g.status === "Generated" &&
+      invoiceNumber(g.invoice_no) === extracted &&
+      Math.abs(Math.round((amount - g.amount) * 100) / 100) <= COPY_TOLERANCE
+  );
+  if (!copyOf) return undefined;
+  const signature = (entities ?? []).find((e) => e.type === "authorized_signature")?.value;
+  return SIGNED_ANSWERS.includes(String(signature ?? "").trim().toLowerCase()) ? undefined : copyOf;
+};

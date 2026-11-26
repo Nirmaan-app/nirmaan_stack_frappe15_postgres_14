@@ -7,6 +7,11 @@ The Re-check button's queue sweep (`recheck_auto_approve.run_pending_queue`), ru
 for real with no preview: a Pending PO invoice held only by a PO-value check that
 has since cleared (the DN landed, the PO was revised) is approved as System, and
 a ceiling reason that changed is rewritten. Every other reason is left as it is.
+It also takes every Pending Work Order invoice (ADR-0050 decision 5): approved
+as System when rule 2 or 3 now matches (an unsigned copy too; rule 1 for an older
+signed copy on a WO still GST-off, rules 2 and 3 for one whose WO turned GST-on),
+else its reasons and their figures are rewritten. The button does the same per
+tab: on the PO tab the PO invoices, on the Work Order tab the Work Order invoices.
 
 The button stays for mid-day runs. Both share the candidate list and the
 per-invoice row lock, so an invoice is approved once, by whichever gets there
