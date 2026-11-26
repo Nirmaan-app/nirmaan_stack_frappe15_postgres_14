@@ -14,7 +14,7 @@ env's own data (`move_to_transfer_db.py --linked`), so no real line is named her
 
 As the Accountant Lead:
  1. Sidebar Bulk Import Transactions -> Matched / Settled – Outflow -> the spend's line: Move, and no Unreconcile;
-    ticked, no `Unreconcile 1` in the toolbar either.
+    ticked, the toolbar still offers `Unreconcile 1` (owner ruling 2026-11-26: the last correction Move cannot make).
  2. The Linked line: Unreconcile is offered.
  3. The spend's Move -> Move to: Internal Transfer. From reads Cashbook Employee Wallet, Detail starts as Meera Iyer;
     To: ICICI Credit Card, a reason, "Move to Internal Transfer" -> "1 expense moved to Internal Transfer."
@@ -101,12 +101,13 @@ with session(a.task, a.lead, a.password) as (page, out):
     check(row.first.get_by_role("button", name="Unreconcile").count() == 0,
           "1762 (story 53): no Unreconcile on a line Move accepts")
     save(page, out, "01-move-accepted-line-no-unreconcile")
-    # Ticked, the toolbar offers Move and no `Unreconcile 1` either (#1762: "not offered" covers the toolbar).
+    # Ticked, the toolbar still offers `Unreconcile 1`: the owner kept it (2026-11-26) as the last correction for a
+    # created expense Move cannot fix (a Link to an existing record); only the line's own button is hidden.
     row.first.get_by_role("checkbox").click()
     page.get_by_role("button", name="Clear").wait_for(timeout=10_000)
-    check(page.get_by_role("button", name=re.compile(r"^Unreconcile \d")).count() == 0,
-          "1762 (story 53): the toolbar offers no Unreconcile while a line Move accepts is ticked")
-    save(page, out, "01b-ticked-move-accepted-line-no-toolbar-unreconcile")
+    check(page.get_by_role("button", name=re.compile(r"^Unreconcile \d")).count() == 1,
+          "owner ruling 2026-11-26: the toolbar keeps Unreconcile while a line Move accepts is ticked")
+    save(page, out, "01b-ticked-move-accepted-line-toolbar-unreconcile-kept")
     page.get_by_role("button", name="Clear").click()
 
     # 2. A Linked line keeps Unreconcile.

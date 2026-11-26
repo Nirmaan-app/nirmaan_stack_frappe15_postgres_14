@@ -92,7 +92,8 @@ past imports by source and month.
   `1 expense moved to Internal Transfer.` The expense is gone, the line moves to the `Internal Transfers` tab, and its
   record (the violet link in the Outcome cell, opening Desk) shows the bill as `Proof`. A Settled line Move accepts
   shows no `Unreconcile` (the row's `can_move`); a refused line, or one Linked to an existing record, keeps it. Ticked,
-  such a line gets no `Unreconcile N` in the toolbar either; ticked with other lines, the amber note says to untick it. Walked by `BIN/walk_move_to_transfer.py` (seed `BIN/cashbook_move_seed.py`,
+  the toolbar's `Unreconcile N` stays (owner ruling 2026-11-26: the last correction for a created expense Move cannot
+  fix, such as a Link to an existing record). Walked by `BIN/walk_move_to_transfer.py` (seed `BIN/cashbook_move_seed.py`,
   DB read `BIN/move_to_transfer_db.py`; the Linked line is read from the env's own data), as an Accountant Lead.
 
 - `bit-bank-move` Move an expense a person created from a bank or Cashfree line with Create (#1760, spec #1753). On a
