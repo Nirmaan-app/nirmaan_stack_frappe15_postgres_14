@@ -109,7 +109,6 @@ describe("Move in Bulk Import (stories 1, 3, 7, 9)", () => {
     });
 
     it("words a line of every wired source by the one rule: Porter, Cashbook, card, ICICI and Cashfree", () => {
-        const created = [{ created_by_import: 1 as const }];
         const sources = ["Porter Statement", "Cashbook", CARD_SOURCE, "ICICI Bank Statement", "Cashfree"];
         const lines = (ledger: string) =>
             sources.map((source, i) => ({
@@ -117,7 +116,7 @@ describe("Move in Bulk Import (stories 1, 3, 7, 9)", () => {
                 row_status: "Settled",
                 source,
                 suggested_doctype: ledger,
-                matches: created,
+                matches: [{ target_doctype: ledger, created_by_import: 1 as const }],
             }));
         for (const line of lines(NPE)) expect(lineMoveLabel(line)).toBe("Move to a project");
         for (const line of lines(PE)) expect(lineMoveLabel(line)).toBe("Change project");

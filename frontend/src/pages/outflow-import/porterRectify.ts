@@ -80,9 +80,12 @@ type MovableRow = {
     row_status: string;
     source?: string | null;
     suggested_doctype?: string | null;
-    /** The line's live Settled matches; a bank line's must say its record was created with Create (#1760). */
-    matches?: ReadonlyArray<{ created_by_import?: 0 | 1 | null }>;
+    /** The line's live Settled matches; a bank line's must say its record is an expense created with Create (#1760). */
+    matches?: ReadonlyArray<{ target_doctype?: string | null; created_by_import?: 0 | 1 | null }>;
 };
+
+/** The ledgers Move takes a record from (`ledgers.EXPENSE_DOCTYPES`). */
+const EXPENSE_LEDGERS: ReadonlySet<string> = new Set([PROJECT_EXPENSE, "Non Project Expenses"]);
 
 /** The sources Move is wired for (#1449 Porter, #1757 Cashbook, #1761 card, #1760 bank and Cashfree), and what each
  * calls its lines. */
@@ -95,13 +98,27 @@ const MOVABLE_SOURCES: Record<string, string> = {
 
 /**
  * The line's source when it is a Settled line Move is wired for, else `null`. A bank or Cashfree line only when its
- * record was created with Create: most of them were Linked to a payment, which Move never takes.
+ * record is an expense created with Create: most of them were Linked to a payment, and Create also makes inflows and
+ * vendor refunds, which Move never takes.
  */
 const movableSource = (row: MovableRow): string | null => {
     const source = (row.source ?? "").trim();
     if (row.row_status !== ROW_SETTLED || !(source in MOVABLE_SOURCES)) return null;
-    if (source in BANK_MOVE_SOURCES && !(row.matches ?? []).some((match) => match.created_by_import)) return null;
+    const createdExpense = (row.matches ?? []).some(
+        (match) => match.created_by_import && EXPENSE_LEDGERS.has(match.target_doctype ?? ""),
+    );
+    if (source in BANK_MOVE_SOURCES && !createdExpense) return null;
     return source;
+};
+
+/**
+ * Where the line's expense is now: its one live Settled match's ledger, else its pick's. ⚠️ Not the pick alone: a
+ * bank or Cashfree line's Create never writes `suggested_doctype` (only a Move does), so a created Project Expense
+ * there has a blank pick.
+ */
+const lineLedger = (row: MovableRow): string | null | undefined => {
+    const matches = row.matches ?? [];
+    return (matches.length === 1 && matches[0].target_doctype) || row.suggested_doctype;
 };
 
 /**
@@ -112,11 +129,11 @@ const movableSource = (row: MovableRow): string | null => {
 export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean => canUndo && Boolean(movableSource(row));
 
 /** The line button's words, by where the line's expense is now (`moveLabel`; a Porter line too, #1759). */
-export const lineMoveLabel = (row: MovableRow): string => moveLabel([row.suggested_doctype]);
+export const lineMoveLabel = (row: MovableRow): string => moveLabel([lineLedger(row)]);
 
 /** The toolbar's words over the ticked lines Move is wired for, by the same rule as one line's (#1757, Porter #1759). */
 export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string =>
-    moveLabel(rows.filter((row) => selected.has(row.name) && movableSource(row)).map((row) => row.suggested_doctype));
+    moveLabel(rows.filter((row) => selected.has(row.name) && movableSource(row)).map(lineLedger));
 
 export interface RectifyButtonState {
     /** Shown once a Settled line of a wired source is ticked on this page. */

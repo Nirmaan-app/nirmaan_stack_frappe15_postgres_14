@@ -201,6 +201,23 @@ class TestALinkedLineIsRefused(BankRectifyCase):
         self.assertTrue(frappe.db.exists(NON_PROJECT_EXPENSE, name))
 
 
+class TestACreatedRecordThatIsNotAnExpenseIsRefusedTruly(BankRectifyCase):
+    """Create on a bank line also makes inflows and vendor refunds; Move refuses them without calling them Linked."""
+
+    def test_the_refusal_names_the_record_kind_not_linked(self):
+        from nirmaan_stack.api.outflow_import.rectify_refusals import line_refusal
+        from nirmaan_stack.api.outflow_import.rectify_sources import SOURCES
+
+        for made in ("Project Inflows", "Non Project Inflows", "Vendor Refunds"):
+            with self.subTest(made):
+                line = frappe._dict(source=ICICI, row_status="Settled")
+                leg = frappe._dict(created_by_import=1, target_doctype=made, target_name="TEST-ANY")
+                refusal = line_refusal(SOURCES[ICICI], line, [leg], ())
+                self.assertIn(made, refusal)
+                self.assertIn("not an expense", refusal)
+                self.assertNotIn("Linked", refusal)
+
+
 #: What the replacement keeps that Create never writes (owner, 2026-11-26): the account paid into, the approval dates.
 CARRIED = {
     "pay_to_account_name": "Testvendor Hardware Stores",

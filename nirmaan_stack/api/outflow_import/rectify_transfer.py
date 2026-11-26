@@ -11,7 +11,7 @@ savepoint, after the line's Settled match is stamped Reversed and before its com
     1. the line's Internal Transfer record, made by hand, with the person, the time and the reason
     2. every File of the expense moves to the record; the latest bill's File is the record's `proof`
     3. the expense is deleted as Unreconcile deletes a created record (`delete_created`); its Expense bills stay as
-       history (its `on_trash` retires them)
+       history (its `on_trash` retires them), and a pick that named it is cleared (`drop_a_deleted_pick`)
     4. the line becomes Internal Transfer, through the document layer, and the import's rollup is refreshed
 
 ⚠️ MARK AS INTERNAL TRANSFER STILL REFUSES A SETTLED LINE (`internal_transfer_rules.mark_refusal`). This path is not
@@ -26,7 +26,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.internal_transfer_actions import MARKED_NOTE, save_line
 from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE, record_for_line
-from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
+from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, drop_a_deleted_pick
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
 from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
     hand_mark_detail,
@@ -97,6 +97,9 @@ def move_to_internal_transfer(line, old, transfer: TransferTo, reason: str, acto
         # would make Frappe's attach hook mint a second File row for it. Nothing is derived from the field.
         frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "proof", proof, update_modified=False)
     delete_created(old.doctype, old.name, None)
+    # The line's pick may name the expense just deleted (the Cashbook job's own pick, a Move's follow-on); left there,
+    # a Send back to Mismatched would re-derive the line Matched to nothing, as Unreconcile guards (#1314, trap 1).
+    drop_a_deleted_pick(line.name, {(old.doctype, old.name)})
     note = MARKED_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
     save_line(line.name, {"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": note}, actor, now)
     refresh_batch_rollup(line.import_batch)

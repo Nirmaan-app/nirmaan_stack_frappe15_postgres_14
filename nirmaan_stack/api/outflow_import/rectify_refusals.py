@@ -6,8 +6,9 @@
 The Rectify core (`porter_rectify`) asks these twice: its plan, to say why before anyone confirms, and its write,
 again under the locks. Each answer is a sentence or `None`.
 
-  * `line_refusal`: the line itself -- missing, another source's, not Settled, settled to more than one record or to
-    a record its import did not create, or moving without the line it must move with (a wallet spend and its refund).
+  * `line_refusal`: the line itself -- missing, another source's, not Settled, settled to more than one record, to
+    a record its import did not create or to a created record that is not an expense, or moving without the line it
+    must move with (a wallet spend and its refund).
   * `expense_refusal`: the expense the line holds -- not Paid, a Reimbursement's, an Expense Request's, carrying a
     Payment TDS Deduction, on a Cheque (#1413: its delete would take it off the cheque), or with a bill being read.
     A Porter expense is none of these.
@@ -40,12 +41,11 @@ def line_refusal(source: RectifySource, line, legs, ticked: Collection[str]) -> 
         return wording.not_settled.format(status=line.row_status)
     if len(legs) > 1:
         return wording.split_line
-    if (
-        len(legs) != 1
-        or not legs[0].created_by_import
-        or not is_expense_doctype(legs[0].target_doctype)
-        or not frappe.db.exists(legs[0].target_doctype, legs[0].target_name)
-    ):
+    if len(legs) != 1 or not legs[0].created_by_import:
+        return wording.not_created
+    if not is_expense_doctype(legs[0].target_doctype):
+        return wording.not_an_expense.format(doctype=legs[0].target_doctype)
+    if not frappe.db.exists(legs[0].target_doctype, legs[0].target_name):
         return wording.not_created
     partners, sentence = source.partners(line)
     if sentence and not (partners and set(partners) <= set(ticked)):

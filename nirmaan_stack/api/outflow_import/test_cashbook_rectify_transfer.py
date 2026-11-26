@@ -219,6 +219,25 @@ class TestSentBackTheProofStaysOnTheLine(TransferCase):
         )
 
 
+class TestTheLinesPickGoesWithItsExpense(TransferCase):
+    def test_sent_back_the_line_reads_mismatched_not_matched_to_the_deleted_expense(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+        from nirmaan_stack.services.outflow_import.row_settlement import refresh_row_allocation
+
+        old = self._expense(ONE_LINK)
+        line = self._line(ONE_LINK).name
+        # The Cashbook job stores its own created expense as the line's pick.
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line, "suggested_name"), old.name)
+
+        self._to_transfer([ONE_LINK])
+
+        self.assertFalse(frappe.db.get_value(ROW_DOCTYPE, line, "suggested_name"))
+        send_back_to_mismatched(line, "Not ours after all")
+        self.assertEqual(self._line(ONE_LINK).row_status, "Mismatched")
+        # Any re-derive keeps it there: no pick is left to fall back to Matched on.
+        self.assertEqual(refresh_row_allocation(line, "Administrator"), "Mismatched")
+
+
 def _can_move_by_row(batch: str) -> dict:
     """`can_move` of every line of `batch` as the Bulk Import page reads it, by line name."""
     from nirmaan_stack.api.outflow_import.review import SCOPE_ALL, get_outflow_rows

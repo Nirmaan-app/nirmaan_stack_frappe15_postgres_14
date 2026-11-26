@@ -70,6 +70,11 @@ class RectifyWording:
     split_line: str
     #: A line not moved because the line it moves with (`{txn}`) was refused (`{reason}`).
     partner_failed: str
+    #: A line whose import created a record that is not an expense (`{doctype}`: a bank line's Create also makes
+    #: inflows and vendor refunds). Not `not_created`: that record WAS created, so "Linked" would be untrue.
+    not_an_expense: str = (
+        "This line's record is in {doctype}, not an expense, so it cannot be moved. Unreconcile it instead."
+    )
 
 
 @dataclass(frozen=True)

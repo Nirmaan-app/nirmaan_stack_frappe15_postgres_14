@@ -64,6 +64,21 @@ describe("Move on a bank or Cashfree line in Bulk Import (story 5)", () => {
         expect(rectifyAffordance({ row_status: "Settled", source: "Cashfree" }, true)).toBe(false);
     });
 
+    it("is not offered where Create made an inflow or a vendor refund, which Move never takes", () => {
+        for (const made of ["Project Inflows", "Non Project Inflows", "Vendor Refunds"]) {
+            expect(rectifyAffordance(line("a", "ICICI Bank Statement", 1, made), true)).toBe(false);
+        }
+    });
+
+    it("labels by the created expense, as Create leaves the line's pick blank", () => {
+        const created = (name: string, ledger: string) => ({ ...line(name, "ICICI Bank Statement", 1, ledger), suggested_doctype: null });
+        expect(lineMoveLabel(created("a", PE))).toBe("Change project");
+        expect(lineMoveLabel(created("a", NPE))).toBe("Move to a project");
+        const page = [created("a", PE), created("b", PE), created("c", NPE)];
+        expect(toolbarMoveLabel(page, new Set(["a", "b"]))).toBe("Change project");
+        expect(toolbarMoveLabel(page, new Set(["a", "c"]))).toBe("Move 2 expenses");
+    });
+
     it("labels the button by where the expense is", () => {
         expect(lineMoveLabel(line("a", "Cashfree", 1))).toBe("Move to a project");
         expect(lineMoveLabel(line("a", "ICICI Bank Statement", 1, PE))).toBe("Change project");
