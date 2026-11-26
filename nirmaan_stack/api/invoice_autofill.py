@@ -7,6 +7,7 @@ from nirmaan_stack.api.invoices._validation import (
     gstin_match,
 )
 from nirmaan_stack.services.extraction import extract
+from nirmaan_stack.services.extraction.base import INVOICE, INVOICE_WITH_SIGNATURE
 from nirmaan_stack.services.extraction.mapping import gemini_map_residue
 from nirmaan_stack.services.extraction.files import (
     SUPPORTED_EXTS,
@@ -58,7 +59,7 @@ TCS_KEYS = ("tcs_amount",)
 
 
 @frappe.whitelist()
-def extract_invoice_fields(file_url, docname=None):
+def extract_invoice_fields(file_url, docname=None, work_order=None):
     """Extract invoice number, date, total, base + GST amounts and line items.
 
     Called from the Add Invoice dialog when the user picks a file in Auto-fill
@@ -69,6 +70,9 @@ def extract_invoice_fields(file_url, docname=None):
     When `docname` is a Procurement Order, the response also includes `line_match`
     (each invoice line mapped to a PO item — fuzzy-first, Gemini-resolved residue)
     and `po_items` (the PO's items, so the dialog can render/correct the mapping).
+
+    When `work_order` (Add Invoice on a Work Order) is GST-off with a generated invoice still Generated, the
+    read also asks whether its "Authorized Signature" box is signed (ADR-0050 decision 1); no other read does.
     """
     if not file_url:
         frappe.throw("file_url is required")
@@ -92,7 +96,8 @@ def extract_invoice_fields(file_url, docname=None):
     if not content:
         frappe.throw("Could not read file content.")
 
-    _, entities, line_items = extract(content, file_ext, settings, doc_kind="invoice")
+    doc_kind = INVOICE_WITH_SIGNATURE if _awaits_signed_copy(work_order) else INVOICE
+    _, entities, line_items = extract(content, file_ext, settings, doc_kind=doc_kind)
 
     invoice_no, invoice_no_conf = pick_entity(entities, INVOICE_NO_KEYS)
     invoice_date, invoice_date_conf = pick_entity(entities, INVOICE_DATE_KEYS, prefer_normalized=True)
@@ -347,3 +352,15 @@ def _build_validation(
     result["receiver_gstin"] = gstin_match(extracted_receiver_gstin, project_gst, "receiver")
 
     return result
+
+
+def _awaits_signed_copy(work_order) -> bool:
+    """A GST-off Work Order with a generated invoice still Generated: an upload to it may be that invoice's signed
+    copy, so the read asks about the signature (ADR-0050 decision 1). Read-only."""
+    if not work_order or not frappe.db.exists("Service Requests", work_order):
+        return False
+    from nirmaan_stack.services.wo_generated_invoices import DOCTYPE as GENERATED_INVOICE
+    from nirmaan_stack.services.work_order_gst import gst_is_explicitly_off
+
+    return gst_is_explicitly_off(frappe.db.get_value("Service Requests", work_order, "gst")) and bool(
+        frappe.db.exists(GENERATED_INVOICE, {"work_order": work_order, "status": "Generated"}))

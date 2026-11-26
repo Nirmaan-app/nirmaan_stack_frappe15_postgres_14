@@ -16,7 +16,8 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CHEQUE, CUSTOMER_PO, INVOICE, MSME_CERTIFICATE, TDS_CHALLAN, Entity, LineItem
+from .base import (CHEQUE, CUSTOMER_PO, INVOICE, INVOICE_WITH_SIGNATURE, MSME_CERTIFICATE, TDS_CHALLAN, Entity,
+                   LineItem, with_signature)
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -381,9 +382,9 @@ class GeminiExtractor:
             schema = _schema(fields)
             is_invoice = False
         else:
-            is_invoice = doc_kind == INVOICE
-            fields = _INVOICE_FIELDS if is_invoice else _PAYMENT_FIELDS
-            prompt = _INVOICE_PROMPT if is_invoice else _PAYMENT_PROMPT
+            is_invoice = doc_kind in (INVOICE, INVOICE_WITH_SIGNATURE)  # the latter + one question (ADR-0050)
+            fields, prompt = (_INVOICE_FIELDS, _INVOICE_PROMPT) if is_invoice else (_PAYMENT_FIELDS, _PAYMENT_PROMPT)
+            fields, prompt = with_signature(fields, prompt) if doc_kind == INVOICE_WITH_SIGNATURE else (fields, prompt)
             schema = _schema(fields)
             if is_invoice:
                 schema["properties"]["line_items"] = _line_items_schema()

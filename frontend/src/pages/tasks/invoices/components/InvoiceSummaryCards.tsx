@@ -85,7 +85,7 @@ const MEASURES: Array<{
         {
             key: "auto",
             label: "Auto-approved",
-            hint: "Invoices the system approved on upload after passing all 13 auto-approve gates.",
+            hint: "Invoices the system approved: a PO invoice that passed all 13 auto-approve checks, a Work Order invoice that matched one of its 3 rules (signed copy, WO total, Amount Paid).",
             icon: <Sparkles className="h-4 w-4 text-violet-500 dark:text-violet-400" />,
             stripe: "bg-violet-500 dark:bg-violet-600",
             accent: "text-violet-600 dark:text-violet-400",

@@ -116,6 +116,19 @@ def amount_paid_of(document_type: str, document_name: str, exclude_payment: str 
     return total_paid - float(refunded) if refunded else total_paid
 
 
+def gst_part_of_amount_paid(document_type: str, document_name: str) -> float:
+    """The part of `amount_paid_of` that is GST payments (`is_gst_payment`, Paid). A GST payment is never
+    taxed (`payment_tds.is_deductible`), so its amount is all it adds. Amount Paid less this is the base paid,
+    which ADR-0050 rule 3 compares on a GST-on Work Order."""
+    return flt(frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(amount), 0) FROM "tabProject Payments"
+        WHERE document_type = %(dt)s AND document_name = %(dn)s AND status = 'Paid' AND is_gst_payment = 1
+        """,
+        {"dt": document_type, "dn": document_name},
+    )[0][0])
+
+
 def write_amount_paid(document_type: str, document_name: str, exclude_payment: str | None = None) -> None:
     """THE WRITER of a PO's / Work Order's stored `amount_paid` and the figures built on it: its
     `total_tds` (a Work Order's; both are sums over the same Paid payments, so they move together)

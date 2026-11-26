@@ -124,6 +124,11 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   "Invoice Added By" column; the PO and WO Invoices 2B Recon tabs, and their "Invoice Uploaded By" column (full
   name or email, cut with "…", whole text on hover); who may approve or reject a PO invoice (an Accountant on
   screen; a procurement or HR user refused by the server, #1638). Walked by `BIN/walk_vendor_invoice_recon.py`.
+- [Work Order invoice auto-approval](./wo_invoice_auto_approve.md): ADR-0050's three rules. Upload signed copy and
+  Add Invoice of a generated invoice's signed copy approved by the System (a Procurement Executive uploads), an
+  unsigned copy warned of in the dialog and judged by rules 2 and 3 (Pending, or approved when the amounts match),
+  and the WO reasons with their figures in Pending Invoice Approvals -> WO. Walked by
+  `BIN/walk_wo_invoice_auto_approve.py`.
 - [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
   the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same

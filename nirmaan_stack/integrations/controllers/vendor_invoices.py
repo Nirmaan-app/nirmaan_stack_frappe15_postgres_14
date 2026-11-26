@@ -121,7 +121,8 @@ def recompute_parent_total(doc, method=None):
 def guard_work_order_invoice(doc, method=None):
     """Refuse a Work Order invoice save the user's role does not allow (#1531, ADR-0014 Amendment A;
     the rule is `services/work_order_invoice_access.change_problem`). Bound to validate, so the
-    approve and edit endpoints, Desk and the REST API all obey it. A Purchase Order invoice passes: its
+    approve and edit endpoints, Desk and the REST API all obey it. The System's approval by the ADR-0050 rules
+    carries `SYSTEM_DECISION_FLAG` and passes (ADR-0014 Amendment C). A Purchase Order invoice passes: its
     decision is `guard_purchase_order_decision`'s.
     """
     before = doc.get_doc_before_save()
@@ -135,6 +136,7 @@ def guard_work_order_invoice(doc, method=None):
         may_edit=can_edit_wo_invoice(user),
         may_override_decision=can_edit_approved_wo_invoice(user),
         generated=bool(before and generated_invoice_of(doc.name)),
+        by_system=bool(doc.flags.get(po_access.SYSTEM_DECISION_FLAG)),
     )
     if problem:
         frappe.throw(problem, WorkOrderInvoiceRefused)

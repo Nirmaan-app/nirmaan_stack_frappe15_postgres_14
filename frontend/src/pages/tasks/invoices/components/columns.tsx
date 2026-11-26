@@ -30,6 +30,7 @@ import {
     describeApprovalNarrative,
     summariseSkipReasons,
     isCeilingReason,
+    isDailyWorkOrderReason,
 } from "@/pages/tasks/invoices/utils/autoApproveReasons";
 import { ReasonBreakdown, ReasonTitle } from "@/pages/tasks/invoices/components/ReasonBreakdown";
 import { humanizeEntityType, formatEntityValue, confColorClass } from "@/pages/tasks/invoices/utils/autofillEntityDisplay";
@@ -317,13 +318,15 @@ const AutoApproveReasonCell: React.FC<{
     const top = summary.flags[0];
     const extra = summary.flags.length - 1;
     // The button is offered only to a real candidate — the same test the server
-    // applies (`recheck_auto_approve.is_candidate`): Pending, on a PO, and
-    // already blocked on a PO-value ceiling. A Work Order invoice never shows
-    // it, because those gates do not apply to Work Orders at all.
+    // applies (`recheck_auto_approve.is_candidate` / `is_work_order_candidate`):
+    // Pending, and on a PO already blocked on a PO-value ceiling; any Pending
+    // Work Order invoice, whose rules 2 and 3 re-run against today's figures.
+    const isWorkOrderInvoice = invoice.document_type === "Service Requests";
     const canRecheck =
         invoice.status === "Pending" &&
-        invoice.document_type === "Procurement Orders" &&
-        summary.flags.some((r) => isCeilingReason(r.token));
+        (isWorkOrderInvoice ||
+            (invoice.document_type === "Procurement Orders" &&
+                summary.flags.some((r) => isCeilingReason(r.token))));
     const tone =
         summary.highestTier === "blocker"
             ? "text-red-700 bg-red-50 border-red-200"
@@ -398,9 +401,11 @@ const AutoApproveReasonCell: React.FC<{
                     or a Work Order) would teach a reviewer that it does nothing. */}
                 <div className="flex items-center justify-between gap-2 border-t bg-gray-50 px-3 py-1.5">
                     <span className="text-[10px] text-gray-500">
-                        {canRecheck
-                            ? "Recorded at creation. PO-value check re-runs daily at 5 AM, or press Re-check."
-                            : "Recorded at creation; Re-check does not cover this."}
+                        {isWorkOrderInvoice && (canRecheck || summary.flags.some((r) => isDailyWorkOrderReason(r.token)))
+                            ? "Work Order figures are checked again daily at 5 AM. Or press Re-check."
+                            : canRecheck
+                                ? "Recorded at creation. PO-value check re-runs daily at 5 AM, or press Re-check."
+                                : "Recorded at creation; Re-check does not cover this."}
                     </span>
                     {onRecheck && canRecheck && (
                         <button
