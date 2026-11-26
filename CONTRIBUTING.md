@@ -4,8 +4,10 @@ This repo is private. Everyone who changes it follows the same five steps, whate
 
 ## Steps
 
-1. **Get a copy.** The owner clones `Nirmaan-app/nirmaan_stack_frappe15_postgres_14` itself. Everyone else forks it
-   (the fork is private too), clones the fork, and adds the main repo as `upstream`:
+1. **Get a copy.** The owner clones `Nirmaan-app/nirmaan_stack_frappe15_postgres_14` itself. Everyone else, Nitesh
+   (`nirmaan-techadmin`) and Madhubalan (`madhubalan17js`), has the **Triage** role on the main repo: they can read
+   it, fork it, and open, label and review issues and PRs, but cannot push to it. They fork it (the fork is private
+   too), clone the fork, and add the main repo as `upstream`:
    `git remote add upstream https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git`
 2. **Branch from the newest `develop`.** `git fetch upstream && git switch -c <name> upstream/develop`. Name the
    branch `<issue>-<short-name>` when the work has an issue, and `<short-name>` when it doesn't.
@@ -20,6 +22,8 @@ This repo is private. Everyone who changes it follows the same five steps, whate
 ## Rules
 
 - Never push to `main` or `develop` directly. Every change arrives through a PR.
+- The owner keeps every other collaborator at Triage (Settings, Collaborators and teams). A Write or Admin role lets
+  a branch skip the fork, and `scripts/private_repo_check.sh --expect private` fails on it.
 - Never push to a fork that is still public. A branch pushed there is public.
 - Keep secrets (keys, passwords, tokens) out of the repo, its history and its PR descriptions.
 

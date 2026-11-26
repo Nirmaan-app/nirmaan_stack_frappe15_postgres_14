@@ -61,6 +61,24 @@ prepare() {
 
 is_local_path() { case "$1" in /*|file://*|[A-Za-z]:*) return 0 ;; esac; return 1; }
 github_repo() { printf '%s' "${1%/}" | sed -n 's#^.*github[^:/]*[:/]\([^/]*/[^/]*\)$#\1#p' | sed 's#\.git$##'; }
+# One spelling per repo, so git@github.com:me/R.git, https://github.com/me/R and file:///x/R.git match their twins.
+same_repo_key() {
+  local u=${1%/}; u=${u#file://}; u=${u%.git}; u=${u%/}
+  if is_local_path "$u"; then printf '%s' "$u"; else
+    local r; r=$(github_repo "$u"); if [ -n "$r" ]; then printf 'github:%s' "$r" | tr 'A-Z' 'a-z'; else printf '%s' "$u"; fi
+  fi
+}
+same_repo() { [ "$(same_repo_key "$1")" = "$(same_repo_key "$2")" ]; }
+# Remotes other than old-public with any push URL (first or later, any spelling) naming the old fork.
+remotes_pushing_to() {
+  local r p
+  for r in $(git remote); do
+    [ "$r" = "$OLD" ] && continue
+    while IFS= read -r p; do
+      if [ -n "$p" ] && same_repo "$p" "$1"; then echo "$r"; break; fi
+    done < <(git remote get-url --push --all "$r" 2>/dev/null)
+  done
+}
 
 swap() {
   local remote=$1 new_url=$2
@@ -107,11 +125,19 @@ swap() {
   if [ "$apply" = 1 ] && [ "$(git remote get-url --push "$remote")" != "$new_url" ]; then
     die "$remote still pushes to $(git remote get-url --push "$remote"); fix it before pushing"
   fi
-  local r
-  for r in $(git remote); do
-    [ "$r" = "$remote" ] || [ "$r" = "$OLD" ] && continue
-    [ "$(git remote get-url --push "$r")" = "$old_url" ] && run git remote set-url --push "$r" "$new_url"
+  local r p
+  for r in $(remotes_pushing_to "$old_url"); do
+    [ "$r" = "$remote" ] && continue
+    local pushurls; pushurls=$(git remote get-url --push --all "$r" | while IFS= read -r p; do
+      if same_repo "$p" "$old_url"; then echo "$new_url"; else echo "$p"; fi
+    done | awk '!seen[$0]++')
+    git config --get-all "remote.$r.pushurl" >/dev/null && run git config --unset-all "remote.$r.pushurl"
+    while IFS= read -r p; do run git config --add "remote.$r.pushurl" "$p"; done <<<"$pushurls"
   done
+  if [ "$apply" = 1 ]; then
+    r=$(remotes_pushing_to "$old_url" | tr '\n' ' ')
+    [ -z "$r" ] || die "remote(s) $r still push to the old fork $old_url; fix them before pushing"
+  fi
   if ! git remote -v | grep -q "$MAIN_REPO"; then
     if git remote get-url upstream >/dev/null 2>&1; then die "remote upstream exists but is not $MAIN_REPO"; fi
     run git remote add upstream "$UPSTREAM_URL"

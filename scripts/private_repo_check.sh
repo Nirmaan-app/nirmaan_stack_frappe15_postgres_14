@@ -10,6 +10,7 @@ REPO=Nirmaan-app/nirmaan_stack_frappe15_postgres_14
 URL=https://github.com/$REPO.git
 GAR=asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack
 BOXES=$HOME/.config/devbox/boxes.conf
+TRIAGE_DEVS="nirmaan-techadmin madhubalan17js"
 TOKEN_RE='x-access-token:[a-z]{3}_|gh[sp]_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}'
 expect="" tag="" deep=0 fails=0
 
@@ -62,7 +63,14 @@ if [ "$expect" = private ]; then
   check "devs can fork the private repo" "$(gh api "repos/$REPO" -q .allow_forking)" true
 fi
 
-info collaborators "$(gh api "repos/$REPO/collaborators" -q '[.[] | .login + "=" + .role_name] | join(" ")')"
+collabs=$(gh api "repos/$REPO/collaborators" -q '[.[] | .login + "=" + .role_name] | join(" ")')
+info collaborators "$collabs"
+if [ "$expect" = private ]; then
+  for dev in $TRIAGE_DEVS; do
+    role=$(printf '%s\n' $collabs | sed -n "s/^$dev=//p")
+    check "$dev role (pushes only to their own fork)" "${role:-not a collaborator}" triage
+  done
+fi
 info "public forks" "$(gh api "repos/$REPO/forks" --paginate -q '.[] | select(.visibility == "public") | .full_name' | wc -l | tr -d ' ')"
 
 if [ -z "$tag" ]; then

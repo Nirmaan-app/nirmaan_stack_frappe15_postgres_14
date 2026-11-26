@@ -92,6 +92,23 @@ out=$(swap --new "$NEW2" --apply); rc=$?
 ok "an unreadable old fork with no copy in the checkout refuses" '[ $rc -eq 2 ] && [[ "$out" == *"has no copy of its branches"* ]]'
 cd ..
 
+g clone -q "$OLDF" spelled && cd spelled
+NEW3="$T/dev/third-private.git" && g clone -q --bare "$T/Nirmaan-app/$R.git" "$NEW3" && g init -q --bare "$T/dev/other.git"
+git remote add upstream "$T/Nirmaan-app/$R.git"
+git config --add remote.upstream.pushurl "$T/dev/other.git" && git config --add remote.upstream.pushurl "file://$OLDF"
+git remote add mirror "${OLDF%.git}/"
+out=$(swap --new "$NEW3" --apply); rc=$?
+ok "a second push URL naming the old fork in another spelling is repointed, the first is kept" \
+  '[ $rc -eq 0 ] && [ "$(git remote get-url --push --all upstream | tr "\n" " ")" = "$T/dev/other.git $NEW3 " ]'
+ok "a remote fetching and pushing the old fork without .git now pushes to the new fork" \
+  '[ "$(git remote get-url --push mirror)" = "$NEW3" ]'
+cd ..
+
+grep -q '^same_repo()' "$SWAP" && eval "$(sed -n '/^is_local_path()/,/^same_repo()/p' "$SWAP")"
+ok "ssh, https, no .git and case spellings of one GitHub repo are the same repo" \
+  'same_repo git@github.com:Dev1/$R.git https://github.com/dev1/$R && same_repo ssh://git@github.com/dev1/$R.git https://github.com/dev1/$R.git/'
+ok "a GitHub fork and its -private twin are different repos" '! same_repo https://github.com/dev1/$R.git https://github.com/dev1/$R-private.git'
+
 g clone -q "$OLDF" fresh && cd fresh
 out=$(swap --new "$T/dev/missing.git" --apply); rc=$?
 ok "a swap before prepare refuses" '[ $rc -eq 2 ] && [[ "$out" == *"run prepare first"* ]]'
