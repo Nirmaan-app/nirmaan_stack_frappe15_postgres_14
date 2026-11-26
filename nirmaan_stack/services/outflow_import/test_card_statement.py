@@ -184,6 +184,18 @@ class TestASummaryFigureInCredit(unittest.TestCase):
         self.assertEqual(totals.payments, Decimal("276821.73"))
         self.assertEqual(totals.total_due, Decimal("84929.28"))
 
+    def test_a_total_amount_due_in_credit_is_read_as_negative_not_as_the_minimum_due(self):
+        text = _replace(
+            _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á3,00,000.00 CR Á1,37,584.99 Á0.00 Á2,76,821.73"
+        )
+        text = _replace(text, "Á4,250.00\nÁ84,929.28", "Á0.00\nÁ4,39,236.74 CR")
+        totals = read_card_statement(text).totals
+        self.assertEqual(totals.previous_balance, Decimal("-300000.00"))
+        self.assertEqual(totals.total_due, Decimal("-439236.74"))
+        self.assertEqual(
+            totals.previous_balance + totals.purchases + totals.cash_advances - totals.payments, totals.total_due
+        )
+
 
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old
