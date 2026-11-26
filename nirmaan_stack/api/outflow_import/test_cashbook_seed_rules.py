@@ -4,8 +4,8 @@
 """Where the Cashbook seed (`patches/v3_0/seed_cashbook_import_rules`) is wired, and what it seeds reaches the plan
 (#1756).
 
-⚠️ THE SEED IS WIRED ONLY AFTER THE OWNER APPROVES ITS LIST in a comment on #1756 (spec #1753 story 71). Until its
-patches.txt line is added, the placement test is skipped; every other test runs the seed itself.
+⚠️ THE SEED IS WIRED: the owner approved its list on 2026-11-25 (recorded in a comment on #1756, spec #1753 story 71).
+The placement test still skips on a checkout whose patches.txt lacks the line; every other test runs the seed itself.
 
 ⚠️ RUNS AGAINST THE SITE DATABASE, AND WRITES NOTHING THAT OUTLIVES A TEST. The seed commits; each test here runs
 it with `frappe.db.commit` stubbed out and rolls the whole transaction back afterwards, so a site whose tables are

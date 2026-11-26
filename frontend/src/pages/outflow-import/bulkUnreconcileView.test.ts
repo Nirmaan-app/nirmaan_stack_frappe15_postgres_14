@@ -14,7 +14,6 @@ import {
     LINE_GONE,
     NOT_SETTLED_ANY_MORE,
     NOTHING_SETTLED,
-    movableTickedNote,
     unreconcileButtonState,
 } from "./bulkUnreconcileView";
 import { ROW_MATCHED, ROW_MISMATCHED, ROW_SETTLED } from "./outflowImportStatus";
@@ -56,7 +55,6 @@ describe("unreconcileButtonState", () => {
     const rows = [{ name: "a" }, { name: "b" }];
     it("is off with nothing ticked", () => {
         expect(unreconcileButtonState(rows, new Set(), new Map(), 0)).toEqual({
-            visible: true,
             enabled: false,
             count: 0,
             note: null,
@@ -65,7 +63,6 @@ describe("unreconcileButtonState", () => {
     });
     it("is on when every tick is on this page", () => {
         expect(unreconcileButtonState(rows, new Set(["a", "b"]), new Map(), 0)).toEqual({
-            visible: true,
             enabled: true,
             count: 2,
             note: null,
@@ -74,48 +71,11 @@ describe("unreconcileButtonState", () => {
     });
     it("is off, and names the page, when a tick is on another page", () => {
         expect(unreconcileButtonState(rows, new Set(["a", "x"]), new Map([["x", 2]]), 0)).toEqual({
-            visible: true,
             enabled: false,
             count: 2,
             note: "1 ticked line is on page 3. Unreconcile works on one page at a time: go back to page 3, or untick it.",
             offPage: "1 on page 3",
         });
-    });
-    // #1762, spec #1753 story 53: Unreconcile is not offered on a line Move accepts, in the toolbar too.
-    const withMovable = [{ name: "a" }, { name: "m", can_move: true }, { name: "n", can_move: true }];
-    it("is not drawn when every ticked line is one Move accepts", () => {
-        expect(unreconcileButtonState(withMovable, new Set(["m", "n"]), new Map(), 0)).toEqual({
-            visible: false,
-            enabled: false,
-            count: 2,
-            note: null,
-            offPage: null,
-        });
-    });
-    it("is not drawn, and says what to untick, when a line Move accepts is ticked with others", () => {
-        expect(unreconcileButtonState(withMovable, new Set(["a", "m"]), new Map(), 0)).toEqual({
-            visible: false,
-            enabled: false,
-            count: 2,
-            note: movableTickedNote(1),
-            offPage: null,
-        });
-        expect(movableTickedNote(1)).toBe(
-            "Unreconcile is not offered on a line Move accepts: untick the 1 such line to unreconcile the rest."
-        );
-    });
-    it("keeps the off-page chip, worded for Move, when a line Move accepts is ticked", () => {
-        expect(unreconcileButtonState(withMovable, new Set(["m", "x"]), new Map([["x", 2]]), 0)).toEqual({
-            visible: false,
-            enabled: false,
-            count: 2,
-            note: "1 ticked line is on page 3. Moving works on one page at a time: go back to page 3, or untick it.",
-            offPage: "1 on page 3",
-        });
-    });
-    it("is drawn when Move refuses the ticked line", () => {
-        const refused = [{ name: "r", can_move: false }];
-        expect(unreconcileButtonState(refused, new Set(["r"]), new Map(), 0).visible).toBe(true);
     });
 });
 

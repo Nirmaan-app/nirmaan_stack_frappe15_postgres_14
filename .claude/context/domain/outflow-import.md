@@ -2635,9 +2635,8 @@ space-normalised and padded, so a word start is exactly a preceding space.
 
 ### `patches.txt` lines
 
-`seed_cashbook_import_rules` is wired under `[post_model_sync]` only after the owner approves its list in a comment
-on #1756 (spec #1753 story 71); until then no migrate runs it. It inserts only a missing row and never touches one a
-person changed. `backfill_outflow_row_source` still needs its line (maintainer):
+`seed_cashbook_import_rules` runs under `[post_model_sync]` (#1756; the owner approved its list on 2026-11-25, recorded
+in a comment on #1756). It inserts only a missing row and never touches one a person changed. `backfill_outflow_row_source` still needs its line (maintainer):
 
 ```
 nirmaan_stack.patches.v3_0.backfill_outflow_row_source

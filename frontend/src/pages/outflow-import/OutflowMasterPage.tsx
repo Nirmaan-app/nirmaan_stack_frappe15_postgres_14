@@ -1559,8 +1559,6 @@ export const OutflowMasterPage = () => {
                                 `unreconcileButtonState`. Link and Confirm only work on open lines. */}
                             {settledMode ? (
                                 <>
-                                {/* #1762: not drawn while a line Move accepts is ticked (`unreconcileButtonState`). */}
-                                {unreconcileState.visible && (
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1576,7 +1574,6 @@ export const OutflowMasterPage = () => {
                                     <Undo2 className="mr-1.5 h-3.5 w-3.5" />
                                     Unreconcile {unreconcileState.count}
                                 </Button>
-                                )}
                                 {/* #1449, #1757: ticked Porter orders or Cashbook lines move together with Rectify (on screen: Move). */}
                                 {rectifyState.visible && (
                                     <Button
