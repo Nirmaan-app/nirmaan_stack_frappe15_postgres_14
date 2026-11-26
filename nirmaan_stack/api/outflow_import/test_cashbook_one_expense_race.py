@@ -322,3 +322,48 @@ class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
         self.assertEqual(job_line.row_status, "Skipped", job_line.outcome_note)
         self.assertIn("Already imported", job_line.outcome_note)
         self.assertIn(self.expense, job_line.outcome_note)
+
+
+class TestTwoMovesOfOneLine(OneExpensePerTxnIdCase):
+    def test_two_moves_of_one_settled_line_at_once_leave_one_expense_for_its_txn_id(self):
+        """Move (Rectify, #1757) re-points the Settled leg a Txn Id holds: it reverses the old match, creates the
+        replacement expense and inserts a new Settled match for the same Txn Id, in one transaction. Two Moves of one
+        line that started together: the late one locks the line the early one changed after its snapshot, and is
+        refused; the Txn Id ends with one expense, on the early Move's project."""
+        from nirmaan_stack.api.outflow_import.porter_rectify import rectify_rows
+        from nirmaan_stack.api.outflow_import.rectify_sources import CASHBOOK
+
+        parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+        batch = cb._stage(parsed, cb._build_plan(parsed), file_url="/private/files/test-statement.csv",
+                          filename="test-statement.csv", user=ACTOR).name
+        frappe.db.commit()
+        self.addCleanup(_purge, batch)
+        self._run_job(batch)
+        frappe.db.commit()
+        line = frappe.get_all(
+            "Outflow Import Row",
+            filters={"import_batch": batch, "row_status": "Settled", "suggested_doctype": "Non Project Expenses"},
+            fields=["name", "transfer_id"],
+            order_by="name asc",
+            limit=1,
+        )[0]
+        early_project, late_project = frappe.get_all(
+            "Projects", filters={"tendering_status": "Won", "status": ["!=", "CEO Hold"]}, pluck="name",
+            order_by="creation asc", limit=2,
+        )
+        rows = f'["{line.name}"]'
+
+        late_out, early_out = self._late_and_early(
+            lambda: rectify_rows(CASHBOOK, rows, late_project, "race: the late move"),
+            lambda: rectify_rows(CASHBOOK, rows, early_project, "race: the early move"),
+        )
+
+        self.assertTrue(early_out["result"]["lines"][0]["rectified"], early_out)
+        self.assertNotIn("error", late_out, late_out.get("error"))
+        self.assertFalse(late_out["result"]["lines"][0]["rectified"], late_out)
+        self._assert_one_expense_per_txn_id()
+        [held] = frappe.get_all(
+            "Outflow Row Match", filters={"transfer_id": line.transfer_id, "match_kind": "Settled"},
+            fields=["target_doctype", "target_name"],
+        )
+        self.assertEqual(frappe.db.get_value(held.target_doctype, held.target_name, "projects"), early_project)

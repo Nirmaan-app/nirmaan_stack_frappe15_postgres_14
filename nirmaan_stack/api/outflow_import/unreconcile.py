@@ -52,7 +52,7 @@ from nirmaan_stack.api.outflow_import.review import (
     _batch_source,
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
-from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
+from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, drop_a_deleted_pick, edits_of
 from nirmaan_stack.api.outflow_import.unreconcile_refund import read_refund_facts, unmatch_refund
 from nirmaan_stack.api.outflow_import.unreconcile_split import (
     join_leftover_back,
@@ -405,25 +405,9 @@ def _carry_out(
 
 
 def _drop_a_pick_that_was_deleted(row: str, carried) -> None:
-    """Clear the line's pick when it names a record this unreconcile just DELETED (#1314, trap 1).
-
-    ⚠️ THE CASHBOOK JOB STORES ITS OWN CREATED EXPENSE AS THE PICK (`cashbook._write_one` writes
-    `suggested_name = <created expense>`), and `refresh_row_allocation` falls back to `Matched`
-    whenever a pick survives. Left alone, an unreconciled Cashbook line would read Matched -- to a
-    record that no longer exists -- and a Confirm would settle it against nothing.
-
-    Keyed on the DELETION, never on the source: a pick that still exists keeps its #1280 meaning
-    ("the line keeps its old pick"), whatever import it came from. `suggested_doctype` is left as it
-    is -- on a Cashbook line it is the PLAN's ledger, which the Create form pre-fills from.
-    """
-    deleted = {(c.doctype, c.name) for c in carried if c.deleted}
-    if not deleted:
-        return
-    pick = frappe.db.get_value(ROW_DOCTYPE, row, ["suggested_doctype", "suggested_name"], as_dict=True)
-    if ((pick.suggested_doctype or "").strip(), (pick.suggested_name or "").strip()) in deleted:
-        # ⚠️ `set_value`, no hooks: the row carries no `doc_events`; the refresh right after re-derives
-        # its status from what is left.
-        frappe.db.set_value(ROW_DOCTYPE, row, "suggested_name", None, update_modified=False)
+    """Clear the line's pick when it names a record this unreconcile just DELETED (#1314, trap 1;
+    `unreconcile_created.drop_a_deleted_pick`)."""
+    drop_a_deleted_pick(row, {(c.doctype, c.name) for c in carried if c.deleted})
 
 
 def _lock_row(row: str):

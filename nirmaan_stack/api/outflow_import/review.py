@@ -1757,13 +1757,16 @@ def _settled_matches_by_row(row_names) -> dict[str, list]:
     each leg to a "Payments Done" link, so returning a reversed one would show a payment as paid by
     this transfer after it went back to `Approved`. Bound, not spelled: the literal lives in
     `services/outflow_import/allocation.MATCH_SETTLED`.
+
+    `created_by_import`: the screen offers Move on a bank or Cashfree line only when its record was created with
+    Create (#1760, `porterRectify.rectifyAffordance`).
     """
     names = [n for n in row_names if n]
     if not names:
         return {}
     matches = frappe.db.sql(
         """
-        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
+        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis, created_by_import
         FROM "tabOutflow Row Match"
         WHERE import_row IN %s AND match_kind = %s
         ORDER BY target_name ASC
@@ -3063,6 +3066,10 @@ def get_outflow_rows(
     tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
     refund_suggestions = shown_suggestions(rows)
     cheques = _cheque_outcomes(rows)
+    # A FUNCTION-LOCAL IMPORT: the Move core imports `expenses`, which imports this module.
+    from nirmaan_stack.api.outflow_import.rectify import movable_rows
+
+    movable = movable_rows(rows)
 
     return {
         "rows": [
@@ -3072,6 +3079,8 @@ def get_outflow_rows(
                 **internal_transfer_fields(row),
                 "hand_mark": hand_mark_of_row(row),
                 "can_send_back": can_send_back(row),
+                # #1762: Move accepts this line (its plan refuses nothing), so the screen hides Unreconcile on it.
+                "can_move": row["name"] in movable,
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of

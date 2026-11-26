@@ -22,8 +22,8 @@ import { LastBillRejected } from "./LastBillRejected";
 interface CardInvoiceColumnOptions {
     /** Which row actions the user gets (`cardInvoiceActions`). */
     actions: { attach: boolean; noInvoice: boolean };
-    onAttach: (name: string) => void;
-    onNoInvoice: (name: string) => void;
+    onAttach: (row: CardInvoiceRow) => void;
+    onNoInvoice: (row: CardInvoiceRow) => void;
 }
 
 export const getCardInvoiceColumns = ({
@@ -129,12 +129,12 @@ export const getCardInvoiceColumns = ({
         cell: ({ row }) => (
             <div className="flex justify-end gap-2 whitespace-nowrap">
                 {actions.attach && (
-                    <Button size="sm" variant="outline" onClick={() => onAttach(row.original.name)}>
+                    <Button size="sm" variant="outline" onClick={() => onAttach(row.original)}>
                         Attach invoice
                     </Button>
                 )}
                 {actions.noInvoice && (
-                    <Button size="sm" variant="ghost" onClick={() => onNoInvoice(row.original.name)}>
+                    <Button size="sm" variant="ghost" onClick={() => onNoInvoice(row.original)}>
                         No invoice
                     </Button>
                 )}

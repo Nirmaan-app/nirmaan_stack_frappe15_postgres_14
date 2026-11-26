@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
     linesToMove,
-    MOVE_ORDER_LABEL,
+    moveButtonLabel,
     moveDialogTitle,
-    moveOrdersLabel,
     placementText,
     rectifyAffordance,
     rectifyButtonState,
@@ -82,19 +81,31 @@ describe("Rectify N on ticked lines", () => {
     });
 });
 
-describe("The screen names Rectify Move to another project", () => {
-    it("labels the line's button with the plain name", () => {
-        expect(MOVE_ORDER_LABEL).toBe("Move to another project");
+describe("The Move dialog's title follows the label rule (#1759, story 39)", () => {
+    const nonProject: RectifyPlanLine = { ...onQuillon, row: "OFR-2", ledger: "Non Project Expenses", project: null };
+    const refused: RectifyPlanLine = { row: "OFR-3", crn: "CRN3", refusal: "This order is Open now, not Settled." };
+
+    it("says Move to a project over Non Project expenses", () => {
+        expect(moveDialogTitle([nonProject])).toBe("Move to a project");
     });
 
-    it("counts the orders on the toolbar and the dialog's run button", () => {
-        expect(moveOrdersLabel(1)).toBe("Move 1 order");
-        expect(moveOrdersLabel(3)).toBe("Move 3 orders");
+    it("says Change project over Project expenses", () => {
+        expect(moveDialogTitle([onQuillon, { ...onQuillon, row: "OFR-4" }])).toBe("Change project");
     });
 
-    it("titles the dialog for one order or several", () => {
-        expect(moveDialogTitle(1)).toBe("Move this Porter order to another project");
-        expect(moveDialogTitle(4)).toBe("Move 4 Porter orders to another project");
+    it("says Move N expenses over a mixed selection", () => {
+        expect(moveDialogTitle([onQuillon, nonProject])).toBe("Move 2 expenses");
+    });
+
+    it("words a refused line, which has no ledger, by the lines that have one", () => {
+        expect(moveDialogTitle([onQuillon, refused])).toBe("Change project");
+        expect(moveDialogTitle([refused])).toBe("Move to a project");
+    });
+
+    it("words the run button as the title until a destination is chosen, then by the lines that will move", () => {
+        const nonProject2: RectifyPlanLine = { ...onQuillon, row: "OFR-5", ledger: "Non Project Expenses", project: null };
+        expect(moveButtonLabel([onQuillon, refused], [])).toBe("Change project");
+        expect(moveButtonLabel([onQuillon, nonProject2], [nonProject2])).toBe("Move to a project");
     });
 });
 

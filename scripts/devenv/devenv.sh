@@ -2,7 +2,8 @@
 # Per-task dev environments: one thin bench + one git worktree + one cloned database per task,
 # all sharing the main bench's frappe app, Python env, Postgres and Redis.
 #
-#   ./devenv.sh template-build        copy the dev DB into template "nirmaan_tpl" (online, no restart)
+#   ./devenv.sh template-build        copy the dev DB into template "nirmaan_tpl" (online, no restart), without its
+#                                     AI keys (see TPL_NO_AI_KEYS_SQL)
 #   ./devenv.sh template-drop         delete the template
 #   ./devenv.sh create <task> [ref] [--branch <name> | --on <branch>]
 #                                     worktree at benches/<task>/apps/nirmaan_stack at ref (default: HEAD of the
@@ -80,6 +81,19 @@ set -euo pipefail
 
 CONTAINER="${DEVENV_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 TPL_DB="nirmaan_tpl"
+# The template, and so every task env cloned from it, holds no AI key: a served env or a test can make no paid AI call.
+# The main site keeps its keys for manual work (scripts/dev_isolate.py keeps them on purpose). Gemini is pinned to
+# "API Key" mode, so its other mode cannot reach Google with the site's GCP credentials. The AI switches stay on, so
+# each AI step finds no key and skips. A check that needs a key stores its own (background_operations_flows.park_key).
+TPL_NO_AI_KEYS_SQL="
+DELETE FROM \"tabSingles\" WHERE doctype = 'Document AI Settings' AND field = 'gemini_auth_mode';
+INSERT INTO \"tabSingles\" (doctype, field, value) VALUES ('Document AI Settings', 'gemini_auth_mode', 'API Key');
+WITH gone AS (
+  DELETE FROM \"__Auth\"
+  WHERE (doctype = 'BOQ Upload Review AI Settings' AND fieldname LIKE 'anthropic_api_key%')
+     OR (doctype = 'Document AI Settings' AND fieldname = 'gemini_api_key')
+  RETURNING 1)
+SELECT count(*) FROM gone;"
 SHARED_APPS="frappe frappe_gcp_attachment"
 export PGHOST=postgresql PGUSER=postgres PGPASSWORD=123
 
@@ -405,6 +419,7 @@ if [ "${1:-}" = "_in" ]; then
       createdb "$TPL_DB"
       pg_restore -j 3 -d "$TPL_DB" "$DUMP";                     took "restored into $TPL_DB"
       rm -rf "$DUMP"
+      psql -d "$TPL_DB" -v ON_ERROR_STOP=1 -qAt -c "$TPL_NO_AI_KEYS_SQL" | tail -1 | sed 's/^/  AI keys removed from the template: /'
       psql -qc "ALTER DATABASE \"$TPL_DB\" WITH IS_TEMPLATE true ALLOW_CONNECTIONS false" \
            -c "COMMENT ON DATABASE \"$TPL_DB\" IS 'built $(date '+%Y-%m-%d %H:%M') from $SRC'"
       took "template ready: $(psql -Atc "select pg_size_pretty(pg_database_size('$TPL_DB'))")"

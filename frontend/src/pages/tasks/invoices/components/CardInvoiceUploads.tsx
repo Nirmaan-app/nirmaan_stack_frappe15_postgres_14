@@ -41,10 +41,11 @@ const ENDPOINTS = {
     attach: "attach_card_invoice",
     noInvoice: "mark_card_no_invoice",
     cacheKey: "card-invoice-queue",
-    targetArgs: (target: QueueTarget) => ({ expense: target.name }),
+    targetArgs: (target: QueueTarget) => ({ expense: target.name, doctype: target.doctype }),
 };
 
-const cardSpend = (name: string): QueueTarget => ({ name, doctype: "Non Project Expenses" });
+// A card spend is on either ledger: the import books it Non Project, a Move may put it on a Won project (#1761).
+const cardSpend = (row: CardInvoiceRow): QueueTarget => ({ name: row.name, doctype: row.doctype });
 
 export const CardInvoiceUploads: React.FC = () => {
     const { role, user_id } = useUserData();
@@ -57,8 +58,8 @@ export const CardInvoiceUploads: React.FC = () => {
     // Statement month narrows the list before the table sees it; the table's own filters narrow it further.
     const monthRows = useMemo(() => filterCardInvoices(rows, { holder: ALL, month }), [rows, month]);
 
-    const onAttach = useCallback((name: string) => setAttaching(cardSpend(name)), [setAttaching]);
-    const onNoInvoice = useCallback((name: string) => openNoInvoice(cardSpend(name)), [openNoInvoice]);
+    const onAttach = useCallback((row: CardInvoiceRow) => setAttaching(cardSpend(row)), [setAttaching]);
+    const onNoInvoice = useCallback((row: CardInvoiceRow) => openNoInvoice(cardSpend(row)), [openNoInvoice]);
 
     const columns = useMemo(
         () => getCardInvoiceColumns({ actions, onAttach, onNoInvoice }),

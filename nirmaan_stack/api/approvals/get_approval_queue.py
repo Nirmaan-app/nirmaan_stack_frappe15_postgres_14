@@ -302,9 +302,9 @@ def _expense_select(table, source, project_col):
         requested_expr = f'COALESCE(t."bill_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT
-    # The import markers (#1710): a Cashbook spend's `cashbook_batch` on both ledgers, a card spend's
-    # `credit_card_statement` on Non-Project only (a Project Expense has no such field).
-    markers = ['"cashbook_batch"', *(['"credit_card_statement"'] if source == SOURCE_NON_PROJECT else [])]
+    # The import markers (#1710), on both ledgers: a Cashbook spend's `cashbook_batch`, and a card spend's
+    # `credit_card_statement` (a card spend moved to a Won project keeps it, #1761, ADR-0039 Amendment F).
+    markers = ['"cashbook_batch"', '"credit_card_statement"']
     imported_expr = f"""CASE WHEN {" OR ".join(f"COALESCE(e.{m}, '') <> ''" for m in markers)} THEN 1 ELSE 0 END"""
     # A reimbursement's expense is worked on the Reimbursements page only (ADR-0040 Amendment C): left out here,
     # so every reader of this union (the tabs, `get_approval_queue_counts`, the facets, the export) drops it.

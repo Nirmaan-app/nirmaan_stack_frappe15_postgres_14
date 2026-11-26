@@ -24,6 +24,9 @@
 # a Txn Id fails at that insert and rolls back, Expense included. In the model: `index_rows`.
 # #1601 widens it to a Cashbook line's Link (`created_by_import = 1 OR source = 'Cashbook'`): a person's
 # Link writes an index row too, and is refused when the Txn Id is already held. `LINK_HOLDS_TXN_ID`.
+# #1757 (spec #1753) adds a writer: Move (Rectify) replaces a created Expense in one transaction -- the old
+# Settled match Reversed (its row leaves the index), the old Expense deleted, the replacement Expense and its
+# new Settled match inserted (back into the index). Role `Mover`, `MOVERS`.
 options:
   crash_on_yield: false
   max_actions: 1000
@@ -81,6 +84,12 @@ PERSON_ACTIONS = ["create", "link"]
 # the index saw only created rows -- kept so `phase1_link_before_1601` shows the gap it closed.
 LINK_HOLDS_TXN_ID = True
 
+# #1757 (spec #1753): people moving a Settled line's created Expense (Move, `rectify.rectify_lines`), one Move each.
+# A Move to a project or Non-Project replaces the Expense ("expense"); a Move to Internal Transfer (#1762) deletes
+# it and records a transfer, which is not an Expense ("transfer").
+MOVERS = 0
+MOVE_DESTINATIONS = ["expense", "transfer"]
+
 # A job may die at any step (worker killed, timeout). Postgres rolls back its open transaction.
 CRASH = True
 
@@ -94,6 +103,11 @@ atomic func booked_in_snapshot(txn, snap_exp):
     # Is there an expense for this Txn Id that a snapshot seeing the first `snap_exp` expenses can see?
     # Real queries: `_booked_index` (cashbook.py:796) and the recorded-money guard, by `payment_ref`.
     return txn in expenses[:snap_exp]
+
+
+atomic func index_holds(txn):
+    # How many committed index rows hold this Txn Id (0 or 1 while C's index stands).
+    return len([x for x in index_rows if x == txn])
 
 
 atomic func commit_line(l, status):
@@ -229,6 +243,7 @@ role Job:
         else:
             expenses.append(txn)
             index_rows.append(txn)
+            lines[self.cur].exp = len(expenses) - 1
             commit_line(self.cur, "Settled")
             release_locks(self.me)
             self.idle("next")
@@ -288,7 +303,7 @@ role Confirm:
         for t in self.reopen:
             reopen_own_balance_skip(t)
         for t in self.new:
-            lines[len(lines)] = record(batch=self.idx, txn=t, status="Open" if t in COLLECT else "Pending", ver=0)
+            lines[len(lines)] = record(batch=self.idx, txn=t, status="Open" if t in COLLECT else "Pending", ver=0, exp=-1)
         if len(self.new) > 0 or len(self.reopen) > 0:
             staged[self.idx] = True
             enqueued[self.idx] = True
@@ -319,7 +334,7 @@ role Person:
         l = oneof sorted(lines.keys())
         status = lines[l].status
         booked = booked_in_snapshot(lines[l].txn, len(expenses))
-        gated = status in ("Settled", "Skipped", "OwnSkip") or (CODE == "phase1" and status == "Pending")
+        gated = status in ("Settled", "Skipped", "OwnSkip", "InternalTransfer") or (CODE == "phase1" and status == "Pending")
         if gated or booked:
             self.pc = "refused"
         else:
@@ -356,11 +371,86 @@ role Person:
             expenses.append(txn)
             if in_index and CODE == "phase1":
                 index_rows.append(txn)
+            if kind == "create":
+                # A Link settles the line to an existing Expense the import did not create: Move refuses it.
+                lines[self.cur].exp = len(expenses) - 1
             commit_line(self.cur, "Settled")
             self.pc = "done"
         self.cur = -1
         self.snap_ver = -1
         self.snap_exp = -1
+
+
+# ---- a person's Move (Rectify, #1757, spec #1753): `rectify.rectify_lines` -> `porter_rectify.rectify_rows` ->
+# `_rectify_group` -> `rectify_line` (porter_rectify.py:232) ----
+
+role Mover:
+    action Init:
+        self.me = "move" + str(self.idx)
+        self.pc = "idle"
+        self.cur = -1
+        self.snap_ver = -1
+
+    # The person ticks a Settled line and confirms. The request's first reads (`_ticked`, `_groups`, the line's
+    # source) take its snapshot here, before any lock.
+    atomic action ReadLine:
+        require self.pc == "idle"
+        settled = [l for l in sorted(lines.keys()) if lines[l].status == "Settled"]
+        require len(settled) > 0
+        l = oneof settled
+        self.cur = l
+        self.snap_ver = lines[l].ver
+        self.pc = "lock_line"
+
+    # `rectify_line`: the line's `SELECT ... FOR UPDATE` (`_read_line`, porter_rectify.py:252), then its live legs'
+    # and the old Expense's (lock order row, leg, Expense: Unreconcile's). It waits while another transaction holds
+    # the line. Changed after our snapshot -> serialization failure (`concurrent_writer_refusal_as_sentence`), the
+    # Move refused. `rectify_refusals.line_refusal`: not Settled, or its one live leg not created by the import (a
+    # Link), -> refused. Nothing written.
+    atomic action LockLine:
+        require self.pc == "lock_line"
+        require row_lock.get(self.cur, self.me) == self.me
+        line = lines[self.cur]
+        if line.ver != self.snap_ver or line.status != "Settled" or line.exp < 0:
+            self.pc = "refused"
+            self.cur = -1
+            self.snap_ver = -1
+        else:
+            row_lock[self.cur] = self.me
+            self.pc = "write"
+
+    # The rest of `rectify_line` in its savepoint, then `_rectify_group`'s commit: ONE transaction.
+    # `unreconcile.stamp_reversed` (the old Settled match -> Reversed, so its row leaves the partial index), then
+    # "expense": `rectify_replace.replace_expense` -- `create_expense_from_row` (the replacement, same `payment_ref`),
+    # `unreconcile_created.delete_created` (the old Expense), the source's `record_match` (a new Settled match,
+    # `created_by_import` 1, `source` 'Cashbook': back into the index; refused there if another row holds the Txn
+    # Id, and everything rolls back), `_follow_on_the_line` (the line UPDATE; it stays Settled);
+    # or "transfer": `rectify_transfer.move_to_internal_transfer` -- the old Expense deleted, an Internal Transfer
+    # (not an Expense, outside the index) recorded, the line UPDATE to Internal Transfer.
+    atomic action Write:
+        require self.pc == "write"
+        require row_lock.get(self.cur, self.me) == self.me
+        dest = oneof MOVE_DESTINATIONS
+        txn = lines[self.cur].txn
+        held = index_holds(txn)
+        if dest == "expense" and held > 1:
+            release_locks(self.me)
+            self.pc = "refused"
+        else:
+            index_rows.remove(txn)
+            expenses[lines[self.cur].exp] = ""
+            if dest == "expense":
+                expenses.append(txn)
+                index_rows.append(txn)
+                lines[self.cur].exp = len(expenses) - 1
+                commit_line(self.cur, "Settled")
+            else:
+                lines[self.cur].exp = -1
+                commit_line(self.cur, "InternalTransfer")
+            release_locks(self.me)
+            self.pc = "done"
+        self.cur = -1
+        self.snap_ver = -1
 
 
 action Init:
@@ -372,11 +462,11 @@ action Init:
     enqueued = {}
     first_run_over = {}
     for t in OWN_BALANCE_SKIPS:
-        lines[len(lines)] = record(batch=-1, txn=t, status="OwnSkip", ver=0)
+        lines[len(lines)] = record(batch=-1, txn=t, status="OwnSkip", ver=0, exp=-1)
     for p in range(len(PRESTAGED)):
         batch = len(STATEMENTS) + p
         for t in PRESTAGED[p]:
-            lines[len(lines)] = record(batch=batch, txn=t, status="Pending", ver=0)
+            lines[len(lines)] = record(batch=batch, txn=t, status="Pending", ver=0, exp=-1)
         staged[batch] = True
         enqueued[batch] = True
     confirms = []
@@ -390,12 +480,15 @@ action Init:
     persons = []
     for i in range(PERSONS):
         persons.append(Person())
+    movers = []
+    for i in range(MOVERS):
+        movers.append(Mover(idx=i))
 
 
-# THE PROPERTY. Each wallet Txn Id gets at most one expense.
+# THE PROPERTY. Each wallet Txn Id gets at most one expense. ("" is an Expense a Move deleted.)
 always assertion AtMostOneExpensePerTxnId:
     for t in expenses:
-        if len([x for x in expenses if x == t]) > 1:
+        if t != "" and len([x for x in expenses if x == t]) > 1:
             return False
     return True
 

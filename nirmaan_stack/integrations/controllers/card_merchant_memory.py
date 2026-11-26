@@ -5,7 +5,11 @@
 
 `Non Project Expenses` on_update. Exits at once unless the Expense is a card spend (`credit_card_statement`
 set) whose saved type differs from the one before the save. The insert itself is not an edit: Create
-remembers the type it writes (`card_create._create_one`).
+remembers the type it writes (`card_create._create_one`), and a Move's replacement teaches nothing.
+
+⚠️ NON PROJECT ONLY. A card spend moved to a Won project keeps its statement link (#1761, ADR-0039 Amendment F), but
+its type there is a project's type, not the merchant's: this hook is wired to `Non Project Expenses` alone, and
+`card_memory.merchant_of_expense` reads only Non Project matches.
 """
 
 import frappe

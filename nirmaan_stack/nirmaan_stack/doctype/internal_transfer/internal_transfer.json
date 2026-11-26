@@ -14,6 +14,7 @@
   "from_place",
   "to_place",
   "detail",
+  "proof",
   "column_break_line",
   "source",
   "import_row",
@@ -132,12 +133,19 @@
    "fieldtype": "Small Text",
    "label": "Reason",
    "read_only": 1
+  },
+  {
+   "description": "The bill that shows the move, kept when a Move turned a wallet spend into this transfer (spec #1753).",
+   "fieldname": "proof",
+   "fieldtype": "Attach",
+   "label": "Proof",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-07 00:28:05.688201",
+ "modified": "2026-11-26 00:33:13.650026",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Internal Transfer",

@@ -48,9 +48,12 @@
 #                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
 #                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
 #                            when that changes. done prints the same WARN.
-#                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does:
-#                            it cleans each PRUNE task, so merged tasks never pile up on a box (each holds an idle chat,
-#                            its folder and a ~2 GB test DB). A clean that fails alerts, naming the
+#                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does,
+#                            for finished, merged tasks only: two more holds keep the rest (not-finished: no finished
+#                            report, as before the agent starts or after it died; no-commits: the box tip is still the
+#                            base start recorded, or nothing of the task is on the box yet). So merged tasks never pile
+#                            up on a box (each holds an idle chat, its folder and a ~2 GB test DB), and a task being
+#                            started is never cleaned under it. A clean that fails alerts, naming the
 #                            task (its output is in the pass), and WARNs on each later pass while it still fails. A box
 #                            that did not answer is left alone: the watch rows above already show it unreachable.
 #                            --every repeats until Ctrl-C. --install (macOS) runs watch --clean every 300 s as the
@@ -320,7 +323,7 @@ notify() {
 # WARNs on later passes, the way a wrong hooksPath does: the launchd job retries it every 300 s.
 watch_clean() {
   local out rc=0 failed n f msg alerts=""
-  out="$(prune_tasks 1 2>&1)" || rc=$?
+  out="$(prune_tasks 1 1 2>&1)" || rc=$?
   printf '%s\n' "$out"
   failed="$(printf '%s\n' "$out" | sed -n 's/^FAIL  clean \([a-z0-9-]*\) .*/\1/p')"
   # 1 with no FAIL line, or any code but 0, 1 and 3: prune itself stopped, so nothing past that point was cleaned.
@@ -456,7 +459,7 @@ EOF
 }
 
 # The holds of a box task, one check per name, each printing the hold when it applies to the task in the T_* globals.
-TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched off-branch"
+TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched off-branch not-finished no-commits"
 task_hold_unreachable() { [ -z "$T_NOTE" ] || echo unreachable; }
 # A stalled agent still occupies the box and its work, so it holds under its own name.
 task_hold_working() { case "$T_STATE" in working|stalled) echo "$T_STATE" ;; esac; }
@@ -472,10 +475,23 @@ task_hold_off_branch() {
   [ -z "$T_NOTE" ] && [ "$T_HEAD" != - ] && [ "$T_HEAD" != "$T_TIP" ] && ! landed "$T_HEAD" >/dev/null \
     && echo "off-branch:${T_HEAD:0:9}" || true
 }
+# watch --clean's two holds (T_AUTO=1); a person running prune --yes judges these for themselves. Landed alone is not
+# finished and merged: a task just started, or whose agent died before its first commit, sits at its base, which the
+# ref it was cut from already holds. not-finished: no finished report (watch's crashed: no agent yet, or a dead one).
+# no-commits: the box tip is still the base start recorded, or nothing of the task is on the box yet (start writes the
+# record before it hands the branch over). no-commits also covers a reused name, whose old DONE report clean leaves.
+task_hold_not_finished() { [ "$T_AUTO" = 1 ] && [ "$T_STATE" = crashed ] && echo not-finished || true; }
+task_hold_no_commits() {
+  [ "$T_AUTO" = 1 ] && [ -z "$T_NOTE" ] || return 0
+  if [ "$T_TIP" = - ]; then echo no-commits:nothing-on-box
+  elif [ "$T_TIP" = "$(git config "devbox-task.$T_NAME.base" || true)" ]; then echo no-commits; fi
+}
 
-# prune_tasks <yes>: one row per recorded task (see the header). Exit 3 when a box did not answer.
+# prune_tasks <yes> [<auto>]: one row per recorded task (see the header); auto 1 adds watch --clean's holds. Exit 3
+# when a box did not answer.
 prune_tasks() {
   local yes="$1" recs box names n out wout rc row alive dod idle line word h d where rows="" keep="" todo="" down=0 failed=0
+  T_AUTO="${2:-0}"
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo "== $(date '+%Y-%m-%d %H:%M:%S')  task prune: box tasks whose box tip a laptop ref holds"
   [ -n "$recs" ] || echo "no task records (task.sh start makes them)"
@@ -491,7 +507,7 @@ prune_tasks() {
     fi
     [ -z "$T_NOTE" ] || echo "box $box: $T_NOTE"
     for n in $names; do
-      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- idle=- line=""
+      T_NAME="$n" T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- idle=- line=""
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
       [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED T_STATUS_RC T_HEAD <<<"$row"
       row="$(printf '%s\n' "$wout" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
@@ -558,7 +574,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,66p' "$0"; exit 1 ;;
+  *) sed -n '2,69p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"

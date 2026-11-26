@@ -4,29 +4,37 @@
 // the dialog and the run's result say. Pure: no React, no fetch. `porterRectify.test.ts` pins it;
 // `OutflowRowsTable`, `OutflowMasterPage` and `RectifyDialog` render it.
 //
-// ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`porter_rectify.get_porter_rectify_plan`
+// ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`rectify.get_rectify_plan`
 // `refusal`); the write re-asks under its locks. This only decides what to offer and how to word it.
 
-import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
+import { moveLabel } from "@/utils/moveLabel";
 
+import { BANK_MOVE_SOURCES } from "./bankRectify";
+import { CASHBOOK_SOURCE } from "./cashbookRectify";
+import { CARD_SOURCE } from "./creditCardImport";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
 import { orders } from "./porterWords";
 
-export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.get_porter_rectify_plan";
-export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.rectify_porter_rows";
+/** The Move endpoints for any wired source (#1757): each takes the source from the ticked lines. */
+export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.rectify.get_rectify_plan";
+export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.rectify.rectify_lines";
 
 const PROJECT_EXPENSE = "Project Expenses";
 
-/** On screen Rectify is "Move to another project" (#1558); the code and the domain keep the name Rectify. */
-export { MOVE_ORDER_LABEL };
+/**
+ * The dialog's title (story 39), by the label rule over the lines whose expense the plan read (a refused line has
+ * none); "Move to a project" when no line has one.
+ */
+export const moveDialogTitle = (lines: readonly RectifyPlanLine[]): string => {
+    const ledgers = lines.filter((line) => line.ledger).map((line) => line.ledger);
+    return moveLabel(ledgers.length ? ledgers : lines.map(() => undefined));
+};
 
-/** The toolbar's button over ticked lines, and the dialog's run button. */
-export const moveOrdersLabel = (n: number): string => `Move ${orders(n)}`;
-
-export const moveDialogTitle = (n: number): string =>
-    n === 1 ? "Move this Porter order to another project" : `Move ${n} Porter orders to another project`;
+/** The run button's words: the title's until a destination is chosen, then the lines that will move. */
+export const moveButtonLabel = (lines: readonly RectifyPlanLine[], moving: readonly RectifyPlanLine[]): string =>
+    moving.length ? moveLabel(moving.map((line) => line.ledger)) : moveDialogTitle(lines);
 
 /** One ticked line, as the plan reads it. Every field past `refusal` is absent on a refused line. */
 export interface RectifyPlanLine {
@@ -48,6 +56,12 @@ export interface RectifyPlan {
     lines: RectifyPlanLine[];
     /** The Won projects: the only ones an order can move to. */
     projects: { name: string; project_name: string }[];
+    /** The ticked lines' source (`rectify.get_rectify_plan`, #1757). */
+    source?: string;
+    /** The expense types each ledger takes, for the type a Cashbook Move offers. */
+    types?: Record<string, string[]>;
+    /** The Internal Transfer destination's own place and far ends, or `null` where lines cannot go there (#1762). */
+    transfer?: { own_place: string; other_ends: string[] } | null;
 }
 
 export interface RectifyResultLine {
@@ -62,18 +76,67 @@ export interface RectifyResult {
     lines: RectifyResultLine[];
 }
 
-const isPorterSettled = (row: { row_status: string; source?: string | null }) =>
-    row.row_status === ROW_SETTLED && (row.source ?? "").trim() === PORTER_SOURCE;
+type MovableRow = {
+    row_status: string;
+    source?: string | null;
+    suggested_doctype?: string | null;
+    /** The line's live Settled matches; a bank line's must say its record is an expense created with Create (#1760). */
+    matches?: ReadonlyArray<{ target_doctype?: string | null; created_by_import?: 0 | 1 | null }>;
+};
+
+/** The ledgers Move takes a record from (`ledgers.EXPENSE_DOCTYPES`). */
+const EXPENSE_LEDGERS: ReadonlySet<string> = new Set([PROJECT_EXPENSE, "Non Project Expenses"]);
+
+/** The sources Move is wired for (#1449 Porter, #1757 Cashbook, #1761 card, #1760 bank and Cashfree), and what each
+ * calls its lines. */
+const MOVABLE_SOURCES: Record<string, string> = {
+    [PORTER_SOURCE]: "Porter orders",
+    [CASHBOOK_SOURCE]: "Cashbook lines",
+    [CARD_SOURCE]: "card lines",
+    ...BANK_MOVE_SOURCES,
+};
 
 /**
- * The Rectify button beside Unreconcile on one line: a Settled Porter line, for the undo roles
- * (`outflowImportStatus.canUndoOutflow`) -- the same people who can Unreconcile it.
+ * The line's source when it is a Settled line Move is wired for, else `null`. A bank or Cashfree line only when its
+ * record is an expense created with Create: most of them were Linked to a payment, and Create also makes inflows and
+ * vendor refunds, which Move never takes.
  */
-export const rectifyAffordance = (row: { row_status: string; source?: string | null }, canUndo: boolean): boolean =>
-    canUndo && isPorterSettled(row);
+const movableSource = (row: MovableRow): string | null => {
+    const source = (row.source ?? "").trim();
+    if (row.row_status !== ROW_SETTLED || !(source in MOVABLE_SOURCES)) return null;
+    const createdExpense = (row.matches ?? []).some(
+        (match) => match.created_by_import && EXPENSE_LEDGERS.has(match.target_doctype ?? ""),
+    );
+    if (source in BANK_MOVE_SOURCES && !createdExpense) return null;
+    return source;
+};
+
+/**
+ * Where the line's expense is now: its one live Settled match's ledger, else its pick's. ⚠️ Not the pick alone: a
+ * bank or Cashfree line's Create never writes `suggested_doctype` (only a Move does), so a created Project Expense
+ * there has a blank pick.
+ */
+const lineLedger = (row: MovableRow): string | null | undefined => {
+    const matches = row.matches ?? [];
+    return (matches.length === 1 && matches[0].target_doctype) || row.suggested_doctype;
+};
+
+/**
+ * The Rectify (Move) button beside Unreconcile on one line: a Settled Porter, Cashbook or card line, or a bank or
+ * Cashfree line whose expense was created, for the undo roles (`outflowImportStatus.canUndoOutflow`) -- the same
+ * people who can Unreconcile it.
+ */
+export const rectifyAffordance = (row: MovableRow, canUndo: boolean): boolean => canUndo && Boolean(movableSource(row));
+
+/** The line button's words, by where the line's expense is now (`moveLabel`; a Porter line too, #1759). */
+export const lineMoveLabel = (row: MovableRow): string => moveLabel([lineLedger(row)]);
+
+/** The toolbar's words over the ticked lines Move is wired for, by the same rule as one line's (#1757, Porter #1759). */
+export const toolbarMoveLabel = (rows: ReadonlyArray<MovableRow & { name: string }>, selected: ReadonlySet<string>): string =>
+    moveLabel(rows.filter((row) => selected.has(row.name) && movableSource(row)).map(lineLedger));
 
 export interface RectifyButtonState {
-    /** Shown once a Settled Porter line is ticked on this page. */
+    /** Shown once a Settled line of a wired source is ticked on this page. */
     visible: boolean;
     enabled: boolean;
     count: number;
@@ -82,27 +145,30 @@ export interface RectifyButtonState {
 }
 
 /**
- * "Move N orders" (Rectify) in the Settled-lines toolbar, beside "Unreconcile N". On only when every ticked line is a Settled
- * Porter line on this page: the run moves every line to ONE placement, which means nothing for a bank line.
+ * Move (Rectify) in the Settled-lines toolbar, beside "Unreconcile N". On only when every ticked line is a Settled
+ * line of ONE wired source on this page (Porter first when both are ticked): the run moves every line to ONE
+ * placement, through that source's rules.
  */
 export const rectifyButtonState = (
-    rows: ReadonlyArray<{ name: string; row_status: string; source?: string | null }>,
+    rows: ReadonlyArray<MovableRow & { name: string }>,
     selected: ReadonlySet<string>,
     tickedOnPage: ReadonlyMap<string, number>,
     currentPage: number,
 ): RectifyButtonState => {
     const count = selected.size;
-    const porterTicked = rows.filter((row) => selected.has(row.name) && isPorterSettled(row)).length;
-    if (!porterTicked) return { visible: false, enabled: false, count, note: null };
+    const sources = rows.filter((row) => selected.has(row.name)).map(movableSource);
+    const source = sources.includes(PORTER_SOURCE) ? PORTER_SOURCE : sources.find(Boolean);
+    if (!source) return { visible: false, enabled: false, count, note: null };
+    const ofSource = sources.filter((s) => s === source).length;
     const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Moving");
     if (away) return { visible: true, enabled: false, count, note: away.note };
-    const others = count - porterTicked;
+    const others = count - ofSource;
     if (others) {
         return {
             visible: true,
             enabled: false,
             count,
-            note: `Moving works on Porter orders only: untick the ${others} other ${others === 1 ? "line" : "lines"}.`,
+            note: `Moving works on ${MOVABLE_SOURCES[source]} only: untick the ${others} other ${others === 1 ? "line" : "lines"}.`,
         };
     }
     return { visible: true, enabled: true, count, note: null };
@@ -118,7 +184,7 @@ const alreadyThere = (line: RectifyPlanLine, target: string): boolean =>
     target ? line.ledger === PROJECT_EXPENSE && line.project === target : line.ledger !== PROJECT_EXPENSE;
 
 /** The lines a Rectify to `target` (a project, or "" for Non-Project) would move: not refused, not there already. */
-export const linesToMove = (lines: readonly RectifyPlanLine[], target: string): RectifyPlanLine[] =>
+export const linesToMove = <T extends RectifyPlanLine>(lines: readonly T[], target: string): T[] =>
     lines.filter((line) => !line.refusal && !alreadyThere(line, target));
 
 /** Why a line will not move to `target`, or `null` when it will. */
