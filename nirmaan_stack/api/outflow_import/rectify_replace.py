@@ -6,7 +6,7 @@ the Rectify core `porter_rectify` by #1762, which added the Internal Transfer de
 
 Steps 2-6 of the core's per-line steps, the comments aside: run inside the core's savepoint, after the line's Settled
 match is stamped Reversed. What a person added later travels too (owner, 2026-11-26, #1760): the pay-to account and
-approval dates (`settle.CARRIED_FIELDS`), and every comment people wrote (`_move_comments`).
+approval dates and a No invoice mark (`settle.CARRIED_FIELDS`), and every comment people wrote (`_move_comments`).
 """
 
 from __future__ import annotations

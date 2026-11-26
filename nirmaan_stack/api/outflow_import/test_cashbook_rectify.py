@@ -31,7 +31,8 @@ import frappe
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import rectify
-from nirmaan_stack.api.outflow_import.test_cashbook_bills import ONE_LINK, CashbookBillsCase
+from nirmaan_stack.api.expenses import cashbook_invoices
+from nirmaan_stack.api.outflow_import.test_cashbook_bills import NO_LINK, ONE_LINK, CashbookBillsCase
 from nirmaan_stack.api.outflow_import.test_porter_rectify import _purge_history
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 
@@ -216,6 +217,29 @@ class TestAProjectSpendMovesOn(CashbookRectifyCase):
         self.assertIn(REASON, comments[0])
         self.assertIn(f"{PROJECT_EXPENSE} {self.on_orchid.name} on ", comments[1])
         self.assertNotIn(new.name, comments[1])
+
+
+class TestANoInvoiceMarkMovesWithTheExpense(CashbookRectifyCase):
+    """A person's No invoice mark is part of the expense's invoice details (story 17): a Move keeps who marked it,
+    when and why, so the moved spend stays out of Pending Invoices Upload."""
+
+    def test_the_new_expense_keeps_the_mark_and_stays_out_of_the_invoice_queue(self):
+        old = self._expense(NO_LINK)
+        cashbook_invoices.mark_cashbook_no_invoice(old.name, old.doctype, "Toll booth, no receipt")
+        old.reload()
+        self.assertEqual(old.no_invoice_by, "Administrator")
+
+        result = self._move([NO_LINK], self.orchid)
+
+        self.assertTrue(result["lines"][0]["rectified"], result)
+        new = self._expense(NO_LINK)
+        self.assertEqual((new.doctype, new.projects), (PROJECT_EXPENSE, self.orchid))
+        self.assertEqual(
+            (new.no_invoice_reason, new.no_invoice_by, str(new.no_invoice_at)),
+            (old.no_invoice_reason, old.no_invoice_by, str(old.no_invoice_at)),
+        )
+        queue = {row["name"] for row in cashbook_invoices.get_cashbook_invoice_queue()}
+        self.assertNotIn(new.name, queue)
 
 
 class TestMoneyComingBackStaysNegative(CashbookRectifyCase):

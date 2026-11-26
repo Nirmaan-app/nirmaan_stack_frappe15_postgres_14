@@ -214,8 +214,15 @@ _PAID = "Paid"
 
 #: What `create_expense_from_row(carried=...)` writes from the expense a Move replaces, though Create never writes it
 #: (owner, 2026-11-26): the account the money was paid into (locked once Paid, ADR-0033 Amendment A, so nobody could
-#: put it back) and the approval dates.
-CARRIED_FIELDS = PAY_TO_FIELDS + ("approval_date", "ceo_approval_date")
+#: put it back), the approval dates, and a person's *No invoice* mark (who, when and why: spec #1753 story 17, the
+#: moved expense keeps its invoice details; without it the moved spend would go back to Pending Invoices Upload).
+CARRIED_FIELDS = PAY_TO_FIELDS + (
+    "approval_date",
+    "ceo_approval_date",
+    "no_invoice_reason",
+    "no_invoice_by",
+    "no_invoice_at",
+)
 
 
 class ExpenseSettlementError(frappe.ValidationError):
@@ -1054,7 +1061,7 @@ def create_expense_from_row(
     `cashbook_money_in` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
     refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
     `carried` is Move's (Rectify, owner 2026-11-26): fields of the expense being replaced, only `CARRIED_FIELDS` (its
-    pay-to account and approval dates), set as they are before the insert, so the save hooks see them: a pay-to account present is not
+    pay-to account, approval dates and No invoice mark), set as they are before the insert, so the save hooks see them: a pay-to account present is not
     refilled from the vendor (`payees.pay_to.fill_from_vendor`).
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so

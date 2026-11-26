@@ -1,7 +1,11 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""The Cashbook seed (`patches/v3_0/seed_cashbook_import_rules`) is wired, and what it seeds reaches the plan (#1756).
+"""Where the Cashbook seed (`patches/v3_0/seed_cashbook_import_rules`) is wired, and what it seeds reaches the plan
+(#1756).
+
+⚠️ THE SEED IS WIRED ONLY AFTER THE OWNER APPROVES ITS LIST in a comment on #1756 (spec #1753 story 71). Until its
+patches.txt line is added, the placement test is skipped; every other test runs the seed itself.
 
 ⚠️ RUNS AGAINST THE SITE DATABASE, AND WRITES NOTHING THAT OUTLIVES A TEST. The seed commits; each test here runs
 it with `frappe.db.commit` stubbed out and rolls the whole transaction back afterwards, so a site whose tables are
@@ -74,6 +78,8 @@ class TestTheSeedIsWired(FrappeTestCase):
     def test_migrate_runs_the_seed_once_after_the_doctypes_exist(self):
         """Its two tables are doctypes, so the seed belongs after model sync, and listed once."""
         sections = _patch_sections()
+        if not any(SEED in lines for lines in sections.values()):
+            self.skipTest("the seed is wired only after the owner approves its list on #1756 (story 71)")
         self.assertTrue(SEED in sections["post_model_sync"], "the seed is not under [post_model_sync]")
         self.assertFalse(SEED in sections["pre_model_sync"], "the seed runs before its doctypes exist")
         # configparser would refuse a repeated line before any count of it; count the raw lines instead.

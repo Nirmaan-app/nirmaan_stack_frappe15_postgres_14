@@ -45,6 +45,7 @@ Rerun both checks when a change touches any of these (the coverage record):
 | `nirmaan_stack/api/outflow_import/card_create.py` | `_create_one` -- the locking prior art the spec copies |
 | `nirmaan_stack/nirmaan_stack/doctype/outflow_row_match/outflow_row_match.py` | `ensure_one_import_created_expense_per_transfer` (rule 3's index); `ensure_settled_target_unique` never fires for a Cashbook create |
 | `nirmaan_stack/services/outflow_import/import_created_expense.py` | `IMPORT_CREATED_EXPENSE_INDEX`, `IMPORT_CREATED_EXPENSE_PREDICATE`, `is_import_created_expense_refusal`, `import_created_expense_holding` |
+| `nirmaan_stack/api/outflow_import/porter_rectify.py`, `rectify.py`, `rectify_replace.py`, `rectify_transfer.py`, `rectify_sources.py`, `cashbook_matches.py` | Move (#1757, spec #1753): `rectify_line` (row, leg, Expense locks; `stamp_reversed`; one savepoint), `replace_expense` (the replacement through `create_expense_from_row`, same `payment_ref`; `delete_created`; `record_cashbook_match`), `move_to_internal_transfer` -- one transaction per line, committed by `_rectify_group` |
 | any new unique index or advisory lock on expenses, `payment_ref` or Cashbook lines; any new writer of an Expense, a `payment_ref`, an `Outflow Row Match` or a Cashbook line's `row_status` | changes a rule or a step of the model |
 
 **Sync commit: `5830c8599`** (spec #1585 through #1601 and its review fixes, on `spec/1585`). At this commit
@@ -90,6 +91,7 @@ any row says `UNEXPECTED`. Expected at the sync commit:
  phase1_link_before_1601    FAIL      the same on #1588's index as first built, which did not see a Link (Findings 4)
  phase1_open                PASS      #1595: twin open Collect lines, two people Creating; a spend's Error line Linked
  phase1_reopen              PASS      #1596: two confirms re-opening one own-balances skip, two people Creating on it
+ phase1_move                PASS      #1757: two Moves of one Settled line (to a project or to Internal Transfer), its twin line Error or skipped
 ```
 
 `phase1` takes 257 s on an Apple-silicon Mac at the sync commit (874 s on contabo at `f36a74ce`); the others
@@ -156,7 +158,8 @@ does; `_mark_if_still_pending`'s `WHERE` likewise matches nothing; and rule 3 is
 holds at any isolation level.
 
 Line numbers are at the sync commit. A line's status in the model: `Pending` (`Pending match run`), `Open`
-(`Mismatched`, an open line), `Settled`, `Error`, `Skipped`, `OwnSkip` (Skipped as own balances, #1596).
+(`Mismatched`, an open line), `Settled`, `Error`, `Skipped`, `OwnSkip` (Skipped as own balances, #1596), `InternalTransfer` (a Move to
+Internal Transfer, #1762). The `Mover` steps are named at spec #1753's head, not at the sync commit.
 
 | Model step | Code | Indivisible because |
 |---|---|---|
@@ -169,6 +172,9 @@ Line numbers are at the sync commit. A line's status in the model: `Pending` (`P
 | `Confirm.Plan` | `cashbook.py:166` `_plan_claiming_reopens` (`:642`) -> `_build_plan` (`:671`) -> `_already_imported` `:695` (every stored line of the Txn Id), `_already_booked` `:718`, `cashbook_reopen.wrong_skips` (`:46`); `services/outflow_import/cashbook.py` `plan_statement` / `claim_wrong_skips`: a Collect payment on an own-balances skip re-opens it | reads one snapshot |
 | `Confirm.StageAndEnqueue` | `save_file` `cashbook.py:182`, the re-open claim again `:185` (`cashbook_reopen.claim_reopens` `:105`, row locks to the commit), `_stage` `:898` (`cashbook_lines.line_values`: a spend or Collect payment `Pending match run`, a wallet credit `Mismatched`; `cashbook_reopen.reopen_lines` `:76` writes the claimed line), commit `:208`, `_enqueue_worker` `:317` | one transaction after `save_file`'s commit |
 | `Person.OpenLine` | `expenses.py:1174` `_load_settleable_row` / `link_lines.py:184` `_load_linkable_row` (gate B: `guard_not_an_own_import_line` `expenses.py:1217` -> `skip_origin.own_import_refusal`) + `expenses.py:1297` `_guard_money_not_recorded` | reads one snapshot |
+| `Mover.ReadLine` | `rectify.rectify_lines` -> `porter_rectify.rectify_rows` -> `_rectify_group`: the request's reads before the lock (`_ticked`, `_groups`) | reads one snapshot |
+| `Mover.LockLine` | `porter_rectify.rectify_line` (`:232`): the line's `FOR UPDATE` (`_read_line`), its live legs' and the old Expense's; 40001 -> `concurrent_writer_refusal_as_sentence`; `rectify_refusals.line_refusal` (not Settled, or the leg not created by the import) | the `FOR UPDATE` returning (after any wait) |
+| `Mover.Write` | `rectify_line`'s savepoint: `stamp_reversed` (the old match leaves the index), then `rectify_replace.replace_expense` (`create_expense_from_row`, `delete_created`, `record_cashbook_match`: back into the index, `_follow_on_the_line`) or `rectify_transfer.move_to_internal_transfer` (the old Expense deleted, no Expense made, the line Internal Transfer); `_rectify_group`'s commit | one transaction |
 | `Person.CreateOrLink` | Create: `create_expense` `expenses.py:1057` -> `row_settlement.record_settlement` (`:41`, `source` from `line_source` `:107`; `created_by_import` 1); refused -> `_refuse_as_already_imported` `expenses.py:1127`. Link: `settle_row` `expenses.py:298` / `link_lines.link_rows_to_expense` `:65` (writes `payment_ref`; match row `created_by_import` 0, `source` 'Cashbook'); refused -> `refuse_link_of_a_held_txn_id` `expenses.py:223` (`AlreadyImportedError` naming the holder). (Before #1708 a Collect line refused Link; that guard is gone.) | one transaction |
 
 Checked and not modelled, because each can only refuse or delay a write, never add an Expense:
@@ -183,7 +189,7 @@ patches `save_file` to commit, as production does.
 ## Bounds and what is NOT covered
 
 Checked exhaustively within: 2 Txn Ids; up to 2 statements (one overlapping the other by one Txn Id);
-2 job runs on batch 0 and 1 on batch 1; one person action (two people, one action each, in `phase1_open` and
+2 job runs on batch 0 and 1 on batch 1; two Moves of one line (`phase1_move`); one person action (two people, one action each, in `phase1_open` and
 `phase1_reopen`); crashes and write errors at every step (no crash in the link, open and reopen configs).
 A pass covers this model at these bounds, not the system. Assumed or left out:
 
@@ -239,6 +245,19 @@ Measured at `5830c8599` with `run.sh`: every config came out as expected (exit 0
    refuses the second. Breaks, measured: `index_refuses` -> `False` turns `phase1_open`, `phase1_link` and
    `phase1_two_batches` red; `phase1_reopen` stays green without the index (the claim keeps one line, and two
    people on one line meet rule 2), and goes red only when the re-open also stages a new line for its Txn Id.
+
+6. **Move books nothing twice** (#1757, spec #1753; `phase1_move`, 29 s). A Move reverses the old match, deletes
+   the old Expense and inserts the replacement and its new Settled match in one transaction, so no other writer
+   ever sees the Txn Id free while the replacement exists; the late one of two Moves of one line is refused at its
+   line lock. Break, measured: a Move that leaves the old Expense in place (`expenses[...] = ""` removed) FAILS at
+   the first Move. A Move to Internal Transfer frees the index's key (an Internal Transfer is not an Expense), so a
+   twin line of the Txn Id may then be Created by hand: one Expense, which this property allows; whether money
+   recorded as a transfer may also be an Expense is outside it. Race test: `TestTwoMovesOfOneLine`.
+   Spec #1753 also changed `cashbook.py` (`_write_one`'s match insert moved to `cashbook_matches.record_cashbook_match`,
+   same fields, same transaction), `row_settlement.record_settlement` (an `origin` argument), `card_create.py` (its
+   match insert moved to `record_card_match`), `settle.create_expense_from_row` (`carried` fields, never
+   `payment_ref`) and `cashbook_bills.copy_created_line_bills` (bills approved on arrival): re-read, no step changed.
+   The sync commit stays `5830c8599` because the #1708 drift above is still open.
 
 ## When the code changes on purpose
 

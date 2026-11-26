@@ -28,6 +28,8 @@ import {
 } from "./unreconcileView";
 
 export interface UnreconcileButtonState {
+    /** Off when a ticked line is one Move accepts (#1762, spec #1753 story 53): the button is not drawn. */
+    visible: boolean;
     enabled: boolean;
     count: number;
     /** The amber note under the toolbar, or `null`. */
@@ -36,23 +38,45 @@ export interface UnreconcileButtonState {
     offPage: string | null;
 }
 
+/** The amber note when some, not all, ticked lines are ones Move accepts. */
+export const movableTickedNote = (movable: number): string =>
+    `Unreconcile is not offered on a line Move accepts: untick the ${movable} such ${movable === 1 ? "line" : "lines"} to unreconcile the rest.`;
+
 /**
  * "Unreconcile N": on when every ticked Settled line is on this page (#1317 stories 12, 13).
  *
  * ⚠️ ONE PAGE AT A TIME, LIKE LINKING, through the same `offPageTicks` check. The page holds 50, so this
  * also keeps a run at the server's cap -- which the server enforces again on its own.
+ *
+ * ⚠️ NOT OFFERED WHILE A LINE MOVE ACCEPTS IS TICKED (#1762, spec #1753 story 53), as the line's own button is not
+ * (`unreconcileView.unreconcileAffordance`): an undo there deletes the created expense and its bill, which Move
+ * corrects without. `can_move` is the server's (`rectify.movable_rows`). With only such lines ticked the button is
+ * simply not drawn (Move is beside it); with others ticked too, the note says which to untick.
  */
 export const unreconcileButtonState = (
-    rows: ReadonlyArray<{ name: string }>,
+    rows: ReadonlyArray<{ name: string; can_move?: boolean }>,
     selected: ReadonlySet<string>,
     tickedOnPage: ReadonlyMap<string, number>,
     currentPage: number
 ): UnreconcileButtonState => {
     const count = selected.size;
-    if (!count) return { enabled: false, count, note: null, offPage: null };
+    if (!count) return { visible: true, enabled: false, count, note: null, offPage: null };
+    const movable = rows.filter((row) => selected.has(row.name) && row.can_move === true).length;
+    if (movable) {
+        // The off-page chip and note stay, worded for the Move beside it: the toolbar shows this state's.
+        const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Moving");
+        if (away) return { visible: false, enabled: false, count, ...away };
+        return {
+            visible: false,
+            enabled: false,
+            count,
+            note: movable < count ? movableTickedNote(movable) : null,
+            offPage: null,
+        };
+    }
     const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Unreconcile");
-    if (away) return { enabled: false, count, ...away };
-    return { enabled: true, count, note: null, offPage: null };
+    if (away) return { visible: true, enabled: false, count, ...away };
+    return { visible: true, enabled: true, count, note: null, offPage: null };
 };
 
 const transfers = (n: number) => `${n} ${n === 1 ? "transfer" : "transfers"}`;

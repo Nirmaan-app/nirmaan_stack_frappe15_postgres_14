@@ -13,7 +13,8 @@ new import) whose courier spend (Rs 2,380, Meera Iyer, Non Project) has one bill
 env's own data (`move_to_transfer_db.py --linked`), so no real line is named here. The moved line stays moved.
 
 As the Accountant Lead:
- 1. Sidebar Bulk Import Transactions -> Matched / Settled – Outflow -> the spend's line: Move, and no Unreconcile.
+ 1. Sidebar Bulk Import Transactions -> Matched / Settled – Outflow -> the spend's line: Move, and no Unreconcile;
+    ticked, no `Unreconcile 1` in the toolbar either.
  2. The Linked line: Unreconcile is offered.
  3. The spend's Move -> Move to: Internal Transfer. From reads Cashbook Employee Wallet, Detail starts as Meera Iyer;
     To: ICICI Credit Card, a reason, "Move to Internal Transfer" -> "1 expense moved to Internal Transfer."
@@ -100,6 +101,13 @@ with session(a.task, a.lead, a.password) as (page, out):
     check(row.first.get_by_role("button", name="Unreconcile").count() == 0,
           "1762 (story 53): no Unreconcile on a line Move accepts")
     save(page, out, "01-move-accepted-line-no-unreconcile")
+    # Ticked, the toolbar offers Move and no `Unreconcile 1` either (#1762: "not offered" covers the toolbar).
+    row.first.get_by_role("checkbox").click()
+    page.get_by_role("button", name="Clear").wait_for(timeout=10_000)
+    check(page.get_by_role("button", name=re.compile(r"^Unreconcile \d")).count() == 0,
+          "1762 (story 53): the toolbar offers no Unreconcile while a line Move accepts is ticked")
+    save(page, out, "01b-ticked-move-accepted-line-no-toolbar-unreconcile")
+    page.get_by_role("button", name="Clear").click()
 
     # 2. A Linked line keeps Unreconcile.
     if check(linked is not None, "the env holds a Settled Cashbook line Linked to an existing record"):
