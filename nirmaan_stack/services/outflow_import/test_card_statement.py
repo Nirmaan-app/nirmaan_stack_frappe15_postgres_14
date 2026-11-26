@@ -169,6 +169,22 @@ class TestACashAdvance(unittest.TestCase):
         self.assertFalse(withdrawal.is_credit)
 
 
+class TestASummaryFigureInCredit(unittest.TestCase):
+    """A summary figure the statement prints with `CR` is in credit: the bank owes the holder that money, so it is
+    read as a negative amount (#1771)."""
+
+    def test_a_previous_balance_in_credit_is_read_as_negative_and_the_other_totals_as_printed(self):
+        text = _replace(
+            _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á52,423.55 CR Á1,37,584.99 Á0.00 Á2,76,821.73"
+        )
+        totals = read_card_statement(text).totals
+        self.assertEqual(totals.previous_balance, Decimal("-52423.55"))
+        self.assertEqual(totals.purchases, Decimal("137584.99"))
+        self.assertEqual(totals.cash_advances, Decimal("0.00"))
+        self.assertEqual(totals.payments, Decimal("276821.73"))
+        self.assertEqual(totals.total_due, Decimal("84929.28"))
+
+
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old
     return text.replace(old, new)
