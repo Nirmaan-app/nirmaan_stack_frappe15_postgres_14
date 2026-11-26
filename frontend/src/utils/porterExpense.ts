@@ -8,14 +8,9 @@
 import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
 import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
 import { encodeFiltersForUrl } from "@/hooks/useServerDataTable";
+import { moveLabel } from "@/utils/moveLabel";
 import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
-
-/**
- * Rectify's name on screen (#1558): the Bulk Import line's button, and the locked-project hint on an expense.
- * The domain term stays Rectify (GLOSSARY.md).
- */
-export const MOVE_ORDER_LABEL = "Move to another project";
 
 /** The Bulk Import URL parameter naming the Outflow Import Row whose move dialog opens on arrival. */
 export const MOVE_URL_KEY = "move";
@@ -44,11 +39,34 @@ export interface PorterExpenseSection {
 export const isPorterExpense = (expense: { porter_order?: string | null } | null | undefined): boolean =>
 	!!expense?.porter_order;
 
-/** The edit dialog's project field: locked on a Porter Expense; any other expense shows no project row. */
+/** Whether the Cashbook import created the expense: it carries the wallet marker (`cashbook_batch`, #1592). */
+export const isCashbookExpense = (expense: { cashbook_batch?: string | null } | null | undefined): boolean =>
+	!!expense?.cashbook_batch;
+
+/** Whether the card import created the expense: it carries its statement (`credit_card_statement`), on either ledger
+ * once a Move put it on a project (#1761). */
+export const isCardExpense = (expense: { credit_card_statement?: string | null } | null | undefined): boolean =>
+	!!expense?.credit_card_statement;
+
+/** An expense whose locked project row links to its import line's Move: a Cashbook (#1757) or card (#1761) one. */
+export const hasMoveLine = (
+	expense: { cashbook_batch?: string | null; credit_card_statement?: string | null } | null | undefined
+): boolean => isCashbookExpense(expense) || isCardExpense(expense);
+
+/**
+ * The edit dialog's project field: locked on a Porter Expense, a Cashbook expense (#1757) and a card spend (#1761),
+ * whose project moves only through Move in Bulk Import, which keeps the import's record in step. Its hint is Move's
+ * words, by the expense's ledger `doctype` ("Move to a project", "Change project"; Porter too, #1759). Any other
+ * expense shows no locked row.
+ */
 export const projectField = (
-	expense: { porter_order?: string | null } | null | undefined
+	expense:
+		| { porter_order?: string | null; cashbook_batch?: string | null; credit_card_statement?: string | null }
+		| null
+		| undefined,
+	doctype: string
 ): { locked: false } | { locked: true; hint: string } =>
-	isPorterExpense(expense) ? { locked: true, hint: MOVE_ORDER_LABEL } : { locked: false };
+	isPorterExpense(expense) || hasMoveLine(expense) ? { locked: true, hint: moveLabel([doctype]) } : { locked: false };
 
 /**
  * Where the hint links: Bulk Import on the order's import, the Settled tab searched to its CRN, with the move
@@ -135,13 +153,28 @@ export const invoiceAttachmentUrl = (
 
 const orDash = (value: string | null | undefined) => (value || "").trim() || "--";
 
-/** The Porter section's facts, in the order the spec names them. The invoice row (a link) is the caller's. */
-export const porterSectionRows = (section: PorterExpenseSection): { label: string; value: string }[] => [
-	{ label: "CRN", value: orDash(section.crn) },
-	{ label: "Booked by", value: orDash(section.booked_by) },
+/** The delivery's own facts: where it went, its fare and reverse-charge GST. */
+const deliveryRows = (section: PorterExpenseSection): { label: string; value: string }[] => [
 	{ label: "From → To", value: `${orDash(section.from_address)} → ${orDash(section.to_address)}` },
 	{ label: "City", value: orDash(section.city) },
 	{ label: "Fare", value: formatToIndianRupee(section.fare) },
 	{ label: "Reverse-charge GST", value: formatToIndianRupeeOrZero(section.rcm_gst) },
+];
+
+/** The Porter section's facts, in the order the spec names them. The invoice row (a link) is the caller's. */
+export const porterSectionRows = (section: PorterExpenseSection): { label: string; value: string }[] => [
+	{ label: "CRN", value: orDash(section.crn) },
+	{ label: "Booked by", value: orDash(section.booked_by) },
+	...deliveryRows(section),
 	{ label: "Billing entity", value: orDash(section.billing_entity) },
+];
+
+/**
+ * The Move dialog's details for a Porter line (#1759, stories 41 and 45): one compact row of the delivery's facts and
+ * its invoice number. The line's header already shows its CRN and booker, from the plan; the PDF is a link, the
+ * caller's.
+ */
+export const porterMoveDetailRows = (section: PorterExpenseSection): { label: string; value: string }[] => [
+	...deliveryRows(section),
+	{ label: "Invoice", value: orDash(section.invoice_number) },
 ];

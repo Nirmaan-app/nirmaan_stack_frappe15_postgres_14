@@ -169,6 +169,7 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Project Expenses', ('request_id',), 'Project_Expenses_request_id_idx', False),
     ('Project Expenses', ('porter_order',), 'Project_Expenses_porter_order_idx', False),
     ('Project Expenses', ('cashbook_batch',), 'Project_Expenses_cashbook_batch_idx', False),
+    ('Project Expenses', ('credit_card_statement',), 'Project_Expenses_credit_card_statement_idx', False),
     ('Project HOD Document', ('project',), 'Project_HOD_Document_project_idx', False),
     ('Project HOD Document', ('project', 'hod_system', 'document'), 'unique_project_hod_document', True),
     ('Reminder Schedule Log', ('due_date',), 'Reminder_Schedule_Log_due_date_idx', False),

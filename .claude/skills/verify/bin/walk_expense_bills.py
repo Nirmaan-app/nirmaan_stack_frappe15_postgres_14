@@ -74,9 +74,9 @@ real endpoint and runs their job: a spend with one bill link (read: Matched), on
 line amount, never read) and one whose bill comes late with the second import (read: Mismatched). SEEDED: the env
 cannot reach the wallet's bill storage and its reader key is refused, so the seed answers the downloads with made-up
 files and reads with a stand-in reader; the screens below show those seeded results.
-5. DB: each spend's one Expense bill -- ONE Matched, Approved by System, its number on the Expense; TWO Not checked,
-   Pending, `invoice_amount` = line amount, no number or date, never claimed by a reading; LATE Mismatched, Pending,
-   nothing on the Expense. Each uploaded by the Accountant who confirmed the import.
+5. DB: each spend's one Expense bill, approved on arrival by System (#1755) -- ONE Matched, its number on the
+   Expense; TWO Not checked, `invoice_amount` = line amount, no number or date, never claimed by a reading; LATE
+   Mismatched, nothing on the Expense. Each uploaded by the Accountant who confirmed the import.
 6. Dashboard -> each spend's expense list -> Paid: ONE's row shows its Invoice Ref; TWO's and LATE's show none.
 
 Part `marker-patch` (#1649): `marker_patch_part`'s docstring (steps 33-36). It RUNS the one-off patch on the env, so
@@ -415,13 +415,14 @@ def walk_cashbook(page, out) -> None:
            == ("Matched", "Approved", 1, "System"), "ONE (one bill link): Matched, auto-approved by System")
     expect(one["expense"]["invoice_ref"] == f"WALK-ONE-{STAMP}", "ONE: its Invoice Ref filled from the bill")
     bill = two["bills"][0]
-    expect((bill["bill_check"], bill["status"]) == ("Not checked", "Pending"), "TWO (two bill links): Not checked, Pending")
+    expect((bill["bill_check"], bill["status"], bill["auto_approved"]) == ("Not checked", "Approved", 1),
+           "TWO (two bill links): Not checked, approved on arrival (#1755)")
     expect(float(bill["invoice_amount"]) == float(bill["line_amount"]), "TWO: its total is the line amount")
     expect(not bill["invoice_no"] and not bill["invoice_date"] and not bill["read_claimed_at"],
            "TWO: no number or date, and never read")
     bill = late["bills"][0]
-    expect((bill["bill_check"], bill["status"], bill["auto_approved"]) == ("Mismatched", "Pending", 0),
-           "LATE (bill brought by the second import): Mismatched, Pending")
+    expect((bill["bill_check"], bill["status"], bill["auto_approved"]) == ("Mismatched", "Approved", 1),
+           "LATE (bill brought by the second import): Mismatched, approved on arrival (#1755)")
     expect(not late["expense"]["invoice_ref"], "LATE: nothing written to its Invoice Ref")
 
     for step, key in (("08", "ONE"), ("09", "TWO"), ("10", "LATE")):

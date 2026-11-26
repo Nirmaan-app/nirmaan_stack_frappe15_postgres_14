@@ -7,9 +7,13 @@ invoice reader reads the bill and its total (incl. GST) is compared with the sta
 (within ₹1) fills the Expense's Invoice Ref and Invoice Date where empty and auto-approves the bill; **Mismatched**
 and **Not read** (with the reason) leave it Pending and write nothing to the Expense. The bills a Cashbook import
 copies -- a created line's and a late bill a later statement brings -- get the same Bill check (ticket #1641); a
-spend with two or more bill links is **Not checked** at once (its total the line amount, Pending, never read).
+spend with two or more bill links is **Not checked** at once (its total the line amount, never read). Since #1755
+(spec #1753) every bill the import copies is **approved on arrival** (Approved, auto-approved, by System; it reads
+"Auto-approved"): its reading still records the verdict and remark, and a Matched one still fills the number and
+date. The one-off patch `patches/v3_0/approve_cashbook_import_bills` approved the import's bills that waited or were
+rejected before it; a second run approves none.
 
-A bill that is not Matched waits for a person in Vendor Invoice Recon -> Pending Invoice Approvals, on the
+A bill a person uploaded that is not Matched waits for a person in Vendor Invoice Recon -> Pending Invoice Approvals, on the
 **Cashbook** and **Credit Card** pills (#1644; PO and WO are the Vendor Invoices beside them). Admin, Accountant and
 Accountant Lead approve it, correcting its number and date, which are mirrored onto the Expense, or reject it with a
 reason: the Expense loses its bill and waits again in Pending Invoices Upload, showing "Last bill rejected: <reason>".
@@ -45,7 +49,11 @@ edit changes the Expense only.
 - `bill-reading` the reading runs on the env's `long` queue (`expense_bills.reading.check_expense_bill`). DB: Bill
   check Matched / Mismatched / Not read with its reason; Matched is Approved, `auto_approved`, by System.
 - `bill-cashbook-import` a Cashbook import's copied bill and late bill: one Expense bill each, attached by the
-  Accountant who confirmed the import; two or more links Not checked. Seen on the expense lists (`bill-lists`).
+  Accountant who confirmed the import, Approved on arrival by System (#1755) whatever its Bill check; two or more
+  links Not checked. Seen on the expense lists (`bill-lists`) and on All Invoices -> Cashbook as Auto-approved.
+- `import-bill-approval` (#1755) Pending Invoice Approvals -> Cashbook lists only bills a person uploaded (Pending
+  Invoices Upload -> Cashbook, or an Accountant's or HR's Payment Done replace); no import bill, Mismatched or not.
+  DB: the pill's rows are `cashbook_bill_approval_db.py`'s waiting bills, one for one.
 - `bill-lists` Dashboard -> Non-Project Expenses / Project Expenses -> Paid: a Matched bill's Invoice Ref and Invoice
   Date on the spend's row; nothing for any other result.
 - `approval-pills` Pending Invoice Approvals -> `PO` / `WO` / `Cashbook` / `Credit Card`. Cashbook and Credit Card
@@ -185,6 +193,13 @@ As the Accountant: the Cashbook pill's count before, the patch run through `deve
 nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses.execute` (its printed counts saved), the count after,
 then a second run that marks 0. Each count is checked against `BIN/cashbook_marker_db.py` (the queue endpoint, and
 what the patch would still mark). On an env where it already ran, the before screen prints NOT WALKED.
+
+`python3 BIN/walk_cashbook_bill_approval.py --task <task> --password <pw>` walks #1755 as the Accountant: it confirms
+the made-up Cashbook imports (`cashbook_bills_seed.py`) and asserts their three bills Approved by System, LATE still
+Mismatched with its remark; uploads a made-up PDF on a made-up wallet spend (`expense_bills_seed.py`) through Pending
+Invoices Upload -> Cashbook (DB: Pending); runs one burst worker; sees Pending Invoice Approvals -> Cashbook list that
+upload and none of the import bills, its rows equal to the DB's waiting bills; and finds the LATE bill on All
+Invoices -> Cashbook as Mismatched and Auto-approved. It exits 1 on any miss.
 
 ## Gotchas
 

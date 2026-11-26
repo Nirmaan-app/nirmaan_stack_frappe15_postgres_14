@@ -6,7 +6,7 @@
 DB tests: `DEVENV test --module nirmaan_stack.api.approvals.test_approval_queue_system_tier`. Paid Expenses are planted
 raw -- the queue reads only their columns, and an imported Expense is born Paid with nothing to recompute -- then read
 through `get_approval_queue` as the Paid tab reads it. The import marker alone decides: a Cashbook spend
-(`cashbook_batch`) and a card spend (`credit_card_statement`) read SYSTEM above ₹50,000 and below zero; an Expense a
+(`cashbook_batch`) and a card spend (`credit_card_statement`), on either ledger, read SYSTEM above ₹50,000 and below zero; an Expense a
 person raised keeps its amount's tier.
 """
 
@@ -56,11 +56,13 @@ class TestTheSystemTier(unittest.TestCase):
                     name = self._plant(doctype, amount, cashbook_batch="OFI-TEST-CASHBOOK")
                     self.assertEqual(self._tier(name), "system")
 
-    def test_a_card_spend_reads_system_at_any_amount(self):
-        for amount in (17_446, 75_000, -11_248):
-            with self.subTest(amount=amount):
-                name = self._plant(NPE, amount, credit_card_statement="CCS-TEST-CARD")
-                self.assertEqual(self._tier(name), "system")
+    def test_a_card_spend_reads_system_at_any_amount_on_either_ledger(self):
+        # A card spend moved to a Won project keeps its statement link (#1761, ADR-0039 Amendment F).
+        for doctype in (PE, NPE):
+            for amount in (17_446, 75_000, -11_248):
+                with self.subTest(doctype=doctype, amount=amount):
+                    name = self._plant(doctype, amount, credit_card_statement="CCS-TEST-CARD")
+                    self.assertEqual(self._tier(name), "system")
 
     def test_an_expense_a_person_raised_keeps_its_amounts_tier(self):
         for doctype in (PE, NPE):

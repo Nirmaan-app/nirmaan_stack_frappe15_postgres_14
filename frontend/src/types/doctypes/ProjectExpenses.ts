@@ -64,4 +64,6 @@ export interface ProjectExpensesDocType {
 	no_invoice_by?: string | null
 	/** No Invoice At : Datetime */
 	no_invoice_at?: string | null
+	/** Credit Card Statement : Link - Credit Card Statement */
+	credit_card_statement?: string | null
 }

@@ -36,10 +36,11 @@ class Pill(NamedTuple):
     condition: str
 
 
-#: The two pills: a wallet spend or a card spend (a refund of either needs no bill, #1673, #1709).
+#: The two pills: a wallet spend or a card spend (a refund of either needs no bill, #1673, #1709). Each is on either
+#: ledger: a card spend the import booked Non Project may be moved to a Won project (#1761, ADR-0039 Amendment F).
 KINDS = {
     "cashbook": Pill((PROJECT_EXPENSE, NON_PROJECT_EXPENSE), CASHBOOK_SPEND_SQL),
-    "card": Pill((NON_PROJECT_EXPENSE,), CARD_SPEND_SQL),
+    "card": Pill((PROJECT_EXPENSE, NON_PROJECT_EXPENSE), CARD_SPEND_SQL),
 }
 
 _ROWS_SQL = f"""

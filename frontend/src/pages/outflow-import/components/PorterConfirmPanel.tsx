@@ -153,7 +153,7 @@ export const PorterConfirmPanel = ({
 
             <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
                 Each order becomes a <b>Paid</b> expense with its Porter invoice. After this, the import can't be
-                discarded. A wrong project can still be fixed with “Move to another project”.
+                discarded. A wrong project can still be fixed with Move, on the order's line.
             </p>
         </section>
     );

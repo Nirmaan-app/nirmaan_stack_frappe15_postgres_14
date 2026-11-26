@@ -31,9 +31,10 @@ THE KEYWORD MAP IS OWNER-AUTHORED. It was drafted from a real 115-row statement 
 readable copy lives in `docs/outflow-import/cashbook-expense-rules.md`, which is GENERATED from
 this table so the two cannot drift.
 
-The corresponding patches.txt wiring
-(`nirmaan_stack.patches.v3_0.seed_cashbook_import_rules` under [post_model_sync]) is added
-separately by the maintainer -- it is intentionally not part of this patch.
+NOT WIRED UNTIL THE OWNER APPROVES THE LIST (#1756, spec #1753 story 71). Its patches.txt line
+(`nirmaan_stack.patches.v3_0.seed_cashbook_import_rules` under [post_model_sync]) is added only
+after the owner approves the 4 aliases and 42 rules in a comment on #1756; until then no migrate
+runs it. `api/outflow_import/test_cashbook_seed_rules` checks the line's placement once it is there.
 """
 
 import frappe

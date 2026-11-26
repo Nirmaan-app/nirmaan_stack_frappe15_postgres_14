@@ -40,8 +40,13 @@ import { useExpenseFieldAccess } from "@/hooks/useExpenseDecision";
 import { mayEditExpenseField } from "@/utils/expenses/expenseDecision";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
-import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
-import { PorterProjectLock, PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
+import { hasMoveLine, invoiceAttachmentUrl, isPorterExpense, projectField } from "@/utils/porterExpense";
+import {
+    PorterProjectLock,
+    PorterSectionBlock,
+    useCashbookMoveLine,
+    usePorterExpense,
+} from "@/components/common/PorterExpense";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
@@ -115,8 +120,16 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     // A Porter Expense (#1450): its project is shown locked -- it moves only through Rectify in Bulk
     // Import, which keeps the import's record in step -- and its Porter facts are shown read-only. The
     // dialog has no project field for any other expense, as before.
-    const project = projectField(expenseToEdit);
-    const porter = usePorterExpense(DOCTYPE, expenseToEdit?.name, project.locked && editProjectExpenseDialog);
+    // A Cashbook expense (#1757) and a card spend (#1761) are locked the same way: their project moves only through Move
+    // in Bulk Import.
+    const project = projectField(expenseToEdit, DOCTYPE);
+    const isPorter = isPorterExpense(expenseToEdit);
+    const porter = usePorterExpense(DOCTYPE, expenseToEdit?.name, isPorter && editProjectExpenseDialog);
+    const cashbookLine = useCashbookMoveLine(
+        DOCTYPE,
+        expenseToEdit?.name,
+        hasMoveLine(expenseToEdit) && editProjectExpenseDialog,
+    );
 
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
     const commandListRef = useRef<HTMLDivElement>(null);
@@ -227,7 +240,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             // null CLEARS a field (undefined would be omitted from the payload and Frappe would
             // retain the current value).
             const changes: Record<string, string | number | null> = {
-                // A Porter Expense's project moves only through Rectify, so it is never sent.
+                // A Porter or Cashbook expense's project moves only through Rectify (Move), so it is never sent.
                 ...(project.locked ? {} : { projects: formState.projects }),
                 amount: parseNumber(formState.amount),
                 type: formState.type,
@@ -283,8 +296,10 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     {project.locked ? (
                         <PorterProjectLock
                             id="project_edit"
-                            value={porter.section?.project_name || expenseToEdit.projects || ""}
-                            section={porter.section}
+                            value={porter.section?.project_name || selectedProjectOption?.label || expenseToEdit.projects || ""}
+                            section={porter.section ?? cashbookLine}
+                            hint={project.hint}
+                            undoOnly={!isPorter}
                             onFollow={() => setEditProjectExpenseDialog(false)}
                         />
                     ) : (
@@ -422,7 +437,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                         </>
                     )}
 
-                    {project.locked && (
+                    {isPorter && (
                         <>
                             <Separator className="my-1" />
                             <PorterSectionBlock section={porter.section} isLoading={porter.isLoading} error={porter.error} />

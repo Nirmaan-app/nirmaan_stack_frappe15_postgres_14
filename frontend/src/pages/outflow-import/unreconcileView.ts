@@ -312,11 +312,15 @@ export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice 
  * instead; it now unreconciles like every other line.
  *
  * ⚠️ `canUndo` IS `outflowImportStatus.canUndoOutflow` -- a plain Accountant sees no button.
+ *
+ * ⚠️ NOT WHERE MOVE ACCEPTS THE LINE (#1762, spec #1753 stories 53-54): Move corrects a created expense without
+ * deleting its bill, so Unreconcile is hidden there. `can_move` is the server's (`rectify.movable_rows`, Move's own
+ * plan verdict); a line Move refuses, or one Linked to an existing record, keeps the button.
  */
 export const unreconcileAffordance = (
-    row: { row_status: string; source?: string | null },
+    row: { row_status: string; source?: string | null; can_move?: boolean },
     canUndo: boolean,
-): "button" | null => (canUndo && row.row_status === ROW_SETTLED ? "button" : null);
+): "button" | null => (canUndo && row.row_status === ROW_SETTLED && row.can_move !== true ? "button" : null);
 
 // --- Confirm by hand (#1280) ----------------------------------------------------------------------
 

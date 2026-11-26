@@ -4,7 +4,8 @@
 """A card spend's invoice (spec #1565, #1570, ADR-0039 ruling 8), and a Cashbook wallet spend's (spec #1585,
 #1592, ADR-0015 Amendment B decision 4). Pure: no `frappe.db`, no request.
 
-Every card spend is a Paid `Non Project Expenses` row carrying `credit_card_statement`. It waits in Vendor
+Every card spend is a Paid Expense carrying `credit_card_statement`: a `Non Project Expenses` row as the import books
+it, or a `Project Expenses` row once a person Moves it to a Won project (#1761, ADR-0039 Amendment F). It waits in Vendor
 Invoice Recon -> Pending Invoices Upload -> Credit Card until either its invoice file is attached
 (`invoice_attachment`; number and date optional) or an Admin / Accountant Lead marks it *No invoice* with a
 reason (`no_invoice_reason`, `no_invoice_by`, `no_invoice_at`). These are the refusals both actions share.
@@ -51,7 +52,7 @@ class CashbookExpenseFacts(NamedTuple):
 ExpenseFacts = CardExpenseFacts | CashbookExpenseFacts
 
 
-#: What makes a card Expense a card SPEND, in SQL over the `Non Project Expenses` alias `e` (`is_card_spend`).
+#: What makes a card Expense a card SPEND, in SQL over either ledger's alias `e` (`is_card_spend`).
 CARD_SPEND_SQL = "COALESCE(e.credit_card_statement, '') != '' AND e.amount > 0"
 
 

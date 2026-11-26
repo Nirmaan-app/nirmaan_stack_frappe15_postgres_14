@@ -116,6 +116,7 @@ from nirmaan_stack.services.cheques.decide import pay_alone_problem
 from nirmaan_stack.services.expense_tds import BANK_AMOUNT_CORRECTION
 from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
     document_project,
@@ -210,6 +211,18 @@ DIRECTION_CREDIT = "Credit"
 # expense functions still refuse one by name.
 
 _PAID = "Paid"
+
+#: What `create_expense_from_row(carried=...)` writes from the expense a Move replaces, though Create never writes it
+#: (owner, 2026-11-26): the account the money was paid into (locked once Paid, ADR-0033 Amendment A, so nobody could
+#: put it back), the approval dates, and a person's *No invoice* mark (who, when and why: spec #1753 story 17, the
+#: moved expense keeps its invoice details; without it the moved spend would go back to Pending Invoices Upload).
+CARRIED_FIELDS = PAY_TO_FIELDS + (
+    "approval_date",
+    "ceo_approval_date",
+    "no_invoice_reason",
+    "no_invoice_by",
+    "no_invoice_at",
+)
 
 
 class ExpenseSettlementError(frappe.ValidationError):
@@ -1022,6 +1035,7 @@ def create_expense_from_row(
     blank_payment_by_is_actor: bool = True,
     card_refund: bool = False,
     cashbook_money_in: bool = False,
+    carried: dict | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1035,8 +1049,9 @@ def create_expense_from_row(
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
     `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
     names nobody: Paid by is who booked the order, and the importer did not.
-    `credit_card_statement` is the card import's (#1568, ADR-0039): the `Non Project Expenses` link that
-    marks the expense a card spend.
+    `credit_card_statement` is the card import's (#1568, ADR-0039): the link that marks the expense a card spend.
+    The import books it on `Non Project Expenses`; a Move to a Won project carries it to `Project Expenses`
+    (#1761, ADR-0039 Amendment F).
     `cashbook_batch` is the Cashbook job's (#1592, ADR-0015 Amendment B): the import batch that made the expense,
     on either ledger. It is the marker that puts the wallet spend in Pending Invoices Upload -> Cashbook.
     `card_refund` is the card import's too (#1673, ADR-0039 Amendment D): the line is an *Unpaired card refund*,
@@ -1045,6 +1060,9 @@ def create_expense_from_row(
     Expense, so no other caller can write a negative expense through here.
     `cashbook_money_in` is the Cashbook job's (#1709, ADR-0015 Amendment D; #1720, Amendment E): the line is a *Wallet
     refund expense* or a *Wallet credit expense*, written at MINUS its amount on either ledger. It is refused without `cashbook_batch`.
+    `carried` is Move's (Rectify, owner 2026-11-26): fields of the expense being replaced, only `CARRIED_FIELDS` (its
+    pay-to account, approval dates and No invoice mark), set as they are before the insert, so the save hooks see them: a pay-to account present is not
+    refilled from the vendor (`payees.pay_to.fill_from_vendor`).
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1137,6 +1155,9 @@ def create_expense_from_row(
         doc.credit_card_statement = credit_card_statement
     if cashbook_batch:
         doc.cashbook_batch = cashbook_batch
+    if carried:
+        # Only the fields named for it: a carried amount, ledger or marker would bypass every guard above.
+        doc.update({field: value for field, value in carried.items() if field in CARRIED_FIELDS})
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.

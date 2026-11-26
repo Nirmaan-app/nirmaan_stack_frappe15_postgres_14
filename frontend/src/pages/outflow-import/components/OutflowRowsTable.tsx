@@ -56,7 +56,7 @@ import {
     transferAmountToneClass,
 } from "../internalTransferView";
 import type { InternalTransferAction } from "./InternalTransferDialog";
-import { MOVE_ORDER_LABEL, rectifyAffordance } from "../porterRectify";
+import { lineMoveLabel, rectifyAffordance } from "../porterRectify";
 import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView";
 
 interface Props {
@@ -934,7 +934,7 @@ const OutcomeButton = ({
         const byHand = skippedByHandLine(row);
         // #1275: a Settled line gets Unreconcile below its record links -- any source since #1314.
         const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
-        // #1449: beside it on a Porter line, for the same roles (presence of the prop is the gate).
+        // #1449, #1757: beside it on a Porter or Cashbook line, for the same roles (presence of the prop is the gate).
         const rectify = rectifyAffordance(row, Boolean(onRectify));
         // #1626: who marked an Internal Transfer by hand, when and why; and its Send back button.
         const markedByHand = markedByHandLine(row);
@@ -1003,7 +1003,7 @@ const OutcomeButton = ({
                                 Unreconcile
                             </Button>
                         )}
-                        {/* #1449: a created Porter order moves to another project with Rectify (#1558: its screen name). */}
+                        {/* #1449, #1757: a created Porter order or Cashbook expense moves with Rectify (on screen: Move). */}
                         {rectify && onRectify && (
                             <Button
                                 type="button"
@@ -1013,7 +1013,7 @@ const OutcomeButton = ({
                                 onClick={() => onRectify(row)}
                             >
                                 <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
-                                {MOVE_ORDER_LABEL}
+                                {lineMoveLabel(row)}
                             </Button>
                         )}
                     </div>

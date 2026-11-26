@@ -70,11 +70,11 @@ from nirmaan_stack.api.outflow_import.cashbook_bills import (
 )
 from nirmaan_stack.api.outflow_import.cashbook_lines import (
     BATCH_DOCTYPE,
-    MATCH_BASIS,
     ROW_DOCTYPE,
     line_values,
     lock_line_if,
 )
+from nirmaan_stack.api.outflow_import.cashbook_matches import record_cashbook_match
 from nirmaan_stack.api.outflow_import.cashbook_refund_spends import refunds_spend_ids, spend_expenses
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import import internal_transfers as internal_transfer_records
@@ -559,27 +559,8 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         # every write site reads the one field.
     )
 
-    match = frappe.new_doc(MATCH_DOCTYPE)
-    match.update(
-        {
-            "import_row": row_name,
-            "import_batch": batch,
-            "transfer_id": doc["transfer_id"],
-            # #1601: the one-Expense-per-Txn-Id index reads it; this writer only ever writes Cashbook lines.
-            "source": SOURCE,
-            "target_doctype": result.doctype,
-            "target_name": result.name,
-            "target_amount": float(result.amount),
-            "match_kind": "Settled",
-            "match_basis": MATCH_BASIS,
-            "settlement_origin": "Suggestion accepted",
-            # #1278: the Cashbook writer only ever creates (`create_expense_from_row` above).
-            "created_by_import": 1 if result.created else 0,
-            "matched_at": frappe.utils.now_datetime(),
-            "matched_by": actor,
-        }
-    )
-    match.insert(ignore_permissions=True)
+    # The Cashbook writer only ever creates (`create_expense_from_row` above), so `result.created` is always set.
+    record_cashbook_match(row_name, batch, doc["transfer_id"], result, actor, "Suggestion accepted")
 
     frappe.db.set_value(
         ROW_DOCTYPE,

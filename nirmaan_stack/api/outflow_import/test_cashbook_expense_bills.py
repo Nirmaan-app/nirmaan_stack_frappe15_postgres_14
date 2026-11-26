@@ -46,7 +46,8 @@ class TestACopiedBillIsChecked(CashbookBillsCase):
         expense = self._expense(ONE_LINK)
 
         (bill,) = bills_of(expense.doctype, expense.name)
-        self.assertEqual((bill.bill_check, bill.status, bill.is_latest), ("Checking", "Pending", 1))
+        # Approved on arrival (#1755), and still read.
+        self.assertEqual((bill.bill_check, bill.status, bill.is_latest), ("Checking", "Approved", 1))
         self.assertEqual(bill.bill_file, expense.invoice_attachment)
         self.assertEqual(bill.uploaded_by, "Administrator")
         self.assertIn(("long", bill.name), readings_queued(self.jobs))
@@ -83,7 +84,7 @@ class TestAReadingFailureNeverFailsTheImport(CashbookBillsCase):
         expense = self._expense(ONE_LINK)
         self.assertTrue(frappe.db.exists("File", {"file_url": expense.invoice_attachment}))
         (bill,) = bills_of(expense.doctype, expense.name)
-        self.assertEqual((bill.bill_check, bill.status), ("Not read", "Pending"))
+        self.assertEqual((bill.bill_check, bill.status), ("Not read", "Approved"))
         self.assertEqual(bill.bill_check_reason, "The reading could not be queued.")
 
     def test_a_reader_that_raises_leaves_the_bill_not_read_and_its_expense_with_its_bill(self):
@@ -112,14 +113,15 @@ class TestALateBillIsChecked(LateBillsCase):
 
         expense = frappe.get_doc(waiting.doctype, waiting.name)
         (bill,) = bills_of(expense.doctype, expense.name)
-        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Pending"))
+        # A late bill is approved on arrival as a first import's is (#1755, spec #1753 story 62).
+        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Approved"))
         self.assertEqual(bill.bill_file, expense.invoice_attachment)
         self.assertEqual(bill.uploaded_by, "Administrator")
         self.assertIn(("long", bill.name), readings_queued(self.jobs))
 
         run_reading(bill.name, FakeReader(BillRead(total=_line_amount(expense) + 50, invoice_no="LATE-1")))
         (bill,) = bills_of(expense.doctype, expense.name)
-        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Mismatched", "Pending", 0))
+        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Mismatched", "Approved", 1))
         self.assertFalse(frappe.db.get_value(expense.doctype, expense.name, "invoice_ref"))
 
     def test_a_late_bill_for_an_expense_from_before_the_cashbook_marker_is_recorded_like_any_other(self):
@@ -130,7 +132,7 @@ class TestALateBillIsChecked(LateBillsCase):
         self._upload(self._second_file())
 
         (bill,) = bills_of(waiting.doctype, waiting.name)
-        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Pending"))
+        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Approved"))
         self.assertIn(("long", bill.name), readings_queued(self.jobs))
 
 
@@ -204,18 +206,18 @@ class TestALateBillOfSeveralBillsIsNotChecked(LateBillsCase):
 
         (bill,) = bills_of(waiting.doctype, waiting.name)
         line_amount = _line_amount(frappe.get_doc(waiting.doctype, waiting.name))
-        self.assertEqual((bill.bill_check, bill.status), ("Not checked", "Pending"))
+        self.assertEqual((bill.bill_check, bill.status), ("Not checked", "Approved"))
         self.assertEqual(Decimal(str(bill.invoice_amount)), line_amount)
         self.assertNotIn(("long", bill.name), readings_queued(self.jobs))
 
 
 class TestASpendWithSeveralBillsIsNotChecked(CashbookBillsCase):
-    def test_four_bill_links_make_a_pending_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
+    def test_four_bill_links_make_an_approved_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
         self._run()
         expense = self._expense(FOUR_LINKS)
 
         (bill,) = bills_of(expense.doctype, expense.name)
-        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Not checked", "Pending", 0))
+        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Not checked", "Approved", 1))
         self.assertEqual(Decimal(str(bill.invoice_amount)), _line_amount(expense))
         self.assertEqual((bill.invoice_no, bill.invoice_date), (None, None))
         self.assertEqual(bill.bill_file, expense.invoice_attachment)

@@ -38,8 +38,11 @@ ROW_DOCTYPE = "Outflow Import Row"
 MATCH_DOCTYPE = "Outflow Row Match"
 
 
-def record_settlement(staged, doc, result, actor) -> None:
+def record_settlement(staged, doc, result, actor, *, origin: str | None = None) -> None:
     """The import-side half: the match record. THE ROW'S OWN STATUS IS NO LONGER WRITTEN HERE.
+
+    `origin`: the `settlement_origin` when the caller decides it instead of the suggestion test: Move writes
+    "Suggestion overridden" on the match of a bank line's replacement expense (#1760).
 
     ⚠️ THE FLIP MOVED TO `refresh_row_allocation` (ADR-0020). It used to set `row_status` to
     `Settled` unconditionally, plus `outcome_note` / `decided_at` / `decided_by` /
@@ -65,7 +68,7 @@ def record_settlement(staged, doc, result, actor) -> None:
     INSERTS THE RECORD, AND MUST STAY THAT WAY. `Outflow Row Match.validate()` (Task 2) freezes
     every non-reversal field once a record exists, so a later write to either would be refused.
     """
-    origin = settlement_origin(doc.get("suggested_name"), result.name)
+    origin = origin or settlement_origin(doc.get("suggested_name"), result.name)
     match = frappe.new_doc(MATCH_DOCTYPE)
     match.update(
         {
