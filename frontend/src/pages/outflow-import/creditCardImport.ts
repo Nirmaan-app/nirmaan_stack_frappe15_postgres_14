@@ -6,6 +6,8 @@
 
 import { format, parseISO } from "date-fns";
 
+import formatToIndianRupee from "@/utils/FormatPrice";
+
 import { plural } from "./porterWords";
 
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
@@ -148,6 +150,13 @@ export const cardTotalsRows = (card: Pick<CardImport, "totals">): { label: strin
     { label: "Payments / Credits", amount: card.totals.payments_credits },
     { label: "Total Amount Due", amount: card.totals.total_amount_due },
 ];
+
+/**
+ * A summary total as the statement prints it. A figure in credit, which the server stores as negative (#1771),
+ * reads "₹52,423.55 CR", never as money owed.
+ */
+export const cardTotalFigure = (amount: number): string =>
+    amount < 0 ? `${formatToIndianRupee(-amount)} CR` : formatToIndianRupee(amount);
 
 /** The billing period, `dd-MMM-yyyy to dd-MMM-yyyy`. */
 export const cardPeriodLabel = (card: Pick<CardImport, "period_from" | "period_to">): string =>

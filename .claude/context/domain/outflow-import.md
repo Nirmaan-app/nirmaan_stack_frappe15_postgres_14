@@ -7518,7 +7518,9 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    ⚠️ This is the text of pypdf 6.13.3 (Frappe's pin). pypdf 3.17.4 joins lines (`State Code: 29MR <HOLDER>`,
    `Corporate GSTIN -October 1, 2026`, both money lines into one) and misreads holder, company, statement date
    and Total Amount Due; it came from a stale `scripts/devenv/python.lock.txt` (2026-11-04). The summary is the line under `Previous Balance
-   Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
+   Purchases / Charges Cash Advances Payments / Credits`. A summary figure printed with `CR` (a Previous Balance in
+   credit, `Á52,423.55 CR`) is read and stored as a negative amount, and Review shows it as printed
+   (`creditCardImport.cardTotalFigure`, #1771). *Total Amount Due* is the larger of the two
    standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
    standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
    before the period or out of order are kept as printed. The card-number headings are never read.
