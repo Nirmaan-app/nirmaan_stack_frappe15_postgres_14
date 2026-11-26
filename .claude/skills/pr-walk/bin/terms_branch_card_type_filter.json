@@ -1,0 +1,8 @@
+[
+ ["Card spend", "A credit-card transaction imported from a card statement and booked as an expense. On this tab: one still waiting for its invoice."],
+ ["Expense Type box", "One cell of the summary card's grid: an Expense Type with its amount, number of spends and share. On the branch it is a button that filters the table."],
+ ["Top strip", "The amber line at the top of the summary card: how many spends, and their amount, the table shows right now."],
+ ["Picked", "A box whose Expense Type is in the table's Expense Type filter: teal left bar, tint and a check mark."],
+ ["Column filter (funnel)", "The filter icon on a table header. The box clicks set the same Expense Type filter the funnel does."],
+ ["Clear button", "\"Clear type\" / \"Clear N types\" beside the card title: drops the Expense Type filter only, keeping search and other filters."]
+]
