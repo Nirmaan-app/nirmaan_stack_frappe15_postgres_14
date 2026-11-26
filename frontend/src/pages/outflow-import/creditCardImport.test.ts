@@ -15,6 +15,7 @@ import {
     cardCountsLine,
     cardDiscardConfirmation,
     cardHistoryTitle,
+    cardTotalFigure,
     cardTotalsRows,
     isCardImport,
     opensCardDialog,
@@ -169,6 +170,13 @@ describe("the read-only Review", () => {
             { label: "Payments / Credits", amount: 276821.73 },
             { label: "Total Amount Due", amount: 84929.28 },
         ]);
+    });
+
+    it("shows a summary total in credit as the statement prints it, with CR (#1771)", () => {
+        const totals = { ...cardImport().totals, previous_balance: -52423.55 };
+        const [previous, purchases] = cardTotalsRows(cardImport({ totals }));
+        expect(cardTotalFigure(previous.amount)).toBe("₹52,423.55 CR");
+        expect(cardTotalFigure(purchases.amount)).toBe("₹1,37,584.99");
     });
 
     it("shows the company as printed, and says so when the statement printed none (ADR-0039 Amendment B)", () => {

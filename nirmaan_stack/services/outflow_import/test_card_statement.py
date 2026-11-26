@@ -169,6 +169,51 @@ class TestACashAdvance(unittest.TestCase):
         self.assertFalse(withdrawal.is_credit)
 
 
+class TestASummaryFigureInCredit(unittest.TestCase):
+    """A summary figure the statement prints with `CR` is in credit: the bank owes the holder that money, so it is
+    read as a negative amount (#1771)."""
+
+    def test_a_previous_balance_in_credit_is_read_as_negative_and_the_other_totals_as_printed(self):
+        text = _replace(
+            _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á52,423.55 CR Á1,37,584.99 Á0.00 Á2,76,821.73"
+        )
+        totals = read_card_statement(text).totals
+        self.assertEqual(totals.previous_balance, Decimal("-52423.55"))
+        self.assertEqual(totals.purchases, Decimal("137584.99"))
+        self.assertEqual(totals.cash_advances, Decimal("0.00"))
+        self.assertEqual(totals.payments, Decimal("276821.73"))
+        self.assertEqual(totals.total_due, Decimal("84929.28"))
+
+    def test_a_total_amount_due_in_credit_is_read_as_negative_not_as_the_minimum_due(self):
+        text = _replace(
+            _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á3,00,000.00 CR Á1,37,584.99 Á0.00 Á2,76,821.73"
+        )
+        text = _replace(text, "Á4,250.00\nÁ84,929.28", "Á0.00\nÁ4,39,236.74 CR")
+        totals = read_card_statement(text).totals
+        self.assertEqual(totals.previous_balance, Decimal("-300000.00"))
+        self.assertEqual(totals.total_due, Decimal("-439236.74"))
+        self.assertEqual(
+            totals.previous_balance + totals.purchases + totals.cash_advances - totals.payments, totals.total_due
+        )
+
+    def test_a_shape_2_line_s_rupee_row_is_never_the_total_amount_due(self):
+        # The rupee row of a shape-2 international line (#1751) also stands alone; larger than the Total Amount
+        # Due, it must not be read as it, whether a credit or a spend.
+        for rows, old in (
+            (
+                "20/09/2026 14200624627 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2,000.00\nUSD\n1,73,999.02 CR\n",
+                "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n",
+            ),
+            (
+                "21/09/2026 14220389785 FAKECLOUD SAAS FAKECLOUD.COM US* 0 180.00\nUSD\n15,000.00\n",
+                "21/09/2026 14220389785 GOOGLE CLOUD CYBS SI MUMBAI IN 0 15,000.00\n",
+            ),
+        ):
+            with self.subTest(rows=rows):
+                text = _replace(_text(), "Á4,250.00\nÁ84,929.28", "Á500.00\nÁ9,929.28")
+                self.assertEqual(read_card_statement(_replace(text, old, rows)).totals.total_due, Decimal("9929.28"))
+
+
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old
     return text.replace(old, new)

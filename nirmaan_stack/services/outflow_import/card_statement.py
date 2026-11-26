@@ -90,8 +90,11 @@ _LINE = re.compile(
 )
 _PERIOD = re.compile(r"Statement period\s*:\s*(?P<start>[A-Za-z]+ \d{1,2}, \d{4})\s+to\s+(?P<end>[A-Za-z]+ \d{1,2}, \d{4})")
 _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
-_MONEY = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])")
-_STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})\s*$")
+# One figure of the summary row, and the `CR` the statement prints after a figure in credit (#1771).
+_SUMMARY_FIGURE = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])(\s+CR\b)?")
+# A figure alone on its row (the Total Amount Due, the Minimum Amount Due), with the `CR` the statement prints
+# after one in credit (#1771).
+_STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})(\s+CR)?\s*$")
 _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / Credits"
 _ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:")
 _HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|DR|M/S)\.?\s+", re.IGNORECASE)
@@ -227,6 +230,11 @@ def _money(value: str) -> Decimal:
     return Decimal(value.replace(",", ""))
 
 
+def _signed(value: str, credit: str | None) -> Decimal:
+    """A printed figure, negative when the statement printed `CR` after it (#1771)."""
+    return -_money(value) if credit else _money(value)
+
+
 def _period(text: str) -> tuple[date, date]:
     found = _PERIOD.search(text)
     if not found:
@@ -253,19 +261,30 @@ def _is_company_line(row: str) -> bool:
 
 
 def _totals(rows: list[str]) -> CardTotals:
-    """The summary row under its label, and the Total Amount Due: the larger of the two standalone
-    figures on page 1 (the other is the Minimum Amount Due, never above it)."""
+    """The summary row under its label, and the Total Amount Due: the larger, by size, of the two standalone
+    figures on page 1 (the other is the Minimum Amount Due, never above it).
+
+    A summary figure or Total Amount Due printed with `CR` is in credit (the bank owes the holder that money), so it
+    is read as a negative amount (#1771). A Total Amount Due in credit is still the larger by size: its Minimum
+    Amount Due is 0.00. The rupee row of a shape-2 international line (#1751) also stands alone, with any `CR`, so a
+    figure under a lone currency row is never a candidate: a refund or spend larger than the due would win."""
     for index, row in enumerate(rows):
         if row == _SUMMARY_LABEL and index + 1 < len(rows):
-            figures = [_money(value) for value in _MONEY.findall(rows[index + 1])]
+            figures = [
+                _signed(value, credit) for value, credit in _SUMMARY_FIGURE.findall(rows[index + 1])
+            ]
             if len(figures) == 4:
-                standalone = [_money(m.group(1)) for m in map(_STANDALONE_MONEY.match, rows) if m]
+                standalone = [
+                    _signed(m.group(1), m.group(2))
+                    for above, m in zip(["", *rows], map(_STANDALONE_MONEY.match, rows))
+                    if m and not _CURRENCY_ROW.match(above)
+                ]
                 return CardTotals(
                     previous_balance=figures[0],
                     purchases=figures[1],
                     cash_advances=figures[2],
                     payments=figures[3],
-                    total_due=max(standalone) if standalone else Decimal("0.00"),
+                    total_due=max(standalone, key=abs) if standalone else Decimal("0.00"),
                 )
     raise _not_this_layout("the statement summary (Purchases / Charges, Payments / Credits)")
 

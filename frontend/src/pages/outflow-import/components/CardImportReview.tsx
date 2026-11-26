@@ -23,6 +23,7 @@ import {
     cardCountsLine,
     cardDay,
     cardPeriodLabel,
+    cardTotalFigure,
     cardTotalsRows,
     type CardImport,
     type CardImportLine,
@@ -145,7 +146,7 @@ export const CardImportReview = ({
                         <div key={row.label} className="rounded-md border bg-background px-3 py-2">
                             <div className="text-[11px] text-muted-foreground">{row.label}</div>
                             <div className="whitespace-nowrap text-sm font-medium tabular-nums">
-                                {formatToIndianRupee(row.amount)}
+                                {cardTotalFigure(row.amount)}
                             </div>
                         </div>
                     ))}
