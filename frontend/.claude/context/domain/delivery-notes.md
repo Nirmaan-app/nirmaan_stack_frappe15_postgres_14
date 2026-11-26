@@ -239,9 +239,10 @@ Return Notes record items returned to vendor. They use the same `Delivery Notes`
 
 | # | Report | File | DN Fields |
 |---|--------|------|-----------|
-| 12 | DN > DC Quantity Report | `reports/components/DNDCQuantityReport.tsx` | `received_quantity` vs DC; accepts optional `projectId`/`projectName` for embedded use; 4 statuses: matched/mismatch/no_dc_update/pending_dn |
+| 12 | DN > DC Quantity Report | `reports/components/DNDCQuantityReport.tsx` | `received_quantity` vs DC; accepts optional `projectId`/`projectName` for embedded use; 5 statuses: pending_dn/partially_delivered/no_dc_update/mismatch/matched |
 | 12b | DN > DC in Project tab | `projects/components/ProjectDCMIRTab.tsx` | First sub-tab in DC & MIR; renders DNDCQuantityReport with project props |
-| 13 | DN > DC data hook | `reports/hooks/useDNDCQuantityData.ts` | `received_quantity`, `is_dispatched`; filters Additional Charges; dispatch-aware for Partially Dispatched POs |
+| 13 | DN > DC data hook | `reports/hooks/useDNDCQuantityData.ts` | `received_quantity`, `is_dispatched`; filters Additional Charges; dispatch-aware for Partially Dispatched POs; the per-item status rule is `utils/dnDcStatus.ts` (`dnDcItemStatus`) |
+| 13b | PO / ITM page DC & MIR card, Item-wise view | `ProcurementOrders/invoices-and-dcs/components/DCMIRItemWiseTable.tsx` (rows from `utils/dcMirItemWise.ts`; switch `DCMIRViewSwitch` + `hooks/useDCMIRView.ts`) | `received_quantity` vs DC/MIR per item; PO → `dnDcItemStatus`, ITM → `itmDnDcItemStatus`; not on the Work Order page; DC-wise is the default view |
 | 14 | PO Reports — delivery date column | `reports/components/columns/poColumns.tsx:53-79` | `latest_delivery_date` |
 | 15 | PO Reports — DN link icon | `poColumns.tsx:254-260` | Links to DN page |
 | 16 | PO Reports — status filters | `reports/components/POReports.tsx:86, 140-141` | Delivered/Partially Delivered |

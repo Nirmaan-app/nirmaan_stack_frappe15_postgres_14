@@ -332,6 +332,16 @@ When the system migrated from an older attachment-only system, legacy records we
 **MIR quantity mode:**
 MIRs support a "just list items" mode where quantities are optional — useful when an inspector wants to log which items were checked without recording exact counts.
 
+**On the PO page:**
+The "Delivery Challans & MIRs" card (inside PO Attachments) has two views, switched on a row under its header:
+- **DC-wise** (opens first): one row per DC or MIR — type, reference number, date, items, uploaded by, View / Edit / Delete.
+- **Item-wise**: one row per PO item — Ordered, Received (DN), DC Qty, MIR Qty, DC Pending (Received − DC) and Status (the same rule as the DN > DC Quantity Report), with the DC/MIR numbers that cover it. Clicking a row lists each DC/MIR and its quantity; clicking a DC/MIR number opens it in the DC-wise view. Status has a filter on its column header. On a phone each item is a card.
+
+**On the ITM page:**
+The ITM's "Delivery Challans & MIRs" card has the same two views. Item-wise shows **Transfer Qty** instead of Ordered and uses the ITM DN > DC report's status rule (which has no "Partially Delivered"). An item with nothing received and no DC yet shows "–" in Status.
+
+The Work Order page shows the DC-wise list only.
+
 **Dependencies:**
 - Requires: Procurement Orders (must be dispatched/delivered)
 - Feeds: Material Usage tab (DC and MIR quantities per item), DC/MIR Reports
