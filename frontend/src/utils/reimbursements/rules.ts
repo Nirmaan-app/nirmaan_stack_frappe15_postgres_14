@@ -302,3 +302,22 @@ export function resolveTab(wanted: string | null | undefined, viewer: Viewer): R
     const asked = wanted === "rejected" ? TAB_ALL : wanted;
     return (tabs as string[]).includes(asked ?? "") ? (asked as ReimbursementTab) : defaultTab(viewer);
 }
+
+/** The open tab's own list total: what `get_claims` returned for its month, column filters and search. */
+export interface OpenTabCount {
+    tab: ReimbursementTab;
+    count: number;
+}
+
+/**
+ * Each tab's badge: the server's counts (`queue.get_claim_tab_counts`), with the open tab's list total in place of its
+ * count once that list has loaded, so a changed month, column filter or search changes the badge too (owner,
+ * 2026-11-24: a badge is the rows the tab shows, filters included). A total read for another tab is ignored.
+ */
+export function badgeCounts(
+    counts: Partial<Record<ReimbursementTab, number>>,
+    tab: ReimbursementTab,
+    open: OpenTabCount | null,
+): Partial<Record<ReimbursementTab, number>> {
+    return open && open.tab === tab ? { ...counts, [tab]: open.count } : counts;
+}

@@ -332,7 +332,8 @@ class TestGstPaymentRequests(FrappeTestCase):
         self.assertEqual(title, "GST Payment Approved")
         self.assertIn(frappe.utils.get_fullname(self.accountant), description)
         self.assertIn("GPR-26-99999", description)
-        self.assertIn("no L1 or CEO", description)
+        self.assertNotIn("L1", description)
+        self.assertNotIn("CEO", description)
         self.assertNotIn("holds the approval", description)
         self.assertLessEqual(len(description), 140)
 

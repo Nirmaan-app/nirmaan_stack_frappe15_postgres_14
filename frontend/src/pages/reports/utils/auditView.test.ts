@@ -6,6 +6,7 @@ import {
   auditAgainstFor,
   auditBreakdown,
   auditColumnSpecs,
+  auditIdMatches,
   auditRangeChosenAtLoad,
   compactRupees,
   sharePercent,
@@ -338,5 +339,25 @@ describe("auditRangeChosenAtLoad (does a refresh keep step 1?)", () => {
     expect(auditRangeChosenAtLoad("all", null)).toBe(false);
     expect(auditRangeChosenAtLoad("all", "")).toBe(false);
     expect(auditRangeChosenAtLoad("all", "0")).toBe(false);
+  });
+});
+
+describe("auditIdMatches (search by an expense's record name; PR #1736 walk)", () => {
+  it("finds an expense by its record name, in any case and by part of it", () => {
+    expect(auditIdMatches("qs21qubbrb", "qs21qubbrb")).toBe(true);
+    expect(auditIdMatches("qs21qubbrb", "QS21QUB")).toBe(true);
+    expect(auditIdMatches("qs21qubbrb", "  qubbrb ")).toBe(true);
+  });
+
+  it("finds a PO / WO by its number", () => {
+    expect(auditIdMatches("PO/163/00086/26-27", "00086/26")).toBe(true);
+  });
+
+  it("matches nothing for other text, an empty search or a row without a name", () => {
+    expect(auditIdMatches("qs21qubbrb", "zz99")).toBe(false);
+    expect(auditIdMatches("qs21qubbrb", "")).toBe(false);
+    expect(auditIdMatches("qs21qubbrb", "   ")).toBe(false);
+    expect(auditIdMatches("qs21qubbrb", undefined)).toBe(false);
+    expect(auditIdMatches(null, "qs21")).toBe(false);
   });
 });

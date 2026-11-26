@@ -1,4 +1,4 @@
-"""Walk the Reimbursements page: every step of a claim, each by its own role (graduated from PR #1737's walk).
+"""Walk the Reimbursements page: every step of a claim, each by its own role (graduated from PR #1737's and #1747's walks).
 
     python3 -I .claude/skills/verify/bin/walk_reimbursements.py <env> <out dir> [function ...]   # from the checkout root
 
@@ -50,11 +50,14 @@ w.change("ceo", "Pending CEO Approval › the CEO only",
 w.change("action", "Action Center › reimbursement item",
          "The Accountant's Action Center lists the claim's expense tagged Reimbursement and opens Payment need to be "
          "paid searched to the claim, on all months.")
-w.change("month", "Month bar on every tab", "Each tab has a month picker with tiles and the totals by type.")
+w.change("month", "Month bar on every tab",
+         "Each tab has a month picker with tiles and the totals by type. The open tab's badge follows its month, column "
+         "filters and search (#1747); closed tabs keep the server's all-months count.")
 w.change("pay", "Payment need to be paid › Export for Payment, Mark as Paid",
          "Export for Payment reads ICICI XXXX3327; Mark as Paid moves the claim to Reconciliation Pending.")
 w.change("reconcile", "Reconciliation Pending › Mark Reconciled",
-         "Receipt, UTR and date make the claim Paid; it shows in Reconciliation Done / Paid.")
+         "The dialog \"Record Payment & Mark as Reconciled\" (#1747): receipt, UTR and date, then Mark as Reconciled, "
+         "make the claim Paid; it shows in Reconciliation Done / Paid.")
 
 TABS = {
     "CEO": ["Pending Approval", "Pending L1 Approval", "Pending CEO Approval", "Payment need to be paid",
@@ -414,7 +417,7 @@ def payments() -> None:
                        pins=[pin(box, f"{n}: {found} rows.", "info" if not found else "must")])
         box.fill("")
         settle(page, 2000)
-        head = page.get_by_role("columnheader").filter(has_text=re.compile(r"^\s*Type")).first
+        head = page.locator("thead th").filter(has_text=re.compile(r"^\s*Type")).first
         head.locator("svg").first.click()
         page.wait_for_timeout(1500)
         pop = page.locator("[data-radix-popper-content-wrapper]").first
@@ -548,16 +551,15 @@ emit({"all": len(rows), "this_month": sum(r.m == frappe.utils.nowdate()[:7] for 
         t = tab(page, "Payment need to be paid").first
         badge, shown = count_of(t.inner_text()), table_total(page)
         hidden = row(page, c["old"]).count() == 0
-        # Known (PR #1737 walk): the badge counts every month, the list opens on this month. A fix is planned; until
-        # then this check reports it as "should" and the walk still passes.
-        w.check("month", role, f"badge = rows the tab shows ({approved['all']} Approved claims in all)",
-                f"badge {badge}, list {shown}", badge == shown, "should")
+        # #1747: the open tab's badge follows the list it shows (this month on open), not the all-months count.
+        w.check("month", role, f"this month: badge = rows the tab shows ({approved['this_month']} raised this month, "
+                f"{approved['all']} Approved in all)", f"badge {badge}, list {shown}", badge == shown)
         w.step(page, "month", "after", role, email,
                f"Payment need to be paid opens on this month: badge {badge}, list {shown}.",
                pins=[pin(t, f"Badge {badge}.", "info"),
                      pin(page.get_by_text(re.compile(r"raised in")).first,
                          f"{c['old']} (raised {state['claims']['old_month']}, approved, unpaid) is "
-                         f"{'hidden until All is picked' if hidden else 'listed'}.", "should" if badge != shown else "info")])
+                         f"{'hidden until All is picked' if hidden else 'listed'}.", "must" if badge != shown else "info")])
         w.step(page, "month", "after", role, email, "Open the month picker.",
                click=page.get_by_label("Pick a month").first)
         page.wait_for_timeout(1200)
@@ -571,7 +573,15 @@ emit({"all": len(rows), "this_month": sum(r.m == frappe.utils.nowdate()[:7] for 
         settle(page, 2000)
         w.check("month", role, f"All months lists {c['old']}", "listed" if row(page, c["old"]).count() else "missing",
                 row(page, c["old"]).count() > 0)
+        badge, shown = count_of(t.inner_text()), table_total(page)
+        w.check("month", role, f"All months: badge = rows the tab shows ({approved['all']} Approved) (#1747)",
+                f"badge {badge}, list {shown}", badge == shown)
         search(page, f"Walk {state['stamp']}")
+        badge, shown = count_of(t.inner_text()), table_total(page)
+        w.check("month", role, "searched to the walk's claims: badge = rows the tab shows (#1747)",
+                f"badge {badge}, list {shown}", badge == shown)
+        w.step(page, "month", "after", role, email, f"All months, searched \"Walk {state['stamp']}\": badge {badge}, "
+               f"list {shown}.", pins=[pin(t, f"Badge {badge}: follows the search.", "info" if badge == shown else "must")])
         row(page, c["big"]).get_by_role("checkbox").click()
         row(page, c["mid"]).get_by_role("checkbox").click()
         page.wait_for_timeout(600)
@@ -612,6 +622,10 @@ def reconcile() -> None:
                click=row(page, mid).get_by_role("button", name="Mark Reconciled"))
         page.wait_for_timeout(1500)
         dlg = page.get_by_role("alertdialog")
+        title = "Record Payment & Mark as Reconciled"
+        has_title = dlg.get_by_text(title, exact=True).count() > 0
+        w.check("reconcile", role, f"the dialog is titled \"{title}\" (#1747)", "shown" if has_title else
+                re.sub(r"\s+", " ", dlg.inner_text())[:80], has_title)
         # The dialog takes the receipt first (it tries to read it); the date and reference fields show after.
         dlg.locator("input[type=file]").first.set_input_files(str(receipt()))
         dlg.locator("#payment_ref_update_pd").wait_for(timeout=60_000)
@@ -621,8 +635,8 @@ def reconcile() -> None:
         if not dlg.locator("#payment_date_update_pd").input_value():
             dlg.locator("#payment_date_update_pd").fill(datetime.date.today().isoformat())
         page.wait_for_timeout(800)
-        w.step(page, "reconcile", "after", role, email, "Receipt, UTR and date filled; Mark as Paid.",
-               click=dlg.get_by_role("button", name="Mark as Paid"))
+        w.step(page, "reconcile", "after", role, email, "Receipt, UTR and date filled; Mark as Reconciled.",
+               click=dlg.get_by_role("button", name="Mark as Reconciled"))
         settle(page, 3500)
         st = claims_now("after_reconcile", [mid])[mid]
         w.check("reconcile", role, f"{mid}: Paid, UTR {utr}", f"{st['claim']} / {st['expense_status']}, {st['payment_ref']}",

@@ -261,8 +261,7 @@ def _auto_approved_note(doc) -> tuple[str, str]:
         # Cut to the bell's 140 characters: an over-long description makes the note's insert, and so the
         # whole approval, fail (found in the 2026-11-18 browser walk-through).
         return _("GST Payment Approved"), fit_bell_description(_(
-            f"GST payment {doc.name} approved by {get_user_name(frappe.session.user)} from {request}. "
-            "Ready to pay: no L1 or CEO."
+            f"GST payment {doc.name} approved by {get_user_name(frappe.session.user)} from {request}."
         ))
     if doc.get("auto_approved"):
         return _("Payment Auto-Approved"), _(
