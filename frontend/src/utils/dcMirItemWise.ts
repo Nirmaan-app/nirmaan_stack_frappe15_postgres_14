@@ -70,6 +70,18 @@ export interface ItemWiseResult {
 
 const itemKey = (category: string | undefined, itemId: string) => `${category ?? ""}___${itemId}`;
 
+/**
+ * How to name a DC/MIR so the user can find it in the DC-wise list: its Ref No., else its
+ * S.No. there (the DC-wise list shows a missing Ref No. as "-" and never shows the
+ * document's id). `docs` is the list in the order the DC-wise table shows it.
+ */
+export function docLabel(doc: PODeliveryDocuments, docs: PODeliveryDocuments[]): string {
+  if (doc.reference_number) return doc.reference_number;
+  const type = doc.type === "Delivery Challan" ? "DC" : "MIR";
+  const sNo = docs.indexOf(doc) + 1;
+  return sNo > 0 ? `S.No. ${sNo} (${type}, no Ref No.)` : `${type} with no Ref No.`;
+}
+
 /** One parent item in the shape both PO and ITM items map to. */
 interface SourceItem {
   itemId: string;
@@ -187,7 +199,7 @@ function build(
       row.docs.push({
         name: doc.name,
         type: doc.type,
-        referenceNumber: doc.reference_number || doc.name,
+        referenceNumber: docLabel(doc, docs),
         date: doc.dc_date || doc.creation,
         quantity,
         attachmentUrl: doc.attachment_url,

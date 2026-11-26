@@ -4,7 +4,7 @@ import type { InternalTransferMemoItem } from "@/types/NirmaanStack/InternalTran
 import type { PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import type { DCItem, PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 
-import { buildItemWiseRows, buildItmItemWiseRows, countByStatus } from "./dcMirItemWise";
+import { buildItemWiseRows, buildItmItemWiseRows, countByStatus, docLabel } from "./dcMirItemWise";
 
 const item = (
   item_id: string,
@@ -249,5 +249,26 @@ describe("ITM no_activity", () => {
   it("never appears on a PO (the PO rule says Pending DN)", () => {
     const { rows } = buildItemWiseRows([item("p", "Civil", 10, 0)], []);
     expect(rows[0].status).toBe("pending_dn");
+  });
+});
+
+describe("docLabel (how a DC/MIR is named so it can be found in the DC-wise list)", () => {
+  const noRef = doc("PDD-2026-00301", "Delivery Challan", [], { is_stub: 1, reference_number: undefined });
+  const withRef = doc("PDD-2026-00302", "Delivery Challan", [line("x", "Civil", 4)]);
+  const mirNoRef = doc("PDD-2026-00303", "Material Inspection Report", [line("x", "Civil", 4)], { reference_number: "" });
+  const list = [withRef, noRef, mirNoRef];
+
+  it("uses the Ref No. when there is one", () => {
+    expect(docLabel(withRef, list)).toBe("PDD-2026-00302");
+  });
+
+  it("uses the DC-wise S.No. when there is no Ref No., never the internal id", () => {
+    expect(docLabel(noRef, list)).toBe("S.No. 2 (DC, no Ref No.)");
+    expect(docLabel(mirNoRef, list)).toBe("S.No. 3 (MIR, no Ref No.)");
+  });
+
+  it("labels an item's DC/MIR chips the same way", () => {
+    const { rows } = buildItemWiseRows([item("x", "Civil", 10, 10)], list);
+    expect(rows[0].docs.map((d) => d.referenceNumber)).toEqual(["PDD-2026-00302", "S.No. 3 (MIR, no Ref No.)"]);
   });
 });

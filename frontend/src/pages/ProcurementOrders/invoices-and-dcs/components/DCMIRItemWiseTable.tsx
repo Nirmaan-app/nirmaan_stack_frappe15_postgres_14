@@ -20,12 +20,15 @@ import {
   buildItemWiseRows,
   buildItmItemWiseRows,
   countByStatus,
+  docLabel,
   ITEM_WISE_STATUS_LABEL,
   type ItemWiseDocRef,
   type ItemWiseRow,
   type ItemWiseStatus,
 } from "@/utils/dcMirItemWise";
 import { formatDate } from "@/utils/FormatDate";
+
+import { useFittingLayout } from "../hooks/useFittingLayout";
 
 /**
  * Which parent the card belongs to. PO: "Ordered" column, PO status rule, Non-Billable
@@ -164,13 +167,16 @@ const ViewLink: React.FC<{ doc: ItemWiseDocRef }> = ({ doc }) =>
  * Ordered (ITM: Transfer Qty), Received (DN), DC Qty, MIR Qty, DC Pending and Status, and
  * the DC/MIR numbers that cover it. Click a row to see each DC/MIR and its quantity.
  *
- * Layouts: desktop (lg+) full table; tablet (sm–lg) drops the Unit and DC/MIR-numbers
- * columns and shows "2 DCs · 1 MIR" under the item name; mobile (below sm) one card
- * per item with a "Status" filter button above the cards.
+ * Layouts, the widest that fits the card (`useFittingLayout`): the full table; a compact
+ * table without the Unit and DC/MIR-numbers columns, with "2 DCs · 1 MIR" under the item
+ * name; or one card per item with a "Status" filter button above the cards.
  */
 export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, items, documents, onDocClick }) => {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set());
+  const { rootRef, tableBoxRef, layout } = useFittingLayout();
+  const compact = layout === "compact";
+  const columnCount = compact ? 8 : 10;
 
   const { rows, uncountedDocs } = useMemo(
     () =>
@@ -207,9 +213,10 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
   const emptyText = rows.length === 0 ? `No items on this ${parentLabel}` : "No items with this status";
 
   return (
-    <div>
-      {/* ---------- Mobile: Status filter button + one card per item ---------- */}
-      <div className="sm:hidden">
+    <div ref={rootRef}>
+      {/* ---------- Cards: Status filter button + one card per item ---------- */}
+      {layout === "cards" && (
+      <div>
         <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
           <SimpleFacetedFilter
             title="Status"
@@ -289,15 +296,17 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
           })
         )}
       </div>
+      )}
 
-      {/* ---------- Tablet (sm–lg) and desktop (lg+): table ---------- */}
-      <div className="hidden overflow-x-auto sm:block">
+      {/* ---------- Full or compact table ---------- */}
+      {layout !== "cards" && (
+      <div ref={tableBoxRef} className="overflow-x-auto">
         <Table>
           <TableHeader className="bg-red-100">
             <TableRow>
               <TableHead className="w-[36px]" />
               <TableHead className="text-black font-bold">Item</TableHead>
-              <TableHead className="hidden text-black font-bold lg:table-cell">Unit</TableHead>
+              {!compact && <TableHead className="text-black font-bold">Unit</TableHead>}
               <TableHead className="text-right text-black font-bold whitespace-nowrap">{orderedLabel}</TableHead>
               <TableHead className="text-right text-black font-bold whitespace-nowrap">Received (DN)</TableHead>
               <TableHead className="text-right text-black font-bold whitespace-nowrap">DC Qty</TableHead>
@@ -314,13 +323,13 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
                   <span>Status</span>
                 </div>
               </TableHead>
-              <TableHead className="hidden text-black font-bold lg:table-cell">DCs / MIRs</TableHead>
+              {!compact && <TableHead className="text-black font-bold">DCs / MIRs</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {shownRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-4 text-center text-gray-500">
+                <TableCell colSpan={columnCount} className="py-4 text-center text-gray-500">
                   {emptyText}
                 </TableCell>
               </TableRow>
@@ -354,14 +363,16 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
                         <p className="font-medium">{row.itemName}</p>
                         <p className="text-xs text-muted-foreground">
                           {row.category}
-                          <span className="lg:hidden">
-                            {" · "}
-                            {row.unit}
-                            {hasDocs && <span className="text-blue-600">{` · ${docSummary(row)}`}</span>}
-                          </span>
+                          {compact && (
+                            <span>
+                              {" · "}
+                              {row.unit}
+                              {hasDocs && <span className="text-blue-600">{` · ${docSummary(row)}`}</span>}
+                            </span>
+                          )}
                         </p>
                       </TableCell>
-                      <TableCell className="hidden align-top lg:table-cell">{row.unit}</TableCell>
+                      {!compact && <TableCell className="align-top">{row.unit}</TableCell>}
                       <TableCell className="text-right align-top tabular-nums">{formatQty(row.orderedQty)}</TableCell>
                       <TableCell className="text-right align-top tabular-nums">{formatQty(row.receivedQty)}</TableCell>
                       <TableCell className="text-right align-top tabular-nums">
@@ -376,19 +387,21 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
                       <TableCell className="text-center align-top">
                         <StatusBadge status={row.status} />
                       </TableCell>
-                      <TableCell className="hidden align-top lg:table-cell">
-                        {!row.billable ? (
-                          <span className="text-muted-foreground">–</span>
-                        ) : hasDocs ? (
-                          <DocChips row={row} onDocClick={onDocClick} />
-                        ) : (
-                          <span className="text-muted-foreground">None yet</span>
-                        )}
-                      </TableCell>
+                      {!compact && (
+                        <TableCell className="align-top">
+                          {!row.billable ? (
+                            <span className="text-muted-foreground">–</span>
+                          ) : hasDocs ? (
+                            <DocChips row={row} onDocClick={onDocClick} />
+                          ) : (
+                            <span className="text-muted-foreground">None yet</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                     {hasDocs && isOpen && (
                       <TableRow>
-                        <TableCell colSpan={10} className="p-0">
+                        <TableCell colSpan={columnCount} className="p-0">
                           <div className="bg-muted/30 p-3 pl-12">
                             <table className="text-xs">
                               <thead className="bg-muted/50">
@@ -427,13 +440,14 @@ export const DCMIRItemWiseTable: React.FC<DCMIRItemWiseTableProps> = ({ kind, it
           </TableBody>
         </Table>
       </div>
+      )}
 
       {uncountedDocs.length > 0 && (
         <p className="flex items-start gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             <span className="font-medium text-foreground">
-              {uncountedDocs.map((d) => d.reference_number || d.name).join(", ")}
+              {uncountedDocs.map((d) => docLabel(d, documents)).join(", ")}
             </span>{" "}
             {uncountedDocs.length === 1
               ? "has no items (old record or saved without items), so it is"
