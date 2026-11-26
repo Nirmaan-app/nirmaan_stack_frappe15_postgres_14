@@ -90,7 +90,8 @@ _LINE = re.compile(
 )
 _PERIOD = re.compile(r"Statement period\s*:\s*(?P<start>[A-Za-z]+ \d{1,2}, \d{4})\s+to\s+(?P<end>[A-Za-z]+ \d{1,2}, \d{4})")
 _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
-_MONEY = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])")
+# One figure of the summary row, and the `CR` the statement prints after a figure in credit (#1771).
+_SUMMARY_FIGURE = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])(\s+CR\b)?")
 _STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})\s*$")
 _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / Credits"
 _ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:")
@@ -254,10 +255,16 @@ def _is_company_line(row: str) -> bool:
 
 def _totals(rows: list[str]) -> CardTotals:
     """The summary row under its label, and the Total Amount Due: the larger of the two standalone
-    figures on page 1 (the other is the Minimum Amount Due, never above it)."""
+    figures on page 1 (the other is the Minimum Amount Due, never above it).
+
+    A summary figure printed with `CR` is in credit (the bank owes the holder that money), so it is read as a
+    negative amount (#1771)."""
     for index, row in enumerate(rows):
         if row == _SUMMARY_LABEL and index + 1 < len(rows):
-            figures = [_money(value) for value in _MONEY.findall(rows[index + 1])]
+            figures = [
+                -_money(value) if credit else _money(value)
+                for value, credit in _SUMMARY_FIGURE.findall(rows[index + 1])
+            ]
             if len(figures) == 4:
                 standalone = [_money(m.group(1)) for m in map(_STANDALONE_MONEY.match, rows) if m]
                 return CardTotals(
