@@ -196,6 +196,23 @@ class TestASummaryFigureInCredit(unittest.TestCase):
             totals.previous_balance + totals.purchases + totals.cash_advances - totals.payments, totals.total_due
         )
 
+    def test_a_shape_2_line_s_rupee_row_is_never_the_total_amount_due(self):
+        # The rupee row of a shape-2 international line (#1751) also stands alone; larger than the Total Amount
+        # Due, it must not be read as it, whether a credit or a spend.
+        for rows, old in (
+            (
+                "20/09/2026 14200624627 FAKECLOUD SAAS FAKECLOUD.COM US* 0 2,000.00\nUSD\n1,73,999.02 CR\n",
+                "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n",
+            ),
+            (
+                "21/09/2026 14220389785 FAKECLOUD SAAS FAKECLOUD.COM US* 0 180.00\nUSD\n15,000.00\n",
+                "21/09/2026 14220389785 GOOGLE CLOUD CYBS SI MUMBAI IN 0 15,000.00\n",
+            ),
+        ):
+            with self.subTest(rows=rows):
+                text = _replace(_text(), "Á4,250.00\nÁ84,929.28", "Á500.00\nÁ9,929.28")
+                self.assertEqual(read_card_statement(_replace(text, old, rows)).totals.total_due, Decimal("9929.28"))
+
 
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old

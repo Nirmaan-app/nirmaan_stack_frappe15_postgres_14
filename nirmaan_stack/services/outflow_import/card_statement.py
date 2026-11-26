@@ -266,14 +266,19 @@ def _totals(rows: list[str]) -> CardTotals:
 
     A summary figure or Total Amount Due printed with `CR` is in credit (the bank owes the holder that money), so it
     is read as a negative amount (#1771). A Total Amount Due in credit is still the larger by size: its Minimum
-    Amount Due is 0.00."""
+    Amount Due is 0.00. The rupee row of a shape-2 international line (#1751) also stands alone, with any `CR`, so a
+    figure under a lone currency row is never a candidate: a refund or spend larger than the due would win."""
     for index, row in enumerate(rows):
         if row == _SUMMARY_LABEL and index + 1 < len(rows):
             figures = [
                 _signed(value, credit) for value, credit in _SUMMARY_FIGURE.findall(rows[index + 1])
             ]
             if len(figures) == 4:
-                standalone = [_signed(m.group(1), m.group(2)) for m in map(_STANDALONE_MONEY.match, rows) if m]
+                standalone = [
+                    _signed(m.group(1), m.group(2))
+                    for above, m in zip(["", *rows], map(_STANDALONE_MONEY.match, rows))
+                    if m and not _CURRENCY_ROW.match(above)
+                ]
                 return CardTotals(
                     previous_balance=figures[0],
                     purchases=figures[1],
