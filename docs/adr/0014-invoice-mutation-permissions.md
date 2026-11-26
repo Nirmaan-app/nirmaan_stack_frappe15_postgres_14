@@ -109,3 +109,26 @@ guard. So the endpoints, Desk and REST obey one check.
 - The system flag lets any status change through, not only to Approved. Today only `apply_auto_approval` sets it; a
   new path that sets it takes on that trust.
 - Patches that run as Administrator, or write with `db.set_value` (no hooks), are not affected.
+
+## Amendment C — the System may approve a Work Order invoice (2026-11-24)
+
+**Accepted** (owner, 2026-11-24; ADR-0050) · built 2026-11-25. Changes Amendment A's decision 1 for the system's own
+decision only.
+
+Amendment A lets only an invoice approver (Admin, Accountant, Accountant Lead) approve or reject a Work Order invoice,
+checked by the role of the session user. ADR-0050 has the System approve a WO invoice by three rules, at upload (as
+the uploader, usually a procurement or PMO user who may not approve), in the 05:00 daily re-check, and when an
+invoice approver presses Re-check on Pending Invoice Approvals › WO.
+
+### Decision
+
+1. **The system's own decision passes the Work Order guard**, as Amendment B's decision 2 does for Purchase Orders:
+   `guard_work_order_invoice` lets a save through when it carries `purchase_order_invoice_access.SYSTEM_DECISION_FLAG`,
+   which only server code can set. It is set only by the ADR-0050 rules' approval.
+2. **A person's approve and reject are unchanged**: still an invoice approver only, on every surface.
+3. **Edit rules are unchanged**, including the generated signed copy's lock (nobody changes its figures).
+
+### Consequences
+
+- A WO invoice can be Approved with no invoice approver ever having opened it ("Approved by System").
+- As with Purchase Orders, the flag lets any status change through, so only the ADR-0050 approval may set it.

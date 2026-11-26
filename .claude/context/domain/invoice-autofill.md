@@ -25,7 +25,7 @@ Indian invoices and payment receipts need a handful of fields keyed in every tim
 
 ### Endpoints (whitelisted, contract preserved)
 
-- `api/invoice_autofill.extract_invoice_fields(file_url)` → `extract(..., doc_kind="invoice")`. Returns `invoice_no, invoice_date, amount, net_amount, supplier_gstin, receiver_gstin, confidence{}, entities[], min_confidence, processor_id (= gemini_model), validation{}`.
+- `api/invoice_autofill.extract_invoice_fields(file_url, docname=None, work_order=None)` → `extract(..., doc_kind="invoice")`, or `"invoice_with_signature"` for a `work_order` awaiting a signed copy (see *The signature question* below). Returns `invoice_no, invoice_date, amount, net_amount, supplier_gstin, receiver_gstin, confidence{}, entities[], min_confidence, processor_id (= gemini_model), validation{}`.
 - `api/payment_autofill.extract_payment_fields(file_url)` → `extract(..., doc_kind="payment")`. Returns `utr, payment_date, transfer_amount, beneficiary_name (soft-check only), confidence{}, entities[], min_confidence, processor_id, validation{amount, vendor_match}`. See **Payment soft-checks** below.
 
 - `api/vendor/msme_autofill.extract_msme_fields(file_url, vendor_name, vendor_id)` → `extract(..., doc_kind="msme_certificate")` (owner, 2026-11-19). Reads a vendor's Udyam (MSME) certificate; returns `msme_id` (only a well-formed Udyam number, else `""`), `autofill_all_entities_json` (EVERYTHING printed on the certificate: Udyam number, enterprise name / type, activity, social category, `official_address{}`, mobile, email, the dates as YYYY-MM-DD, the `units` / `nic_codes` / `classification_history` tables — arrays in the Gemini schema, JSON-string entities in between — the assistance offices, plus `file_url`, `read_on`, `model`; field list `gemini._MSME_FIELDS` / `_MSME_TABLES`, repeated in `msme_autofill._SCALARS` and pinned by a test) and `validation{is_udyam_certificate, id_read, id_valid, name_match, certificate_name, duplicates}`. **Persists nothing**; every check is a warning. The vendor form (`pages/vendors/components/VendorMsmeFields.tsx`) saves the ID, the certificate and the read data on the vendor (a certificate is never removed, only **Replaced**; a new one replaces the MSME ID and the read data too, and an unreadable one leaves the ID for the user to type), where `Vendors.autofill_all_entities_json` is Long Text like the invoice doctypes' field of the same name. Udyam rules: `services/vendor_msme.py`, mirrored by `frontend/src/pages/vendors/utils/msme.ts`. A failed read (e.g. no API key) shows "The certificate could not be read. Type the MSME ID yourself."
@@ -62,6 +62,19 @@ An Indian invoice shows GST in exactly one of three shapes: **IGST alone**, **CG
 
 - **Autofill:** populate present fields; failed deterministic checks render as soft amber warnings (submit NOT blocked). The existing GSTIN-vs-vendor-master *mismatch* hard-block is preserved.
 - **Auto-approve (`api/invoices/_auto_approve.py`):** **gate 5** was redefined from "model confidence ≥ 0.80" to "deterministic validity passes" (`_intrinsic_validation_reasons`): GSTIN checksums valid + amounts reconcile. **ABSENT (can't verify) counts as a fail → stays Pending** (strict). Gate 5 owns checksum + reconciliation; gates 6/7 own GSTIN cross-match; gate 11 owns future/unparseable date — no reason token is emitted by two gates. Stricter than before: an invoice that shows only a grand total (can't reconcile) stays Pending; most formal GST invoices itemize, so reconciliation usually applies.
+- **Gate 2 (Purchase Orders only) no longer turns Work Order invoices away (ADR-0050).** A WO invoice returns
+  before the gates: it is judged by ADR-0050's rules 2 and 3 alone (`api/invoices/_wo_auto_approve.py`, rules in
+  the pure `services/work_order_invoice_rules.py`), amounts only, none of the 13 gates, and its reasons are
+  `wo_total_mismatch` / `wo_paid_mismatch` / `wo_base_paid_mismatch` with their figures, never
+  `not_procurement_order`. PO invoices are untouched.
+- **The signature question (ADR-0050 decision 1).** Asked only by the `invoice_with_signature` read
+  (`services/extraction/base.INVOICE_WITH_SIGNATURE`): Add Invoice on a GST-off Work Order with a generated invoice
+  still Generated (`invoice_autofill._awaits_signed_copy`, the dialog sending `work_order`). It returns
+  `authorized_signature` (`signed` / `stamped` / `not_signed`, null when no such box is printed), kept in
+  `autofill_all_entities_json` like every entity. Every other read (a PO invoice, an expense bill, a porter PDF) is
+  the plain `invoice` read, without the question. Only Add Invoice of a generated invoice's copy uses the answer
+  (`work_order_invoice_rules.signature_signed`): signed or stamped, the System approves the copy; not signed, rules 2
+  and 3 decide, and while neither matches it stays Pending with `wo_generated_copy_not_signed` first.
 
 ## Configuration — `Document AI Settings` singleton (doctype name kept to avoid a rename migration)
 

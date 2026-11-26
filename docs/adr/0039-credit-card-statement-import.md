@@ -200,3 +200,72 @@ with no project stays a *Non Project Inflow*.
 assumes a positive Non-Project Expense amount (the main table's record picker, the matcher's amount window, the
 create guard in `settle.create_expense_from_row`, the approval tiers) must either not meet these rows or say why
 it is right for them; the build lists each one.
+
+## Amendment E (2026-11-25) — an international line is read at its rupee amount only
+
+**Status:** Accepted (owner, 2026-11-25, #1751). Adds to the layout the reader reads; decision 3's totals gate is
+unchanged. Every other decision is unchanged. Term: `GLOSSARY.md` *International card line*.
+
+**Why.** A card that pays a foreign-currency subscription prints each such line with its foreign amount and
+currency before the rupee amount. The reader did not know that layout: it skipped the one-row form and, when the
+bank split the line over three rows, read the foreign amount as the rupee amount. The gate then refused every
+statement of that card, so none of its months could be imported. The gate was right; the reader was wrong.
+
+**Decision.**
+
+1. An international line is read in every layout the bank prints it (one row, or split over three to five rows,
+   the foreign amount with 0, 1 or 2 decimals). Its amount is the rupee amount, the last figure before any `CR`.
+2. The foreign amount and currency are read only to step past them. Nothing new is stored: no field, no column.
+   The Expense carries the rupee amount the card was charged, as for any other line.
+3. The merchant key drops a starred place code (`US*`) as it drops a two-letter one.
+4. A line that was read before this amendment reads exactly as it did.
+
+**Considered options.**
+
+- *Keep the foreign amount in the line's details text*: rejected; the statement already prints the rupee value the
+  card was charged, and that is what the Expense records.
+- *Store the foreign amount and currency in their own fields*: rejected for the same reason; it needs a doctype
+  change for a figure nothing reads.
+- *Loosen or bypass the totals gate for such statements*: rejected; the gate is what found the misread.
+
+**Consequences.** A person matching a card line to a foreign invoice sees the rupee amount, the date and the
+merchant, not the invoice's own currency figure; the PDF holds it. A lone three-letter row followed by a lone
+amount row under a line is read as an international line's tail; no statement read so far prints one, and if one
+did, the gate refuses the file rather than importing a wrong amount.
+
+## Amendment F (2026-11-26) — a person may Move a card spend to a Won project
+
+**Status:** Accepted (owner, 2026-11-25, spec #1753 Further Notes; built in #1761). Amends decision 1: the import
+still books every card spend Non Project, with no project placement and no project picker on Review, but "no
+Rectify" no longer holds. Every other decision, and Amendment D (an unpaired card refund), is unchanged. Terms:
+`GLOSSARY.md` *Card spend*, *Rectify*.
+
+**Why.** Decision 1 assumed a card never pays for a project's work. It does: a hotel or a material bought on the card
+for one site. Such a spend sat on Non Project with no safe way to put it on its project; Unreconcile deletes the
+expense and its bill.
+
+**Decision.**
+
+1. **The import books a card spend Non Project, as before.** Nothing at upload, Review or Create places one.
+2. **A person may Move one to a Won project**, and from there to another Won project or back to Non Project, through
+   Rectify (Move on screen), offered on the Settled card line in Bulk Import to the undo roles (Admin, Accountant
+   Lead), with a typed reason and an expense type the destination takes. Tendering projects are never offered.
+3. **The card statement link travels with it.** `Project Expenses` gains the read-only `credit_card_statement` link,
+   so a card spend on a project is still a card spend: it waits in Pending Invoices Upload -> Credit Card, its bills
+   stay Expense bills on the Credit Card pill, the approvals list shows it the System tier, and its Paid by is the
+   card holder.
+4. **A card refund stays Non Project.** An unpaired card refund (Amendment D) is refused by Move: only a card spend
+   can move.
+5. **Merchant memory learns from Non Project spends only.** Editing the type of a card spend on a project teaches the
+   merchant nothing: its type there is the project's, not the merchant's.
+
+**Considered options.**
+
+- *Let the import place card spends by their details*: rejected (owner, 2026-11-25): no placement check at upload.
+- *Drop the statement link on a move*: rejected; the spend would leave the card's invoice queue and its bill list,
+  and nothing would say which card paid it.
+
+**Consequences.** Every reader of `credit_card_statement` reads both ledgers. A card spend on a project counts in
+that project's spend and its CEO Hold cashflow gap, as any Paid Project Expense does. Its project is changed only by
+Move: the expense edit dialogs lock a card spend's project, as they do a Porter or Cashbook expense's, and link to its
+line's Move.

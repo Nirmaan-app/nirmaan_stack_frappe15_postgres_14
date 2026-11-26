@@ -17,6 +17,7 @@
   "type",
   "request_id",
   "porter_order",
+  "credit_card_statement",
   "cashbook_batch",
   "details_section",
   "status",
@@ -231,12 +232,21 @@
    "fieldtype": "Datetime",
    "label": "No Invoice At",
    "read_only": 1
+  },
+  {
+   "description": "The Credit Card Statement this expense is a card spend of. The card import books a card spend Non Project; a Move (Rectify) to a Won project carries the link here (ADR-0039 Amendment F). Blank on every other expense: it is the marker that an expense is a card spend.",
+   "fieldname": "credit_card_statement",
+   "fieldtype": "Link",
+   "label": "Credit Card Statement",
+   "options": "Credit Card Statement",
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-02 08:45:35.909285",
+ "modified": "2026-11-26 00:32:11.702220",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Expenses",

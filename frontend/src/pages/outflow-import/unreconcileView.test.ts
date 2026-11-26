@@ -512,6 +512,14 @@ describe("unreconcileAffordance -- what a Settled line's Outcome cell offers", (
             expect(unreconcileAffordance(row(status), true)).toBeNull();
         }
     });
+
+    it("★ nothing on a line Move accepts (#1762, story 53): Move corrects it without deleting its bill", () => {
+        expect(unreconcileAffordance({ ...row("Settled", "Cashbook"), can_move: true }, true)).toBeNull();
+    });
+
+    it("★ the button stays on a line Move refuses or a Linked line (story 54): the server says can_move false", () => {
+        expect(unreconcileAffordance({ ...row("Settled", "Cashbook"), can_move: false }, true)).toBe("button");
+    });
 });
 
 describe("confirmByHandNote -- the Outcome note on an unreconciled open line (#1280)", () => {

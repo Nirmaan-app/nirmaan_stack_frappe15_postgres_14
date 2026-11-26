@@ -1,0 +1,318 @@
+# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
+# For license information, please see license.txt
+
+"""Move a Cashbook spend to Internal Transfer, keeping its bill as the transfer's proof (#1762, spec #1753 stories
+13, 27-28).
+
+    devenv.sh test --module nirmaan_stack.api.outflow_import.test_cashbook_rectify_transfer
+
+Seam: the Move plan and write calls (`rectify.get_rectify_plan`, `rectify.rectify_lines`) on a Cashbook statement
+imported end to end (`test_cashbook_rectify.CashbookRectifyCase`). Read back the way the screens read it: the line,
+its Internal Transfer record, the expense, the bills.
+
+Also the page read's `can_move` (story 53) for every source Move takes: one rule, Move's own plan verdict for the line,
+asked for a Cashbook, card (#1761) and bank or Cashfree (#1760) line alike; and which of those offer Internal Transfer.
+"""
+
+import json
+
+import frappe
+
+from nirmaan_stack.api.expenses.test_expense_bills import bills_of
+from nirmaan_stack.api.outflow_import import rectify
+from nirmaan_stack.api.outflow_import.test_cashbook_bills import ONE_LINK
+from nirmaan_stack.api.outflow_import.test_cashbook_rectify import (
+    PART_REFUND,
+    PART_SPEND,
+    REASON,
+    CashbookRectifyCase,
+)
+from nirmaan_stack.api.outflow_import.test_bank_rectify import CASHFREE, ICICI, ROW_DOCTYPE, BankRectifyCase
+from nirmaan_stack.api.outflow_import.test_bank_rectify import REASON as BANK_REASON
+from nirmaan_stack.api.outflow_import.test_card_rectify import PARK, CardRectifyCase
+from nirmaan_stack.api.outflow_import.test_card_refunds import REFUND_DETAILS
+from nirmaan_stack.api.outflow_import.test_unreconcile_created import MATCH_DOCTYPE, NON_PROJECT_EXPENSE
+
+INTERNAL_TRANSFER = "Internal Transfer"
+WALLET = "Cashbook Employee Wallet"
+CARD = "ICICI Credit Card"
+
+
+class TransferCase(CashbookRectifyCase):
+    def setUp(self):
+        super().setUp()
+        # Runs before the import's purge (last in, first out): the bills' Files now sit on the transfer records.
+        self.addCleanup(self._purge_record_files)
+
+    def _purge_record_files(self):
+        frappe.db.rollback()
+        records = frappe.get_all(INTERNAL_TRANSFER, filters={"import_row": ["in", self._lines()]}, pluck="name")
+        if records:
+            frappe.db.delete("File", {"attached_to_doctype": INTERNAL_TRANSFER, "attached_to_name": ["in", records]})
+            frappe.db.commit()
+
+    def _to_transfer(self, txns, other_end=CARD, detail="Card ending 4321", reason=REASON) -> dict:
+        names = [self._line(t).name for t in txns]
+        return rectify.rectify_lines(
+            frappe.as_json(names), reason=reason, destination=INTERNAL_TRANSFER, other_end=other_end, detail=detail
+        )
+
+    def _record(self, txn: str):
+        return frappe.get_doc(INTERNAL_TRANSFER, {"import_row": self._line(txn).name})
+
+
+class TestASpendWithItsBillMovesToInternalTransfer(TransferCase):
+    def test_the_record_keeps_the_bill_as_proof_no_expense_is_left_and_the_line_is_internal_transfer(self):
+        old = self._expense(ONE_LINK)
+        [old_bill] = bills_of(old.doctype, old.name)
+        self.assertTrue(old_bill.bill_file)
+
+        result = self._to_transfer([ONE_LINK])
+
+        [line] = result["lines"]
+        self.assertTrue(line["rectified"], line)
+        # No expense is left: the old one is gone and no live match names another.
+        self.assertFalse(frappe.db.exists(old.doctype, old.name))
+        self.assertEqual([leg.match_kind for leg in self._legs(ONE_LINK)], ["Reversed"])
+        self.assertEqual(self._legs(ONE_LINK)[0].reversal_reason, REASON)
+        self.assertEqual(self._line(ONE_LINK).row_status, INTERNAL_TRANSFER)
+
+        record = self._record(ONE_LINK)
+        self.assertEqual(
+            (record.from_place, record.to_place, record.detail, record.direction, float(record.amount)),
+            (WALLET, CARD, "Card ending 4321", "Out", 2380.0),
+        )
+        self.assertEqual((record.made_by, record.marked_by, record.mark_reason), ("by hand", "Administrator", REASON))
+        # The bill is the record's proof, and its one File now belongs to the record, so no delete takes it.
+        self.assertEqual(record.proof, old_bill.bill_file)
+        self.assertEqual(
+            frappe.db.count("File", {"file_url": record.proof, "attached_to_doctype": INTERNAL_TRANSFER,
+                                     "attached_to_name": record.name}),
+            1,
+        )
+        # The Expense bill stays, as history.
+        [bill] = frappe.get_all("Expense Bill", filters={"name": old_bill.name}, fields=["is_latest", "bill_file"])
+        self.assertEqual((bill.is_latest, bill.bill_file), (0, old_bill.bill_file))
+
+
+class TestASpendAndItsRefundBothBecomeTransfers(TransferCase):
+    def test_each_line_gets_its_own_record_the_refund_coming_back_from_the_far_end(self):
+        result = self._to_transfer([PART_SPEND, PART_REFUND], other_end=CARD, detail="")
+
+        self.assertTrue(all(line["rectified"] for line in result["lines"]), result)
+        spend, refund = self._record(PART_SPEND), self._record(PART_REFUND)
+        self.assertEqual((spend.from_place, spend.to_place, spend.direction), (WALLET, CARD, "Out"))
+        self.assertEqual((refund.from_place, refund.to_place, refund.direction), (CARD, WALLET, "In"))
+        # A refund carries no bill, so its record has no proof.
+        self.assertFalse(refund.proof)
+        for txn in (PART_SPEND, PART_REFUND):
+            self.assertEqual(self._line(txn).row_status, INTERNAL_TRANSFER)
+            self.assertEqual([leg.match_kind for leg in self._legs(txn)], ["Reversed"])
+
+
+class TestAMoveToInternalTransferIsRefused(TransferCase):
+    def _nothing_moved(self, txn: str, expense):
+        self.assertTrue(frappe.db.exists(expense.doctype, expense.name))
+        self.assertEqual(self._line(txn).row_status, "Settled")
+        self.assertFalse(frappe.db.exists(INTERNAL_TRANSFER, {"import_row": self._line(txn).name}))
+
+    def test_to_the_lines_own_wallet_or_to_no_place_the_whole_write_is_refused(self):
+        expense = self._expense(ONE_LINK)
+        for other_end in (WALLET, "", "Somewhere Else"):
+            with self.assertRaises(frappe.ValidationError, msg=other_end):
+                self._to_transfer([ONE_LINK], other_end=other_end)
+        self._nothing_moved(ONE_LINK, expense)
+
+    def test_to_a_destination_that_is_none_of_the_three(self):
+        expense = self._expense(ONE_LINK)
+        with self.assertRaises(frappe.ValidationError):
+            rectify.rectify_lines(frappe.as_json([self._line(ONE_LINK).name]), reason=REASON, destination="Internal")
+        self._nothing_moved(ONE_LINK, expense)
+
+    def test_without_a_reason(self):
+        expense = self._expense(ONE_LINK)
+        with self.assertRaises(frappe.ValidationError):
+            self._to_transfer([ONE_LINK], reason="  ")
+        self._nothing_moved(ONE_LINK, expense)
+
+    def test_a_spend_without_its_refund_is_refused_naming_it(self):
+        expense = self._expense(PART_SPEND)
+        result = self._to_transfer([PART_SPEND])
+        [line] = result["lines"]
+        self.assertFalse(line["rectified"])
+        self.assertIn(PART_REFUND, line["reason"])
+        self._nothing_moved(PART_SPEND, expense)
+
+    def test_the_mark_still_refuses_a_settled_line(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import mark_internal_transfer
+
+        expense = self._expense(ONE_LINK)
+        with self.assertRaises(frappe.ValidationError):
+            mark_internal_transfer(self._line(ONE_LINK).name, CARD, REASON)
+        self._nothing_moved(ONE_LINK, expense)
+
+
+class TestEachPageRowSaysWhetherMoveAcceptsIt(CashbookRectifyCase):
+    """Unreconcile is hidden on a line Move accepts (story 53) and kept on a refused or Linked line (story 54). The
+    page read sends `can_move`, Move's own plan verdict for the line, so the screen keeps no copy of the rule."""
+
+    def _can_move(self) -> dict:
+        from nirmaan_stack.api.outflow_import.review import SCOPE_ALL, get_outflow_rows
+
+        rows = get_outflow_rows(scope=SCOPE_ALL, batch=self.batch, limit=100)["rows"]
+        return {row["transfer_id"][: -len(self.suffix)]: row["can_move"] for row in rows}
+
+    def test_a_created_spend_is_accepted_and_a_spend_with_its_refund_is_too(self):
+        can_move = self._can_move()
+        self.assertIs(can_move[ONE_LINK], True)
+        # Ticked alone the plan refuses each, naming the other; as a pair Move takes them, so neither offers Unreconcile.
+        self.assertIs(can_move[PART_SPEND], True)
+        self.assertIs(can_move[PART_REFUND], True)
+
+    def test_a_refused_line_is_not(self):
+        expense = self._expense(ONE_LINK)
+        frappe.db.set_value(expense.doctype, expense.name, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+        self.assertIs(self._can_move()[ONE_LINK], False)
+
+    def test_a_line_linked_to_an_existing_record_is_not(self):
+        [leg] = self._legs(ONE_LINK)
+        frappe.db.set_value("Outflow Row Match", leg.name, "created_by_import", 0, update_modified=False)
+        frappe.db.commit()
+        self.assertIs(self._can_move()[ONE_LINK], False)
+
+    def test_an_open_line_is_not(self):
+        # Every line of the statement but the Settled ones is open, skipped or an Internal Transfer.
+        settled = set(self._targets())
+        self.assertTrue(all(not moved for txn, moved in self._can_move().items() if txn not in settled))
+
+
+class TestThePlanOffersInternalTransfer(CashbookRectifyCase):
+    def test_the_wallet_is_the_own_side_every_other_place_a_far_end_and_the_spender_the_detail(self):
+        plan = self._plan(ONE_LINK)
+
+        self.assertEqual(plan["transfer"]["own_place"], WALLET)
+        self.assertIn(CARD, plan["transfer"]["other_ends"])
+        self.assertNotIn(WALLET, plan["transfer"]["other_ends"])
+        # As Mark starts it: the wallet holder who spent it.
+        [line] = plan["lines"]
+        self.assertEqual(line["transfer_detail"], "Meera Iyer")
+
+
+class TestSentBackTheProofStaysOnTheLine(TransferCase):
+    def test_the_record_goes_and_its_bill_file_is_kept_on_the_line(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+
+        self._to_transfer([ONE_LINK])
+        record = self._record(ONE_LINK)
+        line = self._line(ONE_LINK).name
+
+        send_back_to_mismatched(line, "Not ours after all")
+
+        self.assertFalse(frappe.db.exists(INTERNAL_TRANSFER, record.name))
+        self.assertEqual(self._line(ONE_LINK).row_status, "Mismatched")
+        # The bill is never lost: its File now sits on the line, as an open Collect payment's bill does (#1595).
+        self.assertEqual(
+            frappe.db.count("File", {"file_url": record.proof, "attached_to_doctype": "Outflow Import Row",
+                                     "attached_to_name": line}),
+            1,
+        )
+
+
+class TestTheLinesPickGoesWithItsExpense(TransferCase):
+    def test_sent_back_the_line_reads_mismatched_not_matched_to_the_deleted_expense(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+        from nirmaan_stack.services.outflow_import.row_settlement import refresh_row_allocation
+
+        old = self._expense(ONE_LINK)
+        line = self._line(ONE_LINK).name
+        # The Cashbook job stores its own created expense as the line's pick.
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line, "suggested_name"), old.name)
+
+        self._to_transfer([ONE_LINK])
+
+        self.assertFalse(frappe.db.get_value(ROW_DOCTYPE, line, "suggested_name"))
+        send_back_to_mismatched(line, "Not ours after all")
+        self.assertEqual(self._line(ONE_LINK).row_status, "Mismatched")
+        # Any re-derive keeps it there: no pick is left to fall back to Matched on.
+        self.assertEqual(refresh_row_allocation(line, "Administrator"), "Mismatched")
+
+
+def _can_move_by_row(batch: str) -> dict:
+    """`can_move` of every line of `batch` as the Bulk Import page reads it, by line name."""
+    from nirmaan_stack.api.outflow_import.review import SCOPE_ALL, get_outflow_rows
+
+    return {row["name"]: row["can_move"] for row in get_outflow_rows(scope=SCOPE_ALL, batch=batch, limit=100)["rows"]}
+
+
+class TestACardRowSaysWhetherMoveAcceptsIt(CardRectifyCase):
+    """The same one rule on a card line (#1761): Move's own plan verdict. A Settled card spend hides Unreconcile; a
+    card refund, which Move refuses, keeps it."""
+
+    def test_a_spend_is_accepted_and_a_refund_is_not(self):
+        refund = next(row for row in self._rows(self.batch) if row.remarks == REFUND_DETAILS and row.direction == "Credit")
+
+        can_move = _can_move_by_row(self.batch)
+
+        self.assertIs(can_move[self._line(PARK).name], True)
+        self.assertIs(can_move[refund.name], False)
+
+    def test_internal_transfer_is_neither_offered_nor_taken(self):
+        # A card statement is not one of our own places, so Mark refuses a card line and Move offers no transfer.
+        expense = self._expense_of(PARK)
+        self.assertIsNone(self._plan(PARK)["transfer"])
+
+        with self.assertRaisesRegex(frappe.ValidationError, "not one of our own places"):
+            rectify.rectify_lines(
+                json.dumps([self._line(PARK).name]), reason=REASON, destination=INTERNAL_TRANSFER, other_end=WALLET
+            )
+
+        self.assertEqual((self._expense_of(PARK).doctype, self._expense_of(PARK).name), (expense.doctype, expense.name))
+
+
+class TestABankRowSaysWhetherMoveAcceptsIt(BankRectifyCase):
+    """The same one rule on a bank or Cashfree line (#1760): a line whose expense a person created with Create hides
+    Unreconcile; a line Linked to an existing record, which Move refuses, keeps it (story 54)."""
+
+    def test_a_created_line_is_accepted_and_a_linked_one_is_not(self):
+        for source in (ICICI, CASHFREE):
+            with self.subTest(source):
+                row, _ = self._created(source)
+                batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+                self.assertIs(_can_move_by_row(batch)[row], True)
+
+                leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "match_kind": "Settled"}, "name")
+                frappe.db.set_value(MATCH_DOCTYPE, leg, "created_by_import", 0, update_modified=False)
+                frappe.db.commit()
+                self.assertIs(_can_move_by_row(batch)[row], False)
+
+
+class TestACreatedBankExpenseMovesToInternalTransfer(BankRectifyCase):
+    """A bank or Cashfree line's created expense has the third destination too (#1760: the same destinations as a
+    Cashbook Move): its statement is one of our own places, so the plan offers it and the line becomes a transfer."""
+
+    def test_the_line_becomes_an_internal_transfer_and_no_expense_is_left(self):
+        for source in (ICICI, CASHFREE):
+            with self.subTest(source):
+                row, old = self._created(source)
+                offer = rectify.get_rectify_plan(json.dumps([row]))["transfer"]
+                self.assertIsNotNone(offer)
+                far_end = offer["other_ends"][0]
+
+                [line] = rectify.rectify_lines(
+                    json.dumps([row]), reason=BANK_REASON, destination=INTERNAL_TRANSFER, other_end=far_end,
+                    detail="Own account top-up",
+                )["lines"]
+
+                record = frappe.db.get_value(INTERNAL_TRANSFER, {"import_row": row}, "name")
+                if record:
+                    self.created.append((INTERNAL_TRANSFER, record))
+                self.assertTrue(line["rectified"], line)
+                self.assertFalse(frappe.db.exists(NON_PROJECT_EXPENSE, old))
+                self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), INTERNAL_TRANSFER)
+                self.assertEqual(self._live_leg(row), [])
+                record = frappe.get_doc(INTERNAL_TRANSFER, record)
+                self.assertEqual(
+                    (record.from_place, record.to_place, record.detail, float(record.amount)),
+                    (offer["own_place"], far_end, "Own account top-up", 4250.0),
+                )

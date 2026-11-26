@@ -1,0 +1,72 @@
+{
+  "_about": "VAV-2b1 v80 = v79 + ONLY what the owner's full-rate add needs (owner 2026-11-21 01:07 'i think we should be able to add a full bcakner using that. we will need it for seperate rows i think'; 01:09 'yes for both'; the DDC panel's full rate on HOLD by the owner's 01:15 words - not in v80 until ruled). Read by scripts/_instruments/mint_hvac_v80_vav2b1.py and the vav2b1V80 tests (withV80Keys / withV80Sensors). No item changes.",
+  "vav": {
+    "families_add": {},
+    "withdrawn_add": [
+      "Duct Static Pressure Sensor"
+    ],
+    "sensors_section_families_add": [
+      "Duct Static Pressure Sensor"
+    ],
+    "user_addable": [
+      {
+        "family": "Duct Static Pressure Sensor",
+        "share": "dp",
+        "line": "A DP sensor share is also on this row. Check that the sensor is not counted twice."
+      }
+    ],
+    "derivation_reasons_new": [
+      {
+        "title": "^The .* can be added by hand at (its|their) full rate",
+        "why": "owner 2026-11-21 01:07 \"i think we should be able to add a full bcakner using that. we will need it for seperate rows i think\"; 01:09 \"yes for both\" (the Duct Static Pressure Sensor at full rate, a plain item with a typed quantity, 01:21 \"2 yes\"). The helper never adds it by itself; the double-count line wording is chat-Claude's (01:12), shown to the owner in the screenshots"
+      },
+      {
+        "title": "^A full-rate block prices the item per unit",
+        "why": "owner 2026-11-21 01:15 \"full rate ddc panel should have other components. but the other components qty should come from formula ad it does for ddc share calculation...only panel qty will be 1\"; 01:21 \"we are giving per unit rate which does not worry about the qty of rthe row\"; 01:31 the pre-fill \"sheet's VAVs / the row's quantity, rounded up ... yes\"; 01:32 \"same logic hosuld be used for Bcanet contorller row if given sperately and qty is more than 1\" and 01:36 \"A\""
+      }
+    ],
+    "sheet_shares_lines_add": {
+      "not_box_row": "This row is not priced as a VAV box. A share is meant for VAV box rows. Check before using."
+    },
+    "sheet_shares_whole": [
+      {
+        "key": "bacnet_whole",
+        "share": "bacnet",
+        "label": "BACnet over IP controller (full rate)",
+        "heading": "BACnet over IP controller - full rate, per unit",
+        "unit_word": "controller",
+        "count_without_vavs": 1,
+        "prefill_line": "{V} VAVs on the sheet / {q} {unit}s on this row = {n} per {unit}",
+        "line": "A BACnet controller share is also on this row. Check that the controller is not counted twice.",
+        "per_unit": " per unit"
+      },
+      {
+        "key": "ddc_whole",
+        "share": "ddc",
+        "label": "DDC Panel/ Controller (full rate)",
+        "heading": "DDC panel / controller - full rate, per unit",
+        "unit_word": "panel",
+        "fixed": {
+          "panels": 1
+        },
+        "prefill_line": "{V} VAVs on the sheet / {q} {unit}s on this row = {n} per {unit}",
+        "line": "A DDC panel share is also on this row. Check that the panel is not counted twice.",
+        "per_unit": " per unit"
+      }
+    ],
+    "separate_not_words_add": {
+      "DDC panel row": "\\b(enclosures?|cabinets?|boxes|box|plug\\s*tops?|sockets?)\\b[^|]{0,30}\\bfor\\b[^|]{0,40}\\bddc\\b"
+    }
+  },
+  "sensors": {
+    "families_add": {
+      "Duct Static Pressure Sensor": {
+        "copy_of": "CO2 Sensor"
+      }
+    },
+    "sensor_values_add": {
+      "value": "Duct Static Pressure Sensor",
+      "before": "none of these"
+    }
+  }
+}

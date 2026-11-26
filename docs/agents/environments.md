@@ -1,171 +1,6 @@
-# Environments: the laptop / desktop loop
+# Environments: the second dev environment (dev2)
 
-The owner runs this repo on two machines on one Tailscale network. **One machine owns the branch at a time**, and
-code moves only at a handover. That serial ownership is what keeps the two checkouts identical.
-
-| | Laptop (`nitesh-laptop`) | Desktop (`nitesh-desktop`, hostname `DESKTOP-4RMALAH`) |
-|---|---|---|
-| Role | where the owner sits; monitors; the **only** place anyone pushes to GitHub | implementation and testing; always on |
-| Database | a disposable copy of the desktop's | **the master copy** |
-| Container arch | arm64 | x86_64 (`frontend/node_modules` carries x64 bindings) |
-| SSH | client, key `~/.ssh/id_ed25519_desktop`, alias `desktop` | OpenSSH server; default shell PowerShell 5.1 |
-
-All tooling is `scripts/env_sync/env_sync.sh`, run **on the laptop** in Git Bash. Every transfer goes through the
-desktop's SSH server (scp + git bundles). Nothing in it talks to GitHub.
-
-## The loop
-
-1. **Ask.** Before implementing anything (a ticket or ad-hoc work), the laptop session asks the owner: laptop or
-   desktop? On the desktop, skip this step: the laptop has already handed over.
-2. **Check.** `bash scripts/env_sync/env_sync.sh status`. It reads both checkouts and both databases.
-
-   | Code verdict | Meaning | Next |
-   |---|---|---|
-   | `IN_SYNC` | same branch, same HEAD | go |
-   | `LAPTOP_AHEAD` | the desktop lacks laptop commits | `to-desktop` before desktop work |
-   | `DESKTOP_AHEAD` | the laptop lacks desktop commits | `from-desktop` before laptop work |
-   | `DIVERGED` / `BRANCH_MISMATCH` | each has commits the other lacks, or different branches | **STOP and ask the owner.** Never auto-merge |
-
-   The data verdict is `SAME` or `DIFFERENT`. `DIFFERENT` means the laptop's copy isn't the master's.
-   Before laptop work that needs live data, run `db-pull --yes`.
-3. **Hand over.**
-   - **Desktop chosen:** the laptop's Claude delegates (see [Delegating work to the desktop](#delegating-work-to-the-desktop)).
-     `session-start` runs `to-desktop` itself when the laptop is ahead. The laptop must have no uncommitted tracked
-     changes (they would not travel). The desktop fast-forwards, then migrates if doctypes, patches or hooks changed,
-     and is destaled (bench + vite restarted).
-   - **Laptop chosen:** run `from-desktop` first if the desktop is ahead, then work as usual. The next `status`
-     shows `LAPTOP_AHEAD`, and `to-desktop` carries the commits over.
-4. **Implement** on the chosen machine with the usual rules (CLAUDE.md § Session workflow): one commit per ticket,
-   residence check first.
-5. **Pull back.** `from-desktop` fast-forwards the laptop and destales it. It refuses while the desktop has
-   uncommitted changes, because they would stay behind. `reports` copies the desktop's run reports to the laptop's Desktop.
-   The code comes back after EVERY commit; if the work wrote live data, run `db-pull --yes` ONCE, after the slice's last
-   commit -- never after each commit (owner 2026-10-31; see Sync cadence below).
-6. **Push.** The owner pushes to GitHub from the laptop, by hand.
-
-## Rules
-
-- **Work that writes live data runs on the desktop only:** asset mints, paid AI runs, certification data. The laptop's
-  database is refreshed from the master with `db-pull`. Two machines minting would collide on version numbers.
-- **The one exception: a desktop drop** (owner 2026-10-26). If the desktop can't be reached, ALL work continues on the
-  laptop, mints and paid runs included, and the laptop is the master. On reconnecting, before any desktop work, the
-  desktop is brought up to the laptop with `to-desktop` and `db-push` (see [Desktop drop](#desktop-drop)).
-- **Sync cadence (register #65, owner 2026-10-31):** code after every commit, data once at the slice end. After each
-  desktop commit the laptop brings the code across at once (`to`/`from-desktop`, fast-forward only, no Docker); the data
-  (`db-pull --yes`) comes across ONCE, after the slice's last commit, under the laptop turn file when a dev2 lane shares
-  the laptop's Docker.
-- **Transfers only fast-forward.** A transfer that would need a merge or would overwrite uncommitted changes is refused,
-  and leaves both machines unchanged.
-- **While the desktop owns the branch, don't commit on the laptop.** That includes other Claude sessions.
-- **The desktop never pushes**, to GitHub or to the laptop. Moving commits between the machines with `env_sync.sh`
-  is not a push.
-
-## Delegating work to the desktop
-
-When the owner picks the desktop, **the laptop's Claude delegates the work and the desktop does it end to end**. The owner
-does not keep any connection open.
-
-1. **Write the brief:** what to do, the ticket number if there is one, and any rulings already given. A ticket is its own
-   approved plan. For ad-hoc work, the plan is reviewed on the laptop first, as CLAUDE.md requires; the brief then says
-   it is approved.
-2. **`session-start --brief FILE --name <short-name>`.** It hands over the code if the laptop is ahead, adds
-   `scripts/env_sync/desktop/brief_footer.md` (the protocol below) to the brief, and starts a Claude background session on
-   the desktop in the repo folder, with auto permission mode.
-3. **`session-wait --name N --pull-back`, run in the background.** It polls the desktop every 60 s and returns when:
-
-   | Result | Exit code | What happens next |
-   |---|---|---|
-   | `DONE` | 0 | with `--pull-back`, it runs `from-desktop` and `reports`; the laptop reports to the owner, who pushes |
-   | `BLOCKED` | 5 | the laptop relays the question to the owner, then `session-send --name N --message FILE` and waits again |
-   | `FAILED` | 6 | the laptop reports to the owner |
-   | idle five polls with no status | 4 | the laptop shows the session's recent output to the owner |
-   | session gone with no status | 7 | the laptop shows the session's recent output to the owner |
-
-4. **The protocol the desktop session follows** (the footer): CLAUDE.md in full, with the work treated as approved.
-   Code, the affected tests, the residence check, the doc updates, one commit per ticket, and the Desktop report. No
-   uncommitted tracked changes at the end. The **last** action writes
-   `frappe-bench/envsync/sessions/<name>.status.md` on the desktop, first line `DONE`, `BLOCKED` or `FAILED`.
-
-**How the session survives without SSH.** A process started inside an SSH session on the desktop dies when that session
-closes (measured 2026-10-23), and Claude's background service starts on demand under whichever process first asks for it.
-So `desktop/start_task.ps1` gives the launch to Task Scheduler: a task (Interactive logon, limited rights, no time
-limit) runs `desktop/launch.ps1` in the owner's logged-on console session, as if it were typed there. The background
-service and the session then run in that session. There is one task per environment, named after the folder that holds
-`development\frappe-bench`: `envsync-claude-launch-frappe_docker` for main dev, `envsync-claude-launch-frappe_docker_dev2`
-for dev2. Each launch re-registers its own task with its own arguments, so a main launch and a dev2 launch never
-overwrite each other. `start_task.ps1 -Name N -PrintOnly` prints the task name and arguments and registers nothing.
-The task registered before this naming, `envsync-claude-launch`, is no longer used and is left in place.
-
-**How the scripts reach the desktop.** `ensure_stage` copies `remote/*` and `desktop/*.ps1` from the laptop's checkout
-into `<bench>\envsync\` on both machines on every staged command (status, to-/from-desktop, db-pull, db-push, watch,
-session-*). A change to those scripts takes effect on the desktop at the first such command after the laptop holds it.
-
-**Requirements:**
-- The owner must be logged on at the desktop console. The launch says so if not.
-- The repo folder must be trusted once on the desktop: accept the prompt in an interactive `claude` there.
-
-**Watching by hand:** `watch --logs N` gives the same snapshot at any time. The owner can also `ssh -t desktop` and run
-`claude attach N`. Leaving with ← or Ctrl+Z keeps the session running.
-
-## Desktop drop
-
-When the desktop is unreachable, keep working on the laptop: it is the master until the desktop is back in step.
-Record when the drop began and the laptop's last sync.
-
-On reconnecting, **before any desktop work**:
-
-1. **List what the laptop did since the drop:** commits (`git log <last synced>..HEAD`), asset mints, paid runs and any
-   other database writes.
-2. **Docker on both machines:** the four `frappe_docker_devcontainer-*` containers up, never `frappe_dev2-*`. After a
-   start, wait for `/api/method/ping` and check that Postgres recovered cleanly.
-3. **Code:** `status --no-data` shows `LAPTOP_AHEAD` (or `IN_SYNC`), then run `to-desktop`, then `status` shows `IN_SYNC`.
-   `DIVERGED` means stop and ask the owner.
-4. **Data:** `db-push --yes`. It refuses, changing nothing, when:
-   - `--yes` is missing, or the code isn't `IN_SYNC`;
-   - **the desktop has changed since the laptop's last `db-pull`.** That pull records the desktop's fingerprint in
-     `frappe-bench/envsync/last_pull_fingerprint.txt`. A mismatch means desktop writes the laptop never saw. The refusal
-     names both fingerprints; ask the owner. Only `--discard-desktop-writes` overrides it, and those writes are then lost;
-   - the desktop's safety backup can't be proved: sizes and sha256, `gzip -t`, and a test restore into a scratch
-     database (`remote/scratch_check.sh`; never the live one) with the table count and key row counts equal to live;
-   - the laptop's backup can't be proved, or its copy on the desktop doesn't match by sha256 and size;
-   - either machine's fingerprint moved while the push ran.
-
-   Then it stops the desktop's bench and restores the laptop's backup. The old desktop database is kept as
-   `<db>_envsync_prev` and the old file folders as `*.envsync_prev`. It runs migrate, starts bench, waits for ping, and
-   prints the before and after fingerprints, which must be equal. Last, it writes a run record to the laptop's Desktop
-   (`<date>_<time>_env_sync_db-push.md`) and refreshes the pull record. It takes about 15 minutes.
-5. **Proofs.** Compare the desktop AFTER against the LAPTOP's values: the v54 / v66 live-vs-file content hashes, the row
-   counts, the AI setting and key presence, the replay (equal by key). The site-config flags (`mute_emails`,
-   `disable_push`, `disable_cloud_upload`, `nirmaan_env`) and `dev_isolate.py --verify` belong to each machine, so
-   compare those with the desktop's own values from before the push.
-6. `status` shows `IN_SYNC` / `SAME`. The desktop is the master again.
-
-**Rollback** if a proof fails: stop the desktop's bench, rename the restored database away and `<db>_envsync_prev` back,
-move the `*.envsync_prev` file folders back, start bench and re-prove. If that copy is unusable, restore the proved
-safety backup instead, in the handover block-50 order. The full hand procedure is the SYNC-R runbook
-(`2026-10-26_Desktop_Drop_Runbook.md` on the owner's Desktop).
-
-## Commands
-
-| Command | Does |
-|---|---|
-| `status [--no-data]` | code + data verdicts (exit code 0 in sync, 10 laptop ahead, 11 desktop ahead, 20 stop) |
-| `to-desktop [--allow-dirty] [--no-restart]` | fast-forward the desktop to the laptop's commits, then migrate and destale it as needed |
-| `from-desktop [--allow-dirty] [--no-restart]` | fast-forward the laptop to the desktop's commits, then migrate and destale it as needed |
-| `db-pull --yes [--covers STEP]` | back up the desktop (into `envsync/backups`, never `private/backups`), prove the copy (sha256, `gzip -t`, a scratch restore whose counts match the desktop's), restore it on the laptop (the replaced database is kept as `<db>_envsync_prev`), and record the pulled fingerprint and what it covers for `db-push` |
-| `db-push --yes [--discard-desktop-writes]` | after a desktop drop only: copy the laptop's database and files onto the desktop, behind the guards in [Desktop drop](#desktop-drop) |
-| `reports` | copy files on the desktop's Desktop that are new or newer to the laptop's OneDrive Desktop |
-| `watch [--logs NAME] [--lines N]` | one monitoring snapshot: desktop commits, changes, servers, Claude sessions, a session's recent output |
-| `session-start --brief FILE [--name N]` | hand over the code if needed, then start a delegated desktop session |
-| `session-wait --name N [--pull-back] [--interval S] [--idle-limit K]` | poll until DONE / BLOCKED / FAILED / stalled (see above) |
-| `session-send --name N --message FILE` | relay the owner's answer and resume the session |
-| `session-stop --name N` | stop the session (its conversation is kept) |
-| `print` | the settings this checkout resolves to, `env.local` included; runs nothing |
-| `checkpoint-code`, `checkpoint`, `catch-up`, `resume-on-laptop` | keep the laptop close behind the desktop over this SSH route, never a cloud drive (CKP-2): code checkpoints, the "leaving" checkpoint, the catch-up back home and the takeover; usage, the safe-point list and the session's part in [`scripts/env_sync/README.md`](../../scripts/env_sync/README.md) |
-
-Overrides for hosts, paths and container names go in the git-ignored `.claude/state/env.local` (the `ENV_SYNC_*`
-variables at the top of the script). `scripts/env_sync/tests/test_env_sync.sh` (bash and git only; docker, ssh and scp
-are stubs) proves main's commands unchanged against a base revision and that a dev2 `env.local` reaches every command.
+The owner's two-machine tools (the laptop / desktop loop, `env_sync.sh`, the checkpoint copier, delegating to the desktop, the desktop drop, dev2's tooling and its sync between the machines) live outside this repository, in `C:\nirmaan_tools` on the owner's two machines (`README.md` and `docs\environments.md` there).
 
 ## Second environment (dev2)
 
@@ -174,34 +9,7 @@ It is its own docker compose project `frappe_dev2` in `C:\Users\<user>\Documents
 containers `frappe_dev2-{frappe,postgresql,redis-cache,redis-queue}-1`, site `dev2.localhost`, host ports 8100 (bench),
 8180 (vite) and 9100 (socket.io), its own checkout and bench under `development\frappe-bench`. The same loop applies
 (the desktop is dev2's master too); the laptop holds one environment at a time, so its after-commit syncs take turns
-between the two lanes (R-DEV2R0 (7); see [The laptop's turn file](#the-laptops-turn-file)).
-
-**Tooling.** The same `env_sync.sh`, run from the dev2 checkout, with a git-ignored `.claude/state/env.local` there:
-
-```bash
-# <dev2 checkout>/.claude/state/env.local
-ENV_SYNC_DESKTOP_BENCH=C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench
-ENV_SYNC_FRAPPE_CONTAINER=frappe_dev2-frappe-1
-ENV_SYNC_PG_CONTAINER=frappe_dev2-postgresql-1
-ENV_SYNC_SITE=dev2.localhost
-ENV_SYNC_VITE_PORT=8180
-ENV_SYNC_START_BENCH=/workspace/dev2_scripts/start_bench.sh
-ENV_SYNC_START_VITE=/workspace/dev2_scripts/start_vite.sh
-```
-
-| Setting | Main's default | What it changes |
-|---|---|---|
-| `ENV_SYNC_SITE` | `localhost` | the site every remote script works on (backup, destale, restore, db name, fingerprint); `wait_ping` sends `Host: <site>` |
-| `ENV_SYNC_START_BENCH` | `<bench>/envsync/start_bench.sh` (bench, then vite) | the script `start_services` runs with `docker exec -d` |
-| `ENV_SYNC_START_VITE` | none | a separate vite start script, run once :8000 is open |
-| `ENV_SYNC_VITE_PORT` | `8080` | the port probe, the start wait and the stop check |
-| `ENV_SYNC_STOP_PATTERN` | `remote/stop_bench.sh`'s pattern | the processes `stop_bench.sh` kills; dev2's processes already match the default |
-
-A setting reaches a container (`docker exec -e`) only when it differs from main's default, so main's commands are
-exactly what they were. Run `env_sync.sh print` in the dev2 checkout before its first sync: it must name
-`dev2.localhost`, 8180, the dev2 start scripts, the `frappe_dev2-*` containers and the launcher task
-`envsync-claude-launch-frappe_docker_dev2`. The dev2 start scripts live outside the repo, in the docker folder's
-`dev2_scripts\` (bound at `/workspace/dev2_scripts` in dev2's container).
+between the two lanes (R-DEV2R0 (7); the laptop's turn file is in the tools folder's `docs\environments.md`).
 
 **Isolation.** dev2's data is a copy of main's (R-DEV2R0 (5)), so the in-database guards travel with it (email accounts
 off, the ruled stopped jobs, blank push tokens, removed token cache and asset secrets, rotated api secrets). The
@@ -239,9 +47,11 @@ the procedure DEV2-2 ran by hand on 2026-10-29. env_sync's `restore_db.sh` and `
 are: the first keeps the old database as `<db>_envsync_prev` and drops an older one, and the second extracts the tar's
 `./localhost/` paths unrenamed and migrates at once, before the guards.
 
-1. **Back up main** at a quiet point (no test, build, load, backup or migrate in main's container):
-   `bench --site localhost backup --with-files` (main's `envsync/backup.sh`), then `gzip -t` the dump. This backup is
-   the only thing done to main.
+1. **Back up main** at a quiet point (no test, build, load, backup or migrate in main's container): main's
+   `envsync/backup_local.sh <folders to keep>` in main's container. It takes main's backup lock, so it cannot run beside
+   a "leaving" or away backup of main (a second caller waits up to 5 minutes, then fails), and it keeps the database
+   password off the command line. It removes backup folders older than the number to keep: read what it would remove
+   first. Then `gzip -t` the dump. This backup is the only thing done to main.
 2. **Database** (dev2's bench stopped; only dev2's postgres needs to run): rename dev2's database to `<db>_dev2_prev`,
    refusing if that name exists; create a fresh `<db>` owned by the site's database role (as main's is); load the dump
    through `gunzip | psql` with the `\restrict` line stripped (pg_dump 17 writes it and psql refuses it). dev2's
@@ -261,37 +71,3 @@ are: the first keeps the old database as `<db>_envsync_prev` and drops an older 
    same tip; `--verify` passes again.
 
 dev2's old data stays as `<db>_dev2_prev` and the `*.dev2_prev` folders until someone deletes them by hand.
-
-### The dev2 sync between the machines
-
-Run `env_sync.sh` on the laptop from the **dev2 checkout**. Each machine's dev2 checkout holds the same seven-line
-`.claude/state/env.local` (above): the laptop's is what the commands read, and the desktop's lets `print` resolve there.
-Run `print` first: it must name the dev2 values.
-
-| Command, from the dev2 checkout | Does |
-|---|---|
-| `status` | dev2's code and data on both machines, with the same verdicts as main |
-| `db-pull --yes` | desktop dev2 -> laptop dev2: backs up the desktop's dev2, restores it into the laptop's |
-| `db-push --yes` | laptop dev2 -> desktop dev2, behind every guard in [Desktop drop](#desktop-drop) |
-| `to-desktop`, `from-desktop`, `session-*` | as for main, on dev2's branch and the dev2 bench |
-
-A dev2-to-dev2 transfer is main's mechanism with dev2's settings. The backup tars already carry `./dev2.localhost/`
-paths, so `restore_files.sh` works as it is, and its migrate runs on data that came from an isolated dev2. The pull
-record is the dev2 bench's own `envsync/last_pull_fingerprint.txt`, separate from main's. The desktop is dev2's master,
-so `db-push` in dev2 runs by owner ruling: R-DEV23 (2) (owner 2026-10-29 23:39) had DEV2-3 test the reverse direction.
-
-### The laptop's turn file
-
-The laptop holds one environment at a time (R-DEV2R0 (7)). `C:\Users\nites\envsync_laptop_turn.txt` on the laptop
-says which lane holds it: `dev2 <step> <time>` while dev2 holds the laptop, `free <time>` after. While it names dev2, a
-main sync that falls due waits, usually under 30 minutes (R-DEV23 (3): DEV2-3 takes the laptop between ELR-4b's
-commits). The laptop session keeps the file by hand; no script reads or writes it.
-
-## Recovery
-
-- **A transfer refused:** both machines are unchanged. Read the message, fix the cause (commit, stash or ask), and re-run.
-- **`DIVERGED`:** stop. Show the owner both logs (`git log` on each machine) and let them rule. Never merge or reset on your own.
-- **A failed `db-pull` restore:** bench is left stopped. The previous database is intact as `<db>_envsync_prev`.
-  Rename it back in the postgres container, then start bench (`scripts/env_sync/remote/start_bench.sh`).
-- **A refused `db-push`:** the desktop is unchanged; read the reason. A failure after the restore began leaves the desktop's
-  bench stopped, with the previous database intact as `<db>_envsync_prev`; follow the rollback in [Desktop drop](#desktop-drop).

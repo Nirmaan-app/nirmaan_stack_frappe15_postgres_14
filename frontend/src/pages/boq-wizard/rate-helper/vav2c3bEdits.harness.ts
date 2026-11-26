@@ -1,0 +1,39 @@
+/**
+ * VAV-2c3 FIX: a config of the newest file with v85's edits undone = what v84 held there, the twin of
+ * services/boq_rate_master/vav2c3b_undo_support.py. `undoVav2c3` applies it first, so every older comparison reads v85 as v84 (then v83 ...).
+ * Driven by `__fixtures__/vav2c3bEdits.json` alone; a config holding neither v84's nor v85's values is refused. No other harness import (a jsdom test can
+ * use it).
+ */
+import path from "path";
+import { pathToFileURL } from "url";
+import type { RateCategoryConfig } from "../../pricing/rate-master/rateMasterTypes";
+import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { undoVav2c3c } from "./vav2c3cEdits.harness";
+
+type Edit = { c: string; p: Array<string | number>; from: unknown; to: unknown };
+const EDITS85 = readJsonFixture<{ configs: Edit[] }>(pathToFileURL(path.resolve(__dirname, "__fixtures__/vav2c3bEdits.json")));
+const MISSING = Symbol("missing");
+
+const at = (cfg: unknown, p: ReadonlyArray<string | number>): unknown =>
+  p.reduce<unknown>((n, k) => (n === MISSING || n === null || typeof n !== "object" || !(k in (n as object)) ? MISSING : (n as Record<string | number, unknown>)[k]), cfg);
+const holds = (cfg: unknown, e: Edit, v: unknown): boolean => {
+  const have = at(cfg, e.p);
+  return v === null ? have === MISSING : have !== MISSING && JSON.stringify(have) === JSON.stringify(v);
+};
+
+/** PURE. `cfg` with v85's edits undone; a v84 (or older) config comes back as it is; one holding some but not all of v85's values throws. */
+export function undoVav2c3b(cfg0: RateCategoryConfig): RateCategoryConfig {
+  // VAV-2c3 FIX-2 (PIN FIX2-B): v86's edits undone first, so a v86 config reads as v84 (and on down the chain)
+  const cfg = undoVav2c3c(cfg0);
+  const id = (cfg as unknown as { category_id: string }).category_id;
+  const mine = EDITS85.configs.filter((e) => e.c === id);
+  if (!mine.length || mine.every((e) => holds(cfg, e, e.from)) || !mine.some((e) => holds(cfg, e, e.to))) return cfg;
+  if (!mine.every((e) => holds(cfg, e, e.to))) throw new Error(`undoVav2c3b: ${id} holds neither v84's nor v85's values`);
+  const out = structuredClone(cfg) as unknown as Record<string | number, unknown>;
+  for (const e of [...mine].reverse()) {
+    const parent = e.p.slice(0, -1).reduce<Record<string | number, unknown>>((n, k) => n[k] as Record<string | number, unknown>, out);
+    const last = e.p[e.p.length - 1];
+    if (e.from === null) delete parent[last]; else parent[last] = structuredClone(e.from);
+  }
+  return out as unknown as RateCategoryConfig;
+}

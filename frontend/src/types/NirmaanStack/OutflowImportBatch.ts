@@ -98,6 +98,8 @@ export interface OutflowRowMatch {
      * back to the older search-param scheme rather than disappearing -- see `settlementLink`.
      */
     order_name?: string;
+    /** 1 when the import (Create) brought the record into existence (#1278); what lets a bank line offer Move (#1760). */
+    created_by_import?: 0 | 1;
 }
 
 /** The import run's waiting-refund suggestion for a credit line (#1402), as `get_outflow_rows` sends it. */
@@ -328,6 +330,8 @@ export interface OutflowImportRow {
      * the line's lock.
      */
     can_send_back?: boolean;
+    /** #1762: Move accepts this line (`rectify.movable_rows`), so its Outcome cell offers no Unreconcile. */
+    can_move?: boolean;
     /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *

@@ -67,15 +67,19 @@ describe("Audit View summary cards", () => {
     expect(container.textContent).not.toContain("%");
   });
 
-  it("Non Projects Data: Top expense types comes first, without percentages", () => {
+  it("Non Projects Data: the expense-type card comes first, named after the tab, without percentages", () => {
     const rows = [
       invoice({ against: "Non-Project Expense", expense_type: "Rent", invoice_amount: 800 }),
       invoice({ against: "Non-Project Expense", expense_type: "Travel", invoice_amount: 200 }),
     ];
     act(() => root.render(<SummaryStrip view="nonproject" tab="invoices" rows={rows} />));
-    expect(cards()[0].textContent).toContain("Top expense types");
+    expect(cards()[0].textContent).toMatch(/^Invoices/);
+    expect(cards()[0].textContent).not.toContain("Top expense types");
     expect(cards()[0].textContent).toContain("Rent ₹800");
     expect(container.textContent).not.toContain("%");
+
+    act(() => root.render(<SummaryStrip view="nonproject" tab="payments" rows={[payment({ against: "Non-Project Expense", expense_type: "Rent" })]} />));
+    expect(cards()[0].textContent).toMatch(/^Payments/);
   });
 
   it("each part is its own card; the group around them is not a card", () => {

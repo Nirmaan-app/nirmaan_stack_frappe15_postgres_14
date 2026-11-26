@@ -158,7 +158,7 @@ run ends COMPLETE (active=1, the prior active run retired), never halted; `usage
 The run never touches the pool's file lock, so a 06:00 build in progress cannot make it wait. DEV2-B6's
 `rate_match.queue_pool_rebuild` is REMOVED (it had no other caller); the 06:00 job (`daily_pool_rebuild` ->
 `pool.rebuild_pool` on `long`, id `boq_match_pool_daily_rebuild`) and the manual `bench --site <site> execute
-nirmaan_stack.services.boq_rate_match.pool.rebuild_pool` are unchanged; `pool.ensure_pool` stays for h2_bench's own
+nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"` (force: past the migrate mark, #1741) are unchanged; `pool.ensure_pool` stays for h2_bench's own
 bench pool. A stale pool's rows carry the old pricing stamp's rule values until the 06:00 build; targets are always
 read live. Tests: `test_match_run_pool` (B6's "one queued" pins inverted), `test_rate_match.TestQueuePoolRebuild`.
 DEV2-B9 adds ONE more automatic build, only for a MISSING pool (the auto-build after a deploy, below).
@@ -199,6 +199,34 @@ so the check retries until a file is usable, waiting 10 min, 30 min, 1 h, 2 h, t
 Error Log). The failure time is RQ's record of the fixed id (`ended_at`, else `enqueued_at`), so a failed 06:00 build
 counts too; the try count is the cache key `boq_match_pool_autobuild_tries` (read with `expires=True`), cleared when a
 usable file is seen. A failure that repeats (a data error) never fixes itself: its Error Log is the signal.
+
+**NO POOL BUILD UNTIL A MIGRATE HAS FINISHED ON THIS DATABASE; THE BUILD RUNS ON A CLOCK (#1741; owner 2026-11-25
+"go").** On the 2026-11-24 deploy the scheduler fired mid-restore (the dump's tabSingles carries enable_scheduler=1),
+the check above queued a build, and its read locks on `tabBoQ Row Category` held the restore's ADD PRIMARY KEY for 16
+minutes. THE MIGRATE MARK (`private/boq_rate_match/migrated.json`, beside the pool file) holds the Postgres oid of the
+database the last migrate finished on; a restore recreates the database, so the oid changes. `pool_autobuild.site_ready`
+is None only when the mark holds the live oid (any read error refuses). `pool_autobuild.before_migrate` (the
+`hooks.before_migrate` entry) writes a "migrating" mark at the start of EVERY migrate, which also refuses: a migrate
+on a database that already holds a matching mark (no restore) closes the gate too, and a FAILED migrate leaves it
+closed (no build, the 06:00 one included, until a migrate succeeds; the pool then goes stale with no alarm). A build
+already running when a migrate starts is not stopped. The 5-minute check, `daily_pool_rebuild` (returns
+False) and the job body `pool.rebuild_pool` (`pool_job.rebuild`: builds nothing, takes no lock; it asks again once it holds
+the build lock, after a wait of up to `REBUILD_WAIT_SEC`) refuse until then; by hand
+it is `rebuild_pool(force=True)`. `pool_autobuild.after_migrate` (the LAST `hooks.after_migrate` entry) writes the mark
+once post_schema_updates commits (`frappe.db.after_commit`), then - not when `nirmaan_env == "dev"`, and only when the
+`long` queue's Redis answers a ping - runs the 5-minute check, with `in_migrate` cleared (frappe.enqueue runs a job INLINE
+when Redis fails inside a migrate). `build_pool` ROLLS BACK its read transaction after the `inputs` stage, before the
+node steps (no caller holds writes there). THE POOL BUILD CLOCK (`pool_job.BuildClock`) starts first thing in the job
+with the RQ job's own timeout as its limit (none by hand): the driving-field step gets the time left minus 900 s, is
+skipped under 60 s, and a timeout or skip saves the pool with driving unavailable plus one WARNING and one Error Log row
+"Match pool built without driving fields"; past 50 % of the limit, one WARNING and one Error Log row (both committed at
+once). The `boq_rate_match` logger is set to INFO (Frappe's default off the dev server is ERROR): one line per stage as
+it ends, one summary line. TIMES: production 2026-11-25 (e2-standard-4) `secs` corpus 92.6, inputs 77.2, pricing_step
+103.1, driving_fields 2599.8 (86 %), readings_view 1.4, selection_index 139.7, total 3013.9. The pricer speed-up
+(catalogue memo, machine read, pair skip; output byte-identical, `scripts/_instruments/pricer_identity.py`) measured on
+r7 over the 2026-11-17 data (23,835 stored rows): driving over all rows 763.0 s -> 331.7 s (43 %), the 60-per-category
+sample 140.9 s -> 53.0 s (38 %, 3 runs each). One full build there by hand after it: corpus 40.9, inputs 39.1,
+pricing_step 21.4, driving_fields 324.6, readings_view 0.2, selection_index 72.3, total 498.4 s (36,886 rows).
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
@@ -285,9 +313,9 @@ rolled-back transaction (byte-equal, count unchanged).
 `BoQ Rate Match Run`, `BoQ Rate Match Feedback` + the AI settings' "Historical matching" fields; no patches) -> confirm
 `match_enabled` = 0 -> fill the card / judge model (`claude-haiku-5-5`) and prices -> read the pricing step's stamp ->
 load the dev2 cards file with `load_spec_cards.py --dry`, then without (a skip-mismatch share = rows changed since the
-dev copy) -> build the pool once by hand (`pool.rebuild_pool`, ~8 min) -> check the 06:00 entry -> the owner switches
+dev copy) -> build the pool once by hand (`pool.rebuild_pool(force=True)`, ~8 min) -> check the 06:00 entry -> the owner switches
 `match_enabled` ON and `match_cards_at_commit` ON -> one watched real run -> AFTER GO-LIVE, outside working hours, the
-ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`, the real run, then `pool.rebuild_pool`).
+ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`, the real run, then `pool.rebuild_pool(force=True)`).
 Checks first (read-only): worker Node 18.x, a worker on `long`, System
 Settings time_zone Asia/Kolkata, the scheduler on, ~6 GB free for a pool build, the Anthropic key present, no rate-master
 asset in the diff (Deployment Mode does not apply). ROLLBACK: untick `match_enabled` (instant; Suggest unaffected); a
@@ -316,7 +344,7 @@ connection, builds no client and projects from `cards.plan_sheet` (calls, chars 
 call wave, sheets one after another). SAFE TO STOP AND RE-RUN: a sheet's cards are committed as soon as its calls come
 back; a re-run skips what is valid; a malformed / failed / refused row is listed with its reason and not retried in that
 run; a 429, usage limit, burst, error or Ctrl+C stops cleanly with the summary (exit code 1). It never rebuilds the pool:
-it prints `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`. CARDS AT COMMIT
+it prints `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool --kwargs "{'force': True}"`. CARDS AT COMMIT
 (`match_cards_at_commit`, go-live step 3.10) card every rate-editable row of a sheet committed after go-live, priced or
 not (the payload holds no rate, so pricing never stales a card); what only the fill-in covers is the go-live gap, rows of
 a pre-go-live sheet priced after the fill-in ran, and a commit card that failed - hence one re-run about a week after
@@ -348,7 +376,7 @@ Parity 2).
 DEPLOY NOTE (DEV2-B2): the frontend build produces the bundle (`yarn build` -> `node scripts/build_pricing_step.mjs`;
 no migrate), and the worker that builds the pool or runs matching needs `node` on its PATH (production's image: Node
 18.18.2 on every service; the bundle targets node18 and builds byte-equal under 18.18.2). The pool rebuild is ONE call,
-`pool.rebuild_pool()` (no arguments, under the pool's FileLock). THE 06:00 REBUILD (owner 2026-11-02 21:41, DEV2-B4):
+`pool.rebuild_pool()` (`pool_job.rebuild`, under the pool's FileLock; `force=True` by hand, #1741). THE 06:00 REBUILD (owner 2026-11-02 21:41, DEV2-B4):
 hooks.py cron "0 6 * * *" -> `rate_match.daily_pool_rebuild`, which ENQUEUES `pool.rebuild_pool` on `long` with a
 3600 s timeout - never point the cron at rebuild_pool itself: Frappe runs a "Cron" job on `default` at 300 s and a
 build takes ~450 s. Frappe's cron reads the SYSTEM time zone (now_datetime -> System Settings time_zone): dev2 holds
@@ -5632,3 +5660,540 @@ follow-up list). Commits ce65207fc, 1ad512a53, b3115fd9b, 9f7e03ac9, a5199b40c, 
 - **Tools:** the pack harness resolves section fields; the review chunks carry the panel's sheet notes ("SHEET NOTE:"); the per-row
   replay (ac7) has no sheet-level feed, so the R1 coverage and the Case 8 run of rows show only on the page / pack harness (7 rows:
   replay 1,390 priced vs pack 1,397).
+
+
+## VAV Box (HVAC v76) - VAV-1 (2026-11-19) - as built
+
+Mint `scripts/_instruments/mint_hvac_v76_vav1.py` (build / fixture / load / verify); design VAV-D0 (`BoQ main lane\VAV-D0\`), rulings in
+`VAV_Rulings_Capture_2026-11-18.md` (owner 2026-11-18 22:16 - 2026-11-19 01:39), QR-A (a) / QR-B (a) / QR-C2 (a) / QR-C3 (a) of VAV-1.
+
+**What v76 adds** (every v75 item and every other v75 config byte-identical; the model's question for every v75 category identical):
+- `hvac_vav_box` (item kind `hvac_vav_item`, family attribute `vav_item`): 91 items = the workbook's VAV Box tab rows 2-87 (84 box lines:
+  Rectangular / Oval x Nothing specific mentioned / AHRI Certified / AHRI Certified Imported x integrator Yes / No x 7 CFM bands; 2 VAV
+  Integrator lines "Nothing specific mentioned" / "Imported", the tab's own words) + the owner's SKUs BACnet over IP controller 33,000 + 2,000,
+  Duct connection 1,200 + 0, Conical piece 1,200 + 0, Integrator cabling 140 + 0 per Mtr, "VAV installation - any size" 0 + 1,500. Markups
+  0.4 / 0.6, BoQ = ROUNDUP(BCS x (1 + markup)). BCS float noise stored clean; "AHRI Certfied" spelled "AHRI Certified".
+- The box family needs its four match facts (`units.count.needs` shape / vav_type / integrator_included / cfm_range): without them the 84
+  SKUs are ambiguous; with one missing the box refuses naming it, never a pick. VAV Integrator needs `vav_type` (values per family).
+- Sections: own VAV items + Misc (Digital Thermostat, Temperature Gauge / Thermometer as "Room temperature sensor", Transformation Pieces)
+  + Sensors (CO2 Sensor, Differential Pressure Switch), borrowed LIVE under their own rules (block 85: VAV holds no figure of them).
+- `hvac_sensors` ("Sensors & Controls", kind `hvac_sensor_item`, family `sensor`): BORROW-ONLY exactly as Misc at VP-1 (no top-level
+  attributes, offered-only, registry `fetch_only`), 2 items Greystone/Honeywell from the Sensors tab rows 14 / 10.
+- `hvac_misc`: + Digital Thermostat (Misc tab row 11) and Transformation Pieces (row 19) and their 2 families; Misc 22 -> 24 items. The
+  nested Misc lines on the Valve Package (line 45) and Ducting (line 63) Derivation tabs read "9 kinds" and list the two (QR-C3 (a)).
+- `vav_install_only_uplift` = 0 (the scope's required input). The other VAV-2 inputs (existing-work factors, 2 m per box, the 90% and
+  70% thresholds) arrive with the code that reads them, VAV-2a (QR-B (a)).
+- `numbers: {}` / `ladders: []`: a category matching on choices only; the validator accepts an empty object since VAV-1 (B6).
+
+**The temporary calculator-only switch (owner QR-A (a), 2026-11-19 02:57):** the VAV config carries `calculator_only: true`
+(`_CALCULATOR_ONLY_CATEGORIES` = {hvac_vav_box}). The Calculator (`calculatorSurface: true`) and the Rate Master tab work; every VAV-filed
+BoQ row keeps "coming soon" and `config_is_eligible` keeps VAV rows out of Suggest. **VAV-2b MUST remove the key and the switch** (the VRF-4
+pattern: allowlist entry, `_CALCULATOR_ONLY_CATEGORIES`, `_validate_calculator_only`, `isCalculatorOnlyConfig`, the dep and the flag).
+
+**Proofs:** T1 parity 86 / 86 + 5; T10 calculator = sheet 86 / 86 (26 differ only by rounding below a rupee) + the borrowed five exact;
+T2 reachability 91 / 91 from the calculator's dropdowns; D2 34,720 + 2,900; Derivation coverage VAV / Sensors 0 / 0 / 0 unreasoned.
+
+**What VAV-2 adds:** the reading rules (CFM band from a range's maximum, the inlet-size table, shape default Rectangular, port charges),
+the opt-in pieces N1-N5 (charged-on-its-own-row check, the 2 m integrator cabling, source tags, counts, one add button per extra),
+existing-work factors, installation-any-size as a rule, the model guidance, the panel to the mockup, the paid run -- and the switch's removal.
+
+## VAV Box (HVAC v77) - VAV-2a (2026-11-19) - the sheet rules, the quantity per box, the combination warning
+
+Mint `scripts/_instruments/mint_hvac_v77_vav2a.py` (build / load / verify). The key VALUES live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2aKeys.json`, read by the mint and by the vav2a* tests. Scope per the owner's
+QR-S (a) (2026-11-19 13:31): the airflow band from the CFM, the inlet-size table and the source tags (B1 / B2 / B8) and the product
+preview move to the next slice; the owner's QR-B ruling for them (13:31 / 13:48: the user enters EITHER the CFM OR the inlet size, the CFM
+wins, the band read-only with its source tag, "only one is required" said in the calculator) is that slice's.
+
+**What v77 adds** (every v76 item and every other config byte-identical; every model request identical; `calculator_only` stays on):
+- `list_spec.pricing.own_row_check` (B3 / B4 / QR-C1): every extra a VAV row prices (thermostat, room temperature sensor, BACnet over IP
+  controller, DP switch, CO2 sensor, conical piece, transformation piece, duct connection) is checked against the SAME sheet's rows (QR-3a
+  (a)). A separate row = the agreed test (QR-4 (a); VAV-D0 D4): its own words name the extra; a line item or a quantity-bearing Preamble;
+  not a box row, not work on an existing box, not per metre, a count unit or none, no cable word before the extra's words, no artefact
+  words (AHU, plant room, fresh air, FCU, fan, VFD, static pressure, IAQ, VRF, attenuator, plenum, filter ...) in it or its headings, no
+  mounting-box words; pieces and duct connection must name VAV. Its quantity >= `vav_own_row_threshold` (0.9) x the VAV rows of the sheet
+  that price the same extra -> NOT added + note naming the rows (10, "and N more"); below -> added + "possible double counting - also
+  priced in rows ..."; quantities blank or 0 on EITHER side -> the separate row decides, NOT added (owner 01:23). The VAV integrator:
+  presence decides (no quantity test) -> the box on the "Integrator Included = No" line + note (owner QR-C1 (a), 13:31).
+- `list_spec.pricing.integrator_cabling` (B5): on a sheet with a VAV integrator anywhere (integrator / router / gateway with VAV / BMS /
+  BACnet / Modbus / controller / thermostat around it, never a heat-meter / BTU / flow integrator), every box row: a separate cabling row
+  (per metre, a cable / wiring word, not "power", not a conduit row; VAV - or "variable air volume" - in its description; in its own notes
+  or a heading above it, unless its description names other equipment - 'variable air volume' and the own-notes reading are owner rulings of
+  2026-11-19 15:57, "both a") -> nothing added + note; its metres below
+  `vav_cabling_length_threshold` (0.7) x `vav_cabling_m_per_box` (2) x the sheet's boxes -> the longer note (price unchanged); none -> the
+  `Integrator cabling` SKU (BCS 140 per metre = quoted 196; unchanged since v76) ADDED BY THE HELPER at `vav_cabling_m_per_box` per box,
+  its block "added by the helper", removable. Reproduces chat-Claude's v3 workbook on all 84 VAV sheets (53 / 800; 45 / 705 not added;
+  8 / 95 get 2 m; 0 below 70%; 6 unchecked; 0 differences).
+- `list_spec.pricing.existing_boxes` (B6): a row whose OWN words are dismantling / dismantling and refixing / refixing of an existing box is
+  priced as "VAV installation - any size" alone (supply 0, no extras, no cabling), installation x `vav_existing_dismantle` (1.0) /
+  `vav_existing_dismantle_refix` (1.5) / `vav_existing_refix_with_dismantling` (0.5, the sheet has a separate dismantling row naming VAV) or
+  `vav_existing_refix_alone` (1.5); an input not set -> the row refuses.
+- `list_spec.sections[misc|sensors].qty_attr = qty_per_box` (B7): a borrowed item's quantity per box from the row ("two thermostats",
+  "on either side"); default 1 marked; the pricer's typed quantity wins. Own extras read it through `qty_attribute_id` since v76.
+- `list_spec.pricing.combination_warning` (B9): a priced row whose lines other than the box exceed `vav_combination_warning_share` (0.5) x
+  the box's own supply + installation shows "This rate combines the box with {n} extras (Rs {x} of Rs {y}). Review each item before
+  using." ({x} = the row rate minus the box rate, {y} = the row rate, on the catalogue lines before any scope pick); panel and calculator.
+- 8 Pricing Inputs (above), each read by VAV Box (`extras_input_ids` / `scopeUses`: "used by VAV Box").
+- Derivation: a generated line per key and a reason per line; the "That kind's rule for that unit" reason says BCS cost 140 per metre,
+  quoted 196 (owner 12:35).
+
+**Never in the calculator** (it has no sheet): B3 / B4 / B5 / B6 run only on a BoQ row (`ctx.noRow !== true` with the page's sheet
+lines); B7 needs a model item; B9 shows in both.
+
+**Load-bearing:** the sheet rules settle the MODEL'S ITEMS before pricing (`vavSheetRules`, pricingSheetHelper.ts) -- a dropped extra
+leaves only its note; the helper-added cabling item carries `__added_by_helper`. A row naming "VAV box(es)" is a BOX row to the
+own-row test (a separate "BACnet controller for the VAV boxes" row is not counted -- blind spot kept from the agreed test;
+closed for the BACnet over IP controller by v78's `own_row_check.serves`, VAV-2a2).
+
+**Known caveat (owner 2026-11-19 18:21 "ok b"; FIXED in VAV-2a2 / HVAC v78 - see the next section):** `derivation_reasons` is matched FIRST-MATCH by title
+pattern, and VAV-1's "^The misc item section" / "^The sensor section" patterns come before the VAV-2a B7 reason, so lines 9 / 11 of the VAV
+Box Derivation ("The misc item / sensor section's quantity per vav item is the count the row names") show the borrowed-section reason. The
+coverage check (`derivationCoverage`, UNREASONED) counts a present-but-wrong reason as covered. A later slice: put the new reasons first
+and make the coverage check test the right reason.
+
+## VAV Box (HVAC v78) - VAV-2a2 (2026-11-19 / 20) - band from the airflow or the inlet size, the CFM-or-inlet entry, source tags, the controller row, the reasons check
+
+Mint `scripts/_instruments/mint_hvac_v78_vav2a2.py` (build / load / verify). The key VALUES live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2a2Keys.json`, read by the mint and by the vav2a2* tests (`withV78Keys`,
+`withV78Valve` in `vav2a2.harness.ts` apply it to a scratch copy; idempotent on v78). `calculator_only` stays on (VAV-2b removes it).
+
+**What v78 adds to hvac_vav_box** (every item and every other config byte-identical except the Valve Package strings below; every model
+request identical except VAV's own; the eligible set unchanged):
+- `list_spec.attribute_definitions` + `airflow_cfm` and `inlet_size` (text), before `cfm_range`; their `panel_controls` (text) and
+  `panel_notes` (each says only one of the two is needed).
+- `list_spec.pricing.band_from` (B1 / B2 / B3; owner 2026-11-18 22:16 / 22:18 / 22:21 / 23:53, QR-3c (a) 2026-11-19 00:57, 13:31 /
+  13:46, QR-E (a) 2026-11-20 00:10): on a "VAV box" item the band (`cfm_range`) is WORKED OUT, never picked and never read from a model
+  band answer -- the airflow first (the maximum of a range, a range written from 0 included; a range crossing bands says so; a number with
+  no unit is CFM; another airflow unit refuses by name), else the inlet size by the owner's table (`inlet_table`, data: 6 / 8 / 10 / 12 /
+  14 / 16 / 24 inch; next size up; mm / 25.4 with a line; a tag number or two sizes is not a size), else not priced ("airflow not stated,
+  enter the CFM" on a row; "enter the CFM or the inlet size" in the Calculator). `edge` "lower": 450 CFM is 0-450, 8,000 is 4000-8000;
+  above 8,000 CFM / 24 inch -> not priced, "above the largest box on the sheet". CFM wins when both are given (the band says so).
+- `list_spec.pricing.source_tags` (B4): `{shape: "from BoQ"}`; the band's own tag comes from `band_from.tags` (from BoQ / from the maximum
+  of the range / from the inlet size table / from the CFM you typed / from the inlet size you typed (inlet size table)).
+- `list_spec.pricing.defaults.shape` (R4, owner 22:16 "2b"): a row whose reading says shape not stated -> Rectangular, amber, "shape not
+  stated - priced as Rectangular". Shape no longer offers "None" (the 12d-2 rule); an untouched Calculator Shape stays blank and withholds
+  the price (the Calculator's standing rule; chat-Claude 2026-11-20 01:03, absent_as_none NOT built).
+- `list_spec.pricing.own_row_check.serves` (B8; owner 2026-11-19 18:56, QR-C2 (a) 2026-11-20 00:34 / 00:36 / 00:37): `{item_first: true,
+  extras: ["BACnet over IP controller"], presence_decides: true}` -- a row whose own DESCRIPTION names the BACnet over IP controller before
+  any box words is that controller's own row ("controller for BACNet integration above VAV Boxes with BMS"); presence decides, no quantity
+  test (one controller for many VAVs); words only in a row's notes never count (BOQ-26-00185 / 00281 r116). Every other extra keeps the
+  90% test; the integrator's own-row decision is as VAV-2a built it (the six Misc-filed integrator rows were ruled YES on 2026-11-20
+  14:10 -- owed to VAV-2b, not in v78).
+- `derivation_reasons`: the B7 quantity reason moved before VAV-1's borrowed-section reasons AND those two patterns narrowed
+  ("^The misc item section(?!'s quantity)", "^The sensor section(?!'s quantity)"), so the two "quantity per vav item is the count the row
+  names" lines (v77 lines 9 / 11, v78 lines 10 / 12 -- the shape-default line is new at step 5) show the 22:35 / 22:38 rulings; reasons for
+  the band, inlet, no-airflow, typed-entry, shape-default and controller-presence lines; the own-row reason names the B8 ruling.
+
+**Valve Package (R7, QR-V (a) 2026-11-20 00:10):** the two scope supply-row notes lose " (owner VR9)"; the Derivation gains E13
+("Thermowell with valve" is priced as the thermowell, its why in the detail). Code: `valveReviewNets` E13 -- a row whose own words are
+"thermowell with valve" prices the Misc Test Plug / Thermowell (720 + 100), a sizeless valve folded in, with a note; the pair-rule note
+loses "(owner QR-2)". The four stored rows (00140 r562, 00234 r222, 00261 r125, 00273 r222) move from "not priced" to 720 + 100.
+
+**The reasons check (B6, owner 2026-11-19 18:21; rule as reviewed 23:45):** `derivationCoverage(...).wrong` -- a line whose reason is
+present but WRONG (ANY other reason matches more of its title than the one shown); `dead` -- a reason no line shows. The latest-asset
+guard fails on WRONG for every guarded category and on DEAD for VAV Box; Ducting's 8 dead reasons ([33] [35] [39] [40] [41] [43] [47]
+[54], older wordings shadowed by the specific ones) are REPORTED, not failed (its config untouched).
+
+**Load-bearing:** `band_from` is read inside `priceOneItem`'s match loop (the band attribute of a band family) and in `itemFieldDefs`
+(the two typed boxes in one either-or group, the band read-only via `bandReadOnly`); `itemBlockView` shows the band's value, tag and line.
+A config without the key is unchanged (T3).
+
+**The airflow reader** (`readAirflowCfm`, itemListPricing.ts; final version in K2 12cf88ff9 -- K1 / K1b carry earlier ones): a number
+glued to letters, or to letters and a hyphen, is a tag or model number and is dropped (VAV-0, Type-0, VAV-01, T1, VAV-PID-150) unless
+the letters are an airflow word (`AIRFLOW_WORDS`: up / upto / to / from / cfm / approx / max / min / of / about / at -- "Upto500",
+"From525 to 1000", "CFM-650" read); a range only where written as one, the unit allowed on both numbers ("0 - 650 CFM", "651cfm - 900cfm",
+"600 CFM to 1000 CFM"), its 0 the low end; otherwise the largest number left; a lone 0 is no airflow; l/s, CMH, m3/h refuse as another
+unit. "Upto 500 CFM max (min 50 CFM)" reads 500 alone (the min is the box's turn-down, not a range; chat-Claude 2026-11-20 14:01).
+Corpus proof on 957 box rows: no band, high or priced change vs K1.
+
+**Owed to VAV-2b (owner rulings 2026-11-20, NOT in v78):** QR-A2 (a) a lower limit only ("Above 3200 CFM", "3700 CFM above") -> the
+next band up with a note "BoQ gives only a lower limit" (5 rows; v78 prices the band of the stated figure); the six Misc-filed integrator
+rows count as integrator rows; the per-sheet BACnet rule (controllers = VAVs on the sheet / 32 rounded up, the total shared over every box,
+replacing the per-box controller); the DDC panel rule (VAVs / 200 rounded up; BACnet x controllers + Duct Static Pressure Sensor 7,650 x
+sensors + 25,000 per panel; install 5,000 per panel; markups 0.4 / 0.6; shared over every box); the Duct Static Pressure Sensor (7,650 +
+500) one per 30 boxes.
+
+**Known caveats:** the 7-inch line names only the size used ("Band from the inlet size table: 8 inch -> 450-800 CFM"), and the mm
+conversion line runs into the table line with no separator (both as designed and pinned; cosmetic). The replay harness records no scope
+note, so a scope-note wording change is invisible to it (the VR9 strip was shown in the cert instead).
+
+## VAV Box (HVAC v79) - VAV-2b1 (2026-11-20) - the shared items per sheet (BACnet controller, DP sensor, DDC panel), the shared-item block, the quantity-0 own rows, a lower airflow limit, integrator rows filed Misc
+
+Mint `scripts/_instruments/mint_hvac_v79_vav2b1.py` (build / load / verify). The key VALUES and the five new items live in ONE file,
+`frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2b1Keys.json`, read by the mint and by the vav2b1* tests (`withV79Keys`,
+`withV79Items` in `vav2b1Keys.harness.ts` apply it to a scratch copy; idempotent on v79). `calculator_only` stays on (VAV-2b2 removes it).
+Code: `vavSheetShares.ts` (pure: the decision, the sums, the edits), `pricingSheetHelper.ts` (`vavSheetSharesOf`, `withdrawnItemsOf`,
+`offeredFamilies`, the quantity-0 branch of `vavSheetRules`), `SharedItemBlock.tsx` (the blocks + `ReviewBlock`).
+
+**What v79 adds** (every v78 item and every other config byte-identical; every model request identical, VAV's included; the eligible
+set unchanged):
+- Items: "DDC Panel/ Controller" (VAV Box sheet, BCS 25,000 + 5,000, 0.4 / 0.6 -> 35,000 + 8,000; owner 15:23 / 15:24); "Duct Static
+  Pressure Sensor - Greystone/Honeywell" (Sensors row 11, BCS 7,650 + 500, 0.4 / 0.8 -> 10,710 + 900; it was not an item before; read
+  directly by the shares, so the Sensors config is unchanged); Pricing Inputs "VAV - VAVs per BACnet controller" 32, "... per DP
+  sensor" 30, "... per DDC panel" 200 (15:23 "yes"). The Differential Pressure Switch stays an item.
+- `list_spec.pricing.sheet_shares` (R1 / R3 / R5 - R8 / R10): per SHEET -
+  - the VAVs = the quantities of its VAV-filed box rows (box family "VAV box": VAV and CAV boxes for new supply incl. a "scope not
+    clear" row; NOT installation-only, existing-box work or other items - N1 - N3, owner 19:48 "agre on N1.N2 and N3"); a blank / 0
+    row counts 0 and the share's note says how many; every box row blank / 0 -> nothing added + the rate-only note (QR-N (b), owner
+    19:46);
+  - the trigger is the SHEET, not the row: a mention in the payload of ANY VAV row of the sheet (its row text, headings and notes)
+    fires the share for the whole sheet, on every box (14:23 "5. allbxes getshare also"; 14:25 "i meant payload for any VAV mentions
+    Bacnet... generally there will no  be rows which have bacvknet and rows which do not have Bacnet");
+  - no minimum number of VAVs (15:02 "option a"): a sheet with one box (BOQ-26-00087 r18) carries the whole panel on that box; the
+    combination warning flags it;
+  - the first match (R7, 15:20): a DDC controller / panel part of the box or its controller (`ddc_inclusive`, or `ddc` = without
+    "inclusive" -> its note, 14:42 / 14:45) -> the DDC panel share; else BACnet -> the BACnet controller share; else a plain
+    controller for the VAVs -> the BACnet share + the "check" note (15:16 / 15:19); else a controller by others -> nothing, noted;
+    the DP sensor share for any DP mention unless DDC (R8, 14:35 - 14:39). The reading is three attributes on the row's box item
+    (`controller_mention`, `controller_by_others`, `dp_sensor_mention`), answered by the model from VAV-2b2. The DDC rule (14:30): "if
+    a VAV payload mentions price is inclusive of DDC controllor/Panel and there is nor seprate row for the DDCpanel in the sheet then
+    we nee dto include the price of the DDC controolor in the row";
+  - what does NOT count as a mention (the owner's markings of 14:56 on 12 rows, one per sheet; 15:05 "option c / 1 yes 2 yes"):
+    "DDC panel and controllor are interchaebale" (14:48); a DDC counts when the text makes it part of the VAV box or its controller -
+    "Included" on wording 1 "Independent DDC VAV Controller ..." (BOQ-26-00047 r4, 00117 r315, 00149 r462, 00164 r26) and wording 3
+    "consisting of / complete with ... DDC controller" (00020 r438, 00087 r18, 00245 r145, 00285 r21, 00394 r38); NOT a line about
+    makes - wording 2 "All VAV controllers, DDC controllers ... shall be of single OEM" (00188 r5, 00393 r6): "It has Bacnet
+    controllors included.but not DDC" (the BACnet share instead); NOT another equipment's DDC - the AHU's (00049 r158): "No t
+    included". 15:05 "2 yes": the same test for BACnet - 00049's only BACnet mention is the AHU's, so no BACnet share there;
+  - only a controller FOR THE VAVs (15:36 "bacnet controolors hosuld be added only whenthe reference of the controllor is for
+    controlling the VAVs"; 15:40 "yes" to the three worked rows): BOQ-26-00148 r160 ("required controllers for controlling all the
+    VAVs ... main controller") and 00169 r351 ("shall communicate through a network controller to a PC/Laptop") GET the share;
+    00125 r202 ("Centralised Controller for VFD operation & BMS connectivity") does NOT - the controller is the VFD's - with a note;
+  - the sums (14:18 / 14:31 / 14:39 / 15:23): count = VAVs / the Pricing Input, rounded up; BACnet / DP = count x the SKU's quoted
+    supply and install (ROUNDUP(BCS x (1 + markup))); DDC panel = (panels x 25,000 + controllers x 33,000 + sensors x 7,650) BCS
+    x (1 + the panel's supply markup), install panels x 5,000 x (1 + 0.6); per box = total / VAVs, supply and install each rounded to
+    the rupee (P1 f; e.g. 80 VAVs BACnet 1,733 + 120; DP 402 + 34; DDC 2,572 + 100); DDC replaces the BACnet and DP shares
+    (14:30 "if we are including th eprice of DDC, thenwe dont add bacnet or DP sensor price seprately also. else it will bedouble
+    counting"; 14:39 "we dont count it twice");
+  - separate rows (`separate.extras`, the product's `vavSeparateRow` on own_row_check's word tables, item named first): the BACnet
+    controller row; a "controller for the VAVs" row (own words say it controls the VAVs - 20:54 "option a", BOQ-26-00098 r70); an
+    integrator / router row is NOT the controller's row (19:46 "integrator row does not count for controller it counts only for
+    integrator"; 19:50 "a": a row that is both by its own words - "Network controller or Router", BOQ-26-00033 r90 / 00440 r92 - is
+    an integrator / router row only, the BACnet share still added) unless its own words say it controls the VAVs (20:20 "option b",
+    BOQ-26-00188 r20 / 00393 r21); the DDC panel row; the DP / duct static pressure sensor row whatever it serves (QR-D3 (a); not an
+    air-flow monitoring station or a gauge). A separate row WITH a quantity -> nothing added, the note names it (presence decides, no
+    quantity test); a separate row with quantity 0 / blank on a sheet with VAV quantities -> NOT charged separately, the share is
+    added with the quantity-0 note (20:56 "butthe quantity fo rthe master controller is zero, then we should price it with the Vav
+    rows"; 21:05 "a, yes").
+- `list_spec.pricing.withdrawn_families` (R2 / R8): "BACnet over IP controller", "Differential Pressure Switch" - no list offers them
+  per box; a model item of either is dropped with a line. A hand-entered one would still price (no screen offers it: a blind spot).
+- `own_row_check.serves.also` ["VAV integrator"] (R13): the item-first test for the integrator too - catches exactly the six
+  Misc-filed integrator rows VAV-2a missed (their descriptions name the VAV boxes after the integrator).
+- `own_row_check.zero_rows` / `integrator_cabling.zero_rows` (rule 4; owner 21:05 "same shold apply to all extras", 21:47 "a",
+  23:30 "option a for boq 140"): an extra's own row with quantity 0 / blank on a sheet whose VAV rows carry a quantity is not charged
+  separately - the per-box extra stays with the quantity-0 line; the integrator row with quantity 0 leaves the box on "Integrator
+  Yes" (BOQ-26-00140 r289); the integrator cabling is added when EVERY cabling row is 0 / blank metres. VAV rows blank / 0 unchanged.
+- `band_from.lower_limit` (R12, 14:10 "1a"): "Above 3200 CFM" -> 3200-4000, "3700 CFM above" -> 4000-8000, with the line and the tag
+  "BoQ gives only a lower limit"; a range is never read so.
+- `combination_warning.heading` "Review before using" (R11, 18:06; screen 7): the warning as the bordered amber block above the row
+  total; a share counts as an extra; the 0.5 stays until the owner re-sets it after the preview.
+- `derivation_reasons`: line 19's reason replaced by the per-sheet first match (R7); new reasons for every new line, each with the
+  owner's words (lesson: each new line shows its OWN reason - pinned).
+
+**The Calculator** (B5, screen 7, 18:39 / 18:41 / 18:44): three add buttons; a block per share - "Number of VAVs on the sheet" (EMPTY
+in the Calculator, pre-filled from the sheet on a BoQ row), "VAVs per ..." (the Pricing Input), the count (worked out; a count changed
+by hand is kept, "changed by you"), every box with its revert; the sum line; "Or type the amount" -> "Amount typed by you"; tags
+"added by the helper" / "added by you"; the edits under the override key `__shares__`. The Calculator and the BoQ row price a share
+through the same `sheetSharesView` (parity tested).
+
+**Load-bearing:** the shares join the row total BEFORE the combination warning (`computeItemList`); the decision runs only on a BoQ
+box row (`vavSheetSharesOf` returns null on the calculator, a non-box row, or without the key); a config without the keys prices as
+v78 (T3, tested on fixtures and in the preview's `no_shares` / `no_zero` variants).
+
+**Owed to VAV-2b2:** the model's three reading attributes and the guidance; the row panel layout; removing `calculator_only`; the
+paid run; re-setting the 50% after the owner reads this slice's preview.
+
+## VAV Box (HVAC v80) - VAV-2b1 K2 (2026-11-21) - the full-rate add, shares only on box rows, the Lot guard
+
+Mint `scripts/_instruments/mint_hvac_v80_vav2b1.py` (= v79 + only this; v79 as loaded 23:48:53 is never re-minted - two files never share a
+number). Keys in ONE file `__fixtures__/vav2b1KeysV80.json` (`withV80Keys` / `withV80Sensors`). No item changes (853).
+- Owner 01:07 / 01:09 "yes for both" / 01:15 / 01:21 "b" + "per unit rate" + "2 yes" / 01:31 / 01:32 + 01:36 "A" / 01:39:
+  - "Add VAV item" = the 6 own families (no plain per-box BACnet controller) + two FULL-RATE entries, "BACnet over IP controller (full
+    rate)" and "DDC Panel/ Controller (full rate)": each inserts the WHOLE (per-unit) mode of its share block (`sheet_shares.whole`) - the
+    same parts and figures, never divided over the boxes; BACnet: VAVs / 32 up controllers x (46,200 + 3,200), 1 controller while no VAVs
+    are typed; DDC: panel x 1 (fixed) + controllers VAVs / 32 up + sensors VAVs / 30 up, cost x (1 + the panel's supply markup), install =
+    the panel's 5,000 x 1.6 (80 VAVs = 2,13,730 per panel). On a BoQ row the VAVs are pre-filled = the sheet's counted VAVs / the row's
+    quantity, rounded up (blank / 0 / 1 -> the sheet's), with its line; the row's quantity enters only that pre-fill (the BoQ multiplies).
+    Every step shows in plain words with the real numbers (01:39).
+  - "Add sensor" = CO2 Sensor + the Duct Static Pressure Sensor (`user_addable`: a withdrawn family a list still offers; a plain item, typed
+    quantity, borrowed live from the Sensors sheet; v80 adds its family to hvac_sensors).
+  - The helper adds none of them (a model-read one is still dropped with its line); the Differential Pressure Switch is offered nowhere.
+  - A share and the full-rate block / item of the same item may sit together: both in the total, the review block counts both, a line under
+    the full-rate one ("... is also on this row. Check that ... is not counted twice.").
+  - Shares only on rows that price VAV boxes (01:16): a row priced per lot (`lot_units`) carries no helper share (`vavSheetOf`; found by
+    the 01:02 check on BOQ-26-00171 r153); the share buttons stay on any VAV-filed row ("b"); a share the USER adds on a row that is not a
+    counted box carries `sheet_shares.lines.not_box_row`.
+  - The DDC panel's own row: an enclosure / cabinet / box / plug top / socket FOR a DDC controller is not it (not_words; own rows 5 -> 2).
+- (c2) a family in `user_addable` is never asked of the model (extraction.build_items_spec leaves it out of a borrowed section's offered list):
+  every model request byte-identical v79 -> v80 except hvac_sensors' own (never sent: borrow-only, not eligible).
+- Load-bearing: `vavSheetOf` returns null without `sheet_shares` (every other category untouched - vav2b1SharedFileGate + the replay);
+  a row with no item line is priced by its full-rate blocks alone only when `sheet_shares.whole` exists (in this slice: the Calculator only -
+  VAV BoQ rows stay "coming soon", and the separate controller rows are filed Misc / Sensors / Panels).
+- K2b (the cert's wording findings): a borrowed section's "kinds offered" lists what its add list offers (a withdrawn, non-user-addable
+  family left out); the block line names the add buttons in the screen's order; the withdrawn line names the user-addable item; a
+  full-rate block says "per unit" ("Or type the amount (per unit)") and shows no "VAVs per panel" box for the fixed panel.
+- The Duct Static Pressure Sensor's rate has no Rate Master page (Sensors is borrow-only); it shows read-only in the Calculator's working
+  lines of the sensor item; no screen to change it was found (searched: the Rate Master category list, the Calculator).
+- Blind spots for VAV-2b2 / VAV-3: a non-box row whose words are misspelt ("exixting") and whose unit is a VAV unit could still be read as a
+  new box (r153 is caught by its Lot unit only); a per-box controller / DP switch state built in code still prices (no screen makes it).
+
+## VAV Box (HVAC v81) - VAV-2b2 (2026-11-21) - VAV rows live on BoQs, the model's reading, rows filed Misc / Sensors, the 21 Nov screen items
+
+v81 = v80 + ONLY: the Pricing Input "VAV - combination warning share" 0.5 -> 0.25 (owner 2026-11-21 10:25 "2 lower it to 25%") and the
+hvac_vav_box keys below; `calculator_only` gone (owner 2026-11-19 02:55 "optiom a": "removed in VAV-2b"). No item added or deleted.
+Keys file: frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2b2Keys.json (mint_hvac_v81_vav2b2.py and vav2b2Keys.harness.ts).
+
+### Load-bearing rules (each with the owner's words)
+- THE MODEL READS, per VAV box row (list_spec.attribute_definitions): `controller_mention` (ddc_inclusive / ddc / bacnet / controller /
+  none), `controller_by_others`, `dp_sensor_mention` - the reading `sheet_shares.reading` names. Only a controller FOR CONTROLLING THE
+  VAVs counts (2026-11-20 15:36 "bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the
+  VAVs"); "DDC panel and controllor are interchaebale" (14:48); another equipment's DDC / BACnet and a makes line do not count (15:05
+  "1 yes"); "by the BMS vendor / by others" adds nothing (15:19 "2 ok"); "i meant payload for any VAV mentions Bacnet" (14:25); "thi sis
+  true for all Dp sensor mention in VAV" (14:37). "Suitable for duct connections" is not a duct connection (2026-11-19 19:06 "9a").
+  The user-only items stay out of the request (c2). Every other category's request is byte-identical v80 -> v81 (the mint's stub proof).
+- ROWS FILED MISC / SENSORS (`list_spec.pricing.claims_filed`, VAV Box ONLY by the validator; an EXCEPTION to "the user's category
+  decides", block 83): owner 12:33 "for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also.
+  any other category if we need we will build as exceptions."; 12:34 "agree on all 3" - only on a sheet with VAV rows, only a row
+  naming a VAV item, the row stays filed and carries the note (12:36 "a"): "This row is filed under Misc. It is priced here because it
+  matches a VAV item (BACnet controller). The classification may be wrong." No toggle. Recognised ON THE SERVER
+  (services/boq_rate_master/vav_claims.py, the Python twin of the client's own-row tests - pinned by vav2b2ClaimsParity.test.ts and
+  test_vav2b2_keys on 815 real rows); the run's result row carries `claimed_from` / `claimed_item` / `claimed_kind` and the panel
+  (vavClaims.ts) prices it by the VAV config. Kinds: DDC panel row / BACnet controller row (the full-rate block the helper adds, per
+  unit; VAVs pre-filled = the sheet's VAVs / the row's quantity, 0 / blank = the sheet's - 13:40 QR-K1 "a"), DP sensor row (the Duct
+  Static Pressure Sensor, a plain item - 01:21 "2 yes"), integrator row (the "VAV Integrator" line; also a row whose description names
+  a VAV integrator / router - 13:40 B1 "a"), existing-box row (installation 2,400 x factor), installation of VAV units (2,400 per unit
+  + "Check if additional cost needs to be added for control cabling." - 13:40 B2 "a"), conical / transformation piece. Untouched (13:40
+  B3 "a"): LAN-connectivity rows. Touch-screen and master controller rows ARE claimed (K1b "A", owner 13:59 "A :price touch
+  screen controlor or master controlor as DDC panel. give appropriate notes"; 14:46): the full-rate DDC block, the note "Priced as a DDC
+  panel. The BoQ calls this a <touch screen controller / master controller>. Check before using.", and the row counts as the sheet's
+  controller AND DDC panel row. Measured on the 84 sheets before "A": 99 rows claimed (Misc 14 BACnet + 1 DDC + 21 integrator + 8
+  integrator by name + 10 existing + 5 installation; Sensors 39 DP + 1 installation). A claimed row still counts for the sheet as the item's own row (unchanged code path).
+- AN ADAPTOR IS NOT A CONTROLLER (13:40 "4 a"): a row naming an adaptor / adapter is not the BACnet controller's own row unless its own
+  words say it controls the VAVs (BOQ-26-00020 r194; 0 figures and 0 notes move - measured).
+- THE WARNING (R8 / R9): 25%; the "Review before using" block names each extra with its amount, then "Extras total Rs X of Rs Y.
+  Review each item before using." (10:52 "the warning should name the xtras included for more clarity insteda of just giving the
+  count"; 10:54 "a").
+- POSSIBLE DOUBLE COUNTING (R10, 10:44 / 10:45 "1 yes 2 ok"; 13:59 "B: option B"): an amber block above the row total when a BACnet /
+  DP block (share, full rate or the plain item) sits beside a DDC block, and when a DDC share sits beside a full-rate DDC panel; it
+  replaces the small lines of the blocks it names. Widened at 14:46 ("go with your recommendations for all cases"): a BACnet share +
+  a full-rate BACnet block, and a DP share + a Duct Static Pressure Sensor, show the same block.
+- THE ADD LISTS (R11 - R14): ONE "Add other item" on VAV screens holding the Misc and Sensors entries (10:40 "can we combine addmisc
+  and add sensor into one group...the user does not need to know where it is coming from."; 10:41 "1a 2a"); "Thermostat with CO2
+  sensor" adds both items in one click, each removable (10:40 "2 a"); their items are headed "Other item" (the word is the session's;
+  10:50 "2 ok"); "Integrator cabling" listed "per VAV" (10:38 / 10:40 "1 ok"). Ducting and Valve Package keep "Add misc item".
+- WORDINGS (R7 / R15): "cost" for "BCS" in the DDC share lines, "Number of VAVs" in the Calculator (on a BoQ row it stays "on the
+  sheet"), "for N panels" when the panels count is not 1 (10:25 "1b").
+- The DP sensor's rate is the Sensors item "Duct Static Pressure Sensor" on the Rate Master (Sensors & Controls tab); VAV reads it live.
+- THE CONTROLLER'S OWN ROW ("2a", owner 15:28 / ANSWER 13): a DDC panel row with a quantity above 0, whatever it is filed under, counts as
+  the sheet's controller row (quantity 0 / blank does not); the touch-screen / master controller rows count the same way ("A").
+- THE "NOT ADDED" SENTENCE PER TEST (`sheet_shares.not_added_by`, owner 15:56 "1a 2a 3b" as ANSWER 16; 15:31 "notes should be explnatory
+  ... so that user canunderstand why vabcnet is not being added"): a BACnet controller row -> "<share> not added: row <n> prices the BACnet
+  controller for this sheet's VAVs. Add it here only if that row does not cover these boxes."; a DDC panel / touch / master row priced by
+  this helper -> "... row <n> is priced as a DDC panel, and that price already includes the BACnet controllers for this sheet's VAVs. Add the
+  share only if the controllers are not part of that panel."; a DDC panel row this helper does not price -> "... row <n> is a DDC panel row,
+  and a DDC panel includes the BACnet controllers ... This helper does not price that row. ..."; every other row the general sentence with
+  its count words ("row <n> prices it" / "rows <a>, <b> price it ... those rows do not"). Code: vavNotAdded.ts.
+- THE TEMPORARY TEST-RUN LINE (UI CHANGE CONTROL item 13, owner 15:56 "3b"): stubRunMark.ts - a Suggestion Run whose run_id starts
+  "STUB-VAV-2b2-" shows, on hvac_vav_box rows only, the amber line "These answers were written by hand for a test, not read by the model."
+  The run id rides in RateHelperRowContext.runId (SheetPricingPage suggestRun.runId). VAV-3 REMOVES it, with a test.
+- Open for VAV-3 / the owner (the VAV-2b2 report, "Cert findings"): line 44's list names two items twice; the warning input's Unit text
+  "(0.5 = 50%)"; line 35's "no VAVs typed: one controller" vs the empty full-rate block withholding its price; the added cabling item's
+  "none found" line vs the sheet note naming a 0 m row; a duct static pressure row for the AHU / VFD counts as the VAVs' DP sensor row
+  (QUESTION: as built it switches the DP share off, e.g. BOQ-26-00355 r41); an item's own supply shown under "Installation only" (display
+  only).
+
+## HVAC v82 - VAV-2c1 (2026-11-22) - the words a pricer reads, the Scope box, the Pricing Input texts
+
+v82 = v81 + ONLY texts and display keys (no rate, markup, item or rule): the edits of ONE file,
+frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c1Edits.json (read by mint_hvac_v82_vav2c1.py and by vav2c1Edits.harness.ts).
+Every category's model request is byte-identical v81 -> v82 (test_vav2c1_keys test_03; the mint's own proof).
+
+### Load-bearing rules (each with the owner's words)
+- NO INTERNAL LABEL ON A PRICER'S SCREEN, EVERY HVAC CATEGORY (R3; owner 2026-11-22 10:49 "a and also check for similar instances across
+  other HVAC categories and remove if found"; how far, 13:03 "a"): no ANSWER / QR / Q number, "chat-Claude", slice name, ruling code or config
+  key in a rules-page line, a row note or message, or a working line. His own words and dates stay ("(owner DR8, 2026-11-13 21:03)" ->
+  "(owner, 2026-11-13 21:03)"). The label kinds are scripts/pricer_text_labels.json; scripts/pricer_texts.py (asset texts) and
+  frontend/src/pages/pricing/rate-master/pricerCodeTexts.harness.ts (screen code) walk every text with them, and BOTH GUARDS read what is drawn:
+  test_vav2c1_keys test_04 (v81 red, v82 green) and vav2c1CodeLabels.test.ts (code strings + every HVAC rules page as rendered). A NEW
+  pricer-facing text with a label fails them. The PURE pricer's stored sentences may keep a tag only where `plainPricerText`
+  (plainEnglish.ts) drops it when the sentence is drawn (12e-3b) - the guard proves the strip. AI reading guidance and texts on no screen
+  keep their labels (they are part of the model request). Electrical is its own slice (owner 13:05).
+- A PRICING INPUT'S TEXT FOLLOWS ITS LIVE VALUE, HVAC-WIDE (R6; owner 2026-11-21 23:22 "the users xan edit the 0.25 number in future from
+  the frontend or uploading new pricing input sheet. so the text should get automatically updated of the inlut changes. and this shoud be
+  for all pricing inlut sheets"): the stored unit / remarks say what the number is and what it does - no value, no date, no example figure
+  (test_08 reads all 78). The plain reading ("25%", "x 0.5 = half") is worked out on screen from the current value (`live_reading: true` on
+  the hvac_pricing_inputs config; helperWording.pricingInputReading; QR-V 20:13 "a"): the Ducting uplift and coverage-threshold lines too.
+  Electrical's inputs are unchanged (no key).
+- THE SCOPE BOX AND THE WORKING LINES (R5; owner 10:58 / 11:00 "option a" / 11:02 "yes for both"; mockup approved QR-M "a"; QR-SC all four
+  categories): `scope.lines_follow: {word}` under a category's scope block makes every item's lines follow the chosen scope - the side out
+  of scope reads 0 with the word ("not in scope") - and the lines still add up to the row total, which NEVER moves with the key (the key is
+  display only; T2 pins it over every priced kind: VAV Box 7, Ducting 4, Valve Package 13, VRF 18 x 3 scopes). Code: scopeLines.ts,
+  ScopeBox.tsx (first in the card; Calculator starts on Supply + installation). The default is always Supply + installation unless the
+  category's own rules say otherwise (the check of 20:08: VAV 183 / 2, Ducting 1,507 / 1, Valve Package 1,489 / 4, VRF 1,482 / 40).
+- THE COUNT WORDS (R2; owner 10:48 "optoin a and also fix the msg and note whihc call its a share"): a full-rate block is an "item", a
+  share block a "share"; a full-rate block with its count empty prices NOTHING (VAV and the BACnet full rate, QR-C "a"): `labels
+  .need_vavs_whole`; the rules page line reads "no VAVs typed: nothing is priced".
+- HEADINGS (R4; owner 10:51 "all a"): on a row claimed from Misc / Sensors the item reads "Item 1 - matched by the helper"; on a separate
+  controller / DDC row "VAVs served by one unit" (`labels.vavs_per_unit`).
+- THE SIX SENTENCES and the three wordings (R1 / R7): own_row_check.lines not_added / rate_only (+ rate_only_some, double_count_unread:
+  N1 - N3 "a") / attr_changed / double_count, lot_units.bar, scope.panel_pick.note; the cabling item line says what the note beside it says;
+  the Pricing Input "VAV - refixing when dismantling is priced separately" (renamed; same item, same value).
+- THE OLDER "LIVE / NEWEST == AN OLDER FILE" TESTS read v82's texts UNDONE: `undoVav2c1` (vav2c1Edits.harness.ts) and
+  `services/boq_rate_master/vav2c1_undo_support.py` (`as_v81` / `item_as_v81` / `asset_as_v81`), both driven by vav2c1Edits.json alone and
+  REFUSING any config that holds neither v81's nor v82's texts (planted-change proofs: vav2c1V82.test.ts, test_vav2c1_keys test_11 / 12). A
+  NEXT mint that changes one of these texts must update the edits file or drop the undo from the tests that read it. test_vav2c1_keys
+  test_13: no product module imports the undo support.
+- A test harness never holds an AI key (scripts/_instruments/no_key.py; R13): `no_key()` makes every copy of get_boq_ai_api_key raise.
+- Tests: vav2c1Scope / vav2c1Texts / vav2c1Derivation / vav2c1V82 / vav2c1CodeLabels / vav2c1ScopeBox.dom, test_vav2c1_keys.
+
+## HVAC v83 - VAV-2c2 (2026-11-24) - the scope rule for VAV Box, a note for every case, the wording clean-ups
+
+v83 = v82 + ONLY the edits of ONE file, frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c2Edits.json (read by
+mint_hvac_v83_vav2c2.py, vav2c2.harness.ts and test_vav2c2_keys): PART 1 = R3 texts (52), PART 2 = VAV Box's `scope.rule`, note H, and the two
+point-4 reading fields (3). No item changes (853 byte-identical). Every category's model request is byte-identical v82 -> v83 EXCEPT
+hvac_vav_box, which moves ONLY by its two reading fields (test_vav2c2_keys test_03; the mint's own proof).
+
+### Load-bearing rules (each with the owner's words)
+- THE SCOPE RULE, RULED FOR EVERY CATEGORY, BUILT FOR VAV BOX (owner 2026-11-23 13:52: "all rows are by default supply + installation. if there
+  are matching pairs for supply and install , or one install row covering several supply only rows, thenthey canbe separate. also install
+  only is evene rarer mostly occuring only when the boq clearly mentions installing existing material, or removal and refixing kind or
+  clearly mentions supply is insomeone else's scope ... supply without installtion can occur for things whic hdont really need installtion";
+  13:56 "in vcase of doubt supply + install is the default"; 2026-11-22 20:08 "default is always supply + install and supply only and install
+  only are based on positive identification"). A category takes it by declaring `pricing.scope.rule` (frontend scopeRule.ts, PURE; wired in
+  pricingSheetHelper `compute` -> `scopeRuleForRow`; `withScopeCore` reads `ctx.scopeRule` in place of the model's scope answer, on a BoQ row
+  with its sheet only - never the Calculator, never a scope the user picked). Order: (1) work on an existing box (the existing-box rule's own
+  kinds) / supply by others / the row's own "installation only" -> Installation only, note F; (2) THE SPLIT: an installation row (any category)
+  whose own words START with installation work, name VAV / CAV (or its nearest heading does), start with no supply word and are not work on an
+  existing item, on the SAME sheet as the box rows (VAV Box rows that are not installation / existing rows) -> SURE when its quantity >= the
+  own-row threshold (Pricing Input `vav_own_row_threshold`, 0.9) x the box rows' quantity: box rows Supply only (D), the installation row
+  Installation only (E); IN DOUBT (below it, or a blank / 0 quantity): box rows Supply + installation (the owner's doubt note, or C), the
+  installation row Installation only (the owner's in-doubt note, or E) - owner 2026-11-24 00:18 "keep the VAV box row supply + install and the
+  the intsall row install only", 00:20 "a" (all four doubt sheets); (3) the model says the item needs no installing, with a reason -> Supply
+  only, G (QR-ASK (a), 00:25: "supply only can also be for attic ctock mentoipned explicitly"); (4) the row's own "supply only" is NOT read from
+  words -> Supply + installation with its note (QR-WORDS (a), 00:23 "a with appropriate notes in both cases"); (5) the default Supply +
+  installation, note A where the row's own words say "supply of", B where they start with installation, none on a plain row (13:57 "give
+  appropriate notes and disclaimrs for each case"). "Removal" counts only beside "existing" or "refix" (owner (g) 00:55).
+- THE INSTALLATION ROW CARRIES EVERY COMPONENT THE BOX ROWS GIVE UP (owner 2026-11-24 01:22 "the installation row should have also got the
+  bacnet share. all components price move together for 239"; 01:23 "yes to both"): it prices the box item as `install_family` ("VAV
+  installation - any size"), the covered box row's extras, and its shared items at the sheet's own per-box figures (the VAVs counted as
+  before), all under Installation only - on a SURE sheet the sheet total does not move (BOQ-26-00239: 14 box rows -52,496, r193 +52,496); on a
+  DOUBT sheet the installation row is priced with the same per-unit components and the box rows keep theirs (the double-count note says so).
+  Every component follows the row's scope, shares included (00:37 "b. every component for a row behaves similarly in scope").
+- THE NOTES ARE CONFIG TEXTS (`rule.notes`: A, B, C, C_qty, D, E, E_qty, F + F_said, G, words_supply_only), every number live from the sheet;
+  C_qty and E_qty are the owner's exact words (00:31 - 00:32). Note H is the scope's `panel_pick.note` without "{because}": "Scope changed by
+  you. The helper had chosen {helper}." then what the chosen scope does.
+- "BoQ SAYS" ONLY WHERE THE HELPER READ THE BoQ (R3 a, owner 2026-11-23 13:46 "a"): a scope the user picked, or the Calculator's, takes the
+  scope's `chosen_lines` texts (VAV Box, Ducting, Valve Package, VRF). Validator: config_validation `chosen_lines` / `rule`, each refused by name.
+- THE WORDING CLEAN-UPS (R3; the list chat-Claude accepted under the owner's 13:46 word, VAV-2c2_Cleanups.tsv): no mockup screen number,
+  feature-standard number or option letter quoted as the owner's words on an HVAC rules page (his words and dates stay); bare times dated from
+  the record (Ducting r1 / r7 / r10 / r55) or dropped (VRF's two supply-row notes); no colon left dangling when no working line follows; a
+  working line says its side once ("supply: supply:" was on 2,143 stored rows); the Calculator's VAV count line without "on the sheet";
+  "the 'Scope of this rate' box" on the rules pages; on an HVAC rules page a line with no ruling shows no "-- why: reason not recorded"
+  clause (owner 2026-11-24 00:18 "ok to remove", replacing ADP-4a D1 for these lines; the reason field keeps it for the coverage guard).
+- THE REPLAY HAS NO SHEET (found 2026-11-24): scripts/_instruments/ac7v2_harness.ts passes no sheetLines / rowQuantities / sheetCategories,
+  so no sheet rule (existing boxes, own rows, shares, the split) is in it. A sheet-aware replay of the stored VAV sheets (the page's own
+  buildRowContext, the run id) is what proves a sheet rule (VAV-2c2 scratch: vav_sheet_replay.ts).
+
+## HVAC v84 + v85 + v86 + v87 - VAV-2c3 (2026-11-24) - the small wordings, the paid reading of every VAV row, VAV Box's ruled defaults, the row's own words
+
+v84 = v83 + ONLY the 6 edits of frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c3Edits.json; v85 = v84 + ONLY the 3 edits of
+__fixtures__/vav2c3bEdits.json (mint scripts mint_hvac_v84_vav2c3.py / mint_hvac_v85_vav2c3.py, candidate path required). No item changes in
+either; every model request and every group context byte-identical v83 -> v84 -> v85 (the mints' own proofs; test_vav2c3_keys /
+test_vav2c3b_keys).
+
+### Load-bearing rules (each with the owner's words)
+- VAV BOX PRICES FROM THE MODEL'S ANSWER COMBINED WITH THE RULED DEFAULTS, as every other category does (owner 2026-11-24 16:52: "if payload
+  does not me tion integrator - we use integrator = No, if it mentions Inetgrator but there is also a seprate row for integrator then we us
+  eNo optio nd price the integrator on its row, if there is no seprate row inthe second case we use th eintegraot = Yes option"; 16:58 "the
+  ricing logic should combine model outputs and our rules / logic given as it is doing for every other catgeory"; 17:00 "not only fills but
+  also interprest the model result"). In the DefaultSpec pattern (`list_spec.pricing.defaults`, itemListPricing.ts: an answer of "None" reads
+  as the ruled value, MARKED as a default with its note; `absent_as_none` reads a left-out answer the same way): integrator_included -> "No"
+  (a stated "Yes" stays "Yes"; the existing own-row check moves it to "No" when the sheet has a separate integrator row); vav_type ->
+  "Nothing specific mentioned" (2026-11-18 23:53 point 10), for the VAV box and the VAV Integrator; shape -> Rectangular, also when the reply
+  leaves it out (2026-11-18 22:16 ruling B). A refusal stays only where a ruling says the row is not priced: no unit, a Lot unit, no airflow
+  and no size, above the largest box, no SKU (an item the VAV sheet does not have), nothing read. A field a default fills shows the amber
+  "default" badge with its note, no '*' needed marker and no "None" choice (the 12d-2 rule). Found on the paid reading: without these
+  defaults 929 of 1,083 rows refused ("could not tell integrator included" on 893 of 950 boxes) - the hand-written test answers had put "No"
+  where the BoQ said nothing.
+- THE RULES PAGE DESCRIBES THE SCOPE RULE AS BUILT (owner 2026-11-24 10:36 "1 fix in next slice"): the VAV Box scope line is a CODE string
+  (frontend/src/pages/pricing/rate-master/itemListRuleOrder.ts) chosen by `pricing.scope.rule`: the owner's words with their dates, no
+  option letters, codes or bare times; the reason appended from derivation_reasons carries a date, not a bare time (v84). A scope without
+  a rule keeps the older line.
+- THE CALCULATOR'S SUPPLY ONLY IS SAID ONCE, by the Scope box line (`scope.calculator_scope_box_only`, VAV Box only; chat-Claude's call under
+  the owner's 2026-11-23 13:46 word). The user-pick note on Ducting / Valve Package / VRF reads as VAV Box's ("Scope changed by you. The
+  helper had chosen {helper}."). An INSTALLATION row words the box-row notes it carries for itself (`scope.rule.install_row_texts`,
+  scopeRule.installRowSpec: the blank box rows note, the integrator cabling "not added" line, the share block's "per VAV installed") -
+  texts only.
+- THE TEMPORARY TEST-RUN LINE IS GONE (owner 2026-11-21 15:56 "3b"): stubRunMark.ts and the panel's amber box removed; the paid run's runs
+  superseded the 11 hand-written runs (never deleted).
+- WHERE THE VAV VALUE LISTS COME FROM (owner 2026-11-24 18:42; read-only check on scratch copies): the matcher, the helper panel's and the
+  Calculator's drop-downs are DERIVED from the catalogue rows (an added / removed SKU is followed without an edit); the MODEL REQUEST takes
+  each question's values from the config (extraction.build_items_spec) - a catalogue value change needs a config edit too (open finding).
+
+
+### v86 - FIX-2 (owner 2026-11-24 19:53 / 20:00 / 20:06 "lets proceed"; ANSWER 19)
+v86 = v85 + ONLY the 14 edits of __fixtures__/vav2c3cEdits.json (mint_hvac_v86_vav2c3.py). No item changes; ONLY hvac_vav_box's config; the
+DECLARED model-request change is VAV Box's alone (the reading guidance; every other category's request and group context byte-identical).
+- THE ROW'S OWN WORDS SET AN ANSWER THE MODEL LEFT UNSTATED - word checks IN CODE on the stored payload, never a new reading (`pricing.chain_values`,
+  itemListPricing.applyChainValues, run on the model's items BEFORE the VAV sheet rules; the field shows the value priced with the rule's line; a
+  pricer's pick always wins). The chain = the row, each heading above it and each heading's note rows - NEVER the sheet-wide notes.
+  A1 (19:53 "A1 ... fix"): a router or integrator named -> Integrator Included = Yes; a separate integrator row on the sheet still turns it to No
+  (the own-row check reads the answer after it). A2 (19:53 "A2 fix"; NARROWED in v87, ANSWER 21 / 22): ROUND / OVAL / CIRCULAR naming the box
+  -> the round box (Oval line), over a stated Rectangular too - but not where the same chain also says rectangular (D-1: there the word names
+  the inlet or damper of a rectangular box). 'DIA' / diameter / the diameter sign give an inlet or sensor size, never the shape (v86 took
+  them; corrected as v87 = v86 + 3 edits, __fixtures__/vav2c3dEdits.json, a new version - never a second v86). B2-1 (20:00 "map it
+  to thermostat..and mention in note properly"): a Misc item whose own words name a direct-output temperature sensor -> the Digital Thermostat,
+  not where the row already prices one (D-2).
+- EVERY RULED DEFAULT SAYS SO ON ITS FIELD (D1, 19:53 "fix"): `defaults.<attr>.note` in the field's note box ("... (assumed).").
+- A NO-UNIT VAV ROW IS PRICED PER NOS WITH A STRONG WARNING (B2-3, 20:00 "price it by number and mention it clearly in notes. the notes should be
+  a stronger warning"): `blank_unit_refuses` off + `pricing.blank_unit_bar` (orange bar); its delegated sections price in the same unit.
+- NOTE B FROM AN INSTALLATION HEADING (E, 19:53 "fix anyway"): `scope.rule.install_heading_not` - the nearest heading starts with installation work
+  (ITC / "Installation of") and no supply word is in the heading or the row -> Supply + installation with note B.
+- A "CONTROLLER FOR BACNET INTEGRATION ABOVE VAV BOXES" ROW (B2-2, 20:00 "2. ok, but the AI should also read it correctly"): with NO VAV count
+  on the sheet, one controller per unit (`sheet_shares.whole[].fixed_when`); with a VAV count the controller formula decides as before.
+- B1 (19:53 "our standard treatment is that thw whole box will refuse and the note will mention which component needs to be added by user, the
+  other components will show their price"): already the behaviour - no change.
+- THE DERIVATION TAB states each new rule (itemListRuleOrder 13m: one line per chain_values rule, one for the no-unit bar), each with its reason.
+
+## HVAC v88 - VAV-FIX (2026-11-25) - the final fix slice of the VAV Box build: the Calculator starts blank, one note, one warning, no internal label
+
+v88 = v87 + ONLY the 5 edits of frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vavfixEdits.json, all on VAV Box (mint script
+mint_hvac_v88_vavfix.py, candidate path required). No item changes; every model request and every group context byte-identical v87 -> v88
+(the mint's own proof; test_vavfix_keys test_03). The code is K1 / K1b / K1c (pricingSheetHelper.ts, itemListPricing.ts, rateHelperTypes.ts,
+PricingCalculator.tsx).
+
+### Load-bearing rules (each with the owner's words)
+- THE VAV BOX CALCULATOR STARTS BLANK (owner 2026-11-20 17:53 "a"; re-confirmed 2026-11-25 00:37 "My recommendation: put it back to blank in
+  the final fix slice. - agree and review accepted"): every field of a VAV item starts blank, carries its "*", no "default" tag, no "assumed"
+  note, and a blank withholds the price; "shape not stated -> Rectangular (assumed)" applies to BoQ rows only. Built as
+  `defaults.<attr>.boq_rows_only: true` (shape / integrator_included / vav_type; config_validation accepts it only beside absent_as_none: true)
+  read by itemListPricing.boqRowsOnlyDefaultsOff: in the Calculator the default's `absent_as_none` is not read. THE CALCULATOR IS DECIDED BY AN
+  EXPLICIT FLAG, NEVER BY THE UNIT (chat-Claude, ANSWER 6 / 7, 2026-11-25 02:18 / 02:30): `RateHelperRowContext.calculator`, set only by
+  `calculatorCtx` (PricingCalculator.tsx) and carried by the contexts the helper derives from it; a BoQ row with no unit (unit "") or with no
+  unit key keeps its ruled defaults (33 / 34 VAV BoQ rows have no unit). ADP / VRF / Valve Package Calculators still pre-fill their own ruled
+  defaults (`absent_as_none`) - a finding for the owner, not changed (QR-C1).
+- ONE NOTE PER DEFAULTED FIELD (chat-Claude's call under the owner's 2026-11-23 13:46 word "fors cosmetic note changes you can take the
+  decision. hese are trivial"): a default whose own `note` (v86 D1; VAV Box's three only) is the field's blue box shows no amber rule line, and
+  its copy in the item's working is not restated either (K1c: withoutRestatements counts a default stated by its note as on screen). Every other
+  default keeps its amber line (its only note: VRF's "no brand stated - priced as Blue Star", ADP, Valve Package, Insulation).
+- ONE WARNING ON A NO-UNIT ROW (same word; the owner's 2026-11-24 20:00 ruling "[no unit] price it by number and mention it clearly in notes.
+  the notes should be a stronegr warning" stands): the orange bar keeps its title ("Warning: no unit on this row", drawn in capitals) and ONE
+  sentence (v88 `blank_unit_bar.line`: "The BoQ gives no unit for this row. It is priced per number (Nos). Check the unit before using this
+  rate."); the "No unit on the BoQ row -> priced per Nos, the catalogue's unit for this item" line is not drawn where the bar shows.
+- NO INTERNAL LABEL ON THE RULES PAGE (owner 2026-11-22 10:49 "a and also check for similar instances across other HVAC categories and remove
+  if found"; 13:03 "a"): rules page line 52 (`derivation_reasons[50].why`) without "(chat-Claude's correction 21:52, ANSWER 21)". R4's program
+  (scripts/pricer_texts.py walk / where + R4's patterns: chat-Claude, ANSWER, QR-, FIX-, slice ids, bare times without a date, D-1 .. D-4) on
+  v88: 0 of 3,602 pricer-facing HVAC texts; a Pricing Input / field id inside a working line is drawn as its name (37 such texts, VAV-2c1's
+  rule); the AI's reading guidance and the category notes are left alone.
+- A REFUSED VAV BOX SHOWS THE RULED DEFAULTS (chat-Claude's call inside the owner's 2026-11-24 16:52 / 16:58 rulings, "the ricing logic should
+  combine model outputs and our rules / logic given as it is doing for every other catgeory"): an item of a band family (`band_from`) refusing
+  at the needs loop (above the largest box, no airflow) carries the defaults it read as `defaulted` beside `heldDefaults`, so Type /
+  Integrator show the ruled value with its note; the row stays refused with its own reason; a valid airflow then prices with no other pick.
+- A HELPER-ADDED ITEM IS NOT "AS WRITTEN (BoQ)" (same word): an item the helper adds by its own rule (the integrator cabling,
+  HELPER_ADDED_ATTR - the one producer) shows no read-only "as written (BoQ)" line; an item the model read keeps it.
+- THE PRE-DEPLOY FULL RUN of the VAV Box build (owner 2026-11-19 17:36 "full suite test runs we will do in the final fix slice"; Test Plan
+  R2) on 1b5e1e35d with v88 live: Python 149 / 149 BoQ modules OK (148 through scripts/run_tests_parallel.py: 4,406 tests; test_rate_master
+  by its 72 classes 609 + TestRateMaster in its 5 saved groups 167); vitest boq-wizard unit 179 / 179 files (7,014 tests), DOM 12 / 12 (82),
+  pricing unit 46 / 46 (1,911), DOM 5 / 5 (48); tsc FULL 0 new (1,185); oxlint on the BoQ folders 0 / 0. The repo-wide CI lint (yarn lint)
+  reports 3 errors in ProjectPayments files no BoQ slice touched (from 2026-11-17 commits before 01c16f0e8) - to clear with the develop side.
+  These logs are the deploy pre-pack's "before" (BoQ main lane\VAV-FIX\logs\2026-11-25_VAV-FIX_*_full*.log).

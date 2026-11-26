@@ -152,11 +152,12 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			accessorKey: "work_order",
 			header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />,
 			cell: ({ row }) => (
-				<Link className="break-all font-medium text-blue-600 hover:underline" to={`/service-requests/${row.original.work_order}?tab=approved-sr`}>
+				<Link className="whitespace-nowrap font-medium text-blue-600 hover:underline" to={`/service-requests/${row.original.work_order}?tab=approved-sr`}>
 					{row.original.work_order}
 				</Link>
 			),
-			size: 140,
+			// Wide enough for a whole Work Order ID on one line (PR #1747 walk: "SR-00092-00081|4" broke at 140px).
+			size: 160,
 			enableColumnFilter: true,
 			meta: { ...facetMeta({ field: "work_order", title: "Work Order" }), exportHeaderName: "Work Order", exportValue: (r: GstRequestDoc) => r.work_order },
 		},
@@ -185,7 +186,9 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 					</div>
 				);
 			},
-			size: 190,
+			// Narrow enough that, with the wider Work Order and Status, the table fits a 1440px window (PR #1747 walk:
+			// at 190 Actions was cut to "Actio"); still wide enough for a GSTIN on one line.
+			size: 140,
 			enableColumnFilter: true,
 			meta: { ...facetMeta({ field: "vendor", title: "Vendor" }), exportHeaderName: "Vendor", exportValue: (r: GstRequestDoc) => vendors[r.vendor] || r.vendor },
 		},
@@ -238,10 +241,11 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 							</TooltipProvider>
 						)}
 					</div>
-					{row.original.project_payment && <span className="block break-all font-mono text-[11px] text-muted-foreground">{row.original.project_payment}</span>}
+					{row.original.project_payment && <span className="block whitespace-nowrap font-mono text-[11px] text-muted-foreground">{row.original.project_payment}</span>}
 				</div>
 			),
-			size: 100,
+			// Wide enough for a whole payment ID on one line (PR #1747 walk: "PAY-00092-14|5" broke at 100px).
+			size: 120,
 			meta: { exportHeaderName: "Status", exportValue: (r: GstRequestDoc) => r.status },
 		},
 		...(shown.reviewed ? [reviewedColumn] : []),
@@ -314,6 +318,9 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 	return (
 		<div className="flex flex-col gap-2">
 			<DataTable<GstRequestDoc>
+				// DataTable reads its column widths once, so a pill that adds or drops Reviewed / Actions remounts it;
+				// otherwise Reviewed kept Pending's last width (Actions' 84px) and broke names mid-word (PR #1738 walk).
+				key={`${shown.reviewed ? "reviewed" : ""}-${canDecide && shown.actions ? "actions" : ""}`}
 				table={table}
 				columns={columns}
 				facetDoctype={DOCTYPE}

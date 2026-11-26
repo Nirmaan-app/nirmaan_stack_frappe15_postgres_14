@@ -1,0 +1,58 @@
+[
+ [
+  "GST Payment Request (GPR)",
+  "A request, raised on a Work Order, to pay the vendor the GST part. An Accountant approves or rejects it on Project Payment & Expense › GST Requests."
+ ],
+ [
+  "GST Payment Approved bell",
+  "The for-information notification every Admin gets when an approved GST request creates its payment."
+ ],
+ [
+  "Pill",
+  "The small status buttons above the GST Requests list: Pending, Approved, Paid, Rejected, All."
+ ],
+ [
+  "Reviewed column",
+  "On GST Requests: who approved or rejected the request, and when. Shown on every pill but Pending."
+ ],
+ [
+  "Broken mid-word",
+  "A word or ID split across two lines by a column that is too narrow, e.g. \"SR-00092-00081\" over \"4\". The walk reads every cell of the table for it."
+ ],
+ [
+  "Audit View",
+  "A Reports tab for Admin and the Accountants: pick a date range (step 1), then Orders, Invoices or Payments (step 2)."
+ ],
+ [
+  "Report Type",
+  "Audit View's picker: Projects Data (orders, invoices and payments of projects) or Non Projects Data (company-level expenses)."
+ ],
+ [
+  "Record name",
+  "The short id the app gives an expense, such as r6n13vklrg. The Against column shows the expense's description instead."
+ ],
+ [
+  "Cheque Tracker",
+  "The list of every cheque, by status; a vendor's page has the same list, narrowed to that vendor, under Cheques."
+ ],
+ [
+  "Reimbursement (claim)",
+  "Money a person spent for work and asks to be paid back, on the Reimbursements page."
+ ],
+ [
+  "Payment need to be paid",
+  "The Reimbursements tab of fully approved claims waiting for Accounts to pay. It opens on this month."
+ ],
+ [
+  "Badge",
+  "The number beside a tab's name."
+ ],
+ [
+  "Reconciliation Pending",
+  "Marked paid, but the bank reference (UTR) and proof are still to be added. Mark Reconciled adds them."
+ ],
+ [
+  "Pay dialog",
+  "The dialog Mark Reconciled opens for a Project or Non-Project Expense: payment receipt, reference and date."
+ ]
+]

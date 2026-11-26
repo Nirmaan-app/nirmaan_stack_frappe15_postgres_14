@@ -18,6 +18,7 @@ import json
 from nirmaan_stack.api.invoices._auto_approve import (
     apply_auto_approval,
     evaluate_auto_approve_eligibility,
+    parse_entities,
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
 from nirmaan_stack.api.invoices._validation import ORDER_TOTAL_LABEL, existing_invoiced_sum
@@ -25,6 +26,7 @@ from nirmaan_stack.integrations.controllers.vendor_invoices import generated_inv
 from nirmaan_stack.services import invoice_amounts
 from nirmaan_stack.services.role_profiles import can_edit_wo_invoice, is_nirmaan_admin as _is_nirmaan_admin
 from nirmaan_stack.services.work_order_gst import gst_is_on
+from nirmaan_stack.services.work_order_invoice_rules import signature_signed
 from nirmaan_stack.services.work_order_invoice_access import (
     EDIT_REFUSAL,
     GENERATED_EDIT_REFUSAL,
@@ -145,6 +147,38 @@ def update_invoice_data(
             exclude_invoice_id=invoice_id,
         )
 
+        autofill_fields = {} if invoice_id else _autofill_fields(autofill_used, {
+            "autofill_confidence_json": autofill_confidence_json,
+            "autofill_extracted_invoice_no": autofill_extracted_invoice_no,
+            "autofill_extracted_invoice_date": autofill_extracted_invoice_date,
+            "autofill_extracted_amount": autofill_extracted_amount,
+            "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin,
+            "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin,
+            "autofill_all_entities_json": autofill_all_entities_json,
+            "autofill_line_items_json": autofill_line_items_json,
+            "autofill_line_match_json": autofill_line_match_json,
+            "autofill_extracted_base_amount": autofill_extracted_base_amount,
+            "autofill_extracted_gst_amount": autofill_extracted_gst_amount,
+        })
+
+        # A generated invoice's signed copy uploaded here (ADR-0050 decision 1) is booked as that invoice's
+        # upload: linked to it, so its amount counts once, and decided by rule 1 on the AI's signature answer.
+        if doctype == "Service Requests" and not invoice_id:
+            from nirmaan_stack.api.service_requests.generated_invoices import add_invoice_copy_of, book_signed_copy
+
+            copy_of = add_invoice_copy_of(
+                docname, new_invoice_entry_data.get("invoice_no"), autofill_extracted_invoice_no,
+                bool(autofill_used and invoice_attachment), new_invoice_entry_data.get("amount"),
+            )
+            if copy_of:
+                _, vendor_invoice = book_signed_copy(
+                    copy_of, invoice_attachment, new_invoice_entry_data, split,
+                    signed=signature_signed(parse_entities(autofill_all_entities_json)),
+                    invoice_fields=autofill_fields,
+                )
+                return _saved_response(vendor_invoice, frappe.get_doc(doctype, docname), invoice_id,
+                                       new_invoice_entry_data)
+
         # --- Start Transaction ---
         frappe.db.begin()
 
@@ -225,41 +259,12 @@ def update_invoice_data(
 
                 vendor_invoice.save(ignore_permissions=True)
             else:
-                # Create new record
-                # Record which extractor produced the autofill, for audit/traceability.
-                # The frontend doesn't send this — backend is the source of truth.
-                resolved_processor_id = None
-                if autofill_used:
-                    try:
-                        from nirmaan_stack.services.extraction.files import (
-                            get_extraction_settings,
-                        )
-                        resolved_processor_id = get_extraction_settings().get("gemini_model")
-                    except Exception:
-                        # Non-fatal — invoice still gets saved, just without extractor traceability.
-                        frappe.log_error(
-                            title="Autofill extractor id resolution failed",
-                            message=frappe.get_traceback(),
-                        )
-
                 vendor_invoice = create_vendor_invoice(
                     parent_doc=doc,
                     invoice_data=new_invoice_entry_data,
                     split=split,
                     attachment_id=attachment_id,
-                    autofill_used=autofill_used,
-                    autofill_processor_id=resolved_processor_id,
-                    autofill_confidence_json=autofill_confidence_json,
-                    autofill_extracted_invoice_no=autofill_extracted_invoice_no,
-                    autofill_extracted_invoice_date=autofill_extracted_invoice_date,
-                    autofill_extracted_amount=autofill_extracted_amount,
-                    autofill_extracted_supplier_gstin=autofill_extracted_supplier_gstin,
-                    autofill_extracted_receiver_gstin=autofill_extracted_receiver_gstin,
-                    autofill_all_entities_json=autofill_all_entities_json,
-                    autofill_line_items_json=autofill_line_items_json,
-                    autofill_line_match_json=autofill_line_match_json,
-                    autofill_extracted_base_amount=autofill_extracted_base_amount,
-                    autofill_extracted_gst_amount=autofill_extracted_gst_amount,
+                    **autofill_fields,
                 )
 
                 # Auto-approve evaluation. Fires inline on fresh inserts (never
@@ -312,28 +317,7 @@ def update_invoice_data(
         # --- Commit Transaction ---
         frappe.db.commit()
 
-        # Soft checks on the figures AS STORED (an edit that sent no split is judged on
-        # the split already on the invoice). Reported, never blocking.
-        warnings = invoice_amounts.split_warnings(
-            vendor_invoice.invoice_amount,
-            vendor_invoice.invoice_base_amount,
-            vendor_invoice.invoice_gst_amount,
-            gst_off_work_order=doctype == "Service Requests" and not gst_is_on(doc.get("gst")),
-        )
-
-        action_label = "updated" if invoice_id else "created"
-        return {
-            "status": 200,
-            "message": f"Successfully {action_label} invoice {vendor_invoice.name} for {docname}",
-            "warnings": warnings,
-            "data": {
-                "vendor_invoice_id": vendor_invoice.name,
-                "invoice_no": new_invoice_entry_data.get("invoice_no"),
-                "invoice_date": new_invoice_entry_data.get("date"),
-                "invoice_amount": new_invoice_entry_data.get("amount"),
-                "attachment_id": vendor_invoice.invoice_attachment
-            }
-        }
+        return _saved_response(vendor_invoice, doc, invoice_id, new_invoice_entry_data)
 
     except frappe.ValidationError as ve:
         # Expected, user-actionable errors (overage, missing fields, malformed
@@ -353,6 +337,45 @@ def update_invoice_data(
             "message": f"Invoice creation failed for {docname}. Please contact support.",
             "error": str(e)
         }
+
+
+def _autofill_fields(autofill_used, values: dict) -> dict:
+    """What `create_vendor_invoice` records of the AI read: `values` as sent, and the extractor model, which
+    the backend resolves (the frontend doesn't send it) for audit and traceability."""
+    resolved_processor_id = None
+    if autofill_used:
+        try:
+            from nirmaan_stack.services.extraction.files import get_extraction_settings
+
+            resolved_processor_id = get_extraction_settings().get("gemini_model")
+        except Exception:
+            # Non-fatal — invoice still gets saved, just without extractor traceability.
+            frappe.log_error(title="Autofill extractor id resolution failed", message=frappe.get_traceback())
+    return {"autofill_used": autofill_used, "autofill_processor_id": resolved_processor_id, **values}
+
+
+def _saved_response(vendor_invoice, parent_doc, invoice_id, invoice_data) -> dict:
+    """The reply to a saved invoice, with the soft checks on its figures AS STORED (an edit that sent no split
+    is judged on the split already on the invoice). Reported, never blocking."""
+    warnings = invoice_amounts.split_warnings(
+        vendor_invoice.invoice_amount,
+        vendor_invoice.invoice_base_amount,
+        vendor_invoice.invoice_gst_amount,
+        gst_off_work_order=parent_doc.doctype == "Service Requests" and not gst_is_on(parent_doc.get("gst")),
+    )
+    action_label = "updated" if invoice_id else "created"
+    return {
+        "status": 200,
+        "message": f"Successfully {action_label} invoice {vendor_invoice.name} for {parent_doc.name}",
+        "warnings": warnings,
+        "data": {
+            "vendor_invoice_id": vendor_invoice.name,
+            "invoice_no": invoice_data.get("invoice_no"),
+            "invoice_date": invoice_data.get("date"),
+            "invoice_amount": invoice_data.get("amount"),
+            "attachment_id": vendor_invoice.invoice_attachment,
+        },
+    }
 
 
 def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: str) -> Document:

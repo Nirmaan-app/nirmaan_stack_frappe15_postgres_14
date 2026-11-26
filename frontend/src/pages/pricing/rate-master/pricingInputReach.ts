@@ -407,11 +407,26 @@ export function scopeUses(cfg: unknown, items: readonly RateMasterItem[] | null 
   // DU-3 (R1, owner 2026-11-16 16:38 "make this 90% thershold a pricing input"): the per-sheet duct-insulation check reads its
   // coverage threshold from a Pricing Input too -- "used by" names the category (the server twin: config_validation.extras_input_ids)
   const si = loose(pr.sheet_insulation);
-  const ids = [sc.uplift_input, si.threshold_input].filter((x): x is string => typeof x === "string" && x !== "");
+  const ids = [sc.uplift_input, si.threshold_input, ...vavSheetInputIds(pr)].filter((x): x is string => typeof x === "string" && x !== "");
   if (!ids.length) return [];
   const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
   const skus = (items ?? []).filter((it) => kinds.has(String(it.kind ?? ""))).map((it) => String(it.item_uid ?? "")).filter(Boolean);
   return ids.map((input) => ({ input, skus: [...new Set(skus)].sort() }));
+}
+
+/** VAV-2a: every Pricing Input id the VAV-2a keys of a pricing block read (the combination share; the sheet checks add theirs) -- the
+ *  twin of the server's `config_validation.vav_sheet_input_ids`. PURE; [] for a block without them. */
+export function vavSheetInputIds(pr: Record<string, unknown>): string[] {
+  const cw = loose(pr.combination_warning);
+  const oc = loose(pr.own_row_check);
+  const ic = loose(pr.integrator_cabling);
+  const eb = loose(pr.existing_boxes);
+  const kinds = (Array.isArray(eb.kinds) ? eb.kinds : []).map(loose).flatMap((k) => [k.factor_input, k.with_row_input]);
+  // VAV-2b1 (R9, owner 2026-11-20 15:23 "yes"): the three counts of the shared items (VAVs per controller / sensor / panel)
+  const ss = loose(pr.sheet_shares);
+  const per = (Array.isArray(ss.shares) ? ss.shares : []).map(loose).flatMap((sh) => (Array.isArray(sh.parts) ? sh.parts : []).map(loose).map((pt) => pt.per_input));
+  const ids = [cw.share_input, oc.threshold_input, ic.qty_input, ic.length_input, ...kinds, ...per].filter((x): x is string => typeof x === "string" && x !== "");
+  return [...new Set(ids)];
 }
 
 export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {

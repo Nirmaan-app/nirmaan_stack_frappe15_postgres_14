@@ -130,8 +130,8 @@ export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentTy
 
     const openQueueRecheck = useCallback(() => {
         setRecheckOpen(true);
-        startRecheckPreview({ kind: "queue" });
-    }, [startRecheckPreview]);
+        startRecheckPreview({ kind: "queue", documentType });
+    }, [startRecheckPreview, documentType]);
 
     const openInvoiceRecheck = useCallback(
         (invoice: VendorInvoice) => {
@@ -300,9 +300,11 @@ export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentTy
             )}
         >
             {/* Reason key for the "Not Auto-Approved Reason" column below —
-                every reason the gates can record, with the full write-up on
-                hover/click. Collapsed by default so it costs no table rows. */}
+                every reason an invoice on this tab (PO or WO) can carry, with
+                the full write-up on hover/click. Collapsed by default so it
+                costs no table rows. */}
             <AutoApproveReasonKey
+                documentType={documentType}
                 onRecheck={canRecheck ? openQueueRecheck : undefined}
                 isRechecking={isRecheckPreviewing}
             />
@@ -384,6 +386,7 @@ export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentTy
                     preview={recheckPreview}
                     isApplying={isRecheckApplying}
                     onConfirm={applyRecheck}
+                    documentType={documentType}
                     scopeLabel={
                         recheckScope?.kind === "invoices"
                             ? "this invoice"

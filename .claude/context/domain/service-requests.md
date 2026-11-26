@@ -56,12 +56,28 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   `services/work_order_invoice_access.change_problem`, applied by the Vendor Invoices `validate` hook
   (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
   a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
+  The one exception is the System's own approval by ADR-0050's rules (ADR-0014 Amendment C): it carries
+  `purchase_order_invoice_access.SYSTEM_DECISION_FLAG` (`change_problem(by_system=True)`), so its status change
+  passes whoever uploaded; it never passes an edit of the billed figures, and only that approval sets the flag.
   An Approved WO invoice moves only to Rejected for anyone but Admin (back to Pending, edit, approve again would
   skip the Admin-only rule), and a Rejected one is not brought back to Pending or Approved but by Admin (it is
   uploaded again). The Vendor Invoice a generated invoice's signed upload created is fixed for
   everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
   it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
   rules, except approve and reject, which take an invoice-approval role there too (#1638).
+- **The System approves a WO invoice by three rules (ADR-0050; GLOSSARY *Invoice approver*).** Rule 1: a
+  generated invoice's signed copy, always (see the #1547 bullet below). Rule 2: Approved WO invoices + this one =
+  `total_amount`, ± ₹1, even when only part is paid. Rule 3: the same sum = `amount_paid` (incl. vendor TDS), ± ₹1;
+  on a GST-on WO base against base (`amount_paid` less `amount_paid.gst_part_of_amount_paid`, against the
+  invoices' amount less GST). Approved only, never Pending; amounts only, no file checks. The pure rules are
+  `services/work_order_invoice_rules.py`, the figures `api/invoices/_wo_auto_approve.py`; they run at upload
+  (`_auto_approve.evaluate_auto_approve_eligibility`, which returns before the PO gates), in the 05:00 re-check
+  and on Re-check of Pending Invoice Approvals › WO (`recheck_auto_approve`; the PO tab's Re-check stays PO-only),
+  which rewrite a Pending WO invoice's reasons whole. A reason is `<name>:<left>:<right>`, the two figures it
+  compared (`wo_total_mismatch`, `wo_paid_mismatch`, `wo_base_paid_mismatch`). Nothing stored records which rule
+  approved one (the lists show "Auto-approved", as for a PO); Re-check's preview names it per invoice, with its
+  figures (`work_order_invoice_rules.matched_rules`). On a GST-on WO there is no rule 1: a signed copy uploaded
+  before its WO turned GST-on is judged by rules 2 and 3.
 - **A generated invoice is a record, numbered and limited by the server, never edited (#1546, ADR-0040, GLOSSARY
   *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
   is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`
@@ -74,19 +90,28 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   by a deleted record holds nothing. Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
   runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
   number (the concurrency test caught it). Generate and void commit. The type is never chosen: `generate_invoice` takes only the amount and saves the FINAL when it brings `billed` to the WO amount, to within ₹10 (`wo_generated_invoices.is_final`, the `FULLY_PAID_TOLERANCE`), else an RA; the Generate dialog previews it from `billed` (`isFinalAmount`) and its "Put Paid" button fills in `min_amount`. The amount lies in `wo_generated_invoices.billable_range` (ADR-0040 Amdt C, owner 2026-11-06): at least Amount Paid (incl. TDS, capped at the WO amount) − billed, so every paid rupee is invoiced; at most the WO amount − billed, so an invoice may run ahead of payment and a WO not fully paid may take its FINAL. `get_generated_invoices` returns both (`min_amount`, `max_amount`); `generate_invoice` refuses outside them. The FINAL shows no "FINAL" anywhere (ADR-0040 Amdt A): its number is the bare `INV-<FY>-<project>-<WO>`, and one generated after a voided one gets -2, -3 (`invoice_number`'s `final_number`, counting the FINALs the WO still has, Voided included), so a voided number is not printed twice while it is kept; FINALs saved before keep their `-FINAL` numbers. The limit counts Pending + Approved Vendor
-  Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
+  Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Vendor Invoice its
   upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
   Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a
   Nirmaan GST is billed. The print is the "WO Generated Invoice" print format, which reads the record; the old
   "SR Invoice" format, which read the amount from the link, is disabled (patch
   `v3_0.disable_sr_invoice_print_format`, because a Print Format fixture re-import keeps the site's `disabled`).
   Roles: `role_profiles.WO_GENERATED_INVOICE_PROFILES`.
-- **A generated invoice's signed upload is its one Vendor Invoice, and that invoice's decision moves it (#1547).**
-  `generated_invoices.upload_signed_copy`, under `_billing_lock`, makes the scan's Nirmaan Attachments row and a
-  *Pending* Vendor Invoice (the record's number, date and amount; base = amount, GST = 0; no auto-approval) and
-  moves the record to *Signed* in one commit; only a *Generated* record is uploaded, and only while the WO is still GST-off (a WO turned GST-on keeps its records, but books no zero-GST invoice). Accountants who can see the
+- **A generated invoice's signed upload is its one Vendor Invoice, and that invoice's decision moves it (#1547,
+  ADR-0050).** Both paths book it through `generated_invoices.book_signed_copy`, under `_billing_lock`: the scan's
+  Nirmaan Attachments row, a Vendor Invoice, the record moved to *Signed* and linked, and then, in the same commit
+  and after the link, rule 1's decision, so `follow_generated_invoice` moves the record on. **Upload signed copy**
+  (`upload_signed_copy`; the record's number, date and amount; base = amount, GST = 0) is trusted as signed and
+  always approved by the System. **Add Invoice** (`update_invoice_data`) books an upload as the copy when the
+  AI-read number (not typed) is a record still *Generated* on the same GST-off WO with the amount ± ₹1
+  (`work_order_invoice_rules.generated_copy_verdict`): signed or stamped, the AI's signature answer approves it;
+  unsigned, rules 2 and 3 judge it (`_wo_auto_approve.unsigned_copy_reasons`) and it is approved when one matches,
+  else *Pending* with `wo_generated_copy_not_signed` first, then their reasons. The dialog warns above its button
+  (`utils/generatedInvoices.unsignedGeneratedCopy`) and never blocks. A number already *Signed* or *Approved* is
+  refused as a duplicate. The daily re-check judges an unsigned copy by rules 2 and 3 too, and approves by rule 1 a copy Upload signed copy left Pending before ADR-0050 while its WO is still GST-off (switched to GST-on, rules 2 and 3 judge it: no signature rule on a GST-on WO). Re-check on the Pending Invoice Approvals › WO tab runs the same Work Order check now. Only a *Generated* record is uploaded, and only while the WO is still GST-off (a WO turned GST-on keeps its records, but books no zero-GST invoice). Accountants who can see the
   project (a Projects User Permission on it, or none at all, as most have) get a `wo_invoice:signed_uploaded`
-  notification after the commit; `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
+  notification after an Upload signed copy only while its invoice is still Pending (ADR-0050 decision 9: never, as the
+  upload approves it); `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
   `controllers/vendor_invoices.follow_generated_invoice` moves the record (approved: *Approved*; rejected, even
   after approval: *Voided*, the rejection as its reason; `wo_generated_invoices.vendor_invoice_move`), so the
   single, bulk and Desk approvals all move it. Deleting that Vendor Invoice (who may: as for any WO

@@ -31,10 +31,23 @@ change on its own, and re-judging them under today's rules would hold back
 invoices for reasons their reviewer never saw. If a stored reason is wrong, the
 fix is to correct the invoice, not to press this button.
 
-CANDIDATES. An invoice is in scope only when it is Pending, sits on a
+WORK ORDER INVOICES (ADR-0050 decision 5) — THE DAILY JOB AND THE WO TAB'S
+BUTTON. The daily sweep also takes every Pending Work Order invoice, and so does
+Re-check on the Work Order tab (its own invoices only), and judges it by rules 2 and 3
+(`_wo_auto_approve.wo_rule_reasons`). A generated invoice's copy the AI found
+unsigned is judged the same way, keeping its unsigned reason first
+(`unsigned_copy_reasons`); a signed copy Upload signed copy left Pending before
+ADR-0050 (no reason recorded) is approved by rule 1 while its Work Order is
+still GST-off; once it turned GST-on, rules 2 and 3 judge it like any other
+invoice on a GST-on Work Order (no signature rule there). Rules 2 and 3 are
+its only rules, so its reasons are rewritten whole (an older one's PO reasons,
+`not_procurement_order` and the rest, go on its first run) and it is approved
+when they come back empty. Re-check on the PO tab stays PO invoices only.
+
+CANDIDATES. A PO invoice is in scope only when it is Pending, sits on a
 Procurement Order, and already carries at least one ceiling token. Anything else
-— a Work Order invoice, a PO invoice blocked on something unrelated, a row the
-gates never judged — is NOT A CANDIDATE and never appears in a run. This is what
+— a PO invoice blocked on something unrelated, a row the gates never judged, and
+for the button a Work Order invoice — is NOT A CANDIDATE and never appears in a run. This is what
 keeps the result readable: the queue is mostly Work Orders and unrelated
 blockers, and listing them as "still blocked" would bury the handful of rows the
 run is actually about.
@@ -73,7 +86,11 @@ from nirmaan_stack.api.invoices._auto_approve import (
     ceiling_reasons,
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+from nirmaan_stack.api.invoices._wo_auto_approve import WORK_ORDER, unsigned_copy_reasons, wo_figures, wo_rule_reasons
+from nirmaan_stack.integrations.controllers.vendor_invoices import generated_invoice_of
+from nirmaan_stack.services import work_order_invoice_rules as wo_rules
 from nirmaan_stack.services.role_profiles import can_action_invoice_approvals
+from nirmaan_stack.services.work_order_gst import gst_is_explicitly_off
 
 # Upper bound on one sweep — clear of today's queue, but it stops an unbounded
 # scan if the backlog ever runs away. A truncated sweep says so in the response
@@ -101,6 +118,56 @@ def is_candidate(doc_or_row):
     return bool(tokens & set(CEILING_GATE_TOKENS))
 
 
+def is_work_order_candidate(doc_or_row):
+    """True for a Pending Work Order invoice the daily re-check judges (ADR-0050 decision 5): any one, whatever it
+    carries, a generated invoice's copy included."""
+    get = doc_or_row.get
+    return get("status") == "Pending" and get("document_type") == WORK_ORDER
+
+
+def _is_unsigned_copy(doc):
+    """A generated invoice's copy the AI found unsigned: Add Invoice gave it the unsigned reason."""
+    names = {wo_rules.reason_name(t) for t in _parse_tokens(doc.auto_approve_skip_reasons)}
+    return wo_rules.COPY_NOT_SIGNED in names
+
+
+def _recheck_work_order(doc, dry_run, scheduled, signed_copy, unsigned_copy):
+    """Judge a Pending Work Order invoice again (ADR-0050 decision 5). A signed copy is approved by rule 1; an
+    unsigned one by rule 2 or 3, keeping its unsigned reason while neither matches. Any other's reasons are ALL its
+    rules' (decision 8; an older one's PO reasons go), so they are rewritten whole, and only when they changed."""
+    before = _parse_tokens(doc.auto_approve_skip_reasons)
+    if signed_copy:
+        after = []
+    else:
+        after = unsigned_copy_reasons(doc) if unsigned_copy else wo_rule_reasons(doc)
+    figures = _wo_outcome_figures(doc, signed_copy)
+    if not after:
+        if not dry_run:
+            apply_auto_approval(doc)
+            doc.save(ignore_permissions=True)
+            _log_approval(doc, before, scheduled)
+            frappe.db.commit()
+        return _outcome(doc, before, [], "approved", figures)
+    if after == before:
+        _release_lock(dry_run)
+        return _outcome(doc, before, after, "blocked", figures)
+    if not dry_run:
+        apply_auto_approval(doc, fail_reasons=after)
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+    return _outcome(doc, before, after, "blocked", figures)
+
+
+def _wo_outcome_figures(doc, signed_copy=False):
+    """What the dialog shows for a Work Order invoice: Approved invoices + this one against the WO total and its
+    Amount Paid (incl. TDS), and which rule matched with the figures it compared (`rules`: rule 1 for a signed copy,
+    else `work_order_invoice_rules.matched_rules`). Read before any write, so this invoice is not yet Approved."""
+    f = wo_figures(doc)
+    return {"cumulative": f["approved_amount"] + f["invoice_amount"], "wo_total": f["total_amount"],
+            "amount_paid": f["amount_paid"],
+            "rules": [{"rule": 1}] if signed_copy else wo_rules.matched_rules(f)}
+
+
 def _outcome(doc, before, after, outcome, figures=None):
     """One row of the response — the same shape for every outcome."""
     before_set, after_set = set(before), set(after)
@@ -120,6 +187,11 @@ def _outcome(doc, before, after, outcome, figures=None):
         "po_total": (figures or {}).get("po_total"),
         "po_delivered": (figures or {}).get("po_delivered"),
         "cumulative": (figures or {}).get("cumulative"),
+        # A Work Order invoice's: rules 2 and 3 compare `cumulative` with these.
+        "wo_total": (figures or {}).get("wo_total"),
+        "amount_paid": (figures or {}).get("amount_paid"),
+        # Which of ADR-0050's rules matched (a Work Order invoice), each with the figures it compared.
+        "rules": (figures or {}).get("rules"),
     }
 
 
@@ -135,6 +207,18 @@ def _recheck_one(invoice_id, dry_run, scheduled=False):
     # mid-sweep would come out Approved, and one approved by hand would have its
     # approver overwritten with "System".
     doc = frappe.get_doc("Vendor Invoices", invoice_id, for_update=not dry_run)
+    if doc.document_type == WORK_ORDER:
+        if not is_work_order_candidate(doc):
+            _release_lock(dry_run)
+            return None
+        is_copy = bool(generated_invoice_of(doc.name))
+        unsigned_copy = is_copy and _is_unsigned_copy(doc)
+        signed_copy = is_copy and not unsigned_copy
+        # Rule 1 (the signature) is for a GST-off Work Order only: a copy uploaded before its WO turned GST-on is
+        # judged by rules 2 and 3, as every invoice on a GST-on WO is.
+        if signed_copy and not gst_is_explicitly_off(frappe.db.get_value(WORK_ORDER, doc.document_name, "gst")):
+            signed_copy = False
+        return _recheck_work_order(doc, dry_run, scheduled, signed_copy, unsigned_copy)
     if not is_candidate(doc):
         _release_lock(dry_run)
         return None
@@ -258,7 +342,8 @@ def _run(invoice_ids, dry_run, truncated=0, scheduled=False):
 
 @frappe.whitelist()
 def recheck_auto_approve(invoice_ids, dry_run=False):
-    """Re-check the ceilings on the given invoices. Non-candidates are dropped."""
+    """Re-check the given invoices: a PO invoice's ceilings, a Work Order invoice's rules 2 and 3 (ADR-0050
+    decision 5). Non-candidates are dropped."""
     _require_access()
 
     if isinstance(invoice_ids, str):
@@ -274,14 +359,15 @@ def recheck_auto_approve(invoice_ids, dry_run=False):
         fields=["name", "status", "document_type", "auto_approve_skip_reasons"],
         limit_page_length=0,
     )
-    candidates = [r.name for r in rows if is_candidate(r)]
+    candidates = [r.name for r in rows if is_candidate(r) or is_work_order_candidate(r)]
     truncated = max(0, len(candidates) - MAX_SWEEP_INVOICES)
     return _run(candidates[:MAX_SWEEP_INVOICES], dry_run, truncated)
 
 
 @frappe.whitelist()
-def recheck_pending_queue(dry_run=False):
-    """Re-check the ceilings across every candidate in the Pending queue.
+def recheck_pending_queue(dry_run=False, document_type=None):
+    """Re-check every candidate in the Pending queue of one tab: `document_type` "Service Requests" sweeps the
+    Work Order invoices (rules 2 and 3, as the daily job does), anything else the PO invoices' ceilings.
 
     Deliberately NOT scoped to the caller's current table filters: this is
     pressed to clear the backlog, and a sweep covering only the rows a facet
@@ -290,11 +376,13 @@ def recheck_pending_queue(dry_run=False):
     _require_access()
 
     dry_run = frappe.parse_json(dry_run) if isinstance(dry_run, str) else bool(dry_run)
-    return run_pending_queue(dry_run)
+    return run_pending_queue(dry_run, document_type=document_type)
 
 
-def pending_queue_candidates():
-    """Every Pending invoice a re-check could change, oldest first."""
+def pending_queue_candidates(work_orders=False, purchase_orders=True):
+    """Every Pending invoice a re-check could change, oldest first: PO invoices on a ceiling (`purchase_orders`)
+    and Pending Work Order invoices (`work_orders`, ADR-0050 decision 5). The daily job takes both; the PO tab's
+    button the first, the WO tab's the second."""
     rows = frappe.get_all(
         "Vendor Invoices",
         filters={"status": "Pending"},
@@ -302,12 +390,20 @@ def pending_queue_candidates():
         order_by="creation asc",
         limit_page_length=0,
     )
-    return [r.name for r in rows if is_candidate(r)]
+    return [r.name for r in rows
+            if (purchase_orders and is_candidate(r)) or (work_orders and is_work_order_candidate(r))]
 
 
-def run_pending_queue(dry_run, scheduled=False):
+def run_pending_queue(dry_run, scheduled=False, document_type=None):
     """The queue sweep behind both the button and the daily job. No access check —
-    the whitelisted caller does its own, and the scheduler is not a user."""
-    candidates = pending_queue_candidates()
+    the whitelisted caller does its own, and the scheduler is not a user. The daily
+    job (`scheduled`) takes PO and Work Order invoices; the button its tab's
+    (`document_type` "Service Requests": Work Orders; else POs)."""
+    if scheduled:
+        candidates = pending_queue_candidates(work_orders=True)
+    elif document_type == WORK_ORDER:
+        candidates = pending_queue_candidates(work_orders=True, purchase_orders=False)
+    else:
+        candidates = pending_queue_candidates()
     truncated = max(0, len(candidates) - MAX_SWEEP_INVOICES)
     return _run(candidates[:MAX_SWEEP_INVOICES], dry_run, truncated, scheduled)

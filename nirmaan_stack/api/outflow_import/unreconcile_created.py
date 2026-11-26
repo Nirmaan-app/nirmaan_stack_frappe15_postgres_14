@@ -1,11 +1,12 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""The two reads and the one write an Unreconcile needs for a record the import CREATED (#1278).
+"""The two reads and the writes an Unreconcile (and a Move to Internal Transfer) needs for a record the import
+CREATED (#1278).
 
 `unreconcile.unreconcile_row` asks the pure decision module whether a created record may go; this
 module reads its Version history for that question (`edits_of`) and, on a `delete_created` verdict,
-deletes it (`delete_created`). Nothing here commits: it runs inside the orchestrator's savepoint.
+deletes it (`delete_created`) and clears a pick that named it (`drop_a_deleted_pick`). Nothing here commits: it runs inside the orchestrator's savepoint.
 """
 
 import frappe
@@ -13,6 +14,8 @@ import frappe
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import delete_statement_file_links
 from nirmaan_stack.services.outflow_import.ledgers import project_field_of
 from nirmaan_stack.services.outflow_import.settle import outflow_import_write
+
+_ROW_DOCTYPE = "Outflow Import Row"
 
 
 def delete_created(doctype: str, name: str, statement_file_url: str | None) -> str | None:
@@ -40,6 +43,26 @@ def delete_created(doctype: str, name: str, statement_file_url: str | None) -> s
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
     restore_series_counters(series)
     return project or None
+
+
+def drop_a_deleted_pick(row: str, deleted: set[tuple[str, str]]) -> None:
+    """Clear the line's pick when it names a record in `deleted` (`(doctype, name)` pairs just deleted; #1314, trap 1).
+
+    ⚠️ A CREATED EXPENSE IS OFTEN THE LINE'S OWN PICK (the Cashbook job writes `suggested_name = <created expense>`,
+    and a Move follows the line to its replacement), and `refresh_row_allocation` falls back to `Matched` whenever a
+    pick survives. Left alone, a line taken off that record (Unreconcile, a Move to Internal Transfer and its Send
+    back) would read Matched -- to a record that no longer exists -- and a Confirm would settle it against nothing.
+
+    Keyed on the DELETION, never on the source: a pick that still exists keeps its #1280 meaning ("the line keeps its
+    old pick"). `suggested_doctype` is left as it is -- on a Cashbook line it is the PLAN's ledger, which the Create
+    form pre-fills from.
+    """
+    if not deleted:
+        return
+    pick = frappe.db.get_value(_ROW_DOCTYPE, row, ["suggested_doctype", "suggested_name"], as_dict=True)
+    if pick and ((pick.suggested_doctype or "").strip(), (pick.suggested_name or "").strip()) in deleted:
+        # ⚠️ `set_value`, no hooks: the row carries no `doc_events`; each caller re-derives or sets its status next.
+        frappe.db.set_value(_ROW_DOCTYPE, row, "suggested_name", None, update_modified=False)
 
 
 def edits_of(doctype: str, name: str) -> tuple:

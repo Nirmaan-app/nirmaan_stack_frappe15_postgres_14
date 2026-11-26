@@ -277,7 +277,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
         <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
             <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{markAsPaid ? "Record Payment & Mark as Paid" : "Update Payment Details"}</AlertDialogTitle>
+                    <AlertDialogTitle>{markAsPaid ? "Record Payment & Mark as Reconciled" : "Update Payment Details"}</AlertDialogTitle>
                     <AlertDialogDescription>Expense ID: {expense.name}</AlertDialogDescription>
                     <Separator className="my-2" />
                 </AlertDialogHeader>
@@ -449,7 +449,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     {isLoadingOverall ? <div className="flex justify-center w-full"><TailSpin color="#4f46e5" height={24} width={24} /></div> : (
                         <>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>{markAsPaid ? "Mark as Paid" : "Save Changes"}</AlertDialogAction>
+                            <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>{markAsPaid ? "Mark as Reconciled" : "Save Changes"}</AlertDialogAction>
                         </>
                     )}
                 </AlertDialogFooter>

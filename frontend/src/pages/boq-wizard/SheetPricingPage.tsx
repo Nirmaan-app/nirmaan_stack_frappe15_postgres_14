@@ -3246,8 +3246,10 @@ const SheetPricingPage = () => {
     // SLICE 6: the row's UNIT rides the context -- an item-list row prices per its unit (R12); every other
     // helper ignores it.
     // SLICE 12d-1a (owner R2): `rows` rides along so the context carries the row's section headings.
-    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows, liveCategoriesByExcelRow), unit: row.unit ?? "" };
-  }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
+    // VAV-2b2 QR-MARK (b), TEMPORARY: the active run id rides along (a hand-written test run's VAV rows say so)
+    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows, liveCategoriesByExcelRow),
+      ...(suggestRun?.runId ? { runId: suggestRun.runId } : {}), unit: row.unit ?? "" };
+  }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow, suggestRun?.runId]);
   // DEV2-B5 S4 (G14 (a)): `?row=<excel_row>` -- the "Open this row" link of the Previously priced card. Once the rows are
   // loaded and the row exists: clear the view filters (a filtered-out row could not be shown) and scroll to it through
   // the grid's own jump (which also opens a collapsed parent). Once per load; no parameter -> nothing happens.

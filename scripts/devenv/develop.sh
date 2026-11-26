@@ -18,9 +18,14 @@ ORG_REPO_PATH="Nirmaan-app/nirmaan_stack_frappe15_postgres_14"
 org_repo() {
   ORG_REPO="$(git config devbox.org-repo || true)"
   [ -n "$ORG_REPO" ] && return 0
-  ORG_REPO="$(git config --get-regexp '^remote\..*\.url$' | awk -v p="$(echo "$ORG_REPO_PATH" | tr A-Z a-z)" '
-    tolower($2) ~ ("github\\.com[/:]" p "(\\.git)?/?$") {sub(/^remote\./, "", $1); sub(/\.url$/, "", $1); print $1; exit}' || true)"
+  ORG_REPO="$(org_remotes | sed -n 1p)"
   [ -n "$ORG_REPO" ]
+}
+
+# org_remotes: every remote of the current repo whose URL is github.com's org repo, one name per line.
+org_remotes() {
+  git config --get-regexp '^remote\..*\.url$' | awk -v p="$(echo "$ORG_REPO_PATH" | tr A-Z a-z)" '
+    tolower($2) ~ ("github\\.com[/:]" p "(\\.git)?/?$") {sub(/^remote\./, "", $1); sub(/\.url$/, "", $1); print $1}' || true
 }
 
 # develop_tip: print the commit develop is at on GitHub now, or STOP.

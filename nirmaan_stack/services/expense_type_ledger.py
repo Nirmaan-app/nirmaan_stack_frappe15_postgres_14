@@ -25,6 +25,15 @@ from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DO
 LEDGER_TYPE_FLAG = {PROJECT_EXPENSE_DOCTYPE: "project", NON_PROJECT_EXPENSE_DOCTYPE: "non_project"}
 
 
+def ledger_types() -> dict[str, list[str]]:
+    """{ledger: the Expense Types it takes, by name}: what a person may choose for an expense on each ledger (the
+    Move dialog, #1757)."""
+    return {
+        doctype: frappe.get_all("Expense Type", filters={flag: 1}, pluck="name", order_by="name asc")
+        for doctype, flag in LEDGER_TYPE_FLAG.items()
+    }
+
+
 def expense_type_problem(doctype: str, expense_type: str | None) -> str | None:
     """Why `expense_type` cannot be written to ledger `doctype`, or None when it can (or is blank)."""
     if not expense_type:

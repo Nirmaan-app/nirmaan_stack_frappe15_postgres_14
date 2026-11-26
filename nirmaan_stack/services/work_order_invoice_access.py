@@ -17,6 +17,9 @@ requests and the GST payment limit, so its figures are controlled:
 
 Purchase Order invoices are untouched by every rule here. Uploading a new invoice is not narrowed.
 
+The System's own approval (ADR-0050's three rules) carries `SYSTEM_DECISION_FLAG` and passes the decision
+rules, as on a Purchase Order (ADR-0014 Amendment C); it never passes an edit.
+
 Pure: the caller resolves who the user is (`services/role_profiles.can_*_wo_invoice`) and passes the
 answers in. The Vendor Invoices `validate` hook applies it, so Desk and the API obey it.
 """
@@ -88,7 +91,14 @@ def billed_fields_changed(before, after) -> bool:
 
 
 def change_problem(
-    before, after, *, may_decide: bool, may_edit: bool, may_override_decision: bool, generated: bool = False
+    before,
+    after,
+    *,
+    may_decide: bool,
+    may_edit: bool,
+    may_override_decision: bool,
+    generated: bool = False,
+    by_system: bool = False,
 ) -> str | None:
     """Why this user may not save `after` over `before` (None for a new invoice), or None when they may.
 
@@ -97,6 +107,10 @@ def change_problem(
     WO_APPROVED_INVOICE_EDIT_PROFILES); `may_override_decision` (Admin) changes an Approved invoice's
     figures, moves it anywhere but Rejected, and reopens a Rejected one. `generated`: a generated invoice's signed upload created this
     invoice. Reconciliation, autofill and attachment fields pass freely.
+
+    `by_system`: the save carries `purchase_order_invoice_access.SYSTEM_DECISION_FLAG`, set only by the ADR-0050
+    rules' approval (ADR-0014 Amendment C). Its status change passes whoever is the session user; the edit rules,
+    the signed copy's lock included, still apply.
     """
     if not (is_work_order_invoice(after) or is_work_order_invoice(before)):
         return None
@@ -109,6 +123,8 @@ def change_problem(
     status_before, status_after = cstr(before.get("status")), cstr(after.get("status"))
     if generated and billed_fields_changed(before, after):
         return GENERATED_EDIT_REFUSAL
+    if by_system:
+        return EDIT_REFUSAL if billed_fields_changed(before, after) else None
     # A Rejected invoice stays Rejected: a signed upload's for everyone (its generated invoice is Voided),
     # any other only an Admin may reopen (it is uploaded again).
     if status_before == REJECTED and status_after != REJECTED and (generated or not may_override_decision):

@@ -6,7 +6,11 @@
 #       the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on -> start
 #       Claude in that env, visible in Orca, and wait up to DEVBOX_REPLY_WAIT seconds (180) for its first reply in its
 #       session log; an error Claude Code wrote itself ("Not logged in") stops at once, with what to do.
-#       --no-agent stops before Claude.
+#       --no-agent stops before Claude. On a box whose registry entry says box.<box>.launch = box, the box starts
+#       Claude itself, as the Claude account its owner gave your SSH key, with your git name and email set for that
+#       env only (scripts/devenv/box_launch.py), refusing an unknown key, a person without a git identity or a name
+#       without your prefix before anything changes; this laptop then needs no Orca. Joining such a box:
+#       scripts/devenv/join.sh, and the owner's scripts/devenv/people.sh.
 #       The start point is <ref>, else the HEAD of the checkout you run task.sh from (only commits travel: start WARNs
 #       when that checkout has uncommitted changes); on a rerun, the box/<name> already made. It must hold GitHub's
 #       develop as it is now (scripts/devenv/develop.sh: how develop is found, and the rule). Equal or ahead starts;
@@ -17,7 +21,7 @@
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report, kept at
 #                            ${XDG_STATE_HOME:-~/.local/state}/devbox/reports/<name>.md (review, merge and
-#                            push stay with you)
+#                            push stay with you), and, for a box launch, who started it as which account
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
 #                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh).
 #                            When the env is already gone, it removes the benches/<name> folder left behind if that is
@@ -44,9 +48,12 @@
 #                            a task's base (the commit start cut box/<name> from) is no longer in the ref it came
 #                            from (someone reset or rebased it; rebase box/<name> onto it before merging), alerting
 #                            when that changes. done prints the same WARN.
-#                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does:
-#                            it cleans each PRUNE task, so merged tasks never pile up on a box (each holds an idle chat,
-#                            its folder and a ~2 GB test DB). A clean that fails alerts, naming the
+#                            Plain watch changes nothing on the boxes. --clean then does what task.sh prune --yes does,
+#                            for finished, merged tasks only: two more holds keep the rest (not-finished: no finished
+#                            report, as before the agent starts or after it died; no-commits: the box tip is still the
+#                            base start recorded, or nothing of the task is on the box yet). So merged tasks never pile
+#                            up on a box (each holds an idle chat, its folder and a ~2 GB test DB), and a task being
+#                            started is never cleaned under it. A clean that fails alerts, naming the
 #                            task (its output is in the pass), and WARNs on each later pass while it still fails. A box
 #                            that did not answer is left alone: the watch rows above already show it unreachable.
 #                            --every repeats until Ctrl-C. --install (macOS) runs watch --clean every 300 s as the
@@ -119,8 +126,9 @@ base_warn() {
 # Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<dod>\t<idle>
 # \t<the first paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd
 # -P), as /proc and lsof report them, and exactly: the macOS box also runs spare claude daemons in other folders.
-# idle: seconds since the newest file anywhere under the env's session logs, ~/.claude/projects/<the env worktree's
+# idle: seconds since the newest file anywhere under the env's session logs, <config>/projects/<the env worktree's
 # path with every non-alphanumeric character as ->/ (subagent logs sit in <session>/subagents/ below it), - with none.
+# <config> is ~/.claude, or the account's config dir a box launch recorded in the task's LAUNCH.
 watch_probe() {
   cat <<'EOF'
 co="$1"; shift
@@ -134,7 +142,13 @@ import os, re, sys, time
 root, now = sys.argv[1], time.time()
 for n in sys.argv[2:]:
     wt = os.path.join(root, "benches", n, "apps", "nirmaan_stack")
-    d = os.path.join(os.path.expanduser("~/.claude/projects"), re.sub(r"[^A-Za-z0-9]", "-", wt))
+    home = os.path.expanduser("~/.claude")
+    try:
+        with open(os.path.expanduser("~/claude-artifacts/dod/box-%s/LAUNCH" % n)) as f:
+            home = next((l[7:].strip() for l in f if l.startswith("config=")), home)
+    except OSError:
+        pass
+    d = os.path.join(home, "projects", re.sub(r"[^A-Za-z0-9]", "-", wt))
     newest = 0
     for folder, dirs, files in os.walk(d):
         for f in files:
@@ -189,16 +203,18 @@ except OSError:
 EOF
 }
 
-# Runs under python3 - <env worktree> <epoch seconds> on a box: the agent's first reply since that time, from the
-# session logs Claude Code keeps under ~/.claude/projects/<the worktree's real path, every non-alphanumeric character
-# as ->/*.jsonl. Prints real (an assistant entry from a model), "synthetic<tab><its text>" (an assistant entry whose
-# model is <synthetic>: an error Claude Code wrote itself, such as "Not logged in · Please run /login", after which
-# the prompt is dropped), or none. A real reply wins over a synthetic one.
+# Runs under python3 - <env worktree> <epoch seconds> [<config dir>] on a box: the agent's first reply since that time,
+# from the session logs Claude Code keeps under <config dir, ~/.claude by default>/projects/<the worktree's real path,
+# every non-alphanumeric character as ->/*.jsonl (an Orca account's agent keeps them in that account's config dir).
+# Prints real (an assistant entry from a model), "synthetic<tab><its text>" (an assistant entry whose model is
+# <synthetic>: an error Claude Code wrote itself, such as "Not logged in · Please run /login", after which the prompt
+# is dropped), or none. A real reply wins over a synthetic one.
 reply_probe() {
   cat <<'EOF'
 import json, os, re, sys
 wt, since = sys.argv[1], int(sys.argv[2])
-d = os.path.join(os.path.expanduser("~/.claude/projects"), re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(wt)))
+home = sys.argv[3] if len(sys.argv) > 3 else os.path.expanduser("~/.claude")
+d = os.path.join(home, "projects", re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(wt)))
 try:
     names = sorted(os.listdir(d))
 except OSError:
@@ -307,7 +323,7 @@ notify() {
 # WARNs on later passes, the way a wrong hooksPath does: the launchd job retries it every 300 s.
 watch_clean() {
   local out rc=0 failed n f msg alerts=""
-  out="$(prune_tasks 1 2>&1)" || rc=$?
+  out="$(prune_tasks 1 1 2>&1)" || rc=$?
   printf '%s\n' "$out"
   failed="$(printf '%s\n' "$out" | sed -n 's/^FAIL  clean \([a-z0-9-]*\) .*/\1/p')"
   # 1 with no FAIL line, or any code but 0, 1 and 3: prune itself stopped, so nothing past that point was cleaned.
@@ -443,7 +459,7 @@ EOF
 }
 
 # The holds of a box task, one check per name, each printing the hold when it applies to the task in the T_* globals.
-TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched off-branch"
+TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched off-branch not-finished no-commits"
 task_hold_unreachable() { [ -z "$T_NOTE" ] || echo unreachable; }
 # A stalled agent still occupies the box and its work, so it holds under its own name.
 task_hold_working() { case "$T_STATE" in working|stalled) echo "$T_STATE" ;; esac; }
@@ -459,10 +475,23 @@ task_hold_off_branch() {
   [ -z "$T_NOTE" ] && [ "$T_HEAD" != - ] && [ "$T_HEAD" != "$T_TIP" ] && ! landed "$T_HEAD" >/dev/null \
     && echo "off-branch:${T_HEAD:0:9}" || true
 }
+# watch --clean's two holds (T_AUTO=1); a person running prune --yes judges these for themselves. Landed alone is not
+# finished and merged: a task just started, or whose agent died before its first commit, sits at its base, which the
+# ref it was cut from already holds. not-finished: no finished report (watch's crashed: no agent yet, or a dead one).
+# no-commits: the box tip is still the base start recorded, or nothing of the task is on the box yet (start writes the
+# record before it hands the branch over). no-commits also covers a reused name, whose old DONE report clean leaves.
+task_hold_not_finished() { [ "$T_AUTO" = 1 ] && [ "$T_STATE" = crashed ] && echo not-finished || true; }
+task_hold_no_commits() {
+  [ "$T_AUTO" = 1 ] && [ -z "$T_NOTE" ] || return 0
+  if [ "$T_TIP" = - ]; then echo no-commits:nothing-on-box
+  elif [ "$T_TIP" = "$(git config "devbox-task.$T_NAME.base" || true)" ]; then echo no-commits; fi
+}
 
-# prune_tasks <yes>: one row per recorded task (see the header). Exit 3 when a box did not answer.
+# prune_tasks <yes> [<auto>]: one row per recorded task (see the header); auto 1 adds watch --clean's holds. Exit 3
+# when a box did not answer.
 prune_tasks() {
   local yes="$1" recs box names n out wout rc row alive dod idle line word h d where rows="" keep="" todo="" down=0 failed=0
+  T_AUTO="${2:-0}"
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo "== $(date '+%Y-%m-%d %H:%M:%S')  task prune: box tasks whose box tip a laptop ref holds"
   [ -n "$recs" ] || echo "no task records (task.sh start makes them)"
@@ -478,7 +507,7 @@ prune_tasks() {
     fi
     [ -z "$T_NOTE" ] || echo "box $box: $T_NOTE"
     for n in $names; do
-      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- idle=- line=""
+      T_NAME="$n" T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 T_HEAD=- alive=- dod=- idle=- line=""
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
       [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED T_STATUS_RC T_HEAD <<<"$row"
       row="$(printf '%s\n' "$wout" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
@@ -545,7 +574,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,64p' "$0"; exit 1 ;;
+  *) sed -n '2,69p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -603,7 +632,8 @@ case "$CMD" in
       || die "the brief's first line names no issue: write '# Task: … #<issue> …' (file the issue first), or '# Task: experiment: …'"
     [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
       || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
-    [ "$AGENT" = 0 ] || agent_ready
+    AGENT_HOME=""   # a box launch sets it: the Claude config dir its agent uses on the box
+    [ "$AGENT" = 0 ] || agent_ready "$NAME"
     if START="$(git rev-parse -q --verify "refs/heads/$BRANCH")"; then
       START_IS="the existing $BRANCH (an earlier start made it; another name starts afresh)"
       [ -z "$FROM" ] || [ "$(git -C "$HERE_CO" rev-parse -q --verify "$FROM^{commit}" || true)" = "$START" ] \
@@ -676,7 +706,7 @@ case "$CMD" in
     box_ssh "for d in $WT ~/$BOX_CO; do (cd \$d && if git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 && [ -f .claude/settings.local.json ]; then git update-index --skip-worktree .claude/settings.local.json && rm .claude/settings.local.json; fi); done; python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
       && ok "env ready for Claude (folder trusted, the committed settings.local.json hidden in this env)"
     HERE_SETUP="$(claude_setup | python3 - "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}")"
-    BOX_SETUP="$(claude_setup | box_ssh 'python3 - ~/.claude')"
+    BOX_SETUP="$(claude_setup | box_ssh "python3 - ${AGENT_HOME:-~/.claude}")"
     # A missing plugin or another pstack-models.md changes what the agent can do: WARN. Versions drift between
     # machines all the time (measured 2026-11-05: three pstack versions on three machines), so they get one note line.
     names() { printf '%s\n' "$1" | awk '$1 == "plugin" {print $1, $2; next} {print}'; }
@@ -687,7 +717,7 @@ case "$CMD" in
     [ "$(names "$HERE_SETUP")" != "$(names "$BOX_SETUP")" ] || [ "$HERE_SETUP" = "$BOX_SETUP" ] \
       || echo "note  plugin versions differ (laptop -> box): $(join -j 2 <(printf '%s\n' "$HERE_SETUP" | awk '$1 == "plugin"' | sort -k2,2) <(printf '%s\n' "$BOX_SETUP" | awk '$1 == "plugin"' | sort -k2,2) | awk '$3 != $5 {printf "%s%s %s -> %s", s, $1, $3, $5; s = "; "}')"
     SINCE="$(box_ssh 'date +%s')"
-    agent_launch "$WT" "$(prompt)"
+    agent_launch "$NAME" "$WT" "$(prompt)"
     n=0; until agent_alive "$WT"; do
       n=$((n + 1)); [ $n -gt 20 ] && die "no Claude terminal in '$NAME' after 60 s; open the env in Orca and run claude there"; sleep 3
     done
@@ -697,7 +727,7 @@ case "$CMD" in
     WAIT="${DEVBOX_REPLY_WAIT:-180}"; n=0
     RERUN="close that terminal and rerun task.sh start $NAME: it reuses the branch, record, brief and env, and only starts Claude again"
     while :; do
-      REPLY="$(reply_probe | box_ssh "python3 - $WT $SINCE")"
+      REPLY="$(reply_probe | box_ssh "python3 - $WT $SINCE${AGENT_HOME:+ $AGENT_HOME}")"
       case "$REPLY" in
         real) break ;;
         synthetic*) die "Claude in '$NAME' stopped before the task: ${REPLY#*$'\t'}. Fix it in Orca (box $BOX_NAME): open the env's terminal there and do what it says (/login for an expired login), then $RERUN" ;;
@@ -727,6 +757,9 @@ case "$CMD" in
     # box_unreachable exits the shell mid-copy: the half-written file goes with it.
     trap 'rm -f "$REPORT_COPY.tmp"' EXIT
     echo
+    # A box launch recorded who started the agent and as which Claude account (box_launch.py).
+    LAUNCHED="$(box_ssh "cat ~/$DIR/LAUNCH 2>/dev/null; true")"
+    [ -z "$LAUNCHED" ] || { printf '%s\n' "$LAUNCHED" | sed 's/^/launch  /'; echo; }
     if box_ssh "cat ~/$DIR/REPORT.md 2>/dev/null" > "$REPORT_COPY.tmp" && [ -s "$REPORT_COPY.tmp" ]; then
       mv "$REPORT_COPY.tmp" "$REPORT_COPY"; cat "$REPORT_COPY"; ok "report kept at $REPORT_COPY"
     else

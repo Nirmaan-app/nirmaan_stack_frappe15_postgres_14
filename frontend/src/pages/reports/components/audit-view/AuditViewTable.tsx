@@ -1,15 +1,22 @@
 /** Audit View: the rows table (client mode of the shared data table). */
 import { useEffect, useMemo, useRef } from "react";
+import type { FilterFn } from "@tanstack/react-table";
 
 import { DataTable, SearchFieldOption } from "@/components/data-table/new-data-table";
+import { fuzzyFilter } from "@/components/data-table/data-table-models";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 
 import { getAuditViewColumns } from "../columns/auditViewColumns";
-import { AUDIT_TAB_META, AuditTab, AuditTableRow, AuditView, auditFacetOptions } from "../../utils/auditView";
+import { AUDIT_TAB_META, AuditTab, AuditTableRow, AuditView, auditFacetOptions, auditIdMatches } from "../../utils/auditView";
 
 const SEARCH_FIELDS: SearchFieldOption[] = [
   { value: "id", label: "ID", placeholder: "Search by ID, invoice no., project, vendor...", default: true },
 ];
+
+/** The shared search over every column, plus the row's record name: Against shows an expense's description, so its
+ *  name (e.g. qs21qubbrb) is in no column (`auditIdMatches`). */
+const auditSearch: FilterFn<AuditTableRow> = (row, columnId, value, addMeta) =>
+  fuzzyFilter(row, columnId, value, addMeta) || auditIdMatches(row.original.id, value);
 
 // ---------------------------------------------------------------------------------------------
 // The table (client-side, the SRReports / outflow wiring). Keyed by view + tab by its parent, so a
@@ -57,6 +64,9 @@ export function AuditViewTable({ view, tab, rows }: AuditViewTableProps) {
   // over these) and the page is reset after mount instead: on a search or sort change here; the hook
   // already resets it on a column-filter change; a tab or date change remounts the table.
   table.setOptions((prev) => (prev.autoResetPageIndex === false ? prev : { ...prev, autoResetPageIndex: false }));
+  // The hook passes `fuzzyFilter` on every render, so the record-name search is set back here, before any row
+  // model below is read.
+  table.setOptions((prev) => (prev.globalFilterFn === auditSearch ? prev : { ...prev, globalFilterFn: auditSearch }));
   const { sorting } = table.getState();
   const isFirstRun = useRef(true);
   useEffect(() => {

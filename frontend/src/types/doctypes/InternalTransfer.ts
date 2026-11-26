@@ -34,4 +34,6 @@ export interface InternalTransferDocType {
 	marked_at?: string | null
 	/** Reason : Small Text */
 	mark_reason?: string | null
+	/** Proof : Attach */
+	proof?: string | null
 }

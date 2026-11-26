@@ -58,6 +58,82 @@ past imports by source and month.
   (#1710; the screen shows no Tier column since 7c9bcdf81, only the export), AUTO / L1 / L1+L2 on the rest
   (`BIN/approval_tier_export_db.py`).
 
+- `bit-cashbook-move` Move a Cashbook spend's expense (#1757, spec #1753; the domain's Rectify). On a Settled Cashbook
+  line whose expense the import created, Admin and Accountant Lead see `Move to a project` (a Non Project Expense)
+  or `Change project` (a Project Expense), with no Unreconcile beside it where Move accepts the line (#1762); ticked Cashbook lines get the same in the toolbar, or
+  `Move N expenses` when their ledgers are mixed. An Accountant sees none. The dialog (titled the same) shows each
+  line's Txn Id, amount, `Now: <placement> (<expense>)`, then `Date`, `Spent by` / `Paid to` (`Back to` / `From` on
+  money coming back), `Remark`, and `Bill: Open <verdict>: <remark>`; then `Move to` (Won projects and `No project
+  (Non-Project expense)`), `Expense type` (the ledger's types, its own when it fits), `Reason (required)`, and the
+  run button in the title's words. The result reads `N expense(s) moved to <project | Non Project>.` A refused line
+  says why before confirm (not Paid, a Reimbursement's, an Expense Request's, a Payment TDS Deduction, a split line, a
+  bill being read, a spend without its refund ticked). The same dialog opens from a Cashbook expense's edit dialog
+  (Project or Non-Project Expenses -> Paid -> the pencil): its Project row is locked, with the link `Change project` /
+  `Move to a project` to the line in Bulk Import (`?move=<line>`), for the undo roles only. Walked by
+  `BIN/walk_cashbook_move.py` (seed `BIN/cashbook_move_seed.py`, DB read `BIN/cashbook_move_db.py`), as an
+  Accountant Lead and an Accountant. The Expense lists have no Txn Id search: the walk searches by `Comment`,
+  `Imported from <batch>`.
+- `bit-card-move` Move a card spend's expense to a Won project (#1761, spec #1753 stories 4, 43, 55-59; ADR-0039
+  Amendment F). On a Settled Credit Card line, the same button, toolbar, dialog and run as `bit-cashbook-move`, for the
+  same roles. The dialog's details row reads `Date`, `Card holder`, `Merchant`, `Statement: <months> · <statement>`;
+  a card spend's type (Misc. Expenses) is Non Project only, so `Expense type` starts blank on a move to a project. A
+  card refund's line is refused ("This is a card refund, which stays a Non Project Expense. ..."). The moved spend
+  keeps its statement link and is still listed in Vendor Invoice Recon -> Pending Invoices Upload -> `Credit Card`,
+  its Holder the card holder (the Project Expense's Paid by). A card spend's edit dialog (either ledger) locks its
+  Project row with the link `Change project` / `Move to a project` to its line, as a Cashbook expense's. Walked by `BIN/walk_card_move.py` (seed
+  `BIN/card_move_seed.py`, a made-up card import Created inline; DB read `BIN/card_move_db.py`), as an Accountant
+  Lead. The Settled tab's search finds the card line by its SerNo; the Credit Card tab's by the holder.
+
+- `bit-cashbook-move-transfer` Move a Cashbook spend to Internal Transfer (#1762, spec #1753 stories 13, 27-28, 53-54).
+  The Move dialog's `Move to` list ends with `Internal Transfer` on Cashbook lines. Chosen, it asks no type: `From`
+  (the wallet, `Cashbook Employee Wallet`, fixed) and `To` (a place select, `#move-it-other`) for a spend, the other
+  way round for money coming back, `Own side` / `Other end` for a spend ticked with its refund; `Detail`
+  (`#move-it-detail`) starts as the wallet holder. The run button reads `Move to Internal Transfer`; the result
+  `1 expense moved to Internal Transfer.` The expense is gone, the line moves to the `Internal Transfers` tab, and its
+  record (the violet link in the Outcome cell, opening Desk) shows the bill as `Proof`. A Settled line Move accepts
+  shows no `Unreconcile` (the row's `can_move`); a refused line, or one Linked to an existing record, keeps it. Ticked,
+  the toolbar's `Unreconcile N` stays (owner ruling 2026-11-26: the last correction for a created expense Move cannot
+  fix, such as a Link to an existing record). Walked by `BIN/walk_move_to_transfer.py` (seed `BIN/cashbook_move_seed.py`,
+  DB read `BIN/move_to_transfer_db.py`; the Linked line is read from the env's own data), as an Accountant Lead.
+
+- `bit-bank-move` Move an expense a person created from a bank or Cashfree line with Create (#1760, spec #1753). On a
+  Settled ICICI Bank Statement or Cashfree line whose one live match was created by the import (Create), the undo
+  roles see `Move to a project` / `Change project` beside Unreconcile, by the Cashbook label rule; a line Linked to a
+  payment or an existing expense shows none (the row's `matches[].created_by_import`). Ticked lines of one statement
+  move together; another statement's line ticked with them turns the toolbar button off. The dialog shows each line's
+  UTR, amount, `Now: <placement> (<expense>)`, then `Date`, `UTR`, `Beneficiary`, `Remark`; then `Move to`,
+  `Expense type`, `Reason (required)`. A line settled to more than one record is refused. Every Move (any source)
+  keeps the old expense's pay-to account, approval dates and comments (owner, 2026-11-26). Walked by
+  `BIN/walk_bank_move.py` (seed `BIN/bank_move_seed.py`, DB read `BIN/bank_move_db.py`), as an Accountant Lead; the
+  Bulk Import search finds a line by its UTR.
+
+- `bit-porter-move` Move a Porter order's expense (#1449, ADR-0032; wording and details #1759). A Settled Porter line's
+  button, the toolbar, the dialog's title and run button, and a Porter expense's locked-project link follow the same
+  rule as Cashbook: `Move to a project` (Non Project), `Change project` (Project), `Move N expenses` (mixed). Each line in
+  the dialog shows `CRN`, booker, amount, `Now: <placement> (<expense>)`, then one row `From → To`, `City`, `Fare`,
+  `Reverse-charge GST`, `Invoice <number>` and an `Invoice PDF` link (read per line from
+  `porter_expense.get_porter_expense`). Walked read-only by `BIN/walk_porter_move.py` (DB read
+  `BIN/porter_move_db.py`, which picks the env's own Settled Porter lines, one per ledger) as an Accountant Lead: it
+  opens each dialog and cancels. Project Expenses has no Payment Ref (CRN) search, so the walk searches
+  `Amount` and takes the row holding the CRN. The browser collapses runs of spaces in a Porter address: compare with
+  whitespace normalised.
+
+- `bit-cashbook-phrase` A Move to a project learns the remark's phrase (#1758, spec #1753 stories 47-52). Once `Move
+  to` is a Won project (not `No project`), the Cashbook Move dialog shows a ticked box `Next time, put spends that
+  mention “<phrase>” on this project` above the reason, with the phrase in a field (`Phrase`) pre-filled from the
+  remark: the longest run of remark words that are words of the project's name, skipping a run whose every word one
+  other Won project's name holds too; when no remark word is in the name, the remark word closest in spelling to one
+  (one slip in five letters), unless another Won project's name spells it as near; else blank (then the run button
+  waits for a phrase or an unticked box). Unticked, the field goes and nothing is learned. The result adds
+  `Next time, spends that mention “<phrase>” go to <project>.`; a phrase another project already holds refuses the
+  Move in a plain sentence (`'<phrase>' already puts spends on <project>, ...`). DB: an active `Outflow Import Project
+  Alias` (phrase -> project, owner the mover). The box never shows for `No project` or `Internal Transfer`, nor for a
+  Porter, card, bank or Cashfree line, and the write refuses a phrase sent with those sources' lines. The next
+  Cashbook import places a remark holding the phrase on that project. Walked by `BIN/walk_cashbook_phrase.py` (seed `BIN/cashbook_phrase_seed.py`: two made-up Won projects
+  sharing a word, so the remark names neither until the phrase is learned, a third whose name word is one letter off a
+  remark word, for the close spelling, and `again` for the next import; DB read
+  `BIN/cashbook_phrase_db.py`), as an Accountant Lead.
+
 ## How to get to it (user POV)
 
 - The sidebar entry `Bulk Import Transactions` (Admin, Accountant Lead, Accountant).

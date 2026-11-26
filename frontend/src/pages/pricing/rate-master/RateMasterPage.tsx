@@ -556,6 +556,7 @@ export function RateMasterPage() {
                   exampleItems={exampleItems}
                   categoryLabel={categoryDisplayName}
                   canEdit={isAdmin && !writesBlocked}
+                  liveReading={config?.live_reading === true}
                   onClose={() => setImpactInputUid(null)}
                   onSave={async (patch) => {
                     await onSaveItem(impactInput.name as string, { rates_patch: patch });

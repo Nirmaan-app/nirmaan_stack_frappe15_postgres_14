@@ -289,7 +289,8 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
     const pr = pageRows.find((x) => x.source_row_number === r.excel_row);
     const ownNotes = r.ownNotes ?? (pr ? rowOwnNotes(pr, pageRows) : []);
     const headingNotes = r.headingNotes ?? (pr ? rowHeadingNotes(pr, pageRows) : []);
-    const helper = makePricingSheetHelper({ configsByCategory, items: items as never, extractionByRow: new Map([[r.excel_row, ext]]) } as never);
+    // #1741: machineRead -- only the figures are read here, so the display text pass is skipped
+    const helper = makePricingSheetHelper({ configsByCategory, items: items as never, extractionByRow: new Map([[r.excel_row, ext]]), machineRead: true } as never);
     let res: ResultSeen;
     try {
       res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline,
@@ -348,6 +349,7 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
       const pairOf = soft.slice(0, 14);
       const hit = new Set<string>();
       for (let i = 0; i < pairOf.length; i++) for (let j = i + 1; j < pairOf.length; j++) {
+        if (hit.has(pairOf[i]) && hit.has(pairOf[j])) continue;   // #1741: it could only add both again (only `hit` is read)
         const { attrs, its } = blanked(r, [pairOf[i], pairOf[j]]);
         if (!price(r, attrs, its).priced) { hit.add(pairOf[i]); hit.add(pairOf[j]); }
       }

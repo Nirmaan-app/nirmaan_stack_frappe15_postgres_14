@@ -80,7 +80,15 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   matches. A Cashbook Collect payment created like any wallet spend (#1708) is walked by
   `BIN/walk_cashbook_collect.py`; spec #1711's Cashbook stories (a Collect payment's pairing and Skip by hand, lines
   before 1 Apr 2026 left out, an unpaired wallet refund as a minus Expense where its spend is booked) by
-  `BIN/walk_cashbook_refunds.py`.
+  `BIN/walk_cashbook_refunds.py`; Move of a Cashbook spend to a project, another project or Non Project, from the line
+  and from the expense's edit dialog (#1757), by `BIN/walk_cashbook_move.py`; Move of a Cashbook spend to Internal
+  Transfer, its bill kept as the record's proof, and Unreconcile hidden where Move accepts the line (#1762), by
+  `BIN/walk_move_to_transfer.py`; Move of a card spend to a Won project, still in Pending Invoices Upload -> Credit
+  Card with its holder (#1761), by `BIN/walk_card_move.py`; Move of an expense created from a bank or Cashfree line
+  (#1760), by `BIN/walk_bank_move.py`; a Porter line's Move wording and the delivery's details in its dialog, from the
+  line and from the expense's edit dialog (#1759), by `BIN/walk_porter_move.py`; the Move's phrase box, its pre-fill
+  rules, and the project alias it saves that the next Cashbook import places (#1758), by
+  `BIN/walk_cashbook_phrase.py`.
 - [Cashbook Wallet Credits](./cashbook-credits.md): a Wallet Credit booked as a minus Expense where its remark places
   it, and a no-Expense refund placed the same way (#1720). Walked by `BIN/walk_cashbook_credits.py`.
 - [Cashbook cutoff](./cashbook-cutoff.md): the import period and the ₹0 Internal Transfer fills read only the lines
@@ -112,7 +120,7 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
 - [Customers](./customers.md): the customer list, a customer's page and edit form (as an Accountant), and creating
   and editing a customer (as the Admin), each held to its DB row. Walked end to end by `BIN/walk_customers.py`
   (`--part view` for the read-only Accountant steps). Live refresh of the list (#1670): `BIN/walk_live_refresh.py`
-  (failed on 2026-11-19; see the feature file).
+  (needs the env's own realtime; see the feature file).
 - [Office Rent](./office-rent.md): a bill incl. 18% GST raised by HR, approved by Admin and the CEO, split
   into rent, GST, TDS and what the landlord gets, paid by an Accountant. Walked end to end by
   `BIN/walk_office_rent.py`.
@@ -124,11 +132,17 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   "Invoice Added By" column; the PO and WO Invoices 2B Recon tabs, and their "Invoice Uploaded By" column (full
   name or email, cut with "…", whole text on hover); who may approve or reject a PO invoice (an Accountant on
   screen; a procurement or HR user refused by the server, #1638). Walked by `BIN/walk_vendor_invoice_recon.py`.
+- [Work Order invoice auto-approval](./wo_invoice_auto_approve.md): ADR-0050's three rules. Upload signed copy and
+  Add Invoice of a generated invoice's signed copy approved by the System (a Procurement Executive uploads), an
+  unsigned copy warned of in the dialog and judged by rules 2 and 3 (Pending, or approved when the amounts match),
+  and the WO reasons with their figures in Pending Invoice Approvals -> WO. Walked by
+  `BIN/walk_wo_invoice_auto_approve.py`.
 - [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
   the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same
-  check, and two or more bill links are Not checked; any other result waits in Pending Invoice Approvals -> Cashbook
-  or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
+  check, and two or more bill links are Not checked, but are approved on arrival by System (#1755; a one-off patch
+  approved the ones waiting or rejected before it); any other result of a person's upload waits in Pending Invoice
+  Approvals -> Cashbook or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
   a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
   an Admin or Accountant Lead replaces on Payment Done is approved at once in their name; the Project and
   Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each;
@@ -139,3 +153,5 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check`,
   `--part paid-replace`, `--part all-payments` or `--part all-invoices` for one part alone;
   `--part marker-patch` runs the #1649 patch on the env and walks the Cashbook pill before and after it).
+  `BIN/walk_cashbook_bill_approval.py` walks #1755: the import's bills Approved on arrival, a person's upload alone
+  on Pending Invoice Approvals -> Cashbook, and an import bill Mismatched and Auto-approved on All Invoices.

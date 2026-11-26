@@ -1,0 +1,70 @@
+{
+ "about": "VAV-FIX (2026-11-25, desktop; the final fix slice of the VAV Box build): HVAC v88 = v87 + ONLY these 5 edits, all on VAV Box: S1 (owner 2026-11-20 17:53 'a', re-confirmed 2026-11-25 00:37) the three ruled defaults apply to BoQ rows only - the Calculator starts blank (`boq_rows_only`); S3 (chat-Claude's call under the owner's 2026-11-23 13:46 word) the no-unit bar's one sentence; S4 (owner 2026-11-22 10:49 / 13:03 'a') no internal label on rules page line 52. No item changes; no category's model request changes. Read by the vavfix tests and the v88 mint script.",
+ "configs": [
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "shape",
+    "boq_rows_only"
+   ],
+   "from": null,
+   "to": true,
+   "why": "S1: shape not stated -> Rectangular (assumed) is for BoQ rows only; the Calculator's Shape starts blank (owner 2026-11-20 17:53 'a')"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "integrator_included",
+    "boq_rows_only"
+   ],
+   "from": null,
+   "to": true,
+   "why": "S1: every Calculator field starts blank; a blank withholds the price (owner 2026-11-20 17:53 'a'; 2026-11-25 00:37)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "defaults",
+    "vav_type",
+    "boq_rows_only"
+   ],
+   "from": null,
+   "to": true,
+   "why": "S1: every Calculator field starts blank; a blank withholds the price (owner 2026-11-20 17:53 'a'; 2026-11-25 00:37)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "blank_unit_bar",
+    "line"
+   ],
+   "from": "WARNING: The BoQ gives no unit for this row. Priced per number (Nos). Check the unit before using this rate.",
+   "to": "The BoQ gives no unit for this row. It is priced per number (Nos). Check the unit before using this rate.",
+   "why": "S3: one warning - the bar's title and ONE sentence (the owner's 2026-11-24 20:00 ruling stands: orange and strong)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    50,
+    "why"
+   ],
+   "from": "owner 2026-11-24 19:53 \"A2 fix\": ROUND / OVAL / CIRCULAR naming the box in the row or heading = the round box, priced on the Oval line - the shape word wins (BOQ-26-00016 r117-120); 'DIA' / diameter give an inlet or sensor size, not the shape (chat-Claude's correction 21:52, ANSWER 21)",
+   "to": "owner 2026-11-24 19:53 \"A2 fix\": ROUND / OVAL / CIRCULAR naming the box in the row or heading = the round box, priced on the Oval line - the shape word wins (BOQ-26-00016 r117-120); 'DIA' / diameter give an inlet or sensor size, not the shape",
+   "why": "S4: no internal label on the rules page (owner 2026-11-22 10:49 / 13:03 'a'); the owner's words and dates kept"
+  }
+ ],
+ "pricing_inputs": {}
+}

@@ -105,8 +105,10 @@ function StripByType({ view, tab, rows, value, note }: {
 /** The non-project shades: biggest type darkest; the rest ("N more") lightest. */
 const TOP_TYPE_SHADES = ["bg-slate-700 dark:bg-slate-200", "bg-slate-500 dark:bg-slate-400", "bg-slate-400/70 dark:bg-slate-500", "bg-slate-200 dark:bg-slate-700"];
 
-/** Top expense types (non-project): the 3 biggest by amount, the rest as "N more". */
-function StripTopTypes({ rows, value, what }: { rows: AuditTableRow[]; value: (r: AuditTableRow) => number | null | undefined; what: string }) {
+/** Top expense types (non-project), under the tab's own name: the 3 biggest by amount, the rest as "N more". */
+function StripTopTypes({ tab, rows, value, what }: {
+  tab: AuditTab; rows: AuditTableRow[]; value: (r: AuditTableRow) => number | null | undefined; what: string;
+}) {
   const items = auditBreakdown(rows, (r) => (r as AuditInvoiceRow).expense_type, value);
   const top = items.slice(0, 3).map((it) => ({ label: it.key, value: Math.max(it.value, 0) }));
   const rest = items.slice(3).reduce((s, it) => s + Math.max(it.value, 0), 0);
@@ -116,7 +118,7 @@ function StripTopTypes({ rows, value, what }: { rows: AuditTableRow[]; value: (r
   return (
     <StripSeg grow={1}>
       <StripLabel note={`The 3 biggest expense types by ${what}; the rest are grouped as "N more".`}>
-        Top expense types
+        {AUDIT_TAB_META[tab].title}
       </StripLabel>
       <StripFigure
         className="text-base"
@@ -172,7 +174,7 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
         {project ? (
           <StripByType view={view} tab={tab} rows={rows} value={value} note="Invoice amount, split by type." />
         ) : (
-          <StripTopTypes rows={rows} value={value} what="invoice amount" />
+          <StripTopTypes tab={tab} rows={rows} value={value} what="invoice amount" />
         )}
         <StripSeg grow={1.3}>
           <StripLabel
@@ -215,7 +217,7 @@ export function SummaryStrip({ view, tab, rows }: { view: AuditView; tab: AuditT
           <StripByType view={view} tab={tab} rows={rows} value={value}
             note="Net paid, split by type (WO includes its separate GST payments)." />
         ) : (
-          <StripTopTypes rows={rows} value={value} what="net paid" />
+          <StripTopTypes tab={tab} rows={rows} value={value} what="net paid" />
         )}
         <StripSeg grow={1.8}>
           {/* Each term is its label over its figure; on a narrow strip the terms wrap to the next line. */}

@@ -5,7 +5,12 @@
 # Registry: ~/.config/devbox/boxes.conf, git config syntax, written with `git config -f`.
 #   box.<name>.ssh       required  SSH target, <user>@<host>
 #   box.<name>.checkout  required  the repo's main checkout on the box, relative to the box user's home
-#   box.<name>.orca      optional  env:<paired Orca server name>. A box without it takes tasks only with --no-agent
+#   box.<name>.orca      optional  env:<paired Orca server name>. Without it, a box takes tasks only with --no-agent,
+#                                  unless box.<name>.launch is box
+#   box.<name>.launch    optional  laptop (unset) or box. laptop: this laptop's Orca CLI starts Claude on the box's Orca
+#                                  server (box.<name>.orca). box: the box starts it itself, as the Claude account its
+#                                  owner gave your SSH key in its ~/.config/devbox/people.conf (box_launch.py, piped
+#                                  over SSH): the laptop needs only SSH, no Orca
 #   box.<name>.agents    optional  how many agents the box takes at once (task.sh start counts it with devbox.order;
 #                                  1 when unset)
 #   devbox.order         optional  boxes in order of preference, space-separated: task.sh start without --box takes
@@ -26,6 +31,9 @@
 #   git config -f $R box.air.ssh           <user>@<host>
 #   git config -f $R box.air.checkout      <checkout path under the box user's home>
 #   chmod 600 $R
+# A box shared between developers (r7) starts each one's Claude itself, as their own Claude account and git identity.
+# Each developer's laptop needs only SSH to it: scripts/devenv/join.sh writes their entry, and the box's owner adds
+# them with scripts/devenv/people.sh (its header has the onboarding steps, both sides, and offboarding).
 # Every task started before task.sh recorded boxes ran on contabo. Record them once, from any checkout of the repo
 # (a task that already has a record is left alone):
 #   for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/box/*'); do n="${b#box/}"
@@ -38,7 +46,8 @@
 DEVBOX_REGISTRY="${DEVBOX_REGISTRY:-$HOME/.config/devbox/boxes.conf}"   # set it only in tests
 BOX_TIMEOUT=8
 BOX_SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=$BOX_TIMEOUT -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-BOX_NAME="" BOX_SSH="" BOX_CO="" BOX_ORCA="" BOX_AGENTS=""
+BOX_NAME="" BOX_SSH="" BOX_CO="" BOX_ORCA="" BOX_AGENTS="" BOX_LAUNCH=""
+BOXES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ORCA="$(command -v orca || echo "$HOME/Applications/Orca.app/Contents/Resources/bin/orca")"
 
 box_registry() {
@@ -54,11 +63,12 @@ box_names() {
 box_load() {
   local name="$1" re='^[a-z][a-z0-9-]{0,30}$' k v
   box_registry
-  BOX_NAME="$name" BOX_SSH="" BOX_CO="" BOX_ORCA="" BOX_AGENTS=""
+  BOX_NAME="$name" BOX_SSH="" BOX_CO="" BOX_ORCA="" BOX_AGENTS="" BOX_LAUNCH=""
   if [[ "$name" =~ $re ]]; then
     while read -r k v; do
       case "${k#box.$name.}" in
         ssh) BOX_SSH="$v" ;; checkout) BOX_CO="$v" ;; orca) BOX_ORCA="$v" ;; agents) BOX_AGENTS="$v" ;;
+        launch) BOX_LAUNCH="$v" ;;
       esac
     done < <(git config -f "$DEVBOX_REGISTRY" --get-regexp "^box\.$name\." || true)
   fi
@@ -67,6 +77,7 @@ box_load() {
   case "$BOX_CO" in /*|"~"*) die "box.$name.checkout is relative to the box user's home (got $BOX_CO)" ;; esac
   case "$BOX_ORCA" in ""|env:?*) ;; *) die "box.$name.orca: env:<paired Orca server name> (got $BOX_ORCA)" ;; esac
   case "$BOX_AGENTS" in *[!0-9]*) die "box.$name.agents: a number (got $BOX_AGENTS)" ;; esac
+  case "$BOX_LAUNCH" in ""|laptop|box) ;; *) die "box.$name.launch: laptop or box (got $BOX_LAUNCH)" ;; esac
 }
 
 # box_default: print the box for a task started without --box: devbox.default, else the only box.
@@ -109,40 +120,71 @@ box_unreachable() {
   exit 3
 }
 
-# The one reader of BOX_ORCA: the orca CLI flags that reach the box's Orca server, into AGENT_ROUTE.
-# Returns 1 when the box has no Orca server.
+# The one reader of BOX_ORCA and BOX_LAUNCH: how the laptop reaches the box's agents, into AGENT_VIA. orca: this
+# laptop's Orca CLI with the flags in AGENT_ROUTE. box: box_launch.py on the box (box_agent). Returns 1 when neither.
 agent_route() {
-  case "$BOX_ORCA" in
-    env:*) AGENT_ROUTE=(--environment "${BOX_ORCA#env:}") ;;
+  case "$BOX_LAUNCH:$BOX_ORCA" in
+    box:*) AGENT_VIA=box ;;
+    *:env:*) AGENT_VIA=orca AGENT_ROUTE=(--environment "${BOX_ORCA#env:}") ;;
     *) return 1 ;;
   esac
 }
 
-# start calls it before any change, so a box with no agent route leaves no trace.
-agent_ready() {
-  agent_route || die "box $BOX_NAME has no Orca server (box.$BOX_NAME.orca in $DEVBOX_REGISTRY); use --no-agent"
-  [ -x "$ORCA" ] || die "no orca CLI at $ORCA (install Orca, or use --no-agent and start Claude in the env yourself)"
+# box_agent <command> <args>: box_launch.py run on the box, piped over SSH like handoff.sh, so the box's own copy does
+# not matter. Its messages go straight to stderr; its stdout lands in BOX_AGENT_OUT. Returns its exit status (1: it
+# refused, and said why).
+box_agent() {
+  local rc=0
+  BOX_AGENT_OUT="$(box_ssh python3 - "$@" < "$BOXES_DIR/box_launch.py")" || rc=$?
+  [ "$rc" != 3 ] || exit 3
+  return "$rc"
 }
 
-# agent_launch <worktree on the box> <prompt>
+# agent_ready <task>: start calls it before any change, so a box with no agent route, or one that refuses the person or
+# the task name, leaves no trace. A box launch also sets AGENT_HOME: the Claude config dir the agent will use there.
+agent_ready() {
+  agent_route || die "box $BOX_NAME has no Orca server (box.$BOX_NAME.orca in $DEVBOX_REGISTRY); use --no-agent"
+  case "$AGENT_VIA" in
+    box) box_agent check "$1" || die "box $BOX_NAME will not start Claude for '$1' (above); nothing was changed"
+      AGENT_HOME="${BOX_AGENT_OUT#@config }" ;;
+    *) [ -x "$ORCA" ] || die "no orca CLI at $ORCA (install Orca, or use --no-agent and start Claude in the env yourself)" ;;
+  esac
+}
+
+# agent_launch <task> <worktree on the box> <prompt>
 agent_launch() {
   agent_route
+  if [ "$AGENT_VIA" = box ]; then
+    # The box proves the account itself and STOPs on any doubt. The prompt travels as base64: one plain SSH word.
+    box_agent launch "$1" "$2" "$(printf '%s' "$3" | base64 | tr -d '\n')" || die "box $BOX_NAME did not start Claude \
+for '$1' (above). Fix that, then rerun task.sh start $1: it reuses the branch, record, brief and env"
+    AGENT_HOME="${BOX_AGENT_OUT#@config }"
+    return 0
+  fi
   # A long prompt takes a while to type in, and Orca may answer "could not confirm the launch outcome" although
   # the agent started. So the proof is a live terminal in the env (agent_alive), not the launch reply.
   "$ORCA" agent launch "${AGENT_ROUTE[@]}" --agent claude --surface terminal --focus \
-    --worktree "path:$1" --prompt "$2" --json >/dev/null 2>&1 || true
+    --worktree "path:$2" --prompt "$3" --json >/dev/null 2>&1 || true
 }
 
-# agent_alive <worktree on the box>: a terminal is open there.
+# agent_alive <worktree on the box>: a terminal is open there (a box launch: a claude process runs there).
 agent_alive() {
-  agent_route && "$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -q "^term_"
+  agent_route || return 1
+  if [ "$AGENT_VIA" = box ]; then box_agent alive "$1"; return; fi
+  "$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -q "^term_"
 }
 
 # agent_tail <worktree on the box>: the last 15 rows of its terminal's screen (the rendered screen, not the
 # stream: a TUI repaints lines, and the stream shows each repaint as a fragment). Nothing on a box with no Orca server.
 agent_tail() {
   local t
-  agent_route && [ -x "$ORCA" ] || return 0
+  agent_route || return 0
+  if [ "$AGENT_VIA" = box ]; then
+    box_agent tail "$1" || true
+    [ -z "$BOX_AGENT_OUT" ] || printf '%s\n' "$BOX_AGENT_OUT" | sed 's/^/      | /'
+    return 0
+  fi
+  [ -x "$ORCA" ] || return 0
   t="$("$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -oE '^term_[a-z0-9-]+' | head -1)"
   [ -n "$t" ] || return 0
   "$ORCA" terminal read "${AGENT_ROUTE[@]}" --terminal "$t" --screen --limit 15 2>/dev/null | tail -n 15 | sed 's/^/      | /'
@@ -151,7 +193,9 @@ agent_tail() {
 # agent_stop <worktree on the box>: close its terminals. A box with no Orca server has none.
 agent_stop() {
   local t
-  agent_route && [ -x "$ORCA" ] || return 0
+  agent_route || return 0
+  if [ "$AGENT_VIA" = box ]; then box_agent stop "$1" 2>&1 || true; return 0; fi
+  [ -x "$ORCA" ] || return 0
   for t in $("$ORCA" terminal list "${AGENT_ROUTE[@]}" --worktree "path:$1" 2>/dev/null | grep -oE '^term_[a-z0-9-]+'); do
     "$ORCA" terminal close "${AGENT_ROUTE[@]}" --terminal "$t" >/dev/null 2>&1 && echo "closed Orca terminal $t"
   done
