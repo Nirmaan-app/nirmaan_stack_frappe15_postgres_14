@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Table,
   TableBody,
@@ -42,6 +42,11 @@ interface DeliveryChallanTableProps {
   deletingName?: string | null;
   /** Resolves `owner` to a display name. The "Uploaded By" column renders only when passed. */
   getUserName?: (userId: string | undefined) => string;
+  /**
+   * `name` of a document to open, highlight and scroll to when the table mounts — the PO
+   * page's Item-wise view sets it when a DC/MIR number is clicked. Optional; off elsewhere.
+   */
+  focusName?: string | null;
 }
 
 export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
@@ -51,8 +56,15 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
   canDelete,
   deletingName,
   getUserName,
+  focusName,
 }) => {
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  // The table mounts fresh each time the PO page switches to DC-wise, so the focused
+  // document's row starts open; no effect needed to sync it.
+  const [expandedRow, setExpandedRow] = useState<string | null>(focusName ?? null);
+  const focusRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    focusRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusName]);
   const columnCount = getUserName ? 7 : 6;
 
   return (
@@ -74,7 +86,10 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
         {documents.length > 0 ? (
           documents.map((doc, index) => (
             <React.Fragment key={doc.name}>
-              <TableRow>
+              <TableRow
+                ref={doc.name === focusName ? focusRowRef : undefined}
+                className={cn(doc.name === focusName && "bg-blue-50 hover:bg-blue-50")}
+              >
                 <TableCell className="text-center">{index + 1}</TableCell>
                 <TableCell className="font-medium">
                   {doc.type}
