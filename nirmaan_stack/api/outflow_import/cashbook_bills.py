@@ -21,6 +21,11 @@ lock held), merges 2 or more into one PDF and saves one private File, which comm
 (the Expense), re-checks it still waits, and only then attaches the File; when it no longer waits,
 a person decided meanwhile, their choice stands and the copied File is deleted.
 
+⚠️ STEP 3 FOLLOWS THE WALLET TXN ID, NOT THE NAME READ BEFORE THE DOWNLOAD (spec #1753 story 18). A Move (`rectify`)
+deletes the Expense a late bill was promised at confirm, or a created line's bill was read for, and puts the Txn Id on
+a replacement Expense or an Internal Transfer record. Step 3 locks the record the Txn Id is on now
+(`_lock_bills_home`): the bill reaches the moved Expense, or becomes the record's proof, and is never lost by a Move.
+
 ⚠️ A BILL THAT CANNOT BE COPIED NEVER FAILS ITS LINE. The reason is written on the line's `bill_problem` (a late
 bill's, which has no line, on the batch's `cashbook_bill_work`), which the import summary
 (`cashbook.get_cashbook_status` -> `bills_not_copied`) lists.
@@ -43,9 +48,12 @@ from psycopg2.errors import LockNotAvailable, TransactionRollbackError
 import frappe
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import BATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE
 from nirmaan_stack.services.expense_bills.receive import receive_bill
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.bill_links import expired_link_reason
+from nirmaan_stack.services.outflow_import.import_created_expense import IMPORT_CREATED_EXPENSE_PREDICATE
+from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 from nirmaan_stack.services.reimbursements.receipts import merge_to_pdf
 from nirmaan_stack.services.stored_files import delete_files
 from nirmaan_stack.services.stored_files import store_file
@@ -53,6 +61,10 @@ from nirmaan_stack.services.stored_files import store_file
 BILLS_NOT_STORED = "the bills could not be stored"
 BILLS_NOT_MERGED = "the bills could not be merged into one PDF"
 PROBLEM_NOT_RECORDED = "Cashbook import: could not record a bill not copied"
+
+#: How many records step 3 follows a wallet Txn Id through (each Move of it since the name was read is one) before it
+#: gives up on the last one named.
+_FOLLOW_LIMIT = 3
 
 
 def fetch_bill(url: str) -> BillFile | BillRefused:
@@ -122,7 +134,9 @@ def copy_created_line_bills(row_name: str, actor: str) -> None:
         row_name,
         line.transfer_id,
         links,
-        attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved, actor, len(links)),
+        attach=lambda saved: _attach_invoice(
+            line.suggested_doctype, line.suggested_name, saved, actor, len(links), transfer_id=line.transfer_id
+        ),
         failure=("Cashbook import: could not copy a bill", f"{row_name} / {line.suggested_name}"),
     )
     if not dealt_with:
@@ -231,7 +245,9 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
     saved, problem = download_and_save_bills(transfer_id, links)
     if saved is None:
         return problem
-    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved, actor, len(links)))
+    store_or_discard(
+        saved, lambda: _attach_invoice(doctype, expense, saved, actor, len(links), transfer_id=transfer_id)
+    )
     return None
 
 
@@ -333,20 +349,89 @@ def store_or_discard(saved, attach) -> None:
         frappe.db.commit()
 
 
-def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: int) -> bool:
-    """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
+def _attach_invoice(
+    doctype: str, expense: str, saved, actor: str, bill_count: int, *, transfer_id: str
+) -> bool:
+    """Step 3: lock the Expense (or, when a Move replaced it, the record wallet Txn Id `transfer_id` is on now:
+    `_lock_bills_home`), re-check it still waits for an invoice, and only then file `saved` as its bill
     through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
     who confirmed the import, approved on arrival by the system (#1755: the Cashbook approval tab holds only bills a
     person uploaded; the Bill check still records its verdict), its reading queued once this commits; `saved` merged
     from `bill_count` > 1 links is recorded Not checked and never read. Returns whether it attached (and then
     commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already
-    typed on the Expense is kept."""
+    typed on the Expense is kept. A Txn Id moved to Internal Transfer gets `saved` as its record's proof instead
+    (`_attach_proof`)."""
+    doctype, expense = _lock_bills_home(doctype, expense, transfer_id)
+    if doctype == INTERNAL_TRANSFER_DOCTYPE:
+        return _attach_proof(expense, saved)
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False
     # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
     _attach_file(saved, doctype, expense, "invoice_attachment")
     receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor, bill_count, system_approve=True)
+    frappe.db.commit()
+    return True
+
+
+def _lock_bills_home(doctype: str, name: str, transfer_id: str) -> tuple[str, str]:
+    """Lock and return the record the bills of wallet Txn Id `transfer_id` belong on: `(doctype, name)`, the Expense
+    named before the download, while it exists; once a Move (`rectify`, spec #1753) has deleted it, the record the
+    Move put the Txn Id on (`_txn_now_on`), followed up to `_FOLLOW_LIMIT` times. When nothing holds the Txn Id
+    (an Unreconcile deleted it), the last name is returned unlocked, and the caller's read of it fails as before.
+
+    ⚠️ A MOVE THAT DELETES IT WHILE THIS WAITS FOR ITS LOCK makes Postgres refuse the locked read (REPEATABLE READ:
+    the row changed after this transaction's snapshot). This transaction has written nothing yet (the File was
+    committed in step 2), so it is rolled back and the Txn Id followed from a fresh snapshot.
+    """
+    for _ in range(_FOLLOW_LIMIT):
+        try:
+            if frappe.db.get_value(doctype, name, "name", for_update=True):
+                return doctype, name
+        except Exception as exc:
+            if not is_retried_by_resume(exc):
+                raise
+            frappe.db.rollback()
+        moved = _txn_now_on(transfer_id)
+        if not moved:
+            break
+        doctype, name = moved
+    return doctype, name
+
+
+def _txn_now_on(transfer_id: str) -> tuple[str, str] | None:
+    """`(doctype, name)` of the record wallet Txn Id `transfer_id` is on now, or `None`: the Expense a live Settled
+    Cashbook match holds it to (the one-Expense-per-Txn-Id index's own rows, so at most one), else the Internal
+    Transfer record of a Cashbook line of that Txn Id (a Move to Internal Transfer, #1762)."""
+    held = frappe.db.sql(
+        f"""SELECT target_doctype, target_name FROM "tabOutflow Row Match"
+            WHERE transfer_id = %(txn)s AND source = %(source)s AND {IMPORT_CREATED_EXPENSE_PREDICATE}""",
+        {"txn": transfer_id, "source": CASHBOOK_SOURCE},
+    )
+    if held:
+        return held[0][0], held[0][1]
+    record = frappe.db.sql(
+        """SELECT it.name FROM "tabInternal Transfer" it
+           JOIN "tabOutflow Import Row" line ON line.name = it.import_row
+           WHERE line.transfer_id = %(txn)s AND line.source = %(source)s
+           ORDER BY it.creation DESC LIMIT 1""",
+        {"txn": transfer_id, "source": CASHBOOK_SOURCE},
+    )
+    return (INTERNAL_TRANSFER_DOCTYPE, record[0][0]) if record else None
+
+
+def _attach_proof(record: str, saved) -> bool:
+    """Step 3 for a Txn Id a Move took to Internal Transfer (#1762, spec #1753 story 27): `saved` becomes the locked
+    record's `proof` while it has none, as the Move makes the bill it carried the proof. Returns whether it did (and
+    then commits); a record that already has its proof keeps it, and the caller discards the File.
+
+    ⚠️ RAW (`set_value`): the record refuses every save after insert (`NEVER_EDITED`), and a save would make Frappe's
+    attach hook mint a second File row. Nothing is derived from the field, as `rectify_transfer` writes it.
+    """
+    if frappe.db.get_value(INTERNAL_TRANSFER_DOCTYPE, record, "proof"):
+        return False
+    _attach_file(saved, INTERNAL_TRANSFER_DOCTYPE, record, "proof")
+    frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "proof", saved.file_url, update_modified=False)
     frappe.db.commit()
     return True
 
