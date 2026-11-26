@@ -789,6 +789,9 @@ export interface RateCategoryConfig {
   matching_mode?: string;
   identity_attribute_id?: string | null;
   notes?: string;
+  /** VAV-2c1 (R6 b, owner 2026-11-22 12:47 "a"; HVAC only, 13:05): a Pricing Inputs category whose page shows each share's and multiple's
+   *  plain reading, worked out from the LIVE value (0.25 -> "25%"). ABSENT (Electrical) => no reading. */
+  live_reading?: boolean;
   /** EA-4 ext-a: owner-authored estimator rules. Injected VERBATIM into the extraction prompt for
    * EVERY category (never composite-gated) and rendered read-only on the Derivation tab. The index
    * signature below already round-tripped this key; the explicit field is for type safety only. */

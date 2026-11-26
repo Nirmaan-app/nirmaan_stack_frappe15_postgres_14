@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import { pricingInputReading } from "@/pages/boq-wizard/rate-helper/helperWording";
 import { parseFiniteInput } from "./rateMasterEdit";
 import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
@@ -353,6 +354,9 @@ export function RateMasterDataViewer({
   // SLICE 12b(A): is this the discipline's Pricing Inputs category? Suffix-keyed on the item kind, so
   // no discipline is named here and 12c's HVAC inputs flow through with no change.
   const piMode = useMemo(() => isPricingInputConfig(config), [config]);
+  const unitOf = (it: RateMasterItem) => it.unit;
+  // VAV-2c1 (R6 b): the plain reading beside a Pricing Input's value, from the live value -- HVAC's category only (`live_reading`)
+  const liveReading = piMode && config?.live_reading === true;
   // SLICE 12b(B): the ITEMS column exists only on a Pricing Inputs grid, and only once the page has
   // supplied both the reach map and the click handler -- so a caller that has not opted in sees the
   // grid exactly as before.
@@ -1420,6 +1424,7 @@ export function RateMasterDataViewer({
                   // figure from `computed_rates`; `r.it.rates` is the stored catalogue and is never the
                   // display source for it (nor is the display figure ever a price input).
                   const shown = displayedRateValue(r.it, k, computed, computedRates);
+                  const reading = liveReading ? pricingInputReading(unitOf(r.it), shown) : null;
                   cells[rateColKey(k)] = (
                   <TableCell
                     key={rateColKey(k)}
@@ -1447,6 +1452,7 @@ export function RateMasterDataViewer({
                             value is untouched -- `pricingInputCell` mirrors the server's `as_percent`,
                             so the screen and the rate file can never disagree about which number it is. */}
                         {piMode ? pricingInputCell(k, shown) : shown}
+                        {reading !== null && <div className="text-[11px] font-normal text-muted-foreground" data-testid="pi-live-reading">{reading}</div>}
                         {derived && (
                           <span className="ml-1 text-[10px] italic">{DERIVED_COPY.cellTag}</span>
                         )}

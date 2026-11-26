@@ -1,0 +1,1099 @@
+{
+ "about": "VAV-2c2 (2026-11-24, desktop): HVAC v83 = v82 + ONLY these edits. PART 1 = R3, the wording clean-ups (Cleanups.tsv, accepted by chat-Claude with E1 / E2 and its 00:59 corrections). PART 2 = R1 / R2, the scope rule for VAV Box, its notes, and the point-4 question (the owner's answers to QR-SURE / QR-WORDS / QR-ASK, 2026-11-24 00:18 - 00:55). Read by the vav2c2 tests (scratch copies of the v82 FILE) and by the mint script.",
+ "configs": [
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    0,
+    "why"
+   ],
+   "from": "VAV items are priced per Nos, the VAV Box sheet's unit; a row with no unit is refused, never assumed (HVAC helper feature standard #29, an acceptance item of every category build: owner 2026-11-15 13:39 / 13:41)",
+   "to": "VAV items are priced per Nos, the VAV Box sheet's unit; a row with no unit is refused, never assumed (an acceptance item of every category build: owner 2026-11-15 13:39 / 13:41)",
+   "why": "R3 c: a feature-standard number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    7,
+    "why"
+   ],
+   "from": "a borrowed item's quantity is the count the row names: a thermostat -> one, \"two if two\" (owner 2026-11-18 22:35); a piece \"on either side\" -> 2 (22:38 \"option A\"); every extra its own item the user can change (23:15 / 23:18)",
+   "to": "a borrowed item's quantity is the count the row names: a thermostat -> one, \"two if two\" (owner 2026-11-18 22:35); a piece \"on either side\" -> 2 (22:38); every extra its own item the user can change (23:15 / 23:18)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    8,
+    "why"
+   ],
+   "from": "borrowed, never copied: Digital Thermostat (owner, 2026-11-18 22:35), Temperature Gauge / Thermometer as 'Room temperature sensor' (22:35; 2026-11-19 00:57), Transformation Pieces (22:38 \"option A\") are priced by Misc's own rules; \"ducting should read these directly ... and not keep a second copy\" (owner 2026-11-13 00:19)",
+   "to": "borrowed, never copied: Digital Thermostat (owner, 2026-11-18 22:35), Temperature Gauge / Thermometer as 'Room temperature sensor' (22:35; 2026-11-19 00:57), Transformation Pieces (22:38) are priced by Misc's own rules; \"ducting should read these directly ... and not keep a second copy\" (owner 2026-11-13 00:19)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    10,
+    "why"
+   ],
+   "from": "the row total is every item; one item that needs a person makes the row need a person (HVAC helper feature standard #26; owner 2026-11-15 13:39)",
+   "to": "the row total is every item; one item that needs a person makes the row need a person (owner 2026-11-15 13:39)",
+   "why": "R3 c: a feature-standard number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    11,
+    "why"
+   ],
+   "from": "VAV items are stocked per Nos only; any other unit is priced by hand (HVAC helper feature standard #29; owner 2026-11-15 13:39)",
+   "to": "VAV items are stocked per Nos only; any other unit is priced by hand (owner 2026-11-15 13:39)",
+   "why": "R3 c: a feature-standard number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    13,
+    "why"
+   ],
+   "from": "a Lot or a job is not a VAV unit and is priced by hand (HVAC helper feature standard #30; owner 2026-11-15 13:39)",
+   "to": "a Lot or a job is not a VAV unit and is priced by hand (owner 2026-11-15 13:39)",
+   "why": "R3 c: a feature-standard number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    14,
+    "why"
+   ],
+   "from": "installation only -> the installation rate only (owner \"2d agree\", 2026-11-18 22:16); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift",
+   "to": "installation only -> the installation rate only (owner agreed, 2026-11-18 22:16); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    15,
+    "why"
+   ],
+   "from": "\"all combination rows should have a warning that the user should review it more carefully\" (owner 2026-11-19 12:49); \"option b is ok\" (12:55): warn above a set share of the box rate; \"ok proceed with 50%\" (12:59), a Pricing Input the user can change; the share lowered to 25% (owner 2026-11-21 10:25 \"2 lower it to 25%\")",
+   "to": "\"all combination rows should have a warning that the user should review it more carefully\" (owner 2026-11-19 12:49); agreed (12:55): warn above a set share of the box rate; \"ok proceed with 50%\" (12:59), a Pricing Input the user can change; the share lowered to 25% (owner 2026-11-21 10:25 \"... lower it to 25%\")",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    16,
+    "why"
+   ],
+   "from": "\"dsimatling and refixing 1.5 times\" on the installation rate (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, screen 4, owner 2026-11-19 00:12)",
+   "to": "\"dsimatling and refixing 1.5 times\" on the installation rate (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)",
+   "why": "R3 c: a mockup screen number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    17,
+    "why"
+   ],
+   "from": "\"onl;y dismatling same asinstalltion\" (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, screen 4, owner 2026-11-19 00:12)",
+   "to": "\"onl;y dismatling same asinstalltion\" (owner 2026-11-18 23:49); no extras on such a row (the approved mockup, owner 2026-11-19 00:12)",
+   "why": "R3 c: a mockup screen number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    18,
+    "why"
+   ],
+   "from": "\"only refixing 0.5 times if dismantling seprate row else 1.5\" (owner 2026-11-18 23:49); the separate row must name VAV; no extras on such a row (mockup screen 4, owner 2026-11-19 00:12)",
+   "to": "\"only refixing 0.5 times if dismantling seprate row else 1.5\" (owner 2026-11-18 23:49); the separate row must name VAV; no extras on such a row (the approved mockup, owner 2026-11-19 00:12)",
+   "why": "R3 c: a mockup screen number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    19,
+    "why"
+   ],
+   "from": "\"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence..else prices added and declared\" (owner 2026-11-18 23:32); the same sheet, Ducting's way at 90% (owner 2026-11-19 00:57); quantities blank or 0 -> the separate row decides (01:23 \"agree on all 3\"); a row whose own description names the extra before any VAV box counts as that extra's own row, for the BACnet over IP controller (owner 2026-11-19 18:56 \"4 fix in next slice\"; 2026-11-20 00:34 \"option a is corecet\")",
+   "to": "\"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence..else prices added and declared\" (owner 2026-11-18 23:32); the same sheet, Ducting's way at 90% (owner 2026-11-19 00:57); quantities blank or 0 -> the separate row decides (01:23, agreed); a row whose own description names the extra before any VAV box counts as that extra's own row, for the BACnet over IP controller (owner 2026-11-19 18:56; 2026-11-20 00:34)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    22,
+    "why"
+   ],
+   "from": "shape not stated -> Rectangular, with a note (owner ruling 2b \"agree\", 2026-11-18 22:16)",
+   "to": "shape not stated -> Rectangular, with a note (owner agreed, 2026-11-18 22:16)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    23,
+    "why"
+   ],
+   "from": "a range that crosses bands -> the band of the maximum airflow (owner \"agree\", 2026-11-18 22:16); no unit = CFM, above 8,000 CFM -> not priced, \"above the largest box on the sheet\" (owner 23:53 \"agree on all these except 9\"); a value exactly on an edge belongs to the lower band - 450 CFM is 0-450, 8,000 CFM is 4000-8000 and priced (owner, 2026-11-20 00:10 \"2a\")",
+   "to": "a range that crosses bands -> the band of the maximum airflow (owner \"agree\", 2026-11-18 22:16); no unit = CFM, above 8,000 CFM -> not priced, \"above the largest box on the sheet\" (owner 23:53, agreed); a value exactly on an edge belongs to the lower band - 450 CFM is 0-450, 8,000 CFM is 4000-8000 and priced (owner, 2026-11-20 00:10)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    31,
+    "why"
+   ],
+   "from": "\"DDC controllor price is worked as a sum of (Bacnet cost + DP Sensor cost + 25000) supply BCS and 5000 install BCS. standard markups apply. 1 panel is sufficient for upto 200 VAVs ... if we are including the price of DDC, then we dont add bacnet or DP sensor price separately\" (owner 2026-11-20 14:30); \"Bacnet cost will be rate*qty required\" (14:31); 0.6 on the installation (14:39); supply only of the controllers and sensors (15:23); a DDC mention without 'inclusive' still adds it, with its note (14:42 \"5\", 14:45); no minimum number of VAVs (15:02 \"option a\")",
+   "to": "\"DDC controllor price is worked as a sum of (Bacnet cost + DP Sensor cost + 25000) supply BCS and 5000 install BCS. standard markups apply. 1 panel is sufficient for upto 200 VAVs ... if we are including the price of DDC, then we dont add bacnet or DP sensor price separately\" (owner 2026-11-20 14:30); \"Bacnet cost will be rate*qty required\" (14:31); 0.6 on the installation (14:39); supply only of the controllers and sensors (15:23); a DDC mention without 'inclusive' still adds it, with its note (14:42, 14:45); no minimum number of VAVs (15:02)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    32,
+    "why"
+   ],
+   "from": "a separate row for the item -> nothing added, a note names the row; presence decides, no quantity test (owner 2026-11-20 00:37 \"VAV controlers have one to many mapping\"; 15:20); an integrator / router row counts only for the integrator, never as the controller's own row (19:46 \"integrator row does not count for controller it counts only for integrator\"; 19:50 \"a\" on 'Network controller or Router' rows) -- unless its own words make it a controller FOR THE VAVs, even if also called a router (20:20 \"yes these rows are bacnet controlloer option b\": 'Router / Supervisory Controller ... to monitor and Control the VAVs'); a row whose own description says it controls the VAVs is the controller's row even with no BACnet word (20:54 \"option a\": BOQ-26-00098 r70 'VAV Master Controller ... monitor and control all VAV status'); a separate row with quantity 0 on a sheet whose VAV rows carry a quantity does not count as charged separately - the share is added with a note (21:05 \"a, yes\"; 20:56 \"but the quantity for the master controller is zero, then we should price it with the Vav rows\")",
+   "to": "a separate row for the item -> nothing added, a note names the row; presence decides, no quantity test (owner 2026-11-20 00:37 \"VAV controlers have one to many mapping\"; 15:20); an integrator / router row counts only for the integrator, never as the controller's own row (19:46 \"integrator row does not count for controller it counts only for integrator\"; 19:50, on 'Network controller or Router' rows) -- unless its own words make it a controller FOR THE VAVs, even if also called a router (20:20 \"yes these rows are bacnet controlloer ...\": 'Router / Supervisory Controller ... to monitor and Control the VAVs'); a row whose own description says it controls the VAVs is the controller's row even with no BACnet word (20:54: BOQ-26-00098 r70 'VAV Master Controller ... monitor and control all VAV status'); a separate row with quantity 0 on a sheet whose VAV rows carry a quantity does not count as charged separately - the share is added with a note (21:05, agreed; 20:56 \"but the quantity for the master controller is zero, then we should price it with the Vav rows\")",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    33,
+    "why"
+   ],
+   "from": "\"they should all have separate lines in the panel which can be added/deleted or edited by the user\" (owner 2026-11-20 15:02; 15:05 \"option c\"); the number of VAVs pre-filled from the sheet on a BoQ row and empty in the calculator (18:39; 18:41 \"a\"); screen 7 (18:42 \"this is ok\"); the usual revert icons (18:44)",
+   "to": "\"they should all have separate lines in the panel which can be added/deleted or edited by the user\" (owner 2026-11-20 15:02; 15:05); the number of VAVs pre-filled from the sheet on a BoQ row and empty in the calculator (18:39; 18:41); the layout approved (18:42 \"this is ok\"); the usual revert icons (18:44)",
+   "why": "R3 c: a mockup screen number and an option letter go"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    35,
+    "why"
+   ],
+   "from": "\"Above 3200 CFM\" / \"3700 CFM above\" -> the next band up, with a note that the BoQ gives only a lower limit (owner 2026-11-20 14:10 \"1a\")",
+   "to": "\"Above 3200 CFM\" / \"3700 CFM above\" -> the next band up, with a note that the BoQ gives only a lower limit (owner 2026-11-20 14:10)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    37,
+    "why"
+   ],
+   "from": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); screen 7 (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)",
+   "to": "\"the msg needs to be made more prominent so that user does not miss it\" (owner 2026-11-20 18:06); the layout approved (18:42 \"this is ok\"); the 50% stays until the owner re-sets it after this preview (18:06)",
+   "why": "R3 c: a mockup screen number goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    38,
+    "why"
+   ],
+   "from": "\"same shold apply to all extras\" (owner 2026-11-20 21:05) and \"a\" (21:47): an extra's own row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately - the extra is added with a note naming the row (integrator cabling: only when every cabling row is 0 / blank); VAV rows blank / 0 keep the 19 Nov 01:23 rule",
+   "to": "\"same shold apply to all extras\" (owner 2026-11-20 21:05) and agreed (21:47): an extra's own row with quantity 0 or blank, on a sheet whose VAV rows carry a quantity, does not count as charged separately - the extra is added with a note naming the row (integrator cabling: only when every cabling row is 0 / blank); VAV rows blank / 0 keep the 19 Nov 01:23 rule",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    40,
+    "why"
+   ],
+   "from": "owner 2026-11-21 01:15 \"full rate ddc panel should have other components. but the other components qty should come from formula ad it does for ddc share calculation...only panel qty will be 1\"; 01:21 \"we are giving per unit rate which does not worry about the qty of rthe row\"; 01:31 the pre-fill \"sheet's VAVs / the row's quantity, rounded up ... yes\"; 01:32 \"same logic hosuld be used for Bcanet contorller row if given sperately and qty is more than 1\" and 01:36 \"A\"",
+   "to": "owner 2026-11-21 01:15 \"full rate ddc panel should have other components. but the other components qty should come from formula ad it does for ddc share calculation...only panel qty will be 1\"; 01:21 \"we are giving per unit rate which does not worry about the qty of rthe row\"; 01:31 the pre-fill \"sheet's VAVs / the row's quantity, rounded up ... yes\"; 01:32 \"same logic hosuld be used for Bcanet contorller row if given sperately and qty is more than 1\" and 01:36",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    42,
+    "why"
+   ],
+   "from": "owner 2026-11-21 10:52 \"the warning should name the xtras included for more clarity insteda of just giving the count\"; 10:54 \"a\" (name and amount)",
+   "to": "owner 2026-11-21 10:52 \"the warning should name the xtras included for more clarity insteda of just giving the count\"; 10:54 (name and amount)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    43,
+    "why"
+   ],
+   "from": "owner 2026-11-21 10:44 \"when both bacnet  and ddc blocks are on a row...a more prominent warning for possible double counting of Bacnets should be given\"; 10:45 \"1 yes 2 ok\" (the same for a DP sensor; the amber block above the row total); 13:59 \"B: option B\" (the same block for a DDC panel share with a full-rate DDC panel; its small line goes); 14:46 \"go with your recommendations for all cases\" (the same block for a BACnet share with a full-rate BACnet controller and a DP share with a Duct Static Pressure Sensor)",
+   "to": "owner 2026-11-21 10:44 \"when both bacnet  and ddc blocks are on a row...a more prominent warning for possible double counting of Bacnets should be given\"; 10:45, agreed (the same for a DP sensor; the amber block above the row total); 13:59 (the same block for a DDC panel share with a full-rate DDC panel; its small line goes); 14:46 \"go with your recommendations for all cases\" (the same block for a BACnet share with a full-rate BACnet controller and a DP share with a Duct Static Pressure Sensor)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    44,
+    "why"
+   ],
+   "from": "owner 2026-11-21 12:33 \"for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also. any other category if we need we will build as exceptions.\"; 12:34 \"agree on all 3\" (only sheets with VAV rows; only rows naming a VAV item; the row stays filed, with a note); 12:36 \"a\" (the note); 13:40 \"all 7 option a\" (the integrator / installation rows; quantity 0 pre-fills the sheet's VAVs); 13:59 \"A :price touch screen controlor  or master controlor as DDC panel. give appropriate notes\" and 14:46 \"go with your recommendations for all cases\" (such a row counts as the sheet's controller and DDC panel row too)",
+   "to": "owner 2026-11-21 12:33 \"for VAV we borrow items from sensor and misc, so VAV helper should run over those categories also. any other category if we need we will build as exceptions.\"; 12:34 \"agree on all 3\" (only sheets with VAV rows; only rows naming a VAV item; the row stays filed, with a note); 12:36 (the note); 13:40 (the integrator / installation rows; quantity 0 pre-fills the sheet's VAVs); 13:59 \"price touch screen controlor  or master controlor as DDC panel. give appropriate notes\" and 14:46 \"go with your recommendations for all cases\" (such a row counts as the sheet's controller and DDC panel row too)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    45,
+    "why"
+   ],
+   "from": "owner 2026-11-21 10:40 \"can we combine addmisc  and add sensor into one group...the user does not  need to know where it is coming from.\"; 10:41 \"1a 2a\" (\"Add other item\", VAV Box only); 10:40 \"2 a\" (one entry adding the thermostat and the CO2 sensor); 10:50 \"ok for wrning and techincal working lines 2 ok\" (headings without the source sheet)",
+   "to": "owner 2026-11-21 10:40 \"can we combine addmisc  and add sensor into one group...the user does not  need to know where it is coming from.\"; 10:41 (\"Add other item\", VAV Box only); 10:40 (one entry adding the thermostat and the CO2 sensor); 10:50 \"ok for wrning and techincal working lines ...\" (headings without the source sheet)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    47,
+    "why"
+   ],
+   "from": "owner 2026-11-21 13:40 \"all 7 option a\" (BOQ-26-00020 r194 \"Unification adaptor ... on BACnet protocol\" is not a VAV item); 2026-11-20 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\"",
+   "to": "owner 2026-11-21 13:40 (BOQ-26-00020 r194 \"Unification adaptor ... on BACnet protocol\" is not a VAV item); 2026-11-20 15:36 \"bacnet controolors hosuld be added only whenthe reference of the controllor is for controlling the VAVs\"",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    48,
+    "why"
+   ],
+   "from": "owner 2026-11-21 15:56 \"1a 2a 3b\": a separate DDC panel row with a quantity, whatever it is filed under, counts as the sheet's controller row (the standing own-row rule, 2026-11-18 23:32 \"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence\"); 15:31 \"notes should be explnatory ... so that user canunderstand why vabcnet is not being added\"; the sentences as he approved them at 15:56",
+   "to": "owner 2026-11-21 15:56: a separate DDC panel row with a quantity, whatever it is filed under, counts as the sheet's controller row (the standing own-row rule, 2026-11-18 23:32 \"if they are charged seprately in any boq row, price not to be added an appropriate note to be given with row refreence\"); 15:31 \"notes should be explnatory ... so that user canunderstand why vabcnet is not being added\"; the sentences as he approved them at 15:56",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    0,
+    "why"
+   ],
+   "from": "aluminium and stainless steel are not on our sheet (owner, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner \"option C\", 2026-11-16 16:38)",
+   "to": "aluminium and stainless steel are not on our sheet (owner, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner, 2026-11-16 16:38)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    1,
+    "why"
+   ],
+   "from": "shape not stated -> rectangular (owner, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\"); 'rectangular/round' per sq.m -> rectangular (owner, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' on a removal / refixing row -> the higher (oval) basis (owner \"option B\", 15:21); on any other row -> not priced, select the correct duct type (owner 2026-11-17 00:18 \"limit it to removal only\", 00:28 \"... left unpriced with note to select the correct duct type\")",
+   "to": "shape not stated -> rectangular (owner, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 2026-11-16 15:00 \"fix\"); 'rectangular/round' per sq.m -> rectangular (owner, 2026-11-16 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' on a removal / refixing row -> the higher (oval) basis (owner, 2026-11-16 15:21); on any other row -> not priced, select the correct duct type (owner 2026-11-17 00:18 \"limit it to removal only\", 00:28 \"... left unpriced with note to select the correct duct type\")",
+   "why": "R3 c / E2: an option letter goes; a bare time gets its date from the repo record (DU-2 review 2026-11-16)"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    2,
+    "why"
+   ],
+   "from": "two insulations on one row: the duct + the whole-duct insulation priced, the second by hand (owner \"1b\", 2026-11-16 21:19)",
+   "to": "two insulations on one row: the duct + the whole-duct insulation priced, the second by hand (owner, 2026-11-16 21:19)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    3,
+    "why"
+   ],
+   "from": "GI fire-rated duct priced as the Fire Rated duct item, note changed (owner \"ok option A\", 2026-11-16 15:17)",
+   "to": "GI fire-rated duct priced as the Fire Rated duct item, note changed (owner agreed, 2026-11-16 15:17)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    4,
+    "why"
+   ],
+   "from": "the row's own material wins over the heading, with an amber note (owner \"option A\", 2026-11-16 15:18)",
+   "to": "the row's own material wins over the heading, with an amber note (owner, 2026-11-16 15:18)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    5,
+    "why"
+   ],
+   "from": "a double-skin duct is left unpriced with a note (owner \"option A\", 2026-11-16 15:20)",
+   "to": "a double-skin duct is left unpriced with a note (owner, 2026-11-16 15:20)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    6,
+    "why"
+   ],
+   "from": "extra insulation asked only on part of the length is not added (owner \"option A\", 2026-11-16 15:19)",
+   "to": "extra insulation asked only on part of the length is not added (owner, 2026-11-16 15:19)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    7,
+    "why"
+   ],
+   "from": "\"reviewed boq 380, row 25 is painting of ducts. confirmed.\" (owner 15:44); only where the context is the same as BoQ 380 (owner, 18:06)",
+   "to": "\"reviewed boq 380, row 25 is painting of ducts. confirmed.\" (owner 2026-11-16 15:44); only where the context is the same as BoQ 380 (owner, 2026-11-16 18:06)",
+   "why": "R3 d / E2: a time with no date gets its date from the repo record, or the bracket goes"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    10,
+    "why"
+   ],
+   "from": "\"Labour Charges for GI Duct Erections ...\" -> \"installation of duct\" (owner 23:57; 2026-11-16 01:27)",
+   "to": "\"Labour Charges for GI Duct Erections ...\" -> \"installation of duct\" (owner 2026-11-15 23:57; 2026-11-16 01:27)",
+   "why": "R3 d / E2: a time with no date gets its date from the repo record, or the bracket goes"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    55,
+    "why"
+   ],
+   "from": "\"typing 24 should be matched with 24G\" (owner 14:15); \"when someone enters a 18/20/22/ etc kind of number in duct thickness...it must be gauge only\" (owner 14:46, 2026-11-16)",
+   "to": "\"typing 24 should be matched with 24G\" (owner 2026-11-16 14:15); \"when someone enters a 18/20/22/ etc kind of number in duct thickness...it must be gauge only\" (owner 14:46, 2026-11-16)",
+   "why": "R3 d / E2: a time with no date gets its date from the repo record, or the bracket goes"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    8,
+    "why"
+   ],
+   "from": "\"where there s seprate duct insulation rows, if insulation qty is more tan 90% of insulated duct qty, then dont include th insulation price inthe duct row ... when insualtion qty<90% ... include the insulation cost in the duct rows and give a note\" (owner 2026-11-16 16:31, confirmed 16:33 \"yes agree with all 3\"); the threshold a Pricing Input (owner 16:38)",
+   "to": "\"where there s seprate duct insulation rows, if insulation qty is more tan 90% of insulated duct qty, then dont include th insulation price inthe duct row ... when insualtion qty<90% ... include the insulation cost in the duct rows and give a note\" (owner 2026-11-16 16:31, confirmed 16:33); the threshold a Pricing Input (owner 16:38)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    19,
+    "why"
+   ],
+   "from": "an insulation row counts when its words or a heading name duct, or it sits under a plain 'Insulation' heading, unless its words / headings name pipes, AHU / plant / equipment (owner \"option B\", 2026-11-16 16:37); running metres = pipe, building surfaces never count (owner, 18:06)",
+   "to": "an insulation row counts when its words or a heading name duct, or it sits under a plain 'Insulation' heading, unless its words / headings name pipes, AHU / plant / equipment (owner, 2026-11-16 16:37); running metres = pipe, building surfaces never count (owner, 18:06)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    20,
+    "why"
+   ],
+   "from": "\"where there s seprate duct insulation rows, if insulation qty is more tan 90% of insulated duct qty, then dont include th insulation price inthe duct row ... when insualtion qty<90% ... include the insulation cost in the duct rows and give a note\" (owner 2026-11-16 16:31, confirmed 16:33 \"yes agree with all 3\"); the threshold a Pricing Input (owner 16:38)",
+   "to": "\"where there s seprate duct insulation rows, if insulation qty is more tan 90% of insulated duct qty, then dont include th insulation price inthe duct row ... when insualtion qty<90% ... include the insulation cost in the duct rows and give a note\" (owner 2026-11-16 16:31, confirmed 16:33); the threshold a Pricing Input (owner 16:38)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    23,
+    "why"
+   ],
+   "from": "Ducting follows the Valve installation-only rule as built, except removal / refixing; its own uplift input at 0% (owner, 2026-11-15 11:43 \"Option A\"; 13:1x; 15:47)",
+   "to": "Ducting follows the Valve installation-only rule as built, except removal / refixing; its own uplift input at 0% (owner, 2026-11-15 11:43; 13:1x; 15:47)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    48,
+    "why"
+   ],
+   "from": "\"ducting should read these directly for insulation and not keep a second copy\" (owner, 2026-11-13 00:19); 9 mm thermal when silent (20:07); by area on a round duct (option b)",
+   "to": "\"ducting should read these directly for insulation and not keep a second copy\" (owner, 2026-11-13 00:19); 9 mm thermal when silent (20:07); by area on a round duct",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    58,
+    "why"
+   ],
+   "from": "\"ok option A. but always have niotes which clearly mention the details of why installation was not priced in\" (owner, 2026-11-16 15:16)",
+   "to": "\"ok ... but always have niotes which clearly mention the details of why installation was not priced in\" (owner, 2026-11-16 15:16)",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_valve_package",
+   "p": [
+    "list_spec",
+    "pricing",
+    "rule_lines",
+    23,
+    "detail"
+   ],
+   "from": "the Misc Test Plug / Thermowell; no valve item for the valve it names; a valve with its own size is left as read -- why: price as thermowell - owner 2026-11-15 11:46; build ruled 2026-11-20 00:10 '1a'",
+   "to": "the Misc Test Plug / Thermowell; no valve item for the valve it names; a valve with its own size is left as read -- why: price as thermowell - owner 2026-11-15 11:46; build ruled 2026-11-20 00:10",
+   "why": "R3 c: an option letter or number quoted as the owner's words goes; his words and dates stay"
+  },
+  {
+   "c": "hvac_vrf",
+   "p": [
+    "list_spec",
+    "pricing",
+    "extras",
+    "scope",
+    "supply_row",
+    "with_row"
+   ],
+   "from": "Supply row(s) on this sheet: {rows} (owner 11:50 / 11:55).",
+   "to": "Supply row(s) on this sheet: {rows}.",
+   "why": "R3 d / E2: a time with no date gets its date from the repo record, or the bracket goes"
+  },
+  {
+   "c": "hvac_vrf",
+   "p": [
+    "list_spec",
+    "pricing",
+    "extras",
+    "scope",
+    "supply_row",
+    "no_row"
+   ],
+   "from": "This sheet has no supply row for this item, so the installation-only uplift applies (owner 11:50 / 11:55).",
+   "to": "This sheet has no supply row for this item, so the installation-only uplift applies.",
+   "why": "R3 d / E2: a time with no date gets its date from the repo record, or the bracket goes"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "chosen_lines"
+   ],
+   "from": null,
+   "to": {
+    "supply_only_note": "Supply only: install 0 on every line of this row.",
+    "no_install": "Installation only, but {title} has no installation rate - price this row by hand",
+    "uplift_missing": "Installation only, but the Pricing Input 'VAV - installation-only uplift' is not set - set it in Pricing Inputs"
+   },
+   "why": "R3 a: the notes for a scope the user or the Calculator chose, without \"BoQ says\""
+  },
+  {
+   "c": "hvac_valve_package",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "chosen_lines"
+   ],
+   "from": null,
+   "to": {
+    "supply_only_note": "Supply only: install 0 on every line of this row.",
+    "no_install": "Installation only, but {title} has no installation rate - price this row by hand",
+    "uplift_missing": "Installation only, but the Pricing Input 'Valve - installation-only uplift' is not set - set it in Pricing Inputs"
+   },
+   "why": "R3 a: the notes for a scope the user or the Calculator chose, without \"BoQ says\""
+  },
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "chosen_lines"
+   ],
+   "from": null,
+   "to": {
+    "supply_only_note": "Supply only: install 0 on every line of this row.",
+    "no_install": "Installation only, but {title} has no installation rate - price this row by hand",
+    "uplift_missing": "Installation only, but the Pricing Input 'Ducting - installation-only uplift' is not set - set it in Pricing Inputs"
+   },
+   "why": "R3 a: the notes for a scope the user or the Calculator chose, without \"BoQ says\""
+  },
+  {
+   "c": "hvac_vrf",
+   "p": [
+    "list_spec",
+    "pricing",
+    "extras",
+    "scope",
+    "chosen_lines"
+   ],
+   "from": null,
+   "to": {
+    "supply_only_note": "Supply only: install 0 on every line of this row.",
+    "install_only_note": "Installation only - no supply. Each line is priced at its final install x (1 + {pct}), rounded up to the rupee:",
+    "no_install": "Installation only, but {title} has no installation rate - price this row by hand",
+    "uplift_missing": "Installation only, but the Pricing Input 'VRF - installation-only uplift' is not set - set it in Pricing Inputs",
+    "normal_note": "Installation only - no supply. Its supply is quoted on another row, so the normal installation rate applies (no uplift)."
+   },
+   "why": "R3 a: the notes for a scope the user or the Calculator chose, without \"BoQ says\""
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "sheet_shares",
+    "labels",
+    "need_vavs_calculator"
+   ],
+   "from": null,
+   "to": "Type the number of VAVs to price this share.",
+   "why": "R3 h: the Calculator has no sheet"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "sheet_shares",
+    "labels",
+    "need_vavs_whole_calculator"
+   ],
+   "from": null,
+   "to": "Type the number of VAVs to price this item.",
+   "why": "R3 h: the Calculator has no sheet"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "rule"
+   ],
+   "from": null,
+   "to": {
+    "item_words": "\\bvav\\w*|\\bcav\\b|variable\\s+air\\s+volume|constant\\s+air\\s+volume",
+    "install_start": "^\\s*(?:install\\w*|instal\\w*|i\\.?\\s*t\\.?\\s*c\\b|fixing|erection|mounting)\\b",
+    "supply_start": "^\\s*(?:supply|supplying|suplly|suppy|providing|procur\\w*|sitc\\b|s\\.i\\.t\\.c)",
+    "supply_of": "^\\s*(?:supply|supplying|suplly)\\b(?![^.;|\\n]*?\\b(?:install\\w*|instal\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
+    "existing_words": "\\bexist\\w*|\\bexisiting\\b|\\bre-?fix\\w*|\\bre[\\s-]?install\\w*|\\bdismantl\\w*",
+    "by_others": "\\b(?:3rd|third)\\s+party\\s+suppl\\w*|\\bsuppl\\w*\\s+by\\s+(?:others|the\\s+client|client|the\\s+owner|owner|third\\s+party|3rd\\s+party)|\\bfree\\s+issue|\\b(?:client|owner)[-\\s]suppl\\w*",
+    "install_only_words": "\\binstall\\w*\\s+only\\b|\\bi\\.?\\s*t\\.?\\s*c\\.?\\s+only\\b|\\bonly\\s+install\\w*",
+    "supply_only_words": "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b",
+    "box_families": [
+     "VAV box"
+    ],
+    "install_family": "VAV installation - any size",
+    "threshold_input": "vav_own_row_threshold",
+    "needs_installing": {
+     "attr": "needs_installing",
+     "no": "No",
+     "reason_attr": "no_install_reason"
+    },
+    "notes": {
+     "A": "Priced as Supply + installation. The BoQ says 'supply of', but no separate installation row for this item was found on this sheet. Change the scope if installation is not required.",
+     "B": "Priced as Supply + installation. The BoQ says installation, but no supply row for this item was found, and it does not say the material is existing or supplied by others. Change the scope if supply is not required.",
+     "C": "Priced as Supply + installation. Row {n} looks like an installation row for this item, but it is not certain that it covers it. Check, and change the scope to Supply only if it does.",
+     "C_qty": "Priced as Supply + installation. The BoQ lists this row for supply, and installation of the VAV units is priced separately on row {n}. But row {n} is for {q_inst} units, while this sheet's VAV box rows add up to {q_box}, so installation is kept on this row. Change the scope to Supply only if required.",
+     "D": "Supply only: installation of this item is priced on row {n}. Change the scope if that row does not cover it.",
+     "E": "Installation only: supply of this item is priced on {rows}. Change the scope if those rows do not cover it.",
+     "E_qty": "Installation only: this row prices installation of {q_inst} VAV units. The VAV supply rows ({row_list}) have {q_box} units, more than this row covers, so installation is also included on those rows. Installation may be counted twice. Check, and remove it from one place if required.",
+     "F": "Installation only: the BoQ says {said}, so supply is not priced. Check before using.",
+     "F_said": {
+      "existing": "the material is existing",
+      "refix": "the work is removal and refixing",
+      "by_others": "supply is by others",
+      "install_only": "installation only"
+     },
+     "G": "Supply only: this item does not need installing ({reason}). Change the scope if installation is required.",
+     "words_supply_only": "Priced as Supply + installation. The BoQ says 'supply only', but this item needs installing and no separate installation row was found on this sheet. Change the scope if installation is not required."
+    }
+   },
+   "why": "R1 / R2: the scope rule for VAV Box and a note for every case (owner 2026-11-23 13:52 - 13:57; QR-SURE / QR-WORDS 2026-11-24 00:18 - 00:55; the DOUBT notes 00:31 - 00:32)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "panel_pick",
+    "note"
+   ],
+   "from": "Scope changed by you. The helper had chosen {helper}{because}.",
+   "to": "Scope changed by you. The helper had chosen {helper}.",
+   "why": "R2 H: 'Scope changed by you. The helper had chosen {scope}.' then what the chosen scope does (no 'BoQ says', R3 a)"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "attribute_definitions"
+   ],
+   "from": [
+    {
+     "id": "vav_item",
+     "label": "VAV item",
+     "type": "choice",
+     "values": [
+      "VAV box",
+      "VAV Integrator",
+      "BACnet over IP controller",
+      "Duct connection",
+      "Conical piece",
+      "Integrator cabling",
+      "VAV installation - any size",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item."
+    },
+    {
+     "id": "vav_item_as_written",
+     "label": "VAV item as written",
+     "type": "text",
+     "note": "The item in the BoQ's own words. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "shape",
+     "label": "Shape",
+     "type": "choice",
+     "values": [
+      "Rectangular",
+      "Oval"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Rectangular or Oval, as the BoQ states."
+    },
+    {
+     "id": "vav_type",
+     "label": "Type",
+     "type": "choice",
+     "values": [
+      "Nothing specific mentioned",
+      "AHRI Certified",
+      "AHRI Certified Imported",
+      "Imported"
+     ],
+     "allow_none": true,
+     "values_by_family": {
+      "VAV box": [
+       "Nothing specific mentioned",
+       "AHRI Certified",
+       "AHRI Certified Imported"
+      ],
+      "VAV Integrator": [
+       "Nothing specific mentioned",
+       "Imported"
+      ]
+     },
+     "note": "VAV box: Nothing specific mentioned, AHRI Certified, or AHRI Certified Imported. VAV Integrator: Nothing specific mentioned or Imported. As the BoQ states."
+    },
+    {
+     "id": "integrator_included",
+     "label": "Integrator included in this rate",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not."
+    },
+    {
+     "id": "airflow_cfm",
+     "label": "Airflow (CFM)",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow as the BoQ writes it, in CFM, e.g. '650 CFM', 'Up to 650 CFM', '500-650 CFM'; a range as written (the maximum is used). Answer 'None' if no airflow is stated. A lower limit only ('Above 3200 CFM', '3700 CFM above'): copy it with its word, e.g. 'Above 3200 CFM'."
+    },
+    {
+     "id": "inlet_size",
+     "label": "Inlet size",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the round inlet size as the BoQ writes it, in inches or mm, e.g. '8 inch', '200 mm dia'. Not a tag or item number. Answer 'None' if no inlet size is stated."
+    },
+    {
+     "id": "cfm_range",
+     "label": "Airflow band (CFM)",
+     "type": "choice",
+     "values": [
+      "0-450",
+      "450-800",
+      "800-1350",
+      "1350-2100",
+      "2100-3200",
+      "3200-4000",
+      "4000-8000"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow band of the box on the VAV Box sheet, in CFM."
+    },
+    {
+     "id": "qty_per_box",
+     "label": "Qty per box",
+     "type": "number",
+     "allow_none": true,
+     "note": "How many of this item go with one row unit (one box); for integrator cabling, the metres per box. Two of an item when the row asks for two ('two thermostats'; a piece 'on either side' = 2)."
+    },
+    {
+     "id": "scope",
+     "label": "Scope",
+     "type": "choice",
+     "values": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only"
+     ],
+     "allow_none": true,
+     "note": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said."
+    },
+    {
+     "id": "controller_mention",
+     "label": "Controller for the VAVs",
+     "type": "choice",
+     "values": [
+      "ddc_inclusive",
+      "ddc",
+      "bacnet",
+      "controller",
+      "none"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only. Read THIS row's whole payload (its description, its own notes and the notes of the headings above it): is a controller FOR CONTROLLING THE VAVs mentioned? Only a controller that is for controlling the VAVs counts. 'ddc_inclusive' = a DDC controller or DDC panel (the two are the same thing) is part of the VAV box or its controller and the text makes it part of the price (e.g. 'Independent DDC VAV Controller with inbuilt pressure sensor', a box 'consisting of' / 'complete with' ... a DDC controller, 'inclusive of DDC controller'). 'ddc' = a DDC controller or DDC panel is part of the VAV box or its controller but the text does not say it is included. 'bacnet' = BACnet in any form (BACnet over IP, BACnet MS/TP, BACnet alone) for the VAV box, its controller or the VAV network. 'controller' = a controller for the VAVs with neither a DDC nor a BACnet word (e.g. 'controller for receiving Temp. & DP Signal', 'required controllers for controlling all the VAVs', the VAVs 'shall communicate through a network controller'). 'none' = no controller for the VAVs. NOT counted (answer as if those words were absent): a DDC or BACnet controller of OTHER equipment (an AHU's 'BACNET/IP DDC', a 'centralised controller for VFD operation'); a line about makes ('All VAV controllers, DDC controllers ... shall be of single OEM' names no DDC for the VAVs - its BACnet controllers still count as 'bacnet' when BACnet is named for the VAVs). When more than one applies, answer the first of: ddc_inclusive, ddc, bacnet, controller."
+    },
+    {
+     "id": "controller_by_others",
+     "label": "Controller by others",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when the text says the VAV controller is supplied or installed by the BMS vendor or by others (e.g. '(VAV controllers and thermostats will be installed by the BMS vendor at site)'); otherwise 'No'."
+    },
+    {
+     "id": "dp_sensor_mention",
+     "label": "DP sensor mentioned",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when THIS row's payload mentions a DP sensor for the VAVs in any form - a differential pressure sensor, switch or transmitter, a 'DP sensor' / 'DPS', a duct static pressure sensor; every DP sensor mention counts. 'No' otherwise. A 'DP signal' alone, a pressure gauge, an air-flow monitoring station or the box's own velocity sensor is not a DP sensor."
+    }
+   ],
+   "to": [
+    {
+     "id": "vav_item",
+     "label": "VAV item",
+     "type": "choice",
+     "values": [
+      "VAV box",
+      "VAV Integrator",
+      "BACnet over IP controller",
+      "Duct connection",
+      "Conical piece",
+      "Integrator cabling",
+      "VAV installation - any size",
+      "none of these"
+     ],
+     "allow_none": true,
+     "note": "Which VAV Box sheet item this line is: a VAV box (a VAV or CAV terminal box); the VAV Integrator; a BACnet over IP controller; a duct connection; a conical piece; integrator cabling (per metre); or the installation of a VAV box of any size. Answer 'none of these' for anything else and copy its words into 'VAV item as written'. A duct connection only when the row ASKS for one (e.g. 'with flexible duct connection'); a row that only says the box is 'suitable for duct connections' describes the box - that is NOT a duct connection item."
+    },
+    {
+     "id": "vav_item_as_written",
+     "label": "VAV item as written",
+     "type": "text",
+     "note": "The item in the BoQ's own words. Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value."
+    },
+    {
+     "id": "shape",
+     "label": "Shape",
+     "type": "choice",
+     "values": [
+      "Rectangular",
+      "Oval"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Rectangular or Oval, as the BoQ states."
+    },
+    {
+     "id": "vav_type",
+     "label": "Type",
+     "type": "choice",
+     "values": [
+      "Nothing specific mentioned",
+      "AHRI Certified",
+      "AHRI Certified Imported",
+      "Imported"
+     ],
+     "allow_none": true,
+     "values_by_family": {
+      "VAV box": [
+       "Nothing specific mentioned",
+       "AHRI Certified",
+       "AHRI Certified Imported"
+      ],
+      "VAV Integrator": [
+       "Nothing specific mentioned",
+       "Imported"
+      ]
+     },
+     "note": "VAV box: Nothing specific mentioned, AHRI Certified, or AHRI Certified Imported. VAV Integrator: Nothing specific mentioned or Imported. As the BoQ states."
+    },
+    {
+     "id": "integrator_included",
+     "label": "Integrator included in this rate",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: Yes when the box's rate includes its VAV integrator, No when it does not."
+    },
+    {
+     "id": "airflow_cfm",
+     "label": "Airflow (CFM)",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow as the BoQ writes it, in CFM, e.g. '650 CFM', 'Up to 650 CFM', '500-650 CFM'; a range as written (the maximum is used). Answer 'None' if no airflow is stated. A lower limit only ('Above 3200 CFM', '3700 CFM above'): copy it with its word, e.g. 'Above 3200 CFM'."
+    },
+    {
+     "id": "inlet_size",
+     "label": "Inlet size",
+     "type": "text",
+     "allow_none": true,
+     "note": "VAV boxes only: the round inlet size as the BoQ writes it, in inches or mm, e.g. '8 inch', '200 mm dia'. Not a tag or item number. Answer 'None' if no inlet size is stated."
+    },
+    {
+     "id": "cfm_range",
+     "label": "Airflow band (CFM)",
+     "type": "choice",
+     "values": [
+      "0-450",
+      "450-800",
+      "800-1350",
+      "1350-2100",
+      "2100-3200",
+      "3200-4000",
+      "4000-8000"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: the airflow band of the box on the VAV Box sheet, in CFM."
+    },
+    {
+     "id": "qty_per_box",
+     "label": "Qty per box",
+     "type": "number",
+     "allow_none": true,
+     "note": "How many of this item go with one row unit (one box); for integrator cabling, the metres per box. Two of an item when the row asks for two ('two thermostats'; a piece 'on either side' = 2)."
+    },
+    {
+     "id": "scope",
+     "label": "Scope",
+     "type": "choice",
+     "values": [
+      "Supply + installation",
+      "Supply only",
+      "Installation only"
+     ],
+     "allow_none": true,
+     "note": "What the row pays for: supply + installation, supply only, or installation only. 'None' when nothing is said."
+    },
+    {
+     "id": "controller_mention",
+     "label": "Controller for the VAVs",
+     "type": "choice",
+     "values": [
+      "ddc_inclusive",
+      "ddc",
+      "bacnet",
+      "controller",
+      "none"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only. Read THIS row's whole payload (its description, its own notes and the notes of the headings above it): is a controller FOR CONTROLLING THE VAVs mentioned? Only a controller that is for controlling the VAVs counts. 'ddc_inclusive' = a DDC controller or DDC panel (the two are the same thing) is part of the VAV box or its controller and the text makes it part of the price (e.g. 'Independent DDC VAV Controller with inbuilt pressure sensor', a box 'consisting of' / 'complete with' ... a DDC controller, 'inclusive of DDC controller'). 'ddc' = a DDC controller or DDC panel is part of the VAV box or its controller but the text does not say it is included. 'bacnet' = BACnet in any form (BACnet over IP, BACnet MS/TP, BACnet alone) for the VAV box, its controller or the VAV network. 'controller' = a controller for the VAVs with neither a DDC nor a BACnet word (e.g. 'controller for receiving Temp. & DP Signal', 'required controllers for controlling all the VAVs', the VAVs 'shall communicate through a network controller'). 'none' = no controller for the VAVs. NOT counted (answer as if those words were absent): a DDC or BACnet controller of OTHER equipment (an AHU's 'BACNET/IP DDC', a 'centralised controller for VFD operation'); a line about makes ('All VAV controllers, DDC controllers ... shall be of single OEM' names no DDC for the VAVs - its BACnet controllers still count as 'bacnet' when BACnet is named for the VAVs). When more than one applies, answer the first of: ddc_inclusive, ddc, bacnet, controller."
+    },
+    {
+     "id": "controller_by_others",
+     "label": "Controller by others",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when the text says the VAV controller is supplied or installed by the BMS vendor or by others (e.g. '(VAV controllers and thermostats will be installed by the BMS vendor at site)'); otherwise 'No'."
+    },
+    {
+     "id": "dp_sensor_mention",
+     "label": "DP sensor mentioned",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV boxes only: 'Yes' when THIS row's payload mentions a DP sensor for the VAVs in any form - a differential pressure sensor, switch or transmitter, a 'DP sensor' / 'DPS', a duct static pressure sensor; every DP sensor mention counts. 'No' otherwise. A 'DP signal' alone, a pressure gauge, an air-flow monitoring station or the box's own velocity sensor is not a DP sensor."
+    },
+    {
+     "id": "needs_installing",
+     "label": "Needs installing",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ],
+     "allow_none": true,
+     "note": "VAV rows only: 'No' only when the item this row pays for does not need installing at site (e.g. attic stock the BoQ names explicitly, a spare part, a loose accessory or a software licence that is only handed over), with the reason in 'Why no installing'; otherwise 'Yes'. A row that only says 'Supply of ...' is 'Yes'."
+    },
+    {
+     "id": "no_install_reason",
+     "label": "Why no installing",
+     "type": "text",
+     "allow_none": true,
+     "note": "When 'Needs installing' is 'No': a few words from the row saying why the item needs no installing (e.g. 'attic stock'). Otherwise 'None'."
+    }
+   ],
+   "why": "QR-ASK (a) + attic stock (owner 2026-11-24 00:25): point 4's question and its reason appended, first sent in VAV-2c3"
+  }
+ ],
+ "pricing_inputs": {}
+}

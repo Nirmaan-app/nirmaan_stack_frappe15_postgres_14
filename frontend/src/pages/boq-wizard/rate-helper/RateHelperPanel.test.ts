@@ -140,7 +140,7 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
     // INVERTED by 12d-2 (owner S6): the label used to be `view.unit` alone, which read "per R/O" on a
     // rate-only row. `view.rateUnit` is present ONLY when the row's unit was resolved (12c-U), so every
     // other row still shows its own spelling, exactly as slice 11 pinned.
-    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />");
+    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} notInScope={b.notInScope} />");   // VAV-2c1 PIN 5 (R5 b, owner 2026-11-22 11:02): BEFORE without notInScope
     // INVERTED at DU-1 R2 (owner 2026-11-15 14:42, copy on the row total, every helper) by mechanical authority: BEFORE
     // toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />")
     expect(src).toContain("<FiguresRow figures={rowTotals(view)} muted stacked unit={view.rateUnit ?? view.unit} />");

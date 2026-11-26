@@ -149,12 +149,15 @@ describe("the fixture names exactly what this test covers", () => {
   });
 
   it("the catalogue snapshot is the live one: 23 configs, 1,402 Electrical + 379 HVAC active items (335 + the 40 Piping rows of 12e-1 + the 4 Piping accessories inputs of 12e-2)", () => {
-    expect(configs.size).toBe(23);        // 12e-1: + hvac_piping (data-only); 12e-2: the same config, now item-list
-    expect(master.items.Electrical).toHaveLength(1402);
-    expect(master.items.HVAC).toHaveLength(379);   // 12e-1: 335 + 40; 12e-2: + 4 inputs
+    // VAV-2b2 K2 (B4, owner 2026-11-21 21:25 "b": the snapshot refreshed from the live endpoint, HVAC v81 / Electrical v72; ANSWER 36): 29 configs (+ hvac_vrf, valve_package, misc, ducting, vav_box, sensors), 1,411 Electrical, 853 HVAC items.
+    // BEFORE: 23 / 1,402 / 379 (the 2026-10-06 / 10-10 snapshot)
+    expect(configs.size).toBe(29);        // 12e-1: + hvac_piping (data-only); 12e-2: the same config, now item-list
+    expect(master.items.Electrical).toHaveLength(1411);
+    expect(master.items.HVAC).toHaveLength(853);   // 12e-1: 335 + 40; 12e-2: + 4 inputs; VAV-2b2 K2: v81
     // INVERTED at ADP-4a (owner AC4: the fixture's ADP part comes from v50) by mechanical authority: BEFORE toHaveLength(1781).
     // The snapshot's 95 ADP items leave and v50's 93 ADP items + its 3 ADP-shared pricing inputs join: 1,781 - 95 + 96.
-    expect(items).toHaveLength(1782);
+    // VAV-2b2 K2 (B4): 1,411 + 853 - the snapshot's 97 ADP items + v50's 96 = 2,263. BEFORE: 1,782
+    expect(items).toHaveLength(2263);
   });
 
   it("the 15 categories the corpus exercises", () => {
@@ -195,7 +198,9 @@ describe("the two paths are genuinely different code", () => {
     const calc = calculatorHelper(configs, items).compute(calculatorCtx("HVAC", c.cat), {});
     expect(boqPanel.kind).toBe("suggestion");
     expect(calc.kind).toBe("suggestion");
-    expect((configs.get("hvac_insulation") as { calculator_only?: unknown }).calculator_only).toBe(true);  // the frozen snapshot, never edited
+    // VAV-2b2 K2 (B4, owner 2026-11-21 21:25 "b": the snapshot refreshed from the live endpoint, HVAC v81 / Electrical v72; ANSWER 36): the refreshed snapshot carries the LIVE Insulation config, which has no calculator_only (retired at 12d-2 / v28; the old
+    // snapshot's config was HVAC v26 and still carried it). BEFORE: toBe(true)
+    expect((configs.get("hvac_insulation") as { calculator_only?: unknown }).calculator_only).toBeUndefined();
   });
 });
 
@@ -468,7 +473,10 @@ describe("every active SKU of every row-level category", () => {
     // it, each declining on both paths exactly as the seven Insulation inputs always have
     // INVERTED at ADP-4a (owner AC4) by mechanical authority: BEFORE toBe(1933). v50's 3 ADP-shared pricing inputs are
     // rows of the row-level Pricing Inputs category, each declining on both paths
-    expect(total).toBe(1936);
+    // VAV-2b2 K2 (B4, owner 2026-11-21 21:25 "b": the snapshot refreshed from the live endpoint, HVAC v81 / Electrical v72; ANSWER 36): + 91 row-level SKU cases - hvac_pricing_inputs 15 -> 79 (+ 64 inputs minted v35 - v81), and the 9 ELR-3a Electrical
+    // Pricing Inputs in each of electrical_pricing_inputs, point_wiring and wiring_cabling (27, listed by uid at ANSWER 36); 0 divergences.
+    // BEFORE: toBe(1936)
+    expect(total).toBe(2027);
   }, 180000);
 
   it("the resolution paths this sweep reached, named", () => {
@@ -555,7 +563,9 @@ describe("HVAC Insulation -- every family x unit class x ladder path", () => {
       bad.push(`${c.unit} ${JSON.stringify(c.items)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
     }
     expect(bad).toEqual([]);
-    expect(worded).toHaveLength(8);
+    // VAV-2b2 K2 (B4, owner 2026-11-21 21:25 "b": the snapshot refreshed from the live endpoint, HVAC v81 / Electrical v72; ANSWER 36): 7 - the case 'sqm Cladding Only' takes the first stocked cladding, '24G Aluminium' on the live config (from v27, 99c224afd,
+    // owner R1 / R3), not the v26 snapshot's 'None', and prices IDENTICALLY on both paths (663 / 210). BEFORE: toHaveLength(8)
+    expect(worded).toHaveLength(7);
     // every one of the eight is a row with NO cladding answered -- never a row that priced
     for (const c of cases) {
       const r = runParity(configs, items, c, "full");
@@ -797,7 +807,11 @@ describe("SLICE 12d-6 -- a layered thickness on both surfaces (owner (a) + U4)",
   it("PANEL: the model-read layered answer composes two layers -- 991 / 238, the figure of the pure pricer", () => {
     const panel = panelHelper(configs, items, layered).compute(panelCtx(layered));
     expect(isSuggestion(panel)).toBe(true);
-    expect((panel as { values?: Record<string, number> }).values).toEqual({ supply_rate: 991, install_rate: 238, combined_rate: 1229 });
+    // VAV-2b2 K2 (B4, owner 2026-11-21 21:25 "b": the snapshot refreshed from the live endpoint, HVAC v81 / Electrical v72; ANSWER 36): 1,089 / 238 - from HVAC v39 (7be6b3447, 2026-10-15, slice 12e-5b, owner R7 "one cladding over a composed insulation")
+    // the outer layer's cladding is ONE wrap over the outer surface: girth 3.14 x (53.98 + 2 x 38) / 1000 = 0.41 sq.m per metre (was the
+    // layer's own 0.29) -> layer 2 615 -> 713, 376 + 713 = 1,089; installation 238 unchanged. The 991 was pinned on the frozen v26
+    // snapshot and had been stale since v39. BEFORE: { supply_rate: 991, install_rate: 238, combined_rate: 1229 }
+    expect((panel as { values?: Record<string, number> }).values).toEqual({ supply_rate: 1089, install_rate: 238, combined_rate: 1327 });
     const view = (panel as ItemListSuggestion).itemList!;
     expect(view.items[0].working.some((w) => w === "BoQ says Double layer of 19 mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only")).toBe(true);
   });
@@ -3577,12 +3591,12 @@ describe("VRF-8 B2 -- the K1 rules on both paths; panel = calculator on every ca
       const v = (s as ItemListSuggestion).itemList!;
       expect(v.rowPriced).toBe(true);
       expect(v.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toEqual({ supply_rate: 0, install_rate: 5600, combined_rate: 5600 });
-      expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us (owner R-F2)");
+      expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us");   // VAV-2c1 PIN 2 (R3, owner 2026-11-22 10:49): BEFORE ended " (owner R-F2)"
     }
     // NEGATIVE: supply + installation -- the frame stays 5,600 supply / 0 install, no R-F2 note, on both paths
     const full = run(vc("Nos", od("10 HP", row(["frame"]))));
     expect(full.divergences).toEqual([]);
-    expect(((full.panel as ItemListSuggestion).itemList!.scope?.note ?? "")).not.toMatch(/owner R-F2/);
+    expect(((full.panel as ItemListSuggestion).itemList!.scope?.note ?? "")).not.toMatch(/MS frame charged at/);   // VAV-2c1 PIN 2: BEFORE /owner R-F2/
   });
 
   it("D12 (several unit types) is the named panel-only refusal: the panel refuses; the calculator prices the type it is given", () => {

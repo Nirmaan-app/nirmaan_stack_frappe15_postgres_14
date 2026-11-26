@@ -1,0 +1,123 @@
+"""VAV-2c2 (2026-11-24, desktop) -- MINT HVAC v83 = v82 + ONLY the edits of ONE file, frontend/.../__fixtures__/vav2c2Edits.json (prompt B5).
+
+  items     NONE changed: every item byte-identical to v82 (no rate, markup, name or text of any item moves).
+  configs   PART 1 (R3): texts at their key paths (option letters / screen / standard numbers off the rules pages, the dated times, VRF's two
+            notes without a bare time) and the declared new keys `scope.chosen_lines` (four categories) and the Calculator's two
+            `sheet_shares.labels` lines; PART 2 (R1 / R2, VAV Box only): `scope.rule`, note H, and the reading fields with the two point-4
+            fields appended.
+Every edit names what it replaces and is refused when v82 does not hold it. vav2c2.harness.ts applies the same file to scratch copies.
+REQUESTS: every item-list category's model request is byte-identical v82 vs v83 EXCEPT hvac_vav_box, whose request equals the one built from
+v82 with ONLY its reading fields replaced (the two point-4 fields) -- nothing else of the VAV request moves.
+
+Runs IN THE CONTAINER under the bench's python. Phases: build (v82 file -> the candidate; NO database write), load, verify.
+The candidate path is REQUIRED (no default: a default that writes into the repo tree was a VAV-2c1 slip).
+Usage (container, from frappe-bench): env/bin/python -I <this> build|load|verify --candidate P
+"""
+import argparse
+import copy
+import hashlib
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mint_hvac_v79_vav2b1 import APP, DATA, _canon, _connect, _dump, _sha16, load, verify  # noqa: E402  (the same load / verify)
+from mint_hvac_v81_vav2b2 import requests  # noqa: E402
+from mint_hvac_v82_vav2c1 import apply_config  # noqa: E402  (the same edit semantics)
+
+V82 = os.path.join(DATA, "rate_master_hvac_all_v82.json")
+EDITS = os.path.join(APP, "frontend/src/pages/boq-wizard/rate-helper/__fixtures__/vav2c2Edits.json")
+VAV = "hvac_vav_box"
+READING = ["list_spec", "attribute_definitions"]
+
+
+def build(out):
+    frappe = _connect()
+    from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+    from nirmaan_stack.services.boq_rate_master.loader import _validate_items, _validate_one_config
+    raw = open(V82, "rb").read()
+    prev = json.loads(raw.decode("utf-8"))
+    if _dump(prev).encode("utf-8") != raw:
+        raise SystemExit("re-dumping v82 does not reproduce its bytes")
+    K = json.load(open(EDITS, encoding="utf-8"))
+    assert K["pricing_inputs"] == {}, "v83 changes no item"
+    final = copy.deepcopy(prev)
+    by_cat = {}
+    for e in K["configs"]:
+        by_cat.setdefault(e["c"], []).append(e)
+    known = {c["category_id"] for c in prev["category_configs"]}
+    assert set(by_cat) <= known, set(by_cat) - known
+    final["category_configs"] = [apply_config(c, by_cat.get(c["category_id"], [])) for c in prev["category_configs"]]
+
+    # ITEM BY ITEM: every item byte-identical, in order
+    assert _canon(prev["items"]) == _canon(final["items"])
+    print("items %d; changed 0; rates changed 0" % len(final["items"]))
+    # KEY BY KEY: undoing every edit gives v82's config back, byte for byte; a config with no edit is unchanged
+    for a, b in zip(prev["category_configs"], final["category_configs"]):
+        back = apply_config(b, [dict(e, **{"from": e["to"], "to": e["from"]}) for e in reversed(by_cat.get(a["category_id"], []))])
+        assert _canon(back) == _canon(a), a["category_id"]
+        assert (_canon(a) == _canon(b)) == (a["category_id"] not in by_cat), a["category_id"]
+    print("configs changed:", {c: len(v) for c, v in sorted(by_cat.items())}, "| unchanged:", sorted(known - set(by_cat)))
+    assert list(final.keys()) == list(prev.keys())
+
+    _validate_items(final["items"])
+    stored = [dict(c, discipline=final["discipline"]) for c in final["category_configs"]]
+    for n, c in enumerate(stored):
+        try:
+            _validate_one_config(c, "category_configs[%d]" % n)
+            config_validation._validate_config(c)
+        except Exception as e:
+            raise SystemExit("config %s refused: %s" % (c["category_id"], e))
+    problems = (config_validation.delegated_section_problems(stored, final["items"]) + config_validation.extras_problems(stored, final["items"])
+                + config_validation.scope_problems(stored, final["items"]))
+    if problems:
+        raise SystemExit("cross-category check refuses: %r" % problems)
+    # the rule names an installation item and a threshold input that exist in the catalogue
+    rule = next(c for c in final["category_configs"] if c["category_id"] == VAV)["list_spec"]["pricing"]["scope"]["rule"]
+    assert any(i.get("kind") == "hvac_vav_item" and i["attributes"].get("vav_item") == rule["install_family"] for i in final["items"]), rule["install_family"]
+    assert any(str(i.get("kind", "")).endswith("_pricing_input") and i["attributes"].get("item") == rule["threshold_input"] for i in final["items"]), rule["threshold_input"]
+    cfgs = {(final["discipline"], c["category_id"]): c for c in stored}
+    stored_base = [dict(c, discipline=prev["discipline"]) for c in prev["category_configs"]]
+    cfgs_base = {(prev["discipline"], c["category_id"]): c for c in stored_base}
+    eligible = sorted(c["category_id"] for c in stored if extraction.config_is_eligible(c, cfgs))
+    assert eligible == sorted(c["category_id"] for c in stored_base if extraction.config_is_eligible(c, cfgs_base)), eligible
+    print("eligible configs (v82 = the new file):", eligible)
+
+    # T4: every item-list category's model request byte-identical, hvac_vav_box changed ONLY by its reading fields
+    r_base, r_new = requests(stored_base, cfgs_base, extraction), requests(stored, cfgs, extraction)
+    diff = sorted(k for k in set(r_base) | set(r_new) if r_base.get(k) != r_new.get(k))
+    for k in sorted(r_new):
+        print("   request sha16 %-20s before %s after %s" % (k, hashlib.sha256(r_base[k].encode()).hexdigest()[:16],
+                                                        hashlib.sha256(r_new[k].encode()).hexdigest()[:16]))
+    assert diff == [VAV], diff
+    reading_only = [dict(c) for c in stored_base]
+    reading_edits = [e for e in by_cat[VAV] if e["p"] == READING]
+    assert len(reading_edits) == 1
+    reading_only = [apply_config(c, reading_edits) if c["category_id"] == VAV else c for c in reading_only]
+    cfgs_ro = {(prev["discipline"], c["category_id"]): c for c in reading_only}
+    assert requests(reading_only, cfgs_ro, extraction)[VAV] == r_new[VAV], "the VAV request moves by more than its two reading fields"
+    print("MODEL REQUESTS: %d item-list categories; only %s differs, and only by its reading fields (needs_installing, no_install_reason)" % (len(r_new), VAV))
+
+    text = _dump(final)
+    tokens = sorted({t for t in re.findall(r"v\d+", text.replace(json.dumps(final.get("source_workbook") or "", ensure_ascii=False), '""'))})
+    if tokens:
+        raise SystemExit("the asset text carries version-like tokens %r (h07)" % tokens)
+    open(out, "w", encoding="utf-8", newline="").write(text)
+    print("candidate written:", out, "| items", len(final["items"]), "| configs", len(final["category_configs"]),
+          "| sha256", hashlib.sha256(text.encode("utf-8")).hexdigest())
+    print("per-config sha16 v83:", {c["category_id"]: _sha16(c) for c in final["category_configs"]})
+    frappe.destroy()
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("phase", choices=["build", "load", "verify"])
+    ap.add_argument("--candidate", required=True)
+    a = ap.parse_args()
+    if a.phase == "build":
+        build(a.candidate)
+    elif a.phase == "load":
+        load(a.candidate)
+    else:
+        verify(a.candidate)

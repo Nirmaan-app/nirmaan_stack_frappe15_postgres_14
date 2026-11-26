@@ -1,0 +1,89 @@
+{
+ "about": "VAV-2c3 (2026-11-24, desktop): HVAC v84 = v83 + ONLY these edits. R5 F2 (chat-Claude's call under the owner's 2026-11-23 13:46 word: the user-pick note on Ducting, Valve Package and VRF reads as VAV Box's), R5 F3 (the Calculator's Supply only shows the Scope box line alone, VAV Box only) and R5 F4 (an installation row's own wording of the box-row notes it carries, VAV Box only). R5 F1: the rules page line itself is a code string (itemListRuleOrder.ts); the reason the page appends to it (derivation_reasons 14) loses its bare time here. Read by the vav2c3 tests (scratch copies of the v83 FILE) and by the mint script.",
+ "configs": [
+  {
+   "c": "hvac_ducting",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "panel_pick",
+    "note"
+   ],
+   "from": "Scope changed by user (the helper chose {helper}{because})",
+   "to": "Scope changed by you. The helper had chosen {helper}.",
+   "why": "R5 F2: the user-pick note as VAV Box's"
+  },
+  {
+   "c": "hvac_valve_package",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "panel_pick",
+    "note"
+   ],
+   "from": "Scope changed by user (the helper chose {helper}{because})",
+   "to": "Scope changed by you. The helper had chosen {helper}.",
+   "why": "R5 F2: the user-pick note as VAV Box's"
+  },
+  {
+   "c": "hvac_vrf",
+   "p": [
+    "list_spec",
+    "pricing",
+    "extras",
+    "scope",
+    "panel_pick",
+    "note"
+   ],
+   "from": "Scope changed by user (the helper chose {helper}{because})",
+   "to": "Scope changed by you. The helper had chosen {helper}.",
+   "why": "R5 F2: the user-pick note as VAV Box's"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "calculator_scope_box_only"
+   ],
+   "from": null,
+   "to": true,
+   "why": "R5 F3: in the Calculator, Supply only is said once, by the Scope box line"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "scope",
+    "rule",
+    "install_row_texts"
+   ],
+   "from": null,
+   "to": {
+    "sheet_shares.lines.blank_rows": "{n} VAV box rows on this sheet have no quantity, so they are not counted in the number of VAVs the shared items are divided by.",
+    "integrator_cabling.lines.priced_separately": "Integrator cabling not added: {rows} {prices} it for this sheet's VAVs. Add it here only if {that_row} {does} not cover the VAVs this row installs.",
+    "sheet_shares.labels.per_box": " per VAV installed",
+    "sheet_shares.labels.typed": "Or type the amount (per VAV installed)"
+   },
+   "why": "R5 F4: an installation row's notes worded for an installation row"
+  },
+  {
+   "c": "hvac_vav_box",
+   "p": [
+    "list_spec",
+    "pricing",
+    "derivation_reasons",
+    14,
+    "why"
+   ],
+   "from": "installation only -> the installation rate only (owner agreed, 2026-11-18 22:16); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift",
+   "to": "installation only -> the installation rate only (owner agreed, 18 November 2026); the Pricing Input 'VAV - installation-only uplift' is 0, so no uplift",
+   "why": "R5 F1: the reason the rules page appends to the scope line - a date, no bare time"
+  }
+ ],
+ "pricing_inputs": {}
+}

@@ -1,0 +1,82 @@
+{
+  "_source": "VAV-2a2 (2026-11-19, desktop): the hvac_vav_box keys of HVAC v78 -- ONE file, read by the vav2a2* tests and by the v78 mint (scripts/_instruments/mint_hvac_v78_vav2a2.py). Owner rulings: R1 2026-11-18 22:16 / 23:53; R2 22:18 / 22:21; QR-3c (a) 2026-11-19 00:57; R3 13:31 / 13:46; R4 the approved mockup 00:12 + 22:16 '2b agree'; R5 / R6 18:21 'ok b'; R8 18:56 '4 fix in next slice'.",
+  "attribute_definitions_before": "cfm_range",
+  "attribute_definitions": [
+    {"id": "airflow_cfm", "label": "Airflow (CFM)", "type": "text", "allow_none": true,
+     "note": "VAV boxes only: the airflow as the BoQ writes it, in CFM, e.g. '650 CFM', 'Up to 650 CFM', '500-650 CFM'; a range as written (the maximum is used). Answer 'None' if no airflow is stated."},
+    {"id": "inlet_size", "label": "Inlet size", "type": "text", "allow_none": true,
+     "note": "VAV boxes only: the round inlet size as the BoQ writes it, in inches or mm, e.g. '8 inch', '200 mm dia'. Not a tag or item number. Answer 'None' if no inlet size is stated."}
+  ],
+  "pricing": {
+    "band_from": {
+      "attr": "cfm_range",
+      "families": ["VAV box"],
+      "airflow_attr": "airflow_cfm",
+      "inlet_attr": "inlet_size",
+      "bands": [
+        {"value": "0-450", "max": 450}, {"value": "450-800", "max": 800}, {"value": "800-1350", "max": 1350},
+        {"value": "1350-2100", "max": 2100}, {"value": "2100-3200", "max": 3200}, {"value": "3200-4000", "max": 4000},
+        {"value": "4000-8000", "max": 8000}
+      ],
+      "edge": "lower",
+      "inlet_table": [
+        {"inch": 6, "band": "0-450"}, {"inch": 8, "band": "450-800"}, {"inch": 10, "band": "800-1350"}, {"inch": 12, "band": "1350-2100"},
+        {"inch": 14, "band": "2100-3200"}, {"inch": 16, "band": "3200-4000"}, {"inch": 24, "band": "4000-8000"}
+      ],
+      "mm_per_inch": 25.4,
+      "group": "Airflow (CFM), or Inlet size - only one of the two is needed",
+      "tags": {
+        "boq": "from BoQ",
+        "range_max": "from the maximum of the range",
+        "inlet": "from the inlet size table",
+        "typed_cfm": "from the CFM you typed",
+        "typed_inlet": "from the inlet size you typed (inlet size table)"
+      },
+      "lines": {
+        "crosses": "{low}-{high} CFM crosses two bands ({low_band} and {band}) - priced on the band of the maximum, {high} CFM",
+        "inlet": "Band from the inlet size table: {inch} inch -> {band} CFM",
+        "mm": "{said} = {mm} mm / 25.4 = {inches} inch -> the next size up, {inch} inch",
+        "both_typed": "Both the CFM and the inlet size were typed - the CFM was used (only one of the two is needed)",
+        "none_row": "airflow not stated, enter the CFM",
+        "none_typed": "enter the CFM or the inlet size",
+        "above": "{cfm} CFM is above the largest box on the sheet",
+        "inlet_above": "inlet size {inch} inch is above the largest box on the sheet ({largest} inch)",
+        "not_size": "'{said}' is not an inlet size - type the inlet size in inches or mm",
+        "not_cfm": "'{said}' is not in CFM - type the airflow in CFM"
+      }
+    },
+    "source_tags": {"shape": "from BoQ"},
+    "defaults": {"shape": {"value": "Rectangular", "rule": "shape not stated - priced as Rectangular"}},
+    "panel_controls_add": {"airflow_cfm": "text", "inlet_size": "text"},
+    "panel_notes": {
+      "airflow_cfm": "Type the airflow in CFM (a number; for a range, the maximum is used). Only one of the two is needed: the CFM or the inlet size. If both are typed, the CFM is used.",
+      "inlet_size": "Type the round inlet size in inches (8) or mm (200 mm); a size in between takes the next size up. Only one of the two is needed: the CFM or the inlet size."
+    }
+  },
+  "valve": {
+    "_ruling": "R7: owner 2026-11-15 11:46 'price as thermowell' + the tags 'owner chose A' (handover v9_12); 2026-11-19 18:16 'a) the next VAV slice'; QR-V (a) 2026-11-20 00:10",
+    "strip": {"list_spec.pricing.scope.supply_row.with_row": " (owner VR9)", "list_spec.pricing.scope.supply_row.no_row": " (owner VR9)"},
+    "rule_line": {"rule": "E13", "title": "\"Thermowell with valve\" is priced as the thermowell, with a note", "detail": "the Misc Test Plug / Thermowell; no valve item for the valve it names; a valve with its own size is left as read -- why: price as thermowell - owner 2026-11-15 11:46; build ruled 2026-11-20 00:10 '1a'"}
+  },
+  "own_row_check_serves": {"item_first": true, "extras": ["BACnet over IP controller"], "presence_decides": true},
+  "derivation_reasons": {
+    "append_why": {"^An extra the sheet charges on its own row": "; a row whose own description names the extra before any VAV box counts as that extra's own row, for the BACnet over IP controller (owner 2026-11-19 18:56 \"4 fix in next slice\"; QR-C2 (a), 2026-11-20 00:34 \"option a is corecet\")"},
+    "move_first": "^The (misc item|sensor) section's quantity per vav item is the count the row names",
+    "before": "^The misc item section",
+    "narrow": {"^The misc item section": "^The misc item section(?!'s quantity)", "^The sensor section": "^The sensor section(?!'s quantity)"},
+    "new": [
+      {"title": "^A fact the row does not mention",
+       "why": "shape not stated -> Rectangular, with a note (owner ruling 2b \"agree\", 2026-11-18 22:16)"},
+      {"title": "^A VAV box's airflow band \\(cfm\\) is worked out from its airflow",
+       "why": "a range that crosses bands -> the band of the maximum airflow (owner ruling 2a \"agree\", 2026-11-18 22:16); no unit = CFM, above 8,000 CFM -> not priced, \"above the largest box on the sheet\" (owner 23:53 \"agree on all these except 9\"); a value exactly on an edge belongs to the lower band - 450 CFM is 0-450, 8,000 CFM is 4000-8000 and priced (owner QR-E (a), 2026-11-20 00:10 \"2a\")"},
+      {"title": "^With no airflow, the band comes from the inlet size table",
+       "why": "the owner's own table of inlet sizes against the sheet's airflow bands, the smallest band 6 inch to the largest 24 inch, no 18 / 20 / 22 inch step (owner 2026-11-18 22:18); in-between sizes take the next size up, the same table for rectangular boxes with a round inlet (22:21 \"agree for both\"); a size written with mm is converted, a bare tag number is not a size (QR-3c (a), 2026-11-19 00:57)"},
+      {"title": "^No airflow and no inlet size",
+       "why": "no airflow and no size -> not priced, \"airflow not stated, enter the CFM\" (owner 2026-11-18 23:53 \"agree on all these except 9\"); in the calculator the user enters the CFM or the inlet size (owner 2026-11-19 13:31)"},
+      {"title": "^The user types the CFM or the inlet size",
+       "why": "\"the user should be given an option to chose either inlet size or the CFM clearly indicated that only one is required and then we price as per the CFM based on our ampping\" (owner 2026-11-19 13:31); \"also in the calculator user should be told clearly only one of these is required to price\" (13:46)"},
+      {"title": "^A BACnet over IP controller priced on its own row of the sheet is not added",
+       "why": "one controller for many VAVs, so the quantity rule is not applied (owner 2026-11-20 00:37); the BMS-integration controller row is a separate controller row (owner 00:10, 00:33, 00:36)"}
+    ]
+  }
+}

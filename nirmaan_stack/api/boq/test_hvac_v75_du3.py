@@ -20,6 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.services.boq_rate_master import config_validation, extraction, loader
+from nirmaan_stack.services.boq_rate_master.vav2c1_undo_support import as_v81
 
 PREV = "rate_master_hvac_all_v74.json"   # the previous asset
 CUR = "rate_master_hvac_all_v75.json"    # this asset
@@ -123,18 +124,23 @@ class TestHvacAssetV75(FrappeTestCase):
     def test_05_v75_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(CUR))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 75)
-        self.assertEqual(nums, list(range(1, 76)))
+        self.assertEqual(nums[-1], 88)  # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE nums[-1] == 87; VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE nums[-1] == 86; VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE nums[-1] == 85; VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE nums[-1] == 84; VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE nums[-1] == 83; VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE nums[-1] == 82; VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-C, ANSWER 29): BEFORE nums[-1] == 81; VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE nums[-1] == 80; VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE nums[-1] == 79; VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE nums[-1] == 78; VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE nums[-1] == 77; VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE nums[-1] == 76; VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE nums[-1] == 75
+        self.assertEqual(nums, list(range(1, 89)))  # VAV-FIX (HVAC v88 minted + loaded - the Calculator starts blank; mechanical authority; PIN VAVFIX F-A): BEFORE list(range(1, 88)); VAV-2c3 FIX-2 (HVAC v87 minted + loaded - the A2 correction; mechanical authority; PIN FIX2-F): BEFORE list(range(1, 87)); VAV-2c3 FIX-2 (HVAC v86 minted + loaded; mechanical authority; PIN FIX2-A): BEFORE list(range(1, 86)); VAV-2c3 FIX (HVAC v85 minted + loaded; mechanical authority; PIN FIX-A): BEFORE list(range(1, 85)); VAV-2c3 K2 (HVAC v84 minted + loaded; mechanical authority; PIN K2-A): BEFORE list(range(1, 84)); VAV-2c2 K2 (HVAC v83 minted + loaded; mechanical authority; PIN K2-A, ANSWER 24): BEFORE list(range(1, 83)); VAV-2c1 K2 (HVAC v82 minted + loaded; mechanical authority; PIN K2-C, ANSWER 29): BEFORE list(range(1, 82)); VAV-2b2 K2 (HVAC v81 minted + loaded; mechanical authority): BEFORE list(range(1, 81)); VAV-2b1 K2 (HVAC v80 minted + loaded; mechanical authority): BEFORE list(range(1, 80)); VAV-2b1 K2 (HVAC v79 minted + loaded; mechanical authority): BEFORE list(range(1, 79)); VAV-2a2 K2 (HVAC v78 minted + loaded; mechanical authority): BEFORE list(range(1, 78)); VAV-2a K2 (HVAC v77 minted + loaded; mechanical authority): BEFORE list(range(1, 77)); VAV-1 K2 (HVAC v76 minted + loaded; mechanical authority): BEFORE list(range(1, 76))
         self.assertTrue(os.path.exists(_asset_path(PREV)))
 
     def test_06_live_catalogue_is_v75(self):
+        # VAV-2a2 K2 (HVAC v78 LOADED; mechanical authority): the live Valve Package config is v78's (the E13 thermowell line, the two VR9 tags out; owner QR-V (a));
+        # Ducting is still v75's byte for byte. BEFORE: both compared with v75's config
+        with open(_asset_path("rate_master_hvac_all_v78.json"), "r", encoding="utf-8") as fh:
+            v78 = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
+        self.assertNotEqual(_norm(self.cfg[VALVE]), _norm(v78[VALVE]))
         for cid in (DUCT, VALVE):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
-            live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-            self.assertEqual(_norm(live), _norm(self.cfg[cid]), cid)
+            live = as_v81(json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0], cid)   # VAV-2c1 K2 (HVAC v82 LOADED; PIN K2-C C2, ANSWER 29): this slice's text edits undone. BEFORE: as read
+            self.assertEqual(_norm(live), _norm(v78[cid] if cid == VALVE else self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 744)
+        self.assertEqual(n, 853)  # VAV-2b1 K2 (HVAC v79 LOADED; mechanical authority): BEFORE 848 (+ the DDC Panel/ Controller, the Duct Static Pressure Sensor, 3 VAV-2b1 Pricing Inputs); VAV-2a K2 (HVAC v77 LOADED; mechanical authority): BEFORE 840 (+ 8 VAV-2a Pricing Inputs); VAV-1 K2 (HVAC v76 LOADED; mechanical authority): BEFORE 744 (+ 91 VAV, 2 Misc, 2 Sensors, 1 Pricing Input)
         f = frappe.db.sql("""select rates from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind='hvac_pricing_input'
                              and attributes::text like %s""", ('%"' + THRESHOLD + '"%',))
         self.assertTrue(f)

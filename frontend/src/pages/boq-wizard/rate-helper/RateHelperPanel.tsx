@@ -35,6 +35,9 @@ import {
   type ShownAttribute,
 } from "./pricingSheetHelper";
 import { moneyValue } from "./attributeWorkingLines";
+import { ScopeBox } from "./ScopeBox";
+import { DoubleCountBlock, ReviewBlock, SharedItems } from "./SharedItemBlock";
+import { SHARES_OVERRIDE_KEY, applyShareEdit, type ShareEditOp } from "./vavSheetShares";
 import { floorBoxValue, isFloorRaised } from "./conductorFloor";
 import {
   attrDisplayValue,
@@ -288,8 +291,10 @@ function CopyFigureButton({ value, label }: { value: number; label: string }) {
  * moved into a component and every surface mounts it. `copy` off = the figures alone (no mount uses it since DU-1 R2: the row total
  * now carries the copy control too, stacked one figure per line).
  */
-function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit }: {
+function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit, notInScope }: {
   figures: Partial<Record<string, number>> | undefined;
+  /** VAV-2c1 (R5): the side the row's scope leaves out of this line ("Supply 0 per Nos - not in scope") */
+  notInScope?: { kind: string; word: string };
   copy?: boolean;
   muted?: boolean;
   /** DU-1 R2 (owner 2026-11-15 14:42 "the supply install and combined prices shown at the bottom needs to be copyable. this is
@@ -319,6 +324,7 @@ function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit
             {label && typeof v === "number" && (
               <span className={muted ? "opacity-70" : "text-muted-foreground"}>per {label}</span>
             )}
+            {notInScope?.kind === k && <span className="font-medium" data-testid="figure-not-in-scope">- {notInScope.word}</span>}
             {copy && typeof v === "number" && <CopyFigureButton value={moneyValue(v)} label={kindLabel(k)} />}
           </span>
         );
@@ -749,6 +755,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
                         onIncludes={(v) => setAttr(helper.id, EXTRAS_INCLUDES_KEY, v)}
                         onScope={(v) => setAttr(helper.id, SCOPE_OVERRIDE_KEY, v)}
+                        onShares={(op) => setAttr(helper.id, SHARES_OVERRIDE_KEY, JSON.stringify(applyShareEdit(itemList.shares?.editState, op)))}
                       />
                     </div>
                   )}
@@ -1399,7 +1406,7 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
             <div className="space-y-0.5 text-xs text-muted-foreground">
               {l.working.map((w, wi) => <div key={wi}>{w}</div>)}
               <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">{BOQ_RATE_LABEL}</div>
-              <FiguresRow figures={l.figures} unit={rateUnit} />
+              <FiguresRow figures={l.figures} unit={rateUnit} notInScope={l.notInScope} />
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -1442,6 +1449,7 @@ function ItemListBlocks({
   onRowQty,
   onIncludes,
   onScope,
+  onShares,
   section,
 }: {
   view: ItemListView;
@@ -1453,6 +1461,8 @@ function ItemListBlocks({
   onIncludes?: (value: string) => void;
   /** VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice */
   onScope?: (value: string) => void;
+  /** VAV-2b1 (B5): an edit to the row's shared-item blocks */
+  onShares?: (op: ShareEditOp) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
@@ -1462,10 +1472,10 @@ function ItemListBlocks({
   // VRF-3b (U4): on a row with extras every unit and every extra is a line
   const n = view.sections ? view.sections.lines : view.lineCount ? view.lineCount.lines : view.items.length;
   const bad = view.sections ? view.sections.bad : view.lineCount ? view.lineCount.bad : view.items.filter((b) => b.state !== "priced").length;
-  const pick = (family: string) => {
+  const pick = (family: string, section?: string) => {
     if (!picker) return;
     onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family }
-      : picker.mode === "add_section" ? { op: "add_section", section: picker.section, family }
+      : picker.mode === "add_section" ? { op: "add_section", section: section ?? picker.section, family }
       : { op: "add", family });
     setPicker(null);
   };
@@ -1482,17 +1492,42 @@ function ItemListBlocks({
       />
     </div>
   );
-  const familyPicker = (title: string, families: ItemListView["families"] = view.families) => (
+  // VAV-2b1 v80 (owner 01:07 "using that" / 01:32): the full-rate entries sit in the item list and insert their whole block
+  const familyPicker = (title: string, families: Array<{ family: string; units: string; section?: string }> = view.families, wholes: Array<{ id: string; label: string }> = [],
+    combos: Array<{ label: string; adds: Array<{ section: string; family: string }> }> = []) => (
     <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="item-family-picker">
       <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{title}</div>
       {families.map((f) => (
         <button
-          key={f.family}
+          key={`${f.section ?? ""}:${f.family}`}
           type="button"
-          onClick={() => pick(f.family)}
+          onClick={() => pick(f.family, f.section)}
           className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
         >
           {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+        </button>
+      ))}
+      {/* VAV-2b2 (R12, owner 2026-11-21 10:40 "2 a"): one click adds every item of the entry, each its own removable line */}
+      {combos.map((c) => (
+        <button
+          key={c.label}
+          type="button"
+          onClick={() => { onEdit({ op: "add_sections", adds: c.adds }); setPicker(null); }}
+          className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+          data-testid="item-combo-add"
+        >
+          {c.label}
+        </button>
+      ))}
+      {onShares && wholes.map((w) => (
+        <button
+          key={w.id}
+          type="button"
+          onClick={() => { onShares({ op: "add", share: w.id }); setPicker(null); }}
+          className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+          data-testid={`item-whole-add-${w.id}`}
+        >
+          {w.label} <span className="text-[11px] text-muted-foreground">&middot; per unit</span>
         </button>
       ))}
       <button type="button" onClick={() => setPicker(null)} className="border-t px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-muted">
@@ -1545,6 +1580,8 @@ function ItemListBlocks({
           {view.unitBar.ring}
         </div>
       )}
+      {/* VAV-2c1 (R5 c): the Scope box, first in the card, on the panel and on the Calculator */}
+      {!section && view.scope?.picker && <ScopeBox picker={view.scope.picker} wide={view.unitPickable} onScope={onScope} />}
       {!section && view.rowQtyField && (
         <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-row-qty">
           <span className="text-muted-foreground">{view.rowQtyField.label}</span>
@@ -1628,20 +1665,7 @@ function ItemListBlocks({
           ))}
         </div>
       )}
-      {/* VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice; on a supply-only / installation-only row the note */}
-      {!section && view.scope?.picker && (
-        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-scope-picker">
-          <span className="text-muted-foreground">{view.scope.picker.title}</span>
-          <select
-            className="h-7 rounded border bg-background px-1 text-xs"
-            value={view.scope.picker.value}
-            onChange={(e) => onScope?.(e.target.value)}
-            aria-label={view.scope.picker.title}
-          >
-            {view.scope.picker.options.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-      )}
+      {/* VRF-5 (owner R4-R8): on a supply-only / installation-only row the scope's note */}
       {!section && view.scope?.note && (
         <div className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] font-medium leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="item-scope-note">
           {view.scope.note}
@@ -1686,7 +1710,7 @@ function ItemListBlocks({
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.matchedByHelper ? <span data-testid="item-matched-heading">matched by the helper</span> : b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : b.helperAdded ? "added by the helper" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -1743,6 +1767,12 @@ function ItemListBlocks({
           {b.helperLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-helper-line">
               {b.helperLine}
+            </p>
+          )}
+          {/* VAV-2b1 (owner 2026-11-21 01:07 / 01:09): a full-rate item beside the sheet share of the same item */}
+          {b.doubleCountLine && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-double-count-line">
+              {b.doubleCountLine}
             </p>
           )}
           {/* VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219): never on a block with no family ("priced as  (your rule)"),
@@ -1853,6 +1883,15 @@ function ItemListBlocks({
                       </span>
                     )}
                     {/* SLICE 12e-3a (owner D3 / D3a): the value came from the item this section sits under */}
+                    {/* VAV-2a2 (B4, the approved mockup): where the value came from ("from BoQ", "from the inlet size table") */}
+                    {f.sourceTag && (
+                      <span
+                        className="rounded bg-emerald-100 px-1 text-[9px] font-medium leading-none text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+                        data-testid="item-field-source-tag"
+                      >
+                        {f.sourceTag}
+                      </span>
+                    )}
                     {f.mirrorTag && (
                       <span
                         className="rounded bg-sky-100 px-1 text-[9px] font-medium leading-none text-sky-800 dark:bg-sky-900 dark:text-sky-200"
@@ -2144,7 +2183,7 @@ function ItemListBlocks({
               <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
                 {BOQ_RATE_LABEL}
               </div>
-              <FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />
+              <FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} notInScope={b.notInScope} />
             </div>
           ) : (
             <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>
@@ -2160,13 +2199,20 @@ function ItemListBlocks({
       {(view.sections?.independent ?? []).map(drawSection)}
       {/* VP-1 (N5, owner VR1; mockup boards 12a / 12b): the sheet-heading note -- an amber box after the items, on every state of
           the row (with or without an item); display only */}
+      {/* VAV-2b1 (B5, screen 7): the row's shared items, each its own block, then their add buttons */}
+      {!section && view.shares && onShares && <SharedItems shares={view.shares} onShares={onShares} />}
       {!section && (view.sheetHeadingNotes ?? []).map((n) => <UnitNoteBox key={n} note={n} testId="item-sheet-heading-note" />)}
+      {/* VAV-2a (B9, owner 2026-11-19 12:49 / 12:59): the combination-row warning -- the same amber box, panel and calculator alike;
+          VAV-2b1 (B6): with a heading it is the "Review before using" block directly above the row total instead */}
+      {!section && view.combinationWarning && !view.reviewHeading && <UnitNoteBox note={view.combinationWarning} testId="item-combination-warning" />}
       {!section && (picker?.mode === "add" ? (
-        familyPicker(view.sections ? view.sections.addLabel : "Add an item")
+        familyPicker(view.sections ? view.sections.addLabel : "Add an item", view.families, view.shares?.wholeAdds ?? [])
       ) : picker?.mode === "add_section" ? (
         familyPicker(
           view.sections?.adds.find((a) => a.id === picker.section)?.addLabel ?? "",
           view.sections?.adds.find((a) => a.id === picker.section)?.families ?? [],
+          [],
+          view.sections?.adds.find((a) => a.id === picker.section)?.combos ?? [],
         )
       ) : view.sections ? (
         // SLICE 12e-3a (owner D5a / 13:42): a config declaring sections names its own items on the button
@@ -2200,6 +2246,9 @@ function ItemListBlocks({
           <Plus className="h-3 w-3" /> Add item
         </button>
       ))}
+      {/* VAV-2b2 (R10): the "Possible double counting" block, above the row total */}
+      {!section && view.doubleCounting && <DoubleCountBlock heading={view.doubleCounting.heading} lines={view.doubleCounting.lines} />}
+      {!section && view.combinationWarning && view.reviewHeading && <ReviewBlock heading={view.reviewHeading} note={view.combinationWarning} />}
       {!section && <div
         className={cn(
           "rounded-md border px-2 py-1.5",
