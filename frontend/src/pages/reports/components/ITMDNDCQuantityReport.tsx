@@ -44,6 +44,7 @@ import { useDCMIRReportsData } from "../hooks/useDCMIRReportsData";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { itmDnDcItemStatus, type ITMDNDCStatus } from "@/utils/itmDnDcStatus";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Projects } from "@/types/NirmaanStack/Projects";
 
@@ -73,7 +74,8 @@ interface ProjectITM {
   items?: ITMItem[];
 }
 
-type ReconcileStatus = "matched" | "mismatch" | "no_dc_update" | "pending_dn";
+/** The per-item rule lives in `utils/itmDnDcStatus.ts` (shared with the ITM page's Item-wise view). */
+type ReconcileStatus = ITMDNDCStatus;
 
 // Mirror PO row classes — left-border accent on parent rows + lighter tint on item rows.
 function getReconcileRowClasses(status: ReconcileStatus): string {
@@ -172,12 +174,7 @@ interface ITMRow {
   items: ItemReconcile[];
 }
 
-const reconcileStatus = (dnQty: number, dcQty: number): ReconcileStatus => {
-  if (dnQty === 0 && dcQty > 0) return "pending_dn";
-  if (dcQty >= dnQty) return "matched";
-  if (dnQty > 0 && dcQty === 0) return "no_dc_update";
-  return "mismatch";
-};
+const reconcileStatus = itmDnDcItemStatus;
 
 const rollupStatus = (items: ItemReconcile[]): ReconcileStatus => {
   if (items.some((i) => i.status === "mismatch")) return "mismatch";
