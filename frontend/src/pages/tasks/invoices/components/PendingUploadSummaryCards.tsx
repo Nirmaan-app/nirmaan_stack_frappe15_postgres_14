@@ -207,9 +207,11 @@ export const CardSpendsSummaryCard: React.FC<CardSpendsSummaryCardProps> = ({
                         {byType.map((t) => {
                             const share = boxesAmount > 0 ? Math.round((t.amount / boxesAmount) * 100) : 0;
                             const picked = selectedTypes.includes(t.expenseType);
+                            // w-full on both rows: inside a <button> the column flex does not stretch its rows, so
+                            // without it the share bar collapses to 0 and the amount leaves the right edge.
                             const content = (
                                 <>
-                                    <div className="flex items-baseline gap-2 min-w-0">
+                                    <div className="w-full flex items-baseline gap-2 min-w-0">
                                         <span
                                             className={cn(
                                                 "flex-1 min-w-0 flex items-center gap-1 text-xs",
@@ -233,7 +235,7 @@ export const CardSpendsSummaryCard: React.FC<CardSpendsSummaryCardProps> = ({
                                         </span>
                                         <span className="text-[10px] tabular-nums text-teal-600 dark:text-teal-400 shrink-0">· {t.count}</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="w-full flex items-center gap-2">
                                         <div className="flex-1 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" aria-hidden="true">
                                             <div
                                                 className={cn("h-full rounded-full", picked ? "bg-teal-600 dark:bg-teal-400" : "bg-teal-500")}
