@@ -8,15 +8,16 @@
  */
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle2, Clock, CreditCard, FileText, FileUp } from "lucide-react";
+import { Check, CheckCircle2, Clock, CreditCard, FileText, FileUp, ListFilter, MousePointerClick, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { percentOf, type PendingUploadOrderSummary } from "../utils/pendingUploadSummary";
-import type { CardSpendsSummary } from "../utils/cardInvoicesView";
+import type { CardSpendsSummary, CardSpendTypeTotal } from "../utils/cardInvoicesView";
 
 const CARD_CLASS = "border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800";
 
-const CardHeading: React.FC<{ title: string; isFiltered: boolean }> = ({ title, isFiltered }) => (
+const CardHeading: React.FC<{ title: string; isFiltered: boolean; action?: React.ReactNode }> = ({ title, isFiltered, action }) => (
     <CardHeader className="pb-2 pt-3 px-4 sm:px-5">
         <div className="flex items-center gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
@@ -27,6 +28,7 @@ const CardHeading: React.FC<{ title: string; isFiltered: boolean }> = ({ title, 
                     Filtered
                 </span>
             )}
+            {action && <div className="ml-auto">{action}</div>}
         </div>
     </CardHeader>
 );
@@ -125,10 +127,48 @@ export const PendingUploadOrderSummaryCard: React.FC<PendingUploadOrderSummaryCa
     </Card>
 );
 
+interface CardSpendsSummaryCardProps {
+    /** The spends the table shows: the count and amount in the card's top strip. */
+    summary: CardSpendsSummary;
+    isFiltered: boolean;
+    /** The Expense Type boxes. The page passes the split over every filter but Expense Type, so all types stay
+     *  in view while some are picked; without it, the boxes are `summary.byType`. */
+    byType?: CardSpendTypeTotal[];
+    /** The Expense Types the table is filtered to; their boxes are highlighted, the rest dimmed. */
+    selectedTypes?: readonly string[];
+    /** Given, each box is a button that picks or drops its type in the table's Expense Type filter. */
+    onTypeClick?: (expenseType: string) => void;
+    /** Given, a Clear button beside the title drops every picked type (the Expense Type filter only; search and
+     *  the other filters stay). Shown only while a type is picked. */
+    onClearTypes?: () => void;
+}
+
 /** Credit Card: the spends waiting for an invoice, then their amount split by Expense Type. */
-export const CardSpendsSummaryCard: React.FC<{ summary: CardSpendsSummary; isFiltered: boolean }> = ({ summary, isFiltered }) => (
+export const CardSpendsSummaryCard: React.FC<CardSpendsSummaryCardProps> = ({
+    summary, isFiltered, byType = summary.byType, selectedTypes = [], onTypeClick, onClearTypes,
+}) => {
+    // A box's share is of the boxes' own total, which is the top strip's only when no type is picked.
+    const boxesAmount = byType.reduce((sum, t) => sum + t.amount, 0);
+    const anyPicked = selectedTypes.length > 0;
+    return (
     <Card className={CARD_CLASS}>
-        <CardHeading title="Card Spends Pending Invoice" isFiltered={isFiltered} />
+        <CardHeading
+            title="Card Spends Pending Invoice"
+            isFiltered={isFiltered}
+            action={
+                anyPicked && onClearTypes ? (
+                    <button
+                        type="button"
+                        onClick={onClearTypes}
+                        title="Show every Expense Type again"
+                        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-xs font-medium text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 bg-white/70 dark:bg-slate-900/60 hover:bg-teal-50 dark:hover:bg-teal-950/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                    >
+                        <X className="h-3 w-3" aria-hidden="true" />
+                        Clear {selectedTypes.length === 1 ? "type" : `${selectedTypes.length} types`}
+                    </button>
+                ) : null
+            }
+        />
         <CardContent className="px-4 sm:px-5 pb-3 pt-0">
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
                 <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/70 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/50">
@@ -151,15 +191,42 @@ export const CardSpendsSummaryCard: React.FC<{ summary: CardSpendsSummary; isFil
                 {/* Expense types in a compact grid -- 3 a row on wide screens, 2 on mid, 1 on phones. Each cell
                     draws its own right and bottom hairline; the -1px margins tuck the outer ones under the box's
                     border, so a part-filled last row leaves white space, not a tinted block. */}
-                {summary.byType.length > 0 && (
+                {/* Says the boxes below are buttons -- a grid of figures otherwise reads as a static report. */}
+                {onTypeClick && byType.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+                        <MousePointerClick className="h-3 w-3 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden="true" />
+                        <span className="truncate">
+                            {anyPicked
+                                ? `Showing ${selectedTypes.length} of ${byType.length} Expense Types · click a box to add or remove it`
+                                : "Click an Expense Type to filter the table"}
+                        </span>
+                    </div>
+                )}
+                {byType.length > 0 && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 -mr-px -mb-px">
-                        {summary.byType.map((t) => {
-                            const share = summary.amount > 0 ? Math.round((t.amount / summary.amount) * 100) : 0;
-                            return (
-                                <div key={t.expenseType} className="border-r border-b border-slate-100 dark:border-slate-800 px-3 py-2 flex flex-col gap-1.5 min-w-0">
+                        {byType.map((t) => {
+                            const share = boxesAmount > 0 ? Math.round((t.amount / boxesAmount) * 100) : 0;
+                            const picked = selectedTypes.includes(t.expenseType);
+                            const content = (
+                                <>
                                     <div className="flex items-baseline gap-2 min-w-0">
-                                        <span className="flex-1 min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-300">
-                                            {t.expenseType}
+                                        <span
+                                            className={cn(
+                                                "flex-1 min-w-0 flex items-center gap-1 text-xs",
+                                                picked
+                                                    ? "font-semibold text-teal-800 dark:text-teal-200"
+                                                    : "font-medium text-slate-700 dark:text-slate-300",
+                                            )}
+                                        >
+                                            {picked ? (
+                                                <Check className="h-3 w-3 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden="true" />
+                                            ) : onTypeClick ? (
+                                                <ListFilter
+                                                    className="h-3 w-3 shrink-0 text-slate-300 dark:text-slate-600 group-hover:text-teal-500 dark:group-hover:text-teal-400 transition-colors"
+                                                    aria-hidden="true"
+                                                />
+                                            ) : null}
+                                            <span className="truncate">{t.expenseType}</span>
                                         </span>
                                         <span className="text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100 shrink-0">
                                             {formatToRoundedIndianRupee(t.amount)}
@@ -168,13 +235,49 @@ export const CardSpendsSummaryCard: React.FC<{ summary: CardSpendsSummary; isFil
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="flex-1 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" aria-hidden="true">
-                                            <div className="h-full rounded-full bg-teal-500" style={{ width: `${share}%` }} />
+                                            <div
+                                                className={cn("h-full rounded-full", picked ? "bg-teal-600 dark:bg-teal-400" : "bg-teal-500")}
+                                                style={{ width: `${share}%` }}
+                                            />
                                         </div>
                                         <span className="w-8 text-right text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
-                                            {percentOf(t.amount, summary.amount)}
+                                            {percentOf(t.amount, boxesAmount)}
                                         </span>
                                     </div>
-                                </div>
+                                </>
+                            );
+                            const cellClass = "border-r border-b border-slate-100 dark:border-slate-800 px-3 py-2 flex flex-col gap-1.5 min-w-0";
+                            if (!onTypeClick) {
+                                return <div key={t.expenseType} className={cellClass}>{content}</div>;
+                            }
+                            return (
+                                <button
+                                    key={t.expenseType}
+                                    type="button"
+                                    aria-pressed={picked}
+                                    title={
+                                        picked
+                                            ? `Remove ${t.expenseType} from the filter`
+                                            : anyPicked
+                                                ? `Add ${t.expenseType} to the filter`
+                                                : `Show only ${t.expenseType}`
+                                    }
+                                    onClick={() => onTypeClick(t.expenseType)}
+                                    className={cn(
+                                        cellClass,
+                                        "group cursor-pointer text-left transition-[background-color,box-shadow,opacity] duration-150",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500",
+                                        // Picked: a 3px teal bar down the left edge, a soft tint and a hairline teal
+                                        // outline -- all inset, so nothing is clipped where an outer cell tucks
+                                        // under the box's border (the grid's -1px margins).
+                                        picked
+                                            ? "bg-teal-50/80 dark:bg-teal-950/30 ring-1 ring-inset ring-teal-500/40 dark:ring-teal-400/30 shadow-[inset_3px_0_0_0_#14b8a6] dark:shadow-[inset_3px_0_0_0_#2dd4bf]"
+                                            : "hover:bg-teal-50/60 dark:hover:bg-teal-950/20 active:bg-teal-100/70 dark:active:bg-teal-900/30 hover:shadow-[inset_3px_0_0_0_#5eead4] dark:hover:shadow-[inset_3px_0_0_0_#0f766e]",
+                                        anyPicked && !picked && "opacity-60 hover:opacity-100",
+                                    )}
+                                >
+                                    {content}
+                                </button>
                             );
                         })}
                     </div>
@@ -182,4 +285,5 @@ export const CardSpendsSummaryCard: React.FC<{ summary: CardSpendsSummary; isFil
             </div>
         </CardContent>
     </Card>
-);
+    );
+};

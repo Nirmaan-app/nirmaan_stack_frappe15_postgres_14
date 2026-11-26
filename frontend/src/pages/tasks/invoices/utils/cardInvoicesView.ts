@@ -139,6 +139,23 @@ export const summariseCardSpendsByType = (rows: Pick<CardInvoiceRow, "amount" | 
     return { count: rows.length, amount, byType };
 };
 
+/** The Expense Type filter after a click on that type's box on the summary card: a picked type is dropped, any
+ *  other is added (several may be picked, as in the column filter). `undefined` when none is left, which clears
+ *  the filter rather than leaving an empty one on the column. */
+export const toggleExpenseTypeFilter = (current: readonly string[] | undefined, expenseType: string): string[] | undefined => {
+    const picked = current ?? [];
+    const next = picked.includes(expenseType) ? picked.filter((t) => t !== expenseType) : [...picked, expenseType];
+    return next.length > 0 ? next : undefined;
+};
+
+/** The summary card's Expense Type boxes with every picked type among them: a picked type no spend has any more
+ *  (another filter, say the statement month, left it none) is added at ₹0, so its box can still be clicked off. */
+export const withPickedExpenseTypes = (byType: CardSpendTypeTotal[], picked: readonly string[]): CardSpendTypeTotal[] => {
+    const shown = new Set(byType.map((t) => t.expenseType));
+    const missing = picked.filter((t) => !shown.has(t)).map((expenseType) => ({ expenseType, amount: 0, count: 0 }));
+    return missing.length > 0 ? [...byType, ...missing] : byType;
+};
+
 /** Which row actions `role` gets: Attach (everyone who sees the tab) and No invoice (Admin, Accountant Lead). */
 export const cardInvoiceActions = (role?: string | null, userId?: string | null) => ({
     attach: canViewPendingInvoiceUploads(role, userId),
