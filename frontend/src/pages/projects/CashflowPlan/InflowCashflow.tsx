@@ -15,20 +15,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCashflowTabPlans } from "./useCashflowTabPlans";
 import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditCashflowPlan, canDeleteCashflowPlan } from "@/constants/roles";
+import { CashflowNoSearchMatch, CashflowTabSearchProps } from "./components/CashflowNoSearchMatch";
 
 // ... imports
 
-export const InflowCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
+export const InflowCashflow = ({ dateRange, isOverview, searchWords, searchText }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean } & CashflowTabSearchProps) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <InflowCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
+    return <InflowCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} searchWords={searchWords} searchText={searchText} />;
 };
 
-const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean }) => {
+const InflowCashflowContent = ({ projectId, dateRange, isOverview = false, searchWords = [], searchText = "" }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean } & CashflowTabSearchProps) => {
     const { role, user_id } = useUserData();
     const canEdit = canEditCashflowPlan(role, user_id);
     const canDelete = canDeleteCashflowPlan(role, user_id);
@@ -38,7 +39,8 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
 
     const { deleteCashflow } = useDeleteCashflowPlan();
 
-    const { data: plans, isLoading, mutate: refreshPlans } = useCashflowPlans(projectId, "Inflow", dateRange);
+    // This tab's plans for the date range, narrowed by the page's search box, with each plan's fixed "Plan N".
+    const { plans, isLoading, refreshPlans, planNumbers, searchActive } = useCashflowTabPlans(projectId, "Inflow", dateRange, searchWords);
 
     const confirmDelete = async () => {
         if (!deleteId) return;
@@ -101,7 +103,8 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
                 {/* List Header */}
                 <div className="space-y-2">
                     {isLoading && <div className="text-center py-8 text-gray-500">Loading plans...</div>}
-                    {!isLoading && plans?.length === 0 && !showAddForm && (
+                    {!isLoading && searchActive && plans?.length === 0 && <CashflowNoSearchMatch query={searchText} />}
+                    {!isLoading && !searchActive && plans?.length === 0 && !showAddForm && (
                          <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                             <p className="text-gray-500 mb-4">No Inflow plans found.</p>
                             <Button onClick={() => setShowAddForm(true)} className="bg-red-600 hover:bg-red-700 text-white">
@@ -111,7 +114,7 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
                          </div>
                     )}
 
-                    {plans?.map((plan: any, index: number) => {
+                    {plans?.map((plan: any) => {
                         return (
                             <div key={plan.name} className="border rounded-lg bg-white overflow-hidden transition-all hover:shadow-sm">
                                 <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
@@ -125,7 +128,7 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
                                         
                                         <div className="flex flex-col gap-0.5 min-w-0">
                                             <Badge variant="secondary" className="w-fit mb-0.5 text-[10px] text-green-700 bg-green-50 px-1.5 rounded-sm uppercase tracking-wider">
-                                                Plan {index + 1}
+                                                Plan {planNumbers.get(plan.name) ?? "…"}
                                             </Badge>
                                             <div className="font-semibold text-gray-900 text-sm truncate">{plan.name}</div>
                                         </div>

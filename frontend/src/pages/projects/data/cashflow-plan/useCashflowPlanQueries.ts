@@ -9,6 +9,8 @@ import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 export const cashflowPlanKeys = {
     list: (projectId: string, category: string | string[], startDate?: string, endDate?: string) =>
         ["cashflow-plan", projectId, Array.isArray(category) ? category.join(',') : category, startDate || "all", endDate || "all"] as const,
+    numbers: (projectId: string, category: string | string[]) =>
+        ["cashflow-plan", "numbers", projectId, Array.isArray(category) ? category.join(',') : category] as const,
     vendors: () => ["cashflow-plan", "vendors"] as const,
     materialPlans: (projectId: string) => ["cashflow-plan", "material-plans", projectId] as const,
     materialPlansSummary: (projectId: string) => ["cashflow-plan", "material-plans-summary", projectId] as const,
@@ -69,6 +71,33 @@ export const useCashflowPlans = (projectId: string, category: string | string[],
     useApiErrorLogger(response.error, {
         hook: "useCashflowPlans",
         api: "Cashflow Plan List",
+        feature: "cashflow-plan",
+        entity_id: projectId,
+    });
+
+    return response;
+};
+
+// 2b. Every plan of the tab's type(s) for the project (name + creation only), with no date filter, for the
+//     "Plan N" label: numbered across all of them so neither the date filter nor the search renumbers.
+export const useCashflowPlanNumberSource = (projectId: string, category: string | string[]) => {
+    const response = useFrappeGetDocList<{ name: string; creation: string }>(
+        "Cashflow Plan",
+        {
+            fields: ["name", "creation"],
+            filters: [
+                ["project", "=", projectId],
+                Array.isArray(category) ? ["type", "in", category] : ["type", "=", category],
+            ],
+            orderBy: { field: "creation", order: "asc" },
+            limit: 0,
+        },
+        projectId ? cashflowPlanKeys.numbers(projectId, category) : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useCashflowPlanNumberSource",
+        api: "Cashflow Plan List (numbers)",
         feature: "cashflow-plan",
         entity_id: projectId,
     });
