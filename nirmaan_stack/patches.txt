@@ -221,3 +221,4 @@ nirmaan_stack.patches.v3_0.reimbursement_status_from_expense
 nirmaan_stack.patches.v3_0.approve_cashbook_import_bills
 nirmaan_stack.patches.v3_0.seed_cashbook_import_rules
 nirmaan_stack.patches.v3_0.card_statement_previous_balance_in_credit
+nirmaan_stack.patches.v3_0.add_technology_department
