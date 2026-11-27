@@ -13,7 +13,8 @@ export const useProjectAllCredits = (projectId: string | undefined) => {
     useEffect(() => {
         const filters: any[] = [
             ["PO Payment Terms", "payment_type", "=", "Credit"],
-            ["status", "not in", ["Merged", "Inactive"]]
+            // The same POs the Projects list rollup counts (project_aggregates: not Merged, Cancelled or Inactive).
+            ["status", "not in", ["Merged", "Cancelled", "Inactive"]]
         ];
 
         if (projectId) {
