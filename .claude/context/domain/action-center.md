@@ -94,7 +94,8 @@ Surface A's DN/DC. The frontend-reuse notes below describe that older Surface-B 
     Partially Delivered}`, excluding *Additional Charges* items, zero-activity items, and (for
     Partially-Dispatched POs) non-dispatched items. `mismatch` is **not** surfaced as a v1 tile.
   - Logic lives in `frontend/src/pages/reports/hooks/useDNDCQuantityData.ts` (a frontend `useMemo`
-    over `generate_po_summary` + `get_project_po_delivery_documents` + a `Procurement Orders` list).
+    over `generate_po_summary` + `get_project_po_delivery_documents` + a `Procurement Orders` list);
+    the per-item status rule it applies is `frontend/src/utils/dnDcStatus.ts` (`dnDcItemStatus`).
 - **Architecture = frontend orchestration that reuses `useDNDCQuantityData`** — NOT a Python port.
   Rationale: the report logic is non-trivial and **actively evolving** (the Billable-only filter was
   added in commit `9510ef1e`); a Python copy would have already drifted. Reuse keeps one source of truth.
