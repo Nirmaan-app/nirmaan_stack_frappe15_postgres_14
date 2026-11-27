@@ -9,6 +9,10 @@ interface WorkPlanOverviewProps {
     getHeaderStats: (items: WorkPlanItem[]) => { avgProgress: number; plannedActivitiesCount: number };
     isProjectManager?: boolean;
     onEditTask?: (plan: WorkPlanDoc, milestone: WorkPlanItem) => void;
+    /** Open/closed from the page (its "Collapse all" and saved fold). Left out, the card keeps its own state. */
+    isExpanded?: boolean;
+    /** The header's arrow when the page owns the state; left out with `isExpanded` set, the header is not clickable. */
+    onToggle?: () => void;
 }
 
 interface FlatActivity {
@@ -192,9 +196,12 @@ const ActivityCard = ({ plan, milestone, onEditTask }: ActivityCardProps) => {
     );
 };
 
-export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask }: WorkPlanOverviewProps) => {
+export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask, isExpanded: expandedProp, onToggle }: WorkPlanOverviewProps) => {
     const { plannedActivitiesCount } = getHeaderStats(items);
-    const [isExpanded, setIsExpanded] = useState(true);
+    const [ownExpanded, setOwnExpanded] = useState(true);
+    const controlled = expandedProp !== undefined;
+    const isExpanded = controlled ? expandedProp : ownExpanded;
+    const handleToggle = controlled ? onToggle : () => setOwnExpanded(!ownExpanded);
 
     const flatActivities = useMemo<FlatActivity[]>(() => {
         const out: FlatActivity[] = [];
@@ -210,11 +217,11 @@ export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask }: 
         <div className={`overflow-hidden mb-4 transition-colors ${isExpanded ? "bg-gray-50 rounded-md pb-3" : "bg-white"}`}>
             {/* Header */}
             <div
-                className={`flex items-center justify-between cursor-pointer transition-colors ${!isExpanded
+                className={`flex items-center justify-between transition-colors ${handleToggle ? "cursor-pointer" : ""} ${!isExpanded
                     ? "border bg-gray-100/50 px-3 py-3 rounded-md border-[#D7D7EC]"
                     : "py-3 px-3"
                     }`}
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={handleToggle}
             >
                 <div className="flex items-center gap-3">
                     <h4 className="font-bold text-gray-900 text-base">{header}</h4>
@@ -222,9 +229,11 @@ export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask }: 
                         {plannedActivitiesCount} Planned Activities
                     </span>
                 </div>
-                <div className="text-gray-400">
-                    {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                </div>
+                {handleToggle && (
+                    <div className="text-gray-400">
+                        {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                    </div>
+                )}
             </div>
 
             {/* Activity Cards */}

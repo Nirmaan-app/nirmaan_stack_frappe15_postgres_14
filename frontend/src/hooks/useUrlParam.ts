@@ -21,8 +21,12 @@ export const useUrlParam = (key: string) => {
   // Keyed on the navigation, not on location.search: after a tab click (urlStateManager,
   // replaceState) the router's search is stale, so a navigate() back to that same search
   // -- the app access gate's "Open my assets" opening ?tab=assets -- would change nothing.
+  // It reads the browser's address, not the router's `location.search`: after a filter write (replaceState) the
+  // router's copy is stale, and on a MOUNT (a planning tab switched in) this effect used to overwrite the fresh
+  // value with it -- "All Time" turned back into the old Custom Range, and picking All Time again did nothing
+  // because urlStateManager skips writing a value the URL already holds. After a navigate() both are the same.
   useEffect(() => {
-    setParamValue(new URLSearchParams(location.search).get(key));
+    setParamValue(new URLSearchParams(window.location.search).get(key));
   }, [key, location.key, location.search]);
 
   // Still needed for urlStateManager.updateParam (replaceState-based filter/pagination

@@ -23,10 +23,12 @@ import { EditPOCashflowForm } from "./components/EditPOCashflowForm";
 //     return <div>Edit Form Here</div>;
 // };
 import { useParams } from "react-router-dom";
-import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCashflowTabPlans } from "./useCashflowTabPlans";
 import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditCashflowPlan, canDeleteCashflowPlan } from "@/constants/roles";
+import { cashflowItemHits } from "@/utils/cashflowPlan/cashflowSearch";
+import { CashflowNoSearchMatch, CashflowTabSearchProps } from "./components/CashflowNoSearchMatch";
 
 // Helper to safely parse items
 const cashFlowJsonToArray = (plan: any): any[] => {
@@ -43,24 +45,24 @@ const cashFlowJsonToArray = (plan: any): any[] => {
     }
 };
 
-interface POCashflowContentProps {
+interface POCashflowContentProps extends CashflowTabSearchProps {
     projectId: string;
     dateRange?: { from?: Date; to?: Date };
     isOverview?: boolean;
 }
 
-export const POCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
+export const POCashflow = ({ dateRange, isOverview, searchWords, searchText }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean } & CashflowTabSearchProps) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="p-4 text-red-500">Project ID missing</div>;
-    return <POCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
+    return <POCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} searchWords={searchWords} searchText={searchText} />;
 }
 
-const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashflowContentProps) => {
+const POCashflowContent = ({ projectId, dateRange, isOverview = false, searchWords = [], searchText = "" }: POCashflowContentProps) => {
     const { role, user_id } = useUserData();
     const canEdit = canEditCashflowPlan(role, user_id);
     const canDelete = canDeleteCashflowPlan(role, user_id);
-    // Fetch Plans
-    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useCashflowPlans(projectId, ["Existing PO", "New PO"], dateRange);
+    // Fetch Plans, then narrow them by the page's search box (the count badge and the list read the narrowed list).
+    const { plans: existingPlans, isLoading: isLoadingPlans, refreshPlans, planNumbers, searchActive } = useCashflowTabPlans(projectId, ["Existing PO", "New PO"], dateRange, searchWords);
 
     const [planForms, setPlanForms] = useState<number[]>([]);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
@@ -148,14 +150,16 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                  {/* List */}
                  <div className="space-y-2">
                     {isLoadingPlans && <div className="text-gray-500 text-center py-4">Loading plans...</div>}
-                    {!isLoadingPlans && existingPlans?.length === 0 && (
+                    {!isLoadingPlans && existingPlans?.length === 0 && (searchActive ? <CashflowNoSearchMatch query={searchText} /> : (
                         <div className="text-gray-500 text-center py-10 bg-gray-50 rounded-lg border border-dashed">
                             No cashflow plans found for this period.
                         </div>
-                    )}
+                    ))}
 
-                    {existingPlans?.map((plan: any, _index: number) => {
-                        const isExpanded = expandedPlans.includes(plan.name);
+                    {existingPlans?.map((plan: any) => {
+                        // Materials the search hit: the card opens by itself and their chips are highlighted.
+                        const hitItems = cashflowItemHits(plan, searchWords);
+                        const isExpanded = expandedPlans.includes(plan.name) || hitItems.size > 0;
                         
                         const itemsList = cashFlowJsonToArray(plan);
 
@@ -176,7 +180,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                         <div className="flex flex-col gap-0.5 min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
-                                                    Plan {_index + 1}
+                                                    Plan {planNumbers.get(plan.name) ?? "…"}
                                                 </Badge>
                                                 
                                             </div>
@@ -301,7 +305,13 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                             </span>
                                             <div className="flex flex-wrap gap-2">
                                                 {itemsList.map((item: any, i: number) => (
-                                                    <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                    <div
+                                                        key={i}
+                                                        className={`text-xs px-2.5 py-1 rounded-md font-medium ${hitItems.has(i)
+                                                            ? "bg-yellow-200 text-gray-900 ring-1 ring-yellow-500"
+                                                            : "bg-[#EBE9F8] text-gray-700"
+                                                            }`}
+                                                    >
                                                         {item.item_name}
                                                     </div>
                                                 ))}
@@ -333,6 +343,8 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
             />
 
             <EditPOCashflowForm 
+                // A fresh dialog per entry: no Link / Change pick (or vendor) carries over to the next one.
+                key={editingPlan?.name ?? "closed"}
                 isOpen={!!editingPlan}
                 projectId={projectId}
                 plan={editingPlan}

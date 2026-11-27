@@ -5,7 +5,10 @@ import { useWorkPlanData, useProjectDocForWorkPlan, WorkPlanItem, WorkPlanDoc } 
 import { useDeleteWorkPlan } from "@/pages/projects/data/work-plan/useWorkPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap, MessageCircle } from "lucide-react";
+import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap, MessageCircle, Search, X, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { searchWords } from "@/utils/searchWords";
+import { filterActivitiesBySearch } from "@/utils/workPlan/activitySearch";
+import { allCollapsed, loadCollapsedHeaders, saveCollapsedHeaders, toggleAllHeaders, toggleHeader as toggleCollapsed } from "@/utils/workPlan/collapsedHeaders";
 // ... (existing imports)
 
 
@@ -621,19 +624,33 @@ export const SevendaysWorkPlan = ({
     };
     const statusFilterActive = showActivityFilters && selectedStatuses.size > 0;
 
+    // --- Search (Planned Activities view only: header, milestone, title, description, Note) ---
+    // The input's own state is the source of truth, seeded once from the URL and written back to it
+    // (`planningSearch`) so a searched link can be shared. It is not read back through useUrlParam, whose
+    // on-mount re-read would restore a stale value after a remount.
+    const [searchText, setSearchText] = useState(() => urlStateManager.getParam("planningSearch") ?? "");
+    const handleSearchChange = (value: string) => {
+        setSearchText(value);
+        urlStateManager.updateParam("planningSearch", value.trim() ? value : null);
+    };
+    // Overview and the Milestones view show no search box, so they must not filter by a search left in the URL.
+    const showSearch = !isOverview && activeView === "activities";
+    const words = useMemo(() => (showSearch ? searchWords(searchText) : []), [showSearch, searchText]);
+    const searchActive = words.length > 0;
+
     const { data: result, error, isLoading: loading, mutate } = useWorkPlanData(
         projectId,
         showActivityFilters && startDate ? format(startDate, "yyyy-MM-dd") : undefined,
         showActivityFilters && endDate ? format(endDate, "yyyy-MM-dd") : undefined
     );
 
-    // What the screen shows: the fetched data, narrowed by the status filter in the Planned Activities view.
-    // Every count (zone badges, header badges, empty states) reads this, so they follow the filter.
+    // What the screen shows: the fetched data, narrowed by the status filter and the search in the Planned
+    // Activities view. Every count (zone badges, header badges, empty states) reads this, so they follow both.
     const workPlanData = useMemo(() => {
         const data = result?.message?.data;
         if (!data || !showActivityFilters) return data;
-        return filterActivitiesByStatus(data, selectedStatuses);
-    }, [result, showActivityFilters, selectedStatuses]);
+        return filterActivitiesBySearch(filterActivitiesByStatus(data, selectedStatuses), words);
+    }, [result, showActivityFilters, selectedStatuses, words]);
 
     const { data: projectDoc } = useProjectDocForWorkPlan(projectId);
     const zones: string[] = useMemo(() => {
@@ -685,14 +702,15 @@ export const SevendaysWorkPlan = ({
         urlStateManager.updateParam("planningZone", zone);
     };
 
-    const [expandedHeaders, setExpandedHeaders] = useState<Record<string, boolean>>({});
-
-    const toggleHeader = (header: string) => {
-        setExpandedHeaders((prev) => ({
-            ...prev,
-            [header]: prev[header] === false ? true : false,
-        }));
+    // Folded work headers, shared by both views and remembered per project in this browser.
+    const [collapsedHeaders, setCollapsedHeaders] = useState<Set<string>>(() => loadCollapsedHeaders(projectId));
+    const updateCollapsed = (next: Set<string>) => {
+        setCollapsedHeaders(next);
+        saveCollapsedHeaders(projectId, next);
     };
+    const toggleHeader = (header: string) => updateCollapsed(toggleCollapsed(collapsedHeaders, header));
+    // While searching every matching header stays open (a fold would hide the hit), so the arrows do nothing then.
+    const isHeaderExpanded = (header: string) => searchActive || !collapsedHeaders.has(header);
 
     const [editMilestoneState, setEditMilestoneState] = useState<{
         isOpen: boolean;
@@ -987,6 +1005,25 @@ export const SevendaysWorkPlan = ({
         });
     }
 
+    // The milestones a header shows: in Overview, for a PM and in the Activities view only those with planned
+    // activities; always only the active zone (the tabs enforce one; empty = every zone as a fallback).
+    const itemsForHeader = (header: string): WorkPlanItem[] => {
+        let items = workPlanData?.[header] || [];
+        if (isOverview || isProjectManager || activeView === "activities") {
+            items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
+        }
+        if (activeZone) {
+            items = items.filter(item => item.zone === activeZone);
+        }
+        return items;
+    };
+    // The headers on screen now: what "Collapse all" / "Expand all" acts on.
+    const shownHeaders = workHeaders.filter(header => itemsForHeader(header).length > 0);
+    const everyShownCollapsed = allCollapsed(collapsedHeaders, shownHeaders);
+    // The empty states' wording for the active filters ("… matching "duct" with the selected status").
+    const filterPhrase =
+        (searchActive ? ` matching "${searchText.trim()}"` : "") + (statusFilterActive ? " with the selected status" : "");
+
     // Completed activities never come back for a date range (`get_work_plan`), so picking Completed then needs a word.
     const showCompletedHint = showActivityFilters && completedNeedsAllTime(selectedStatuses, !!dateRange);
 
@@ -1122,8 +1159,45 @@ export const SevendaysWorkPlan = ({
                     </button>
                 </div>
             )}
-            {showActivityFilters && (
+            {(showActivityFilters || !isOverview) && (
                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
+                    {showSearch && (
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                            <Input
+                                value={searchText}
+                                onChange={(e) => handleSearchChange(e.target.value)}
+                                placeholder="Search task, milestone, note…"
+                                aria-label="Search planned activities"
+                                className="h-9 pl-8 pr-8 text-xs"
+                            />
+                            {searchText && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSearchChange("")}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 rounded"
+                                    title="Clear search"
+                                    aria-label="Clear search"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {!isOverview && !searchActive && shownHeaders.length > 0 && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9 gap-1.5 text-xs text-gray-700"
+                            onClick={() => updateCollapsed(toggleAllHeaders(collapsedHeaders, shownHeaders))}
+                        >
+                            {everyShownCollapsed ? <ChevronsUpDown className="h-3.5 w-3.5" /> : <ChevronsDownUp className="h-3.5 w-3.5" />}
+                            {everyShownCollapsed ? "Expand all" : "Collapse all"}
+                        </Button>
+                    )}
+                    {showActivityFilters && (
+                    <>
                     <PlanningDurationFilter
                         dateRange={dateRange}
                         activeDuration={activeDuration}
@@ -1136,6 +1210,8 @@ export const SevendaysWorkPlan = ({
                         selectedValues={selectedStatuses}
                         onSelectedValuesChange={handleStatusChange}
                     />
+                    </>
+                    )}
                 </div>
             )}
             {showCompletedHint && (
@@ -1151,14 +1227,16 @@ export const SevendaysWorkPlan = ({
                     {isProjectManager && !hasZoneData ? (
                         <div className="rounded-lg border bg-blue-50 p-8 text-center text-gray-600">
                             <div className="text-lg font-medium mb-1">No Plan Activities</div>
-                            <div className="text-sm">There are no planned activities{statusFilterActive ? " with the selected status" : ""} available in <span className="font-semibold">{activeZone}</span> zone.</div>
+                            <div className="text-sm">There are no planned activities{filterPhrase} available in <span className="font-semibold">{activeZone}</span> zone.</div>
                         </div>
                     ) : (showActivityFilters && totalPlannedActivities === 0 && (!isOverview || statusFilterActive)) ? (
                         <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
                             <div className="text-base font-medium text-gray-700 mb-1">
-                                {statusFilterActive ? "No activities match the selected status" : "No activities here now"}
+                                {searchActive
+                                    ? `No activities match "${searchText.trim()}"`
+                                    : statusFilterActive ? "No activities match the selected status" : "No activities here now"}
                             </div>
-                            <div className="text-sm">No planned activities{statusFilterActive ? " with the selected status" : ""} found{activeZone ? <> in <span className="font-semibold">{activeZone}</span> zone</> : ""}.</div>
+                            <div className="text-sm">No planned activities{filterPhrase} found{activeZone ? <> in <span className="font-semibold">{activeZone}</span> zone</> : ""}.</div>
                         </div>
                     ) : !hasData ? (
                         <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
@@ -1166,20 +1244,7 @@ export const SevendaysWorkPlan = ({
                         </div>
                     ) : (
                         workHeaders.map((header) => {
-                            let items = workPlanData?.[header] || [];
-
-                            // Filter to only show milestones with plan activities for overview, PM, or Activities tab
-                            if (isOverview || isProjectManager || activeView === "activities") {
-                                items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
-                            }
-
-                            // Strict Filtering: Since we removed the "All" tab, activeZone should usually be set.
-                            // If for some reason activeZone is empty, this logic implies showing everything (fallback),
-                            // but the UI tabs enforce a selection.
-                            if (activeZone) {
-                                items = items.filter(item => item.zone === activeZone);
-                            }
-
+                            const items = itemsForHeader(header);
                             if (items.length === 0) return null;
 
                             const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);
@@ -1190,9 +1255,10 @@ export const SevendaysWorkPlan = ({
                                 : 0;
 
                             const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
-                            const isExpanded = expandedHeaders[header] !== false;
+                            const isExpanded = isHeaderExpanded(header);
 
                             if (isOverview || activeView === "activities") {
+                                // Overview keeps each card's own fold; the planning page drives it (Collapse all, saved fold).
                                 return (
                                     <WorkPlanOverview
                                         key={header}
@@ -1201,6 +1267,8 @@ export const SevendaysWorkPlan = ({
                                         getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
                                         isProjectManager={isProjectManager}
                                         onEditTask={handleEditTask}
+                                        isExpanded={isOverview ? undefined : isExpanded}
+                                        onToggle={isOverview || searchActive ? undefined : () => toggleHeader(header)}
                                     />
                                 );
                             }

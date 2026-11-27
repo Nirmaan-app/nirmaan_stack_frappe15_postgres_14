@@ -61,6 +61,9 @@ export const useCashflowPlans = (projectId: string, category: string | string[],
         {
             fields: ["*"],
             filters: filters,
+            // Newest first, like the Cashflow PDF ("Plan N" is the position in this list). Without it Postgres
+            // returns rows in storage order, and an edited plan jumped to the end.
+            orderBy: { field: "creation", order: "desc" },
             limit: 0,
         },
         projectId ? cashflowPlanKeys.list(projectId, category, startDateStr, endDateStr) : null

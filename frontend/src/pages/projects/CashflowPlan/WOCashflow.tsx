@@ -16,20 +16,22 @@ import {
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
 import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCashflowTabPlans } from "./useCashflowTabPlans";
 import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditCashflowPlan, canDeleteCashflowPlan } from "@/constants/roles";
+import { cashflowItemHits } from "@/utils/cashflowPlan/cashflowSearch";
+import { CashflowNoSearchMatch, CashflowTabSearchProps } from "./components/CashflowNoSearchMatch";
 
 // ... imports
 
-export const WOCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
+export const WOCashflow = ({ dateRange, isOverview, searchWords, searchText }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean } & CashflowTabSearchProps) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <WOCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
+    return <WOCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} searchWords={searchWords} searchText={searchText} />;
 };
 
-const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean }) => {
+const WOCashflowContent = ({ projectId, dateRange, isOverview = false, searchWords = [], searchText = "" }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean } & CashflowTabSearchProps) => {
     const { role, user_id } = useUserData();
     const canEdit = canEditCashflowPlan(role, user_id);
     const canDelete = canDeleteCashflowPlan(role, user_id);
@@ -40,7 +42,8 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
 
     const { deleteCashflow } = useDeleteCashflowPlan();
 
-    const { data: plans, isLoading, mutate: refreshPlans } = useCashflowPlans(projectId, ["Existing WO", "New WO"], dateRange);
+    // This tab's plans for the date range, narrowed by the page's search box, with each plan's fixed "Plan N".
+    const { plans, isLoading, refreshPlans, planNumbers, searchActive } = useCashflowTabPlans(projectId, ["Existing WO", "New WO"], dateRange, searchWords);
 
     const togglePlan = (name: string) => {
         setExpandedPlans(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
@@ -102,7 +105,8 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                 {/* List Header */}
                 <div className="space-y-2">
                     {isLoading && <div className="text-center py-8 text-gray-500">Loading plans...</div>}
-                    {!isLoading && plans?.length === 0 && !showAddForm && (
+                    {!isLoading && searchActive && plans?.length === 0 && <CashflowNoSearchMatch query={searchText} />}
+                    {!isLoading && !searchActive && plans?.length === 0 && !showAddForm && (
                          <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                             <p className="text-gray-500 mb-4">No Work Order plans found.</p>
                             <Button onClick={() => setShowAddForm(true)}>
@@ -112,8 +116,10 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                          </div>
                     )}
 
-                    {plans?.map((plan: any, index: number) => {
-                        const isExpanded = expandedPlans.includes(plan.name);
+                    {plans?.map((plan: any) => {
+                        // Descriptions the search hit: the card opens by itself and their chips are highlighted.
+                        const hitItems = cashflowItemHits(plan, searchWords);
+                        const isExpanded = expandedPlans.includes(plan.name) || hitItems.size > 0;
                         
                         
                         // Progress Calculation
@@ -139,7 +145,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                                             <div className="flex items-center gap-2">
                                                 <Badge variant="secondary" className="bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
-                                                    Plan {index + 1}
+                                                    Plan {planNumbers.get(plan.name) ?? "…"}
                                                 </Badge>
                                                 <Badge variant={plan.type === "Existing WO" ? "secondary" : "default"} 
                                                     className={`px-1.5 py-0 text-[10px] font-normal ${plan.type === "Existing WO" ? "bg-blue-100 text-blue-700" : "bg-yellow-100 text-yellow-700"}`}>
@@ -256,7 +262,13 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                                             </span>
                                                             <div className="flex flex-wrap gap-2">
                                                                 {itemsList.map((item: any, i: number) => (
-                                                                    <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                                    <div
+                                                                        key={i}
+                                                                        className={`text-xs px-2.5 py-1 rounded-md font-medium ${hitItems.has(i)
+                                                                            ? "bg-yellow-200 text-gray-900 ring-1 ring-yellow-500"
+                                                                            : "bg-[#EBE9F8] text-gray-700"
+                                                                            }`}
+                                                                    >
                                                                         {item.description}
                                                                         {item.category && <span className="ml-1 text-gray-500 font-normal">({item.category})</span>}
                                                                     </div>
@@ -306,6 +318,8 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
             </div>
             {/* Edit Dialog */}
             <EditWOCashflowForm 
+                // A fresh dialog per entry: no Link / Change pick (or vendor) carries over to the next one.
+                key={editingPlan?.name ?? "closed"}
                 isOpen={!!editingPlan}
                 projectId={projectId}
                 plan={editingPlan}

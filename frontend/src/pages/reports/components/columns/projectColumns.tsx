@@ -8,7 +8,15 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCalculatedFields } from "../../hooks/useProjectReportCalculations";
 import { Info } from "lucide-react";
-import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
+import {
+  CASHFLOW_GAP_POINTS,
+  CURRENT_LIABILITIES_POINTS,
+  INFLOW_POINTS,
+  NOTIONAL_GST_POINTS,
+  PROJECT_OUTFLOW_POINTS,
+  TOTAL_CREDIT_PURCHASE_POINTS,
+  type TooltipPoint,
+} from "@/constants/projectOutflow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { projectReportLink, type ProjectReportLink } from "../../utils/projectReportLink";
@@ -33,10 +41,30 @@ const ProjectReportAnchor: React.FC<{ link: ProjectReportLink; children: React.R
   </Link>
 );
 
-// Wraps a column header with a small info icon that reveals a definition tooltip on hover.
-// The icon is a sibling of the sort trigger so clicks don't toggle sort.
+/** A column's ⓘ points as a bullet list; a point with sub-points nests them under it. */
+const TooltipPoints: React.FC<{ points: readonly TooltipPoint[] }> = ({ points }) => (
+  <ul className="list-disc space-y-0.5 pl-4">
+    {points.map((point, i) =>
+      typeof point === "string" ? (
+        <li key={i}>{point}</li>
+      ) : (
+        <li key={i}>
+          {point.text}
+          <ul className="mt-0.5 space-y-0.5 pl-3">
+            {point.points.map((sub, j) => (
+              <li key={j}>{sub}</li>
+            ))}
+          </ul>
+        </li>
+      ),
+    )}
+  </ul>
+);
+
+// Wraps a column header with a small info icon that reveals a definition tooltip on hover: a sentence, or
+// points shown as a bullet list. The icon is a sibling of the sort trigger so clicks don't toggle sort.
 export const HeaderWithInfo: React.FC<{
-  tooltip: string;
+  tooltip: string | readonly TooltipPoint[];
   children: React.ReactNode;
 }> = ({ tooltip, children }) => (
   // `min-w-0` lets the title shrink and the icon (`shrink-0`, above the next header) stay inside the
@@ -55,7 +83,7 @@ export const HeaderWithInfo: React.FC<{
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs leading-snug">
-        {tooltip}
+        {typeof tooltip === "string" ? tooltip : <TooltipPoints points={tooltip} />}
       </TooltipContent>
     </Tooltip>
   </div>
@@ -185,7 +213,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "totalInflow",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip="Total client payments received for this project.">
+      <HeaderWithInfo tooltip={INFLOW_POINTS}>
         <DataTableColumnHeader column={column} title="Inflow" />
       </HeaderWithInfo>
     ),
@@ -211,7 +239,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "totalOutflow",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip={PROJECT_OUTFLOW_TOOLTIP}>
+      <HeaderWithInfo tooltip={PROJECT_OUTFLOW_POINTS}>
         <DataTableColumnHeader column={column} title="Project Outflow" />
       </HeaderWithInfo>
     ),
@@ -236,7 +264,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "totalLiabilities",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip="Unpaid value of goods already delivered. Per PO: delivered amount − payments made (capped to delivered value, so prepayments don't reduce it below zero).">
+      <HeaderWithInfo tooltip={CURRENT_LIABILITIES_POINTS}>
         <DataTableColumnHeader column={column} title="Current Liability" />
       </HeaderWithInfo>
     ),
@@ -247,7 +275,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "cashflowGap",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip={CASHFLOW_GAP_TOOLTIP}>
+      <HeaderWithInfo tooltip={CASHFLOW_GAP_POINTS}>
         <DataTableColumnHeader column={column} title="Cashflow Gap" />
       </HeaderWithInfo>
     ),
@@ -272,7 +300,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "notionalGst",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip="Sum of GST Amount for Work Orders where GST is marked off in the system">
+      <HeaderWithInfo tooltip={NOTIONAL_GST_POINTS}>
         <DataTableColumnHeader column={column} title="Notional GST" />
       </HeaderWithInfo>
     ),
@@ -290,7 +318,11 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   
   {
     accessorKey: "TotalPurchaseOverCredit",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Purchase Over Credit" className="[&_button]:whitespace-normal text-left" />,
+    header: ({ column }) => (
+      <HeaderWithInfo tooltip={TOTAL_CREDIT_PURCHASE_POINTS}>
+        <DataTableColumnHeader column={column} title="Total Purchase Over Credit" className="[&_button]:whitespace-normal text-left" />
+      </HeaderWithInfo>
+    ),
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatValueToLakhsString(getValue() as number)}</div>,
     size: 140,
     meta: {

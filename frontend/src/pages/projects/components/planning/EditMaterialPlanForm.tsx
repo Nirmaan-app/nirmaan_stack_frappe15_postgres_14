@@ -6,6 +6,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useProcurementOrderDoc } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
 import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
+import { poLinkUpdate } from "@/utils/materialPlan/poLink";
+import { EditableLinkBadge, POLinkPickerPanel } from "./LinkPicker";
+import { usePOLinkPicker } from "./usePOLinkPicker";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,11 +20,13 @@ const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, PMO_EXECUTIVE_PROFILE, ...
 
 interface EditMaterialPlanFormProps {
     plan: any;
+    /** The plan's project; the plan list does not load `project`, and Link / Change PO lists this project's POs. */
+    projectId: string;
     onClose: () => void;
     onSuccess: () => void;
 }
 
-export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialPlanFormProps) => {
+export const EditMaterialPlanForm = ({ plan, projectId, onClose, onSuccess }: EditMaterialPlanFormProps) => {
     
     // Parse existing items from plan
     const initialItems = React.useMemo(() => {
@@ -59,15 +64,13 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
     const remarksInvalid = remarksMissing(deliveryStatus, remarks);
     
     // --- Existing PO State ---
-    // Map of item_name -> boolean (for selection)
-    const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>(() => {
-        if (isNewPO) return {}; 
+    // Map of PO item row name -> boolean (for selection). The plan's own items start ticked.
+    const initialSelection = React.useMemo(() => {
         const initial: Record<string, boolean> = {};
-        initialItems.forEach((i: any) => {
-            initial[i.name] = true; 
-        });
+        if (!isNewPO) initialItems.forEach((i: any) => { initial[i.name] = true; });
         return initial;
-    });
+    }, [initialItems, isNewPO]);
+    const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>(initialSelection);
 
     const [searchTerm, setSearchTerm] = useState("");
     // Fetch Full PO Data using standard Doc fetch (Only for Existing PO)
@@ -75,14 +78,33 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         !isNewPO ? plan.po_link : null,
         !isNewPO
     );
-    
-    // Derived PO Items
+
+    // --- Link PO (New PO plan) / Change PO (Existing PO plan) — Admin + PMO; rules in utils/materialPlan/poLink,
+    //     picker shared with the PO Cashflow Edit dialog (LinkPicker / usePOLinkPicker) ---
+    const poPicker = usePOLinkPicker(projectId, plan, plan.po_link);
+    const targetPO = poPicker.targetPO;
+    // Picking the plan's own PO again is no change.
+    const poChanged = poPicker.changed;
+    const pickPO = (poName: string) => {
+        // The old items belong to the old PO (or were typed in): start the new PO with nothing ticked.
+        setSelectedItems(poName === plan.po_link ? initialSelection : {});
+        setSearchTerm("");
+    };
+    const keepCurrentPO = () => {
+        setSelectedItems(initialSelection);
+        setSearchTerm("");
+    };
+
+    // Derived PO Items: the picked PO's items while linking/changing, else the plan's own PO.
     const poItems = React.useMemo(() => {
+        if (poChanged && targetPO) return targetPO.items ?? [];
         if (poDoc && Array.isArray(poDoc.items)) {
             return poDoc.items;
         }
         return [];
-    }, [poDoc]);
+    }, [poDoc, poChanged, targetPO]);
+    // The typed-in materials list shows only for a New PO plan that is not being linked.
+    const showManualItems = isNewPO && !poChanged;
 
     // --- New PO State ---
     const [manualItemsText, setManualItemsText] = useState<string>(() => {
@@ -126,7 +148,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         () => manualItemsText.split('\n').map(l => l.trim()).filter(Boolean).length,
         [manualItemsText]
     );
-    const itemsInvalid = canEditAll && (isNewPO ? manualItemsCount === 0 : selectedCount === 0);
+    const itemsInvalid = canEditAll && (showManualItems ? manualItemsCount === 0 : selectedCount === 0);
     const isConfirmDisabled = isUpdating || itemsInvalid || (canEditDeliveryStatus && remarksInvalid);
 
     const handleConfirm = async () => {
@@ -174,7 +196,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
         let itemsToSave = [];
 
-        if (isNewPO) {
+        if (showManualItems) {
              const lines = manualItemsText.split('\n').map(l => l.trim()).filter(Boolean);
              if (lines.length === 0) {
                  toast({
@@ -221,10 +243,10 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         }
 
         try {
-            const updatePayload: any = {
-                delivery_date: deliveryDate,
-                mp_items: JSON.stringify({ list: itemsToSave })
-            };
+            const updatePayload: any = poChanged && targetPO
+                // Link PO / Change PO: the plan moves onto the picked PO (type, PO, ticked items, task fields).
+                ? { delivery_date: deliveryDate, ...poLinkUpdate(targetPO, (row) => !!selectedItems[row], plan) }
+                : { delivery_date: deliveryDate, mp_items: JSON.stringify({ list: itemsToSave }) };
             // Only authorized roles can change delivery_status; others' value is ignored server-side anyway
             if (canEditDeliveryStatus) {
                 if (remarksInvalid) {
@@ -241,7 +263,9 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             await updateMaterialPlan(plan.name, updatePayload);
             toast({
                 title: "Success",
-                description: "Material plan updated successfully",
+                description: poChanged && targetPO
+                    ? `Material plan ${isNewPO ? "linked to" : "moved to"} ${targetPO.name}`
+                    : "Material plan updated successfully",
                 variant: "default", // or "success" if you have it configured
             });
             onSuccess();
@@ -289,20 +313,43 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                         
                         <div className="h-4 w-[1px] bg-gray-200 mx-1 hidden sm:block"></div>
 
-                        {/* PO ID */}
-                        <Badge variant="outline" className="text-gray-500 font-medium whitespace-nowrap border-gray-200">
-                             PO: {plan.po_link || "N/A"}
-                        </Badge>
+                        {/* PO ID — the ✏️ inside opens Link PO (New PO plan) / Change PO (Existing PO plan); Admin + PMO.
+                            A picked, unsaved PO shows highlighted here until Confirm. */}
+                        <EditableLinkBadge
+                            text={`PO: ${poChanged && targetPO ? targetPO.name : (plan.po_link || "N/A")}`}
+                            changed={poChanged}
+                            canEdit={canEditAll && !poPicker.open}
+                            editLabel={isNewPO ? "Link PO" : "Change PO"}
+                            onEdit={poPicker.start}
+                            changedHint={`Not saved yet (was ${plan.po_link || "New PO"})`}
+                        />
 
                         {/* PO Type */}
-                        <Badge variant="outline" className="text-gray-500 font-medium whitespace-nowrap border-gray-200">
-                            {plan.po_type || "--"}
+                        <Badge
+                            variant="outline"
+                            className={`font-medium whitespace-nowrap ${poChanged ? "border-blue-300 bg-blue-50 text-blue-700" : "text-gray-500 border-gray-200"}`}
+                        >
+                            {poChanged ? "Existing PO" : (plan.po_type || "--")}
                         </Badge>
                     </div>
                 </div>
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
+
+                    {/* Link / Change PO picker — opened by the ✏️ in the PO badge (Admin + PMO). Like Add Material Plan:
+                        the plan's task POs by default, "See all project POs" for the rest. */}
+                    {canEditAll && poPicker.open && (
+                        <POLinkPickerPanel
+                            picker={poPicker}
+                            plan={plan}
+                            isNew={isNewPO}
+                            noun="plan"
+                            plannedItems={initialItems.map((item: { item_name?: string }) => item.item_name ?? "")}
+                            onPick={pickPO}
+                            onKeep={keepCurrentPO}
+                        />
+                    )}
 
                     {/* Date Picker — Admin only */}
                     <div className="space-y-2">
@@ -419,7 +466,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
                     <div className="h-px bg-gray-100" />
 
-                    {isNewPO ? (
+                    {showManualItems ? (
                         /* --- NEW PO EDIT INTERFACE — Admin only --- */
                          <div className="space-y-2">
                             <Label className="flex items-center gap-2 text-xs font-bold text-gray-700">
@@ -507,10 +554,12 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
                             {/* Items List */}
                             <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100">
-                                {isLoadingPO ? (
+                                {!poChanged && isLoadingPO ? (
                                     <div className="p-8 text-center text-gray-500">Loading items...</div>
                                 ) : filteredItems.length === 0 ? (
-                                    <div className="p-8 text-center text-gray-500">No items found matching "{searchTerm}"</div>
+                                    <div className="p-8 text-center text-gray-500">
+                                        {searchTerm ? `No items found matching "${searchTerm}"` : "This PO has no items."}
+                                    </div>
                                 ) : (
                                     filteredItems.map((item: any) => (
                                         <div
@@ -556,7 +605,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                     <button
                         onClick={handleConfirm}
                         disabled={isConfirmDisabled}
-                        title={itemsInvalid ? (isNewPO ? "Add at least one material line" : "Select at least one item") : undefined}
+                        title={itemsInvalid ? (showManualItems ? "Add at least one material line" : "Select at least one item") : undefined}
                         className="px-6 py-2 bg-red-600 rounded-lg text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-gray-300"
                     >
                         {isUpdating ? "Updating..." : "Confirm"}

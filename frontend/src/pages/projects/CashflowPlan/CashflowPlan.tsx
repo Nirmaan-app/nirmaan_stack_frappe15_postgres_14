@@ -11,8 +11,10 @@ import { MiscCashflow } from "./MiscCashflow";
 import { InflowCashflow } from "./InflowCashflow";
 import { useToast } from "@/components/ui/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, ChevronDown, Loader2 } from "lucide-react";
+import { Download, ChevronDown, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { searchWords } from "@/utils/searchWords";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -50,6 +52,17 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
     const handleTabChange = (tab: CashflowTabValue) => {
         urlStateManager.updateParam("tab", tab);
     };
+
+    // --- Search (applies to whichever tab is open; utils/cashflowPlan/cashflowSearch) ---
+    // The input's own state is the source of truth, seeded once from the URL and written back to it
+    // (`cashflowSearch`) so a searched link can be shared. It is not read back through useUrlParam, whose
+    // on-mount re-read would restore a stale value after a remount.
+    const [searchText, setSearchText] = React.useState(() => urlStateManager.getParam("cashflowSearch") ?? "");
+    const handleSearchChange = (value: string) => {
+        setSearchText(value);
+        urlStateManager.updateParam("cashflowSearch", value.trim() ? value : null);
+    };
+    const words = useMemo(() => searchWords(searchText), [searchText]);
 
     // --- Date/Duration Logic ---
     const activeDurationParam = useUrlParam("planningDuration");
@@ -164,6 +177,27 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
                     // TODO: Wire up actual counts from react-query data in Phase 2
                     rightElement={
                         <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="relative w-full sm:w-60">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                            <Input
+                                value={searchText}
+                                onChange={(e) => handleSearchChange(e.target.value)}
+                                placeholder="Search PO/WO, vendor, item, remarks…"
+                                aria-label="Search cashflow plans"
+                                className="h-8 pl-8 pr-8 text-xs"
+                            />
+                            {searchText && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSearchChange("")}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 rounded"
+                                    title="Clear search"
+                                    aria-label="Clear search"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                        </div>
                         <PlanningDurationFilter
                             dateRange={dateRange}
                             activeDuration={activeDuration}
@@ -217,10 +251,10 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
             {/* 2. Scrollable Content Area */}
             <ScrollArea className="flex-1">
                 <div className="p-2">
-                    {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} isOverview={isOverview} />}
-                    {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow dateRange={dateRange} isOverview={isOverview} />}
-                    {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow dateRange={dateRange} isOverview={isOverview} />}
-                    {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow dateRange={dateRange} isOverview={isOverview} />}
+                    {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} isOverview={isOverview} searchWords={words} searchText={searchText} />}
+                    {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow dateRange={dateRange} isOverview={isOverview} searchWords={words} searchText={searchText} />}
+                    {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow dateRange={dateRange} isOverview={isOverview} searchWords={words} searchText={searchText} />}
+                    {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow dateRange={dateRange} isOverview={isOverview} searchWords={words} searchText={searchText} />}
                 </div>
             </ScrollArea>
         </div>

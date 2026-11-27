@@ -1,0 +1,66 @@
+[
+ [
+  "Planning tabs",
+  "A project's Work Plan, Material Plan and Cashflow Plan screens. Each is also reached from its own tracker in the sidebar (Work Plan Tracker, Material Plan Tracker, Cashflow Plan Tracker)."
+ ],
+ [
+  "Material plan",
+  "A planned delivery of materials for a project: a PO (Existing PO) or materials not ordered yet (New PO), a delivery date and a status."
+ ],
+ [
+  "Cashflow entry",
+  "A planned payment (PO, WO, Misc) or receipt (Inflow) with a planned date and amount. New PO / New WO entries are for orders not raised yet."
+ ],
+ [
+  "WO",
+  "Work Order: an order for services from a vendor. Its id starts with SR- (Service Request)."
+ ],
+ [
+  "Plan N",
+  "The number on each plan's card. Position in the list, newest first, after the date and status filters, as develop does and as the PDF prints it. The search never renumbers."
+ ],
+ [
+  "Task POs",
+  "The POs linked to the plan's Critical PO task: what the Change PO picker lists first, as Add Material Plan does."
+ ],
+ [
+  "Link / Change PO-WO",
+  "The pencil inside the PO ID / WO ID badge of an Edit dialog: link a New entry to the real order, or move it to another one. Admin and PMO only."
+ ],
+ [
+  "All Time",
+  "The date filter choice that shows every plan, whatever its date."
+ ],
+ [
+  "Custom Range",
+  "The date filter choice with your own from and to dates. It travels in the page link, so a shared link opens with it."
+ ],
+ [
+  "Walk data",
+  "11 made-up Cashflow entries on CTS Chennai (remarks end \"(walk data)\"), the same on both envs: the copied database has no Cashflow entries."
+ ],
+ [
+  "ⓘ (column info)",
+  "The small icon beside a column name on the Projects list and the Cash Sheet; pointing at it shows what the number counts."
+ ],
+ [
+  "Cash Sheet",
+  "Reports → Projects: the same money columns as the Projects list, one row per project."
+ ],
+ [
+  "Total Purchase Over Credit",
+  "Value bought on credit terms (PO payment terms of type Credit). Merged, Cancelled and Inactive POs are left out."
+ ],
+ [
+  "Cancelled PO (walk setup)",
+  "The copied data has no Cancelled PO with credit, so the walk sets one (PO/345/00074/25-26, Maconns Noida, ₹49.4 L credit) to Cancelled on both envs."
+ ],
+ [
+  "Before / After",
+  "Before is develop at 1434d6262, the branch's base. After is feat/planning-and-projects-info at 6611ad5aa. Both run on copies of the same database."
+ ],
+ [
+  "Must / Should / Nit / Note",
+  "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."
+ ]
+]
