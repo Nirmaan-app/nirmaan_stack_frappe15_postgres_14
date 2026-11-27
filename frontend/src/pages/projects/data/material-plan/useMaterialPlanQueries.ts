@@ -12,6 +12,8 @@ export const materialPlanKeys = {
         ["material-plan", "projects", projectId] as const,
     list: (projectId: string, filtersKey: string) =>
         ["material-plan", "list", projectId, filtersKey] as const,
+    numbers: (projectId: string) =>
+        ["material-plan", "numbers", projectId] as const,
     poDoc: (poId: string) =>
         ["material-plan", "procurement-orders", poId] as const,
 };
@@ -71,6 +73,33 @@ export const useMaterialDeliveryPlans = (
     useApiErrorLogger(response.error, {
         hook: "useMaterialDeliveryPlans",
         api: "Material Delivery Plan List",
+        feature: "material-plan",
+        entity_id: projectId,
+    });
+
+    return response;
+};
+
+// ---------------------------------------------------------------------------
+// 2b. Every plan of the project (name + creation only), unfiltered, for the
+//     "Plan N" label: numbered across all plans so a filter never renumbers
+//     (see utils/materialPlan/planNumbers).
+// ---------------------------------------------------------------------------
+export const useMaterialPlanNumberSource = (projectId: string) => {
+    const response = useFrappeGetDocList<{ name: string; creation: string }>(
+        "Material Delivery Plan",
+        {
+            fields: ["name", "creation"],
+            filters: [["project", "=", projectId]],
+            orderBy: { field: "creation", order: "asc" },
+            limit: 0,
+        },
+        materialPlanKeys.numbers(projectId)
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useMaterialPlanNumberSource",
+        api: "Material Delivery Plan List (numbers)",
         feature: "material-plan",
         entity_id: projectId,
     });

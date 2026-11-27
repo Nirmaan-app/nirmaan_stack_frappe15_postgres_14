@@ -1,9 +1,13 @@
 import React, { useState, useMemo } from "react";
-import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
+import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans, useMaterialPlanNumberSource } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
 import { useDeleteMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { Loader2, ChevronDown, Trash2, Download, Edit2, PlusCircle } from "lucide-react";
+import { Loader2, ChevronDown, Trash2, Download, Edit2, PlusCircle, Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { filterPlansBySearch, matchedItemIndexes } from "@/utils/materialPlan/planSearch";
+import { searchWords } from "@/utils/searchWords";
+import { planNumbersByCreation } from "@/utils/materialPlan/planNumbers";
 import { PlanningDurationFilter } from "./PlanningDurationFilter";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { DELIVERY_STATUSES, filterPlansByDeliveryStatus } from "@/utils/materialPlan/deliveryStatusFilter";
@@ -214,7 +218,17 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     }, [projectId, startDate, endDate]);
 
     // 2. Fetch Existing Material Delivery Plans
-    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useMaterialDeliveryPlans(projectId, docListFilters);
+    const { data: existingPlans, isLoading: isLoadingPlans, mutate: mutatePlanList } = useMaterialDeliveryPlans(projectId, docListFilters);
+
+    // 3. Every plan's "Plan N" (oldest = 1, across all the project's plans, so no filter renumbers them).
+    const { data: numberSource, mutate: mutatePlanNumbers } = useMaterialPlanNumberSource(projectId);
+    const planNumbers = useMemo(() => planNumbersByCreation(numberSource), [numberSource]);
+
+    // An add or delete changes both the list and the numbering.
+    const refreshPlans = () => {
+        mutatePlanList();
+        mutatePlanNumbers();
+    };
 
     // --- Delivery Status Filter (nothing picked = every status) ---
     const materialStatusParam = useUrlParam("materialStatus");
@@ -227,10 +241,23 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     };
     const statusFilterActive = selectedStatuses.size > 0;
 
-    // What the list shows: the fetched plans narrowed by the status filter. The counts read this too.
+    // --- Search (item name, PO, task, category, remarks) ---
+    // The input's own state is the source of truth, seeded once from the URL and written back to it
+    // (`materialSearch`) so a searched link can be shared. It is not read back through useUrlParam, whose
+    // on-mount re-read would restore a stale value after a remount.
+    const [searchText, setSearchText] = useState(() => urlStateManager.getParam("materialSearch") ?? "");
+    const handleSearchChange = (value: string) => {
+        setSearchText(value);
+        urlStateManager.updateParam("materialSearch", value.trim() ? value : null);
+    };
+    // Overview shows no search box, so it must not filter by a search left in the URL.
+    const words = useMemo(() => (isOverview ? [] : searchWords(searchText)), [isOverview, searchText]);
+    const searchActive = words.length > 0;
+
+    // What the list shows: the fetched plans narrowed by the status filter, then the search. The counts read this too.
     const visiblePlans = useMemo(
-        () => filterPlansByDeliveryStatus(existingPlans, selectedStatuses),
-        [existingPlans, selectedStatuses]
+        () => filterPlansBySearch(filterPlansByDeliveryStatus(existingPlans, selectedStatuses), words, getMaterialItems),
+        [existingPlans, selectedStatuses, words]
     );
 
     // console.log("existingPlans",existingPlans)
@@ -386,6 +413,27 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     </div>
                     <div className="hidden sm:block flex-1 h-px bg-gray-200" />
                     <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                            <Input
+                                value={searchText}
+                                onChange={(e) => handleSearchChange(e.target.value)}
+                                placeholder="Search item, PO, task, category…"
+                                aria-label="Search material plans"
+                                className="h-8 pl-8 pr-8 text-xs"
+                            />
+                            {searchText && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSearchChange("")}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-700 rounded"
+                                    title="Clear search"
+                                    aria-label="Clear search"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                        </div>
                         {planFilters}
                     </div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-wider shrink-0">
@@ -403,17 +451,21 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
                 {!isLoadingPlans && (!visiblePlans || visiblePlans.length === 0) && (
                     <div className="text-gray-500 text-sm italic">
-                        {statusFilterActive
-                            ? "No material delivery plans match the selected status."
-                            : "No material delivery plans found."}
+                        {searchActive
+                            ? `No material plans match "${searchText.trim()}".`
+                            : statusFilterActive
+                                ? "No material delivery plans match the selected status."
+                                : "No material delivery plans found."}
                     </div>
                 )}
 
-                {visiblePlans?.map((plan: any, index: number) => {
+                {visiblePlans?.map((plan: any) => {
                     const itemsList = getMaterialItems(plan);
                     const itemsCount = itemsList.length;
-                    const planNum = index + 1;
-                    const isExpanded = isOverview || expandedPlans.includes(plan.name);
+                    const planNum = planNumbers.get(plan.name);
+                    // Materials the search hit: their plan opens by itself and the chips are highlighted.
+                    const hitItems = matchedItemIndexes(plan, itemsList, words);
+                    const isExpanded = isOverview || hitItems.size > 0 || expandedPlans.includes(plan.name);
                     const isMissingCriticalInfo = (plan.po_type === "Existing PO" || plan.po_type === "New PO") && (!plan.critical_po_category || !plan.critical_po_task);
                     const isDelivered = plan.delivery_status === "Delivered";
                     const isPartiallyDelivered = plan.delivery_status === "Partially Delivered";
@@ -432,7 +484,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                         variant="secondary"
                                         className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded px-2 py-0.5 text-[11px] font-medium shrink-0"
                                     >
-                                        Plan {planNum}
+                                        Plan {planNum ?? "…"}
                                     </Badge>
                                     {plan.remarks && (<span className="text-gray-300 shrink-0">|</span>)}
                                     {plan.remarks && (
@@ -556,7 +608,13 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     </span>
                                     <div className="flex flex-wrap gap-2">
                                         {itemsList.map((item: any, i: number) => (
-                                            <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                            <div
+                                                key={i}
+                                                className={`text-xs px-2.5 py-1 rounded-md font-medium ${hitItems.has(i)
+                                                    ? "bg-yellow-200 text-gray-900 ring-1 ring-yellow-500"
+                                                    : "bg-[#EBE9F8] text-gray-700"
+                                                    }`}
+                                            >
                                                 {item.item_name}
                                             </div>
                                         ))}
