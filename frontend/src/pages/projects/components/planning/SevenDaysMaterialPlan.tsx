@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans, useMaterialPlanNumberSource } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
+import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
 import { useDeleteMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
@@ -7,7 +7,7 @@ import { Loader2, ChevronDown, Trash2, Download, Edit2, PlusCircle, Search, X } 
 import { Input } from "@/components/ui/input";
 import { filterPlansBySearch, matchedItemIndexes } from "@/utils/materialPlan/planSearch";
 import { searchWords } from "@/utils/searchWords";
-import { planNumbersByCreation } from "@/utils/materialPlan/planNumbers";
+import { planNumbersByPosition } from "@/utils/materialPlan/planNumbers";
 import { PlanningDurationFilter } from "./PlanningDurationFilter";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { DELIVERY_STATUSES, filterPlansByDeliveryStatus } from "@/utils/materialPlan/deliveryStatusFilter";
@@ -220,14 +220,8 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     // 2. Fetch Existing Material Delivery Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: mutatePlanList } = useMaterialDeliveryPlans(projectId, docListFilters);
 
-    // 3. Every plan's "Plan N" (oldest = 1, across all the project's plans, so no filter renumbers them).
-    const { data: numberSource, mutate: mutatePlanNumbers } = useMaterialPlanNumberSource(projectId);
-    const planNumbers = useMemo(() => planNumbersByCreation(numberSource), [numberSource]);
-
-    // An add or delete changes both the list and the numbering.
     const refreshPlans = () => {
         mutatePlanList();
-        mutatePlanNumbers();
     };
 
     // --- Delivery Status Filter (nothing picked = every status) ---
@@ -254,10 +248,19 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     const words = useMemo(() => (isOverview ? [] : searchWords(searchText)), [isOverview, searchText]);
     const searchActive = words.length > 0;
 
-    // What the list shows: the fetched plans narrowed by the status filter, then the search. The counts read this too.
+    // The fetched plans (newest first) narrowed by the status filter. "Plan N" is the position in this list, as on
+    // develop and in the Material Plan PDF downloaded with the same filters.
+    const statusFilteredPlans = useMemo(
+        () => filterPlansByDeliveryStatus(existingPlans, selectedStatuses),
+        [existingPlans, selectedStatuses]
+    );
+    const planNumbers = useMemo(() => planNumbersByPosition(statusFilteredPlans), [statusFilteredPlans]);
+
+    // What the list shows: those plans narrowed by the search, which only hides cards and never renumbers them.
+    // The counts read this too.
     const visiblePlans = useMemo(
-        () => filterPlansBySearch(filterPlansByDeliveryStatus(existingPlans, selectedStatuses), words, getMaterialItems),
-        [existingPlans, selectedStatuses, words]
+        () => filterPlansBySearch(statusFilteredPlans, words, getMaterialItems),
+        [statusFilteredPlans, words]
     );
 
     // console.log("existingPlans",existingPlans)
