@@ -7,6 +7,7 @@ import {
   isLinkedToPlanTask,
   planItemsFromPO,
   poLinkUpdate,
+  poOptionLabel,
   posForPicker,
   poTaskLabel,
   sortPOsForPlan,
@@ -101,6 +102,18 @@ describe("poTaskLabel", () => {
   });
   it("says so when the PO has no task", () => {
     expect(poTaskLabel(plainPO)).toBe("no task");
+  });
+});
+
+describe("poOptionLabel", () => {
+  it("shows PO, vendor and item count", () => {
+    expect(poOptionLabel(copperPO, plan, false)).toBe("PO/105/00107/26-27 · Pipe Vendor · 3 items");
+    expect(poOptionLabel(plainPO, plan, false)).toBe("PO/150/00107/26-27 · 1 item");
+  });
+  it("names another task's PO only in the all-POs list", () => {
+    expect(poOptionLabel(ductPO, plan, true)).toBe("PO/099/00107/26-27 · 1 item · task: Fire Damper");
+    expect(poOptionLabel(copperPO, plan, true)).toBe("PO/105/00107/26-27 · Pipe Vendor · 3 items");
+    expect(poOptionLabel(plainPO, plan, true)).toBe("PO/150/00107/26-27 · 1 item · task: no task");
   });
 });
 

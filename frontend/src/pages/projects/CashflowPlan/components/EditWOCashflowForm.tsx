@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle } from "lucide-react";
-import { useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCashflowProjectWOs, useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useUserData } from "@/hooks/useUserData";
+import { canEditCashflowPlan } from "@/constants/roles";
+import { cashflowWOLinkUpdate, woOptionLabel, type ProjectWO } from "@/utils/cashflowPlan/cashflowLink";
+import { EditableLinkBadge, LinkPickerPanel } from "@/pages/projects/components/planning/LinkPicker";
 import { useUpdateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -25,6 +29,20 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const { toast } = useToast();
     const { updateCashflow, loading: isUpdating } = useUpdateCashflowPlan();
     const isExistingWO = plan?.type === "Existing WO";
+
+    // --- Link WO (New WO entry) / Change WO (Existing WO entry) — Admin + PMO; the server refuses anyone else
+    //     (CashflowPlan.validate). Rules in utils/cashflowPlan/cashflowLink. ---
+    const { role, user_id } = useUserData();
+    const canChangeWO = canEditCashflowPlan(role, user_id);
+    const [woPickerOpen, setWoPickerOpen] = useState(false);
+    const [targetWOName, setTargetWOName] = useState<string | null>(null);
+    const { call: fetchProjectWOs, result: woResult, loading: isLoadingWOs } = useCashflowProjectWOs();
+    const projectWOs: ProjectWO[] = useMemo(() => woResult?.message?.wos || [], [woResult]);
+    const targetWO = targetWOName ? projectWOs.find((wo) => wo.name === targetWOName) ?? null : null;
+    // Picking the entry's own WO again is no change.
+    const woChanged = !!targetWO && targetWO.name !== plan?.id_link;
+    // The description and estimated value belong to a New WO entry that is not being linked.
+    const showNewWOFields = !isExistingWO && !woChanged;
 
     // State
     const [plannedAmount, setPlannedAmount] = useState<string>("");
@@ -113,6 +131,28 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
         }
     }, [vendors, plan, isCustomVendor]);
 
+    const openWOPicker = () => {
+        setWoPickerOpen(true);
+        if (!woResult) fetchProjectWOs({ project: projectId });
+    };
+    const pickWO = (woName: string) => {
+        setTargetWOName(woName);
+        const wo = projectWOs.find((w) => w.name === woName);
+        // The vendor follows the picked WO (still editable, as on any Existing WO entry).
+        if (wo && woName !== plan?.id_link) {
+            setIsCustomVendor(!wo.vendor);
+            setVendor({ value: wo.vendor || "", label: wo.vendor_name || wo.vendor || "" });
+        }
+    };
+    const keepCurrentWO = () => {
+        setWoPickerOpen(false);
+        setTargetWOName(null);
+        if (plan) {
+            setIsCustomVendor(!plan.vendor && !!plan.vendor_name);
+            setVendor(plan.vendor || plan.vendor_name ? { value: plan.vendor || "", label: plan.vendor_name || plan.vendor } : null);
+        }
+    };
+
     const handleSubmit = async () => {
         if (!plannedAmount || parseFloat(plannedAmount) < 1) {
             toast({ title: "Invalid Amount", description: "Amount must be at least 1", variant: "destructive" });
@@ -132,7 +172,10 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             vendor_name: vendor.label
         };
 
-        if (isExistingWO) {
+        if (woChanged && targetWO) {
+            // Link / Change WO: type, WO, all its descriptions, no estimated value.
+            Object.assign(updateData, cashflowWOLinkUpdate(targetWO));
+        } else if (isExistingWO) {
              // For existing WO, we don't update items as they are read-only
         } else {
             // New WO specific fields
@@ -153,7 +196,12 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
         try {
             await updateCashflow(plan.name, updateData);
-            toast({ title: "Success", description: "WO Cashflow Plan updated." });
+            toast({
+                title: "Success",
+                description: woChanged && targetWO
+                    ? `WO Cashflow Plan ${isExistingWO ? "moved to" : "linked to"} ${targetWO.name}.`
+                    : "WO Cashflow Plan updated.",
+            });
             onSuccess();
             onClose();
         } catch (e) {
@@ -179,17 +227,40 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 </div>
 
                 <div className="px-6 py-3 bg-gray-50/50 border-b flex flex-wrap gap-2 text-xs">
-                    <span className="px-2 py-1 bg-white border rounded text-gray-600">
-                        Type: {plan?.type}
+                    <span className={`px-2 py-1 border rounded ${woChanged ? "border-blue-300 bg-blue-50 text-blue-700" : "bg-white text-gray-600"}`}>
+                        Type: {woChanged ? "Existing WO" : plan?.type}
                     </span>
-                    {plan?.id_link && (
-                        <span className="px-2 py-1 bg-white border rounded text-gray-600">
-                            WO ID: {plan?.id_link}
-                        </span>
-                    )}
+                    {/* WO ID — the ✏️ inside opens Link WO (New WO) / Change WO (Existing WO); Admin + PMO. */}
+                    <EditableLinkBadge
+                        text={`WO ID: ${woChanged && targetWO ? targetWO.name : (plan?.id_link || "N/A")}`}
+                        changed={woChanged}
+                        canEdit={canChangeWO && !woPickerOpen}
+                        editLabel={isExistingWO ? "Change WO" : "Link WO"}
+                        onEdit={openWOPicker}
+                        changedHint={`Not saved yet (was ${plan?.id_link || "New WO"})`}
+                    />
                 </div>
 
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                    {/* Link / Change WO picker — opened by the ✏️ in the WO ID badge (Admin + PMO). */}
+                    {canChangeWO && woPickerOpen && (
+                        <LinkPickerPanel
+                            title={isExistingWO ? "Change WO" : "Link a WO"}
+                            options={projectWOs.map((wo) => ({ value: wo.name, label: woOptionLabel(wo) }))}
+                            value={targetWO ? { value: targetWO.name, label: woOptionLabel(targetWO) } : null}
+                            onPick={pickWO}
+                            isLoading={isLoadingWOs}
+                            placeholder="Search WO number or vendor…"
+                            ariaLabel="Pick the WO for this entry"
+                            emptyMessage={woResult && projectWOs.length === 0 ? "This project has no work orders yet." : null}
+                            summary={woResult ? `${projectWOs.length} work order${projectWOs.length === 1 ? "" : "s"} on this project.` : "Loading WOs…"}
+                            plannedItems={!isExistingWO && description ? [description] : undefined}
+                            footnote="The entry takes all of the picked WO's descriptions; the planned amount and date stay as they are."
+                            keepLabel={isExistingWO ? "Keep the current WO" : "Keep it as New WO"}
+                            onKeep={keepCurrentWO}
+                        />
+                    )}
+
                     {/* Vendor Field (Now for both Existing and New) */}
                     <div className="space-y-2">
                         <Label>Vendor</Label>
@@ -261,7 +332,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                     </div>
 
                     {/* New WO Specific Description */}
-                    {!isExistingWO && (
+                    {showNewWOFields && (
                         <div className="space-y-2">
                             <Label>Description <span className="text-red-500">*</span></Label>
                             <Textarea 
@@ -270,6 +341,21 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 placeholder="Description"
                                 className="resize-none"
                             />
+                        </div>
+                    )}
+
+                    {/* The picked WO's descriptions (what the entry will hold after Confirm) */}
+                    {woChanged && targetWO && (
+                        <div className="space-y-2">
+                            <Label>Description ({targetWO.items?.length ?? 0})</Label>
+                            <div className="flex flex-wrap gap-2">
+                                {(targetWO.items ?? []).map((item, i) => (
+                                    <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                        {item.description}
+                                        {item.category && <span className="ml-1 text-gray-500 font-normal">({item.category})</span>}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
 
@@ -299,7 +385,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                             </div>
                         </div>
 
-                        {!isExistingWO && (
+                        {showNewWOFields && (
                             <div className="space-y-2">
                                 <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
                                     Estimated WO Amount <span className="text-red-500">*</span>

@@ -343,6 +343,8 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false, searchWor
             />
 
             <EditPOCashflowForm 
+                // A fresh dialog per entry: no Link / Change pick (or vendor) carries over to the next one.
+                key={editingPlan?.name ?? "closed"}
                 isOpen={!!editingPlan}
                 projectId={projectId}
                 plan={editingPlan}

@@ -11,6 +11,7 @@
 /** A PO as `get_all_project_pos` returns it (only the fields these rules read). */
 export interface ProjectPO {
   name: string;
+  vendor?: string | null;
   vendor_name?: string | null;
   status?: string | null;
   items?: POItem[];
@@ -72,6 +73,22 @@ export function posForPicker(pos: ProjectPO[] | undefined, plan: PlanCriticalFie
 export function poTaskLabel(po: ProjectPO): string {
   const names = [...new Set((po.associated_tasks ?? []).map((t) => t.item_name).filter(Boolean))];
   return names.length ? names.join(", ") : "no task";
+}
+
+/**
+ * A PO's line in the picker: "PO/105/… · Vendor · 4 items"; in the all-POs list a PO of another task also names
+ * that task ("· task: Duct Supporting Material"), so a wrong pick is obvious.
+ */
+export function poOptionLabel(po: ProjectPO, plan: PlanCriticalFields, showAll: boolean): string {
+  const count = po.items?.length ?? 0;
+  return [
+    po.name,
+    po.vendor_name,
+    `${count} item${count === 1 ? "" : "s"}`,
+    showAll && !isLinkedToPlanTask(po, plan) ? `task: ${poTaskLabel(po)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** The plan's Critical PO fields after it moves onto `po` (the Add Material Plan rule). */

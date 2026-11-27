@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 
-import { X, Search, Calendar, CheckCircle2, Lock, Link2, Pencil } from "lucide-react";
+import { X, Search, Calendar, CheckCircle2, Lock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { useProcurementOrderDoc } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
-import { useFetchAllPOs, useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
-import { criticalFieldsForPO, isLinkedToPlanTask, poLinkUpdate, posForPicker, poTaskLabel, sortPOsForPlan, type ProjectPO } from "@/utils/materialPlan/poLink";
+import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
+import { poLinkUpdate } from "@/utils/materialPlan/poLink";
+import { EditableLinkBadge, POLinkPickerPanel } from "./LinkPicker";
+import { usePOLinkPicker } from "./usePOLinkPicker";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,13 +17,6 @@ import { REMARKS_REQUIRED_MESSAGE, remarksMissing, remarksRequired as isRemarksR
 
 const ADMIN_ROLE = "Nirmaan Admin Profile";
 const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
-
-/** The Link / Change PO picker searches the PO number and the vendor (the label holds both). */
-const PO_SEARCH_CONFIG: TokenSearchConfig = {
-    searchFields: ["label", "value"],
-    partialMatch: true,
-    fieldWeights: { value: 2.0, label: 1.5 },
-};
 
 interface EditMaterialPlanFormProps {
     plan: any;
@@ -85,50 +79,18 @@ export const EditMaterialPlanForm = ({ plan, projectId, onClose, onSuccess }: Ed
         !isNewPO
     );
 
-    // --- Link PO (New PO plan) / Change PO (Existing PO plan) — Admin + PMO; rules in utils/materialPlan/poLink ---
-    const [poPickerOpen, setPoPickerOpen] = useState(false);
-    const [showAllPOs, setShowAllPOs] = useState(false); // "See all project POs" (default: the task's own, like Add)
-    const [targetPOName, setTargetPOName] = useState<string | null>(null);
-    const { fetchAllPOs, allPOsResult, isLoadingAllPOs } = useFetchAllPOs();
-    const projectPOs = React.useMemo<ProjectPO[]>(
-        () => sortPOsForPlan(allPOsResult?.message?.pos, plan),
-        [allPOsResult, plan]
-    );
-    const taskPOCount = React.useMemo(() => posForPicker(projectPOs, plan, false).length, [projectPOs, plan]);
-    const targetPO = targetPOName ? projectPOs.find((po) => po.name === targetPOName) ?? null : null;
+    // --- Link PO (New PO plan) / Change PO (Existing PO plan) — Admin + PMO; rules in utils/materialPlan/poLink,
+    //     picker shared with the PO Cashflow Edit dialog (LinkPicker / usePOLinkPicker) ---
+    const poPicker = usePOLinkPicker(projectId, plan, plan.po_link);
+    const targetPO = poPicker.targetPO;
     // Picking the plan's own PO again is no change.
-    const poChanged = !!targetPO && targetPO.name !== plan.po_link;
-    // "PO/105/… · Vendor · 4 items"; in the all-POs list a PO of another task also names that task.
-    const poLabel = React.useCallback((po: ProjectPO) => [
-        po.name,
-        po.vendor_name,
-        `${po.items?.length ?? 0} item${(po.items?.length ?? 0) === 1 ? "" : "s"}`,
-        showAllPOs && !isLinkedToPlanTask(po, plan) ? `task: ${poTaskLabel(po)}` : null,
-    ].filter(Boolean).join(" · "), [showAllPOs, plan]);
-    const poOptions = React.useMemo(
-        () => posForPicker(projectPOs, plan, showAllPOs).map((po) => ({ value: po.name, label: poLabel(po) })),
-        [projectPOs, plan, showAllPOs, poLabel]
-    );
-    const nextCritical = targetPO ? criticalFieldsForPO(targetPO, plan) : null;
-    const taskWillChange = poChanged && !!nextCritical && (
-        nextCritical.critical_po_task !== (plan.critical_po_task || null) ||
-        nextCritical.critical_po_category !== (plan.critical_po_category || null)
-    );
-
-    const openPOPicker = () => {
-        setPoPickerOpen(true);
-        if (!allPOsResult) fetchAllPOs({ project: projectId });
-    };
+    const poChanged = poPicker.changed;
     const pickPO = (poName: string) => {
-        setTargetPOName(poName);
         // The old items belong to the old PO (or were typed in): start the new PO with nothing ticked.
         setSelectedItems(poName === plan.po_link ? initialSelection : {});
         setSearchTerm("");
     };
-    const cancelPOPicker = () => {
-        setPoPickerOpen(false);
-        setShowAllPOs(false);
-        setTargetPOName(null);
+    const keepCurrentPO = () => {
         setSelectedItems(initialSelection);
         setSearchTerm("");
     };
@@ -351,28 +313,16 @@ export const EditMaterialPlanForm = ({ plan, projectId, onClose, onSuccess }: Ed
                         
                         <div className="h-4 w-[1px] bg-gray-200 mx-1 hidden sm:block"></div>
 
-                        {/* PO ID — the ✏️ opens Link PO (New PO plan) / Change PO (Existing PO plan); Admin + PMO.
+                        {/* PO ID — the ✏️ inside opens Link PO (New PO plan) / Change PO (Existing PO plan); Admin + PMO.
                             A picked, unsaved PO shows highlighted here until Confirm. */}
-                        {canEditAll && !poPickerOpen ? (
-                            <button
-                                type="button"
-                                onClick={openPOPicker}
-                                title={isNewPO ? "Link PO" : "Change PO"}
-                                aria-label={`PO: ${poChanged && targetPO ? targetPO.name : (plan.po_link || "N/A")}. ${isNewPO ? "Link PO" : "Change PO"}`}
-                                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap transition-colors hover:border-blue-300 hover:bg-blue-50 ${poChanged ? "border-blue-300 bg-blue-50 text-blue-700" : "text-gray-500 border-gray-200"}`}
-                            >
-                                PO: {poChanged && targetPO ? targetPO.name : (plan.po_link || "N/A")}
-                                <Pencil className="w-3 h-3 text-blue-600" aria-hidden="true" />
-                            </button>
-                        ) : (
-                            <Badge
-                                variant="outline"
-                                className={`font-medium whitespace-nowrap ${poChanged ? "border-blue-300 bg-blue-50 text-blue-700" : "text-gray-500 border-gray-200"}`}
-                                title={poChanged ? `Not saved yet (was ${plan.po_link || "New PO"})` : undefined}
-                            >
-                                PO: {poChanged && targetPO ? targetPO.name : (plan.po_link || "N/A")}
-                            </Badge>
-                        )}
+                        <EditableLinkBadge
+                            text={`PO: ${poChanged && targetPO ? targetPO.name : (plan.po_link || "N/A")}`}
+                            changed={poChanged}
+                            canEdit={canEditAll && !poPicker.open}
+                            editLabel={isNewPO ? "Link PO" : "Change PO"}
+                            onEdit={poPicker.start}
+                            changedHint={`Not saved yet (was ${plan.po_link || "New PO"})`}
+                        />
 
                         {/* PO Type */}
                         <Badge
@@ -387,78 +337,18 @@ export const EditMaterialPlanForm = ({ plan, projectId, onClose, onSuccess }: Ed
                 {/* Body */}
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
 
-                    {/* Link / Change PO picker — opened by the ✏️ beside the PO in the header (Admin + PMO).
-                        Like Add Material Plan: the plan's task POs by default, "See all project POs" for the rest. */}
-                    {canEditAll && poPickerOpen && (
-                        <div className="space-y-3 p-3 border border-blue-200 rounded-lg bg-blue-50/30">
-                            <Label className="flex items-center gap-2 font-bold text-gray-700">
-                                <Link2 className="w-4 h-4" />
-                                {isNewPO ? "Link a PO" : "Change PO"}
-                            </Label>
-                            {allPOsResult && !showAllPOs && taskPOCount === 0 ? (
-                                <p className="text-sm text-gray-600">
-                                    No POs are linked to this plan's task{plan.critical_po_task ? ` (${plan.critical_po_task})` : ""}.
-                                </p>
-                            ) : (
-                                <FuzzySearchSelect
-                                    allOptions={poOptions}
-                                    tokenSearchConfig={PO_SEARCH_CONFIG}
-                                    value={targetPO ? { value: targetPO.name, label: poLabel(targetPO) } : null}
-                                    onChange={(option) => option && pickPO(option.value)}
-                                    isLoading={isLoadingAllPOs}
-                                    placeholder="Search PO number or vendor…"
-                                    aria-label="Pick the PO for this plan"
-                                    menuPortalTarget={document.body}
-                                    menuPosition="fixed"
-                                />
-                            )}
-                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-gray-500">
-                                <span>
-                                    {showAllPOs
-                                        ? `All ${projectPOs.length} project POs; this task's own are listed first.`
-                                        : allPOsResult
-                                            ? `${taskPOCount} PO${taskPOCount === 1 ? "" : "s"} linked to this plan's task${plan.critical_po_task ? ` (${plan.critical_po_task})` : ""}.`
-                                            : "Loading POs…"}
-                                </span>
-                                {allPOsResult && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAllPOs((v) => !v)}
-                                        className="font-medium text-blue-700 hover:underline"
-                                    >
-                                        {showAllPOs ? "Show only this task's POs" : "See all project POs"}
-                                    </button>
-                                )}
-                            </div>
-                            {isNewPO && initialItems.length > 0 && (
-                                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                                    <span className="font-semibold text-gray-700">You planned:</span>
-                                    {initialItems.map((item: { item_name?: string }, i: number) => (
-                                        <span key={i} className="px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-700">
-                                            {item.item_name}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                            {taskWillChange && nextCritical && (
-                                <p className="text-[11px] text-amber-700">
-                                    This PO is linked to another task, so the plan's task will change to{" "}
-                                    <span className="font-semibold">
-                                        {nextCritical.critical_po_category} / {nextCritical.critical_po_task}
-                                    </span>.
-                                </p>
-                            )}
-                            <p className="text-[11px] text-gray-500">
-                                Then tick the items from that PO below; the plan keeps only the ticked items.
-                            </p>
-                            <button
-                                type="button"
-                                onClick={cancelPOPicker}
-                                className="text-xs font-medium text-gray-600 hover:text-gray-900 underline"
-                            >
-                                {isNewPO ? "Keep it as New PO" : "Keep the current PO"}
-                            </button>
-                        </div>
+                    {/* Link / Change PO picker — opened by the ✏️ in the PO badge (Admin + PMO). Like Add Material Plan:
+                        the plan's task POs by default, "See all project POs" for the rest. */}
+                    {canEditAll && poPicker.open && (
+                        <POLinkPickerPanel
+                            picker={poPicker}
+                            plan={plan}
+                            isNew={isNewPO}
+                            noun="plan"
+                            plannedItems={initialItems.map((item: { item_name?: string }) => item.item_name ?? "")}
+                            onPick={pickPO}
+                            onKeep={keepCurrentPO}
+                        />
                     )}
 
                     {/* Date Picker — Admin only */}

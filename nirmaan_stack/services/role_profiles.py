@@ -200,6 +200,11 @@ DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE
 # in `EditMaterialPlanForm.tsx` -- keep the two in sync.
 MATERIAL_PLAN_PO_CHANGE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
 
+# Change a Cashflow Plan entry's PO / WO -- Edit -> Link / Change PO or WO (owner, 2026-11-27, "like material
+# plan"). Enforced in `CashflowPlan.validate`; mirrored client-side by `canEditCashflowPlan` in
+# `frontend/src/constants/roles.ts` (who may edit a cashflow row at all) -- keep the two in sync.
+CASHFLOW_PLAN_LINK_CHANGE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+
 # See the asset history -- the cross-asset log (`api/assets/history.get_asset_history`) and the
 # History card on an asset (owner, 2026-10-12: "only admin and HR"). Mirrored client-side by
 # `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
@@ -363,6 +368,11 @@ def can_write_project_billing(user: str) -> bool:
 def can_change_material_plan_po(user: str) -> bool:
     """True when `user` may move a saved Material Delivery Plan onto another PO. Administrator always passes."""
     return has_role_profile(user, MATERIAL_PLAN_PO_CHANGE_PROFILES)
+
+
+def can_change_cashflow_plan_link(user: str) -> bool:
+    """True when `user` may move a saved Cashflow Plan entry onto another PO / WO. Administrator always passes."""
+    return has_role_profile(user, CASHFLOW_PLAN_LINK_CHANGE_PROFILES)
 
 
 def can_delete_delivery_document(user: str) -> bool:
