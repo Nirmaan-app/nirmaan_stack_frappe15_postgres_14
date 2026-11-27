@@ -895,12 +895,21 @@ def split_body(body: str | None) -> tuple[str, str]:
     return body[:fold].rstrip(), body[start + len(ORIGINAL_START):end].strip("\n")
 
 
+CLOSING_REF = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b", re.IGNORECASE)
+
+
 def rewrite_body(description: str, current_body: str | None) -> str:
-    """Claude's description, with the author's first original folded under it. A rerun never nests the fold."""
+    """Claude's description, with the author's first original folded under it. A rerun never nests the fold.
+
+    A closing reference added after the first run (the issue bot's line) lives outside the fold, so it is carried
+    to the top; dropping it would stop the merge closing its issue."""
     _, original = split_body(current_body)
+    kept = set(CLOSING_REF.findall(description)) | set(CLOSING_REF.findall(original))
+    carried = [n for n in dict.fromkeys(CLOSING_REF.findall(current_body or "")) if n not in kept]
+    head = "".join(f"Closes #{n}\n" for n in carried) + ("\n" if carried else "")
     note = "" if original.strip() else "_The author left no description._\n"
     return (
-        f"{description.rstrip()}\n\n{FOLD_MARKER}\n<details><summary>Original description</summary>\n\n"
+        f"{head}{description.rstrip()}\n\n{FOLD_MARKER}\n<details><summary>Original description</summary>\n\n"
         f"{ORIGINAL_START}\n{original}\n{ORIGINAL_END}\n{note}\n</details>\n"
     )
 
