@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { matchHandoffOf, matchPhaseOf, suggestViewOf } from "./suggestOperation";
+import {
+  matchHandoffOf,
+  matchPhaseOf,
+  suggestButtonReason,
+  suggestModalOpensFor,
+  suggestViewOf,
+} from "./suggestOperation";
 
 const OP = "aaaaaaaa-0000-4000-8000-000000000001";
 const MATCH_OP = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -65,5 +71,45 @@ describe("matchPhaseOf: the match phase of the suggest modal", () => {
     })).toEqual({ state: "failed", done: 2, total: 9, elapsedS: 0, leftS: null, reason: "pool not ready" });
     expect(matchPhaseOf({ phase: "failed", opId: MATCH_OP, error: "made-up refusal" })?.reason).toBe("made-up refusal");
     expect(matchPhaseOf({ phase: "idle" })).toBeNull();
+  });
+});
+
+describe("suggestModalOpensFor: a reload during a suggest or its match shows it again (#1654 story 18)", () => {
+  const idle = { phase: "idle" } as const;
+
+  it("opens for a suggest the page picked up again, once", () => {
+    const resumed = { phase: "running", opId: OP, progress: null } as const;
+    expect(suggestModalOpensFor(resumed, idle, null)).toBe(OP);
+    // Closed by the user while it runs: it stays closed for that operation.
+    expect(suggestModalOpensFor(resumed, idle, OP)).toBeNull();
+    expect(suggestModalOpensFor({ phase: "queued", opId: OP }, idle, null)).toBe(OP);
+  });
+
+  it("opens for a match the page picked up again after its suggest ended", () => {
+    expect(suggestModalOpensFor(idle, { phase: "queued", opId: MATCH_OP }, null)).toBe(MATCH_OP);
+  });
+
+  it("does not reopen for the match a suggest of this session handed off", () => {
+    const finished = { phase: "finished", opId: OP, result: { status: "success" } } as const;
+    expect(suggestModalOpensFor(finished, { phase: "running", opId: MATCH_OP, progress: null }, OP)).toBeNull();
+  });
+
+  it("opens for nothing when nothing is in flight", () => {
+    expect(suggestModalOpensFor(idle, idle, null)).toBeNull();
+    expect(suggestModalOpensFor({ phase: "failed", opId: OP, error: "x" }, idle, null)).toBeNull();
+  });
+});
+
+describe("suggestButtonReason: Suggest rates waits while this sheet's suggest is in flight", () => {
+  it("is disabled while the suggest is queued or running, so a second press cannot drop the first", () => {
+    expect(suggestButtonReason({ phase: "queued", opId: OP }, null)).toMatch(/already running/);
+    expect(suggestButtonReason({ phase: "running", opId: OP, progress: null }, null)).toMatch(/already running/);
+  });
+
+  it("keeps the sheet's own reason first, and is enabled once the suggest ended", () => {
+    expect(suggestButtonReason({ phase: "running", opId: OP, progress: null }, "Sheet is locked / read-only"))
+      .toBe("Sheet is locked / read-only");
+    expect(suggestButtonReason({ phase: "finished", opId: OP, result: null }, null)).toBeNull();
+    expect(suggestButtonReason({ phase: "idle" }, null)).toBeNull();
   });
 });
