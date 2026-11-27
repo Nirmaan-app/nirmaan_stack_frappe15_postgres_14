@@ -10,7 +10,7 @@ REPO=Nirmaan-app/nirmaan_stack_frappe15_postgres_14
 URL=https://github.com/$REPO.git
 GAR=asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack
 BOXES=$HOME/.config/devbox/boxes.conf
-TRIAGE_DEVS="nirmaan-techadmin madhubalan17js"
+TRIAGE_DEVS="nirmaan-techadmin madhubalan17js Niru9196"
 TOKEN_RE='x-access-token:[a-z]{3}_|gh[sp]_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}'
 expect="" tag="" deep=0 fails=0
 

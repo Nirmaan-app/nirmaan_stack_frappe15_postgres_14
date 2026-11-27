@@ -6,8 +6,8 @@ This repo is private. Everyone who changes it follows the same five steps, whate
 
 1. **Get a copy, with the main repo as the remote `upstream`.** The owner clones the main repo under that name:
    `git clone -o upstream https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git` (in a clone whose
-   main-repo remote is `origin`: `git remote rename origin upstream`). Everyone else, Nitesh (`nirmaan-techadmin`)
-   and Madhubalan (`madhubalan17js`), has the **Triage** role on the main repo: they can read it, fork it, and open,
+   main-repo remote is `origin`: `git remote rename origin upstream`). Everyone else, Nitesh (`nirmaan-techadmin`),
+   Madhubalan (`madhubalan17js`) and Nirupama (`Niru9196`), has the **Triage** role on the main repo: they can read it, fork it, and open,
    label and review issues and PRs, but cannot push to it. They fork it (the fork is private too), clone the fork,
    and add the main repo as `upstream`:
    `git remote add upstream https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git`
