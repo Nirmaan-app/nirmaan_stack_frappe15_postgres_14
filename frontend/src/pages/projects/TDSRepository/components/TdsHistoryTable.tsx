@@ -56,6 +56,7 @@ import { useSetClientStatus } from '../../data/tds/useTdsMutations';
 import { getFrappeError } from "@/utils/frappeErrors";
 import { TdsClientRejectDialog } from './TdsClientRejectDialog';
 import { TdsResolveDialog } from './TdsResolveDialog';
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface TdsHistoryTableProps {
     projectId: string;
@@ -144,7 +145,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     // Full names by user id, for the Marked By column.
     const userMap = useNirmaanUserNames();
 
-    const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || role === "Administrator";
     const isPMO = role === "Nirmaan PMO Executive Profile";
 
     // Gates the Actions column AND every button in it. A PMO deletes on the same

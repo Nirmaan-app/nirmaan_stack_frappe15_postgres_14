@@ -55,6 +55,7 @@ import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEA
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { uniqueTagPackages } from "@/utils/prPackages";
 import { PRPackageChips } from "@/components/procurement-request/PRPackageChips";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // --- Lazy Loaded Tab Components ---
 const ApprovePR = React.lazy(() => import("./ApproveNewPR/approve-pr"));
@@ -389,7 +390,7 @@ export const ProcurementRequests: React.FC = () => {
             } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
-        ...((tab === PR_TABS.NEW_PR_REQUEST && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) ? [{
+        ...((tab === PR_TABS.NEW_PR_REQUEST && ["Nirmaan Project Lead Profile", ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>

@@ -1,7 +1,7 @@
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
 import { useMemo } from 'react';
 import { getUsersListOptions, queryKeys } from '@/config/queryKeys';
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface NirmaanUserPermissionDoc extends FrappeDoc<any> {
     user: string;
@@ -63,7 +63,8 @@ export const useProjectAssignees = () => {
             "Nirmaan Project Lead Profile", 
             "Nirmaan Project Manager Profile", 
             ...PROCUREMENT_PROFILES, 
-            "Nirmaan Admin Profile", 
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile"
         ];
 

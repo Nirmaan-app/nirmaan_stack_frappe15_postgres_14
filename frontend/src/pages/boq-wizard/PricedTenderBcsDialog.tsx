@@ -31,6 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { CommittedSheetState, ExportPricedBcsWorkbookResponse } from "./boqTypes";
 import { base64ToBytes, downloadBytes } from "./downloadBlob";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /**
  * May the current user see the internal-export action at all?
@@ -53,7 +54,7 @@ export function canDownloadBcsExport(role: string, userId: string): boolean {
   if (role === "Loading" || role === "Error") return false;
   return (
     userId === "Administrator" ||
-    role === "Nirmaan Admin Profile" ||
+    isAdminProfile(role) || isDeveloperProfile(role) ||
     role === "Nirmaan Estimates Executive Profile"
   );
 }

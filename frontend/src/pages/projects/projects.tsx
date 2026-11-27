@@ -60,6 +60,7 @@ import {
 import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -216,7 +217,8 @@ const StatusCountPill: React.FC<StatusCountPillProps> = ({
 // Roles that can see financial columns. PMO sees every one of them (owner,
 // 2026-10-27), reversing the earlier ruling that hid the client-money columns.
 const FINANCIAL_COLUMNS_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
@@ -224,7 +226,8 @@ const FINANCIAL_COLUMNS_ROLES = [
 
 // Roles that can see the summary card
 const SUMMARY_CARD_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
 ];
 
@@ -270,7 +273,8 @@ export const Projects: React.FC<ProjectsProps> = ({
   const canSeeTenderingTab =
     user_id === "Administrator" ||
     [
-      "Nirmaan Admin Profile",
+      ADMIN_PROFILE,
+      DEVELOPER_PROFILE,
       "Nirmaan PMO Executive Profile",
       "Nirmaan Sales Executive Profile",
       "Nirmaan Sales Lead Profile",

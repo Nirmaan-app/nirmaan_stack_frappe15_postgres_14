@@ -18,6 +18,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { cn } from '@/lib/utils';
 import { EditCreditLimitDialog } from './EditCreditLimitDialog';
 import { VendorCreditLedgerTable } from './VendorCreditLedgerTable';
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const vendorStatuses = [
     { value: "Active" as const, label: "Active", color: "text-green-600", bgColor: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
@@ -38,7 +39,7 @@ export const VendorCreditManagementCard: React.FC<VendorCreditManagementCardProp
 
     const { updateDoc, loading: statusLoading } = useFrappeUpdateDoc();
 
-    const canEdit = role === "Nirmaan Admin Profile";
+    const canEdit = isAdminProfile(role) || isDeveloperProfile(role);
 
     const currentStatus = vendorStatuses.find((s) => s.value === vendor.vendor_status) || vendorStatuses[0];
 

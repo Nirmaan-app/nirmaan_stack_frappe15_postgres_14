@@ -14,7 +14,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { isOperational } from "@/components/common/projectStatus";
-import { SERVICE_PROCUREMENT_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { SERVICE_PROCUREMENT_EXECUTIVE_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { ProjectCard } from "./ProjectCard";
 import {
   CirclePlus,
@@ -107,7 +107,8 @@ export function UserProjectsTab({
 
   // Company-wide profiles see every project, so they can't be assigned one
   const isRestrictedRole = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Estimates Executive Profile",
     "Nirmaan Billing Executive Profile",

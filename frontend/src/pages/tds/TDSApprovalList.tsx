@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { FileText, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface TDSRequest {
     request_id: string;
@@ -67,7 +68,7 @@ export const TDSApprovalList: React.FC = () => {
     // Phase 2 (ADR-0025 P2-5): all TDS approval is Admin-only. Project Lead lost
     // the pre-freeze approve right. canApprove gates row navigation into the
     // Pending detail screen (non-approvers see read-only list + info banner).
-    const ALLOWED_APPROVER_ROLES = ["Nirmaan Admin Profile"];
+    const ALLOWED_APPROVER_ROLES = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
     const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
 

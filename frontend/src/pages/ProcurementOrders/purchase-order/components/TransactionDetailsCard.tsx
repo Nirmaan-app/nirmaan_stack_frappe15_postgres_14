@@ -32,15 +32,19 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import {
-  ADMIN_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROCUREMENT_PROFILES,
   PROJECT_LEAD_PROFILE,
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
+  isAdminProfile,
+  isDeveloperProfile,
 } from "@/constants/roles";
 
 /** Roles that may delete a payment that has not been approved yet. */
 const PAYMENT_DELETE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
   ...PROCUREMENT_PROFILES,
@@ -62,7 +66,7 @@ const ACCOUNTANT_PROFILES: readonly string[] = [
 const canDeletePayment = (status: string | undefined, role: string, mode?: string): boolean => {
   if (status === "Paid") return false;
   if (status === "Reconciliation Pending" && mode !== "Cheque") return false;
-  if (role === ADMIN_PROFILE) return true;
+  if (isAdminProfile(role) || isDeveloperProfile(role)) return true;
   if (ACCOUNTANT_PROFILES.includes(role)) return status === "Approved";
   if (status === "Approved" || status === "CEO Pending") return false;
   return PAYMENT_DELETE_PROFILES.includes(role);

@@ -40,6 +40,8 @@ import {
   canActionInvoiceApprovals,
   canDeleteDeliveryDocument,
   canEditWoInvoice,
+  isAdminProfile,
+  isDeveloperProfile,
 } from "@/constants/roles";
 import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
@@ -93,7 +95,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   const { role, user_id } = useUserData();
   // Admins (Nirmaan Admin Profile or the Administrator user) may delete ANY invoice,
   // including Approved ones. Everyone else is limited to Pending/Rejected.
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const isAdmin = user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
   const { toast } = useToast();
 
   // Fetch users list for displaying "Uploaded By" names

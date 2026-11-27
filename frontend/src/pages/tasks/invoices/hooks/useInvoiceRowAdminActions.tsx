@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 export type InvoiceDocType = "Procurement Orders" | "Service Requests";
 
@@ -39,7 +40,7 @@ interface DeleteTarget {
 
 export function useInvoiceRowAdminActions(docType: InvoiceDocType, refresh: () => void) {
   const { role, user_id } = useUserData();
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const isAdmin = user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
   const { setSelectedInvoice, toggleEditInvoiceDialog } = useDialogStore();
   const { toast } = useToast();

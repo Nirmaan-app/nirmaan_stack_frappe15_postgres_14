@@ -1,7 +1,7 @@
 // Who may start which transfer on the New Transfer page. `allowedTransferDirections` in
 // utils/itmTransfer.ts reads these lists, and the "Create Internal Transfer Memo"
 // buttons show for anyone it gives at least one direction.
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /**
  * Roles allowed every direction: Project → Project, Project → Warehouse, Warehouse → Project,
@@ -10,7 +10,8 @@ import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
  * `api/internal_transfers/get_transfer_destinations.py`, which serves their "To Project" list.
  */
 export const ITM_CREATE_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
@@ -42,7 +43,8 @@ export const ITM_SOURCE_SCOPED_ROLES: readonly string[] = [
  * NOTE: Administrator user is treated as Admin elsewhere via useUserData hook.
  */
 export const ITM_APPROVE_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
 ] as const;
 
 /**
@@ -51,7 +53,8 @@ export const ITM_APPROVE_ROLES: readonly string[] = [
  * profiles can clean up an Approved ITM regardless of who originally raised it.
  */
 export const ITM_DELETE_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
@@ -61,7 +64,8 @@ export const ITM_DELETE_ROLES: readonly string[] = [
  * in ``integrations/controllers/internal_transfer_memo.py``.
  */
 export const ITM_DISPATCH_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
@@ -70,7 +74,8 @@ export const ITM_DISPATCH_ROLES: readonly string[] = [
  * Roles allowed to view the Internal Transfer Memos module (list + detail).
  */
 export const ITM_VIEW_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
   "Nirmaan Project Lead Profile",

@@ -78,6 +78,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface SelectOption { label: string; value: string; }
 
@@ -173,7 +174,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
-    const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role); // Check for admin role
     // (`isNirmaanAdmin` -- `isAdmin || user_id === "Administrator"` -- was removed 2026-09-23
     // with the "Payment By Me" Raised-by column, its only reader.)
     const { toast } = useToast();

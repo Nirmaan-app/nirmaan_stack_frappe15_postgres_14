@@ -54,6 +54,7 @@ import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit 
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface AllProjectInvoicesProps {
   projectId?: string;
@@ -102,7 +103,7 @@ export const AllProjectInvoices: React.FC<AllProjectInvoicesProps> = ({
   // =================================================================================
   const { role } = useUserData();
   // PMO opens this sheet view-only (owner, 2026-10-28), so it is no longer counted as Admin here.
-  const isAdmin = role === "Nirmaan Admin Profile";
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   // Edit available to Admin + Accountant; Delete remains Admin-only.
   // `disableActions` (Reports sheet) strips both regardless of role.

@@ -34,7 +34,7 @@ import {
     PORemarkData,
 } from "../hooks/usePORemarks";
 import { cn } from "@/lib/utils";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface PORemarksProps {
     poId: string;
@@ -131,7 +131,8 @@ export const PORemarks: React.FC<PORemarksProps> = ({ poId }) => {
     // Check if user can add remarks (Admin, PMO, Accountant, Procurement, Project Lead roles only)
     const canAddRemarks = useMemo(() => {
         const allowedRoles = [
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",

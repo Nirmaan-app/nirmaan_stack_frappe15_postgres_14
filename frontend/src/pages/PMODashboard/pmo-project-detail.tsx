@@ -25,6 +25,7 @@ import { parseAssignedFromField, type AssignedPMODetail } from "./utils";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface TaskItem {
   name: string;
@@ -81,7 +82,7 @@ const PMOProjectDetail: React.FC = () => {
   const navigate = useNavigate();
   const { user_id, role } = useUserData();
   const isPMO = role === "Nirmaan PMO Executive Profile";
-  const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
 
   // Fetch project info
   const { data: project, isLoading: projectLoading } = useFrappeGetDoc(

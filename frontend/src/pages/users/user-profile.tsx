@@ -12,7 +12,7 @@ import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { PROJECT_REQUIRED_PROFILES } from "@/constants/roles";
+import { PROJECT_REQUIRED_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { useMyAssets, useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
 import { withOwnAssets } from "@/utils/ownAssets";
@@ -49,7 +49,7 @@ export default function Profile() {
   if (!id) return <div>No User ID Provided</div>;
 
   const userData = useUserData();
-  const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
+  const isAdmin = isAdminProfile(userData.role) || isDeveloperProfile(userData.role) || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
   const isOwnProfile = userData.user_id === id;
   const tabParam = useUrlParam("tab");
 
@@ -249,7 +249,7 @@ export default function Profile() {
   // Project count for stats
   const projectCount = useMemo(() => {
     if (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile"].includes(
+      [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile"].includes(
         data?.role_profile || ""
       )
     ) {

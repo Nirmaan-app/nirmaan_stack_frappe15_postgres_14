@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { Blocks, TrendingUp, Workflow, LucideIcon } from "lucide-react";
-import { isMaterialProcurementProfile } from "@/constants/roles";
+import { isMaterialProcurementProfile, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // Make sure these match the parent's usage or export them from a shared types file
 export const PLANNING_TABS = {
@@ -32,7 +32,8 @@ export const SevenDayPlanningTabs = ({
 
   const tabs = useMemo(() => {
     const allowedRolesForRestrictedTabs = [
-      "Nirmaan Admin Profile",
+      ADMIN_PROFILE,
+      DEVELOPER_PROFILE,
       "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile",
     ];

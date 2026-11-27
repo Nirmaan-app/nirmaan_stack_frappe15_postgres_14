@@ -5,7 +5,7 @@
 // GST Payment Request, an Accountant's or Admin's own too; the deciders (Admin, Accountant, Accountant Lead,
 // the Administrator user) approve or reject it there.
 
-import { ACCOUNTANT_PROFILES, ADMIN_PROFILE } from "@/constants/roles";
+import { ACCOUNTANT_PROFILES, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import type { GstRequestStatus } from "@/types/NirmaanStack/GSTPaymentRequest";
 import type { WorkOrderLimit } from "@/pages/ProjectPayments/components/paymentSummaryView";
 
@@ -18,7 +18,7 @@ export const DELETE_GST_REQUEST_API = `${API}.delete_gst_payment_request`;
 
 /** May this viewer approve or reject a GST request? Server twin: `gst_payment_requests.can_decide`. */
 export const canDecideGstRequest = (role: string, userId: string): boolean =>
-	userId === "Administrator" || role === ADMIN_PROFILE || ACCOUNTANT_PROFILES.includes(role);
+	userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role) || ACCOUNTANT_PROFILES.includes(role);
 
 /** The chip a request shows, by status. */
 export const GST_REQUEST_CHIP: Record<GstRequestStatus, { label: string; className: string }> = {

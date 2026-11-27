@@ -5,7 +5,7 @@ import { Trash2 } from 'lucide-react';
 
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useUserData } from "@/hooks/useUserData";
-import { canViewTargetProgress, isNirmaanAdmin, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { canViewTargetProgress, isNirmaanAdmin, PMO_EXECUTIVE_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE, isDeveloperProfile } from "@/constants/roles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -74,9 +74,9 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
 
   // Permission checks for delete
   const canDeleteReport = user_id === "Administrator" ||
-    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
+    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
   // Only Admin and PMO may delete a zone's Draft from the zone chip.
-  const canDeleteDraft = isNirmaanAdmin(role, user_id) || role === PMO_EXECUTIVE_PROFILE;
+  const canDeleteDraft = (isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)) || role === PMO_EXECUTIVE_PROFILE;
 
   // Admin gate for Target % column
   const canSeeTargetProgress = canViewTargetProgress(role, user_id);

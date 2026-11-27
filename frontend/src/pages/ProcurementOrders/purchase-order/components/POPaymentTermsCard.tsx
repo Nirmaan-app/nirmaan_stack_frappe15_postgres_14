@@ -93,7 +93,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useGstOptions } from "@/hooks/useGstOptions";
-import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -860,7 +860,7 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
   // PMO restored 2026-09-24 (owner): PMO raises payment requests again, reversing that part of the
   // 2026-09-17 access review. Since 2026-09-29 PMO also edits the terms, so this list and the
   // card's `isReadOnly` list are the same four groups.
-  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", PMO_EXECUTIVE_PROFILE, "Nirmaan Project Lead Profile"].includes(role);
+  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, "Nirmaan Project Lead Profile"].includes(role);
 
   // Calculate eligibility using the helper function
   const isEligibleForRequest = canRequestPaymentForTerm(term);
@@ -1032,7 +1032,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   // Read-only follows the reader and the PO, not the door: an Accountant fails the role list
   // below anyway, so the old `accountsPage ||` only stripped Admin/PL/Procurement of the terms
   // when they arrived from /project-payments.
-  const isReadOnly = estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const isReadOnly = estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
   // PMO edits the payment terms again (owner, 2026-09-29), reversing the 2026-09-17 access review:
   // the terms, GST for Billing & Notes and Request Payment all follow the same role list now.
 

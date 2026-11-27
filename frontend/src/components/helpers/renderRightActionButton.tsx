@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
-import { ADMIN_PROFILE, PROCUREMENT_PROFILES, canAddInflow, canAddProjectInvoice, canManagePayees } from "@/constants/roles";
+import { PROCUREMENT_PROFILES, canAddInflow, canAddProjectInvoice, canManagePayees, ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { canCreateNonProjectInflow } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
 import { offersNewExpense } from "@/utils/expenseAccess";
@@ -78,7 +78,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) || user_id === "Administrator" ? (
+      [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">
@@ -116,7 +116,7 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
-  } else if (locationPath === "/products" && role === "Nirmaan Admin Profile") {
+  } else if (locationPath === "/products" && (isAdminProfile(role) || isDeveloperProfile(role))) {
     return (
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
@@ -164,7 +164,7 @@ export const RenderRightActionButton = ({
     // page, not the button. The server refuses a type the raiser may not raise.
     // On Project Payment & Expense the button is Admin-only (owner, 2026-10-31); /expense/requests
     // keeps the raise-access gate alone.
-    if (locationPath === "/project-payments" && !(user_id === "Administrator" || role === ADMIN_PROFILE)) return null;
+    if (locationPath === "/project-payments" && !(user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role))) return null;
     if (!offersNewExpense(expenseAccess)) return null;
     return (
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
@@ -187,7 +187,7 @@ export const RenderRightActionButton = ({
     // MUST stay in step with `canManage` in pages/Reminders/RemindersPage.tsx and with
     // the server's `_require_reminder_editor` (api/reminders/write.py).
     const canCreateReminder =
-      user_id === "Administrator" || role === "Nirmaan Admin Profile";
+      user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
     if (!canCreateReminder) return null;
     return (
       <Button

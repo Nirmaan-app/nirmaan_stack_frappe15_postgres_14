@@ -1,6 +1,7 @@
 import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers'
 import { useFrappeGetDoc } from 'frappe-react-sdk'
 import Cookies from 'js-cookie'
+import { ADMIN_PROFILE } from "@/constants/roles";
 
 /**
  * Simple hook to fetch user data from cookies
@@ -12,7 +13,7 @@ export const useUserData = () => {
   const user_image = Cookies.get('user_image') ?? ''
 
   if(user_id==="Administrator") {
-    const role = "Nirmaan Admin Profile"
+    const role = ADMIN_PROFILE
     const has_project = "true"
     return {
       user_id,

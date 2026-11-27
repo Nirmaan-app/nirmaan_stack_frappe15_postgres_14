@@ -43,6 +43,7 @@ import {
     InvoiceRowActionsCell,
     InvoiceRowAdminActionDialogs,
 } from "../hooks/useInvoiceRowAdminActions";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // --- Interfaces ---
 interface Projects {
@@ -135,7 +136,7 @@ const InvoiceAmountCell: React.FC<{ item: InvoiceItem }> = ({ item }) => {
 export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) => {
     // --- User Role Check ---
     const { role } = useUserData();
-    const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
+    const canUpdateReconciliation = [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
 
 
     // Summary card open/closed. Defaults OPEN so the screen looks unchanged

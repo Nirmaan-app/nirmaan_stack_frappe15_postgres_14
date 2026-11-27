@@ -35,14 +35,15 @@ import {
 import { WriteOffDialog } from "@/pages/POAdjustment/WriteOffDialog";
 import { writableOnWriteOff } from "@/pages/POAdjustment/adjustmentOffer";
 import { useUserData } from "@/hooks/useUserData";
-import { MATERIAL_PROCUREMENT_PROFILES, isNirmaanAdmin } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, isNirmaanAdmin, ADMIN_PROFILE, DEVELOPER_PROFILE, isDeveloperProfile } from "@/constants/roles";
 
 interface PORevisionsAndAdjustmentsProps {
   poId: string;
 }
 
 const REVISION_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
@@ -191,7 +192,7 @@ export const PORevisionsAndAdjustments: React.FC<
               {hasAdjustments && (
                 <AdjustmentsList
                   adjustment={adjustment!}
-                  canWriteOff={isNirmaanAdmin(role, user_id)}
+                  canWriteOff={isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)}
                   onWrittenOff={mutateAdjustment}
                 />
               )}

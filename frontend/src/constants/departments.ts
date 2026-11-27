@@ -4,7 +4,7 @@
 // to Nirmaan Department, the list Admin and HR keep in Assets -> Departments (add, rename, switch
 // off). The pickers offer the active ones (`useDepartmentOptions`).
 
-import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE } from "./roles";
+import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE } from "./roles";
 
 /** Label for "no department yet", in lists and filters. */
 export const NO_DEPARTMENT_LABEL = "No department";
@@ -13,7 +13,7 @@ export const NO_DEPARTMENT_LABEL = "No department";
  * Who may set or change a person's department. Mirrors `DEPARTMENT_EDIT_PROFILES` in
  * `nirmaan_stack/services/role_profiles.py`, which the server enforces.
  */
-export const DEPARTMENT_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+export const DEPARTMENT_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 /** True for Admin and HR (and the Administrator user). */
 export const canEditDepartments = (role: string | null | undefined, userId: string | null | undefined): boolean =>

@@ -60,6 +60,7 @@ import {
     type ItemStatus,
     type RequestType,
 } from "@/utils/tdsRequestRules";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /** One refused row in the approve reply (`api/tds/approve.py` `approve_tds_items`). */
 interface ApproveRowError {
@@ -516,7 +517,7 @@ export const TDSApprovalDetail: React.FC = () => {
     // the pre-freeze approve right — both pick-only and promoting approvals now go
     // through the Admin-only backend (`api/tds/approve.py`), which re-checks
     // server-side. This UI gate is the cosmetic mirror of that authority.
-    const ALLOWED_APPROVER_ROLES = ["Nirmaan Admin Profile"];
+    const ALLOWED_APPROVER_ROLES = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
     // canApprove gates the select column, actions (pencil) column, the Approve/
     // Reject footer, Select All, and the selection chip.

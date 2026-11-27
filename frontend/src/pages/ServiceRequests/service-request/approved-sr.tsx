@@ -72,7 +72,7 @@ import { useGstPaymentRequests } from "@/pages/ProjectPayments/hooks/useGstPayme
 import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
-import { canMatchGstToVendor, isNirmaanAdmin } from "@/constants/roles";
+import { canMatchGstToVendor, isNirmaanAdmin, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
 import { TdsCutUndoActions } from "../components/TdsCutUndoActions";
 import { RejectionReasonNote } from "@/pages/ProjectPayments/components/RejectionReasonNote";
@@ -530,7 +530,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const deleteDisabled = isDeleting || summaryPage || accountsPage || isFinalized ||
         ((projectPayments || [])?.length > 0) ||
         ((vendorInvoices || [])?.length > 0) ||
-        (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile");
+        (orderData?.owner !== user_id && !(isAdminProfile(role) || isDeveloperProfile(role)) && role !== "Nirmaan PMO Executive Profile");
 
     return (
         <div className="flex-1 space-y-4">
@@ -914,15 +914,15 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <TdsCutUndoActions
                                                         payment={payment}
                                                         deduction={tdsByPayment[payment?.name]}
-                                                        isAdmin={isNirmaanAdmin(role, user_id)}
+                                                        isAdmin={isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)}
                                                         onDone={() => Promise.all([refreshPayments(), service_request_mutate()])}
                                                     />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
                                                         every WO opens (owner, 2026-09-21). */}
-                                                    {payment?.status !== "Paid" && payment?.status !== "Reconciliation Pending" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
-                                                        (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
+                                                    {payment?.status !== "Paid" && payment?.status !== "Reconciliation Pending" && (payment?.status !== "Approved" || isAdminProfile(role) || isDeveloperProfile(role)) &&
+                                                        (!summaryPage || (payment?.status === "Rejected" && (isAdminProfile(role) || isDeveloperProfile(role)))) &&
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"

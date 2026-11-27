@@ -1,4 +1,4 @@
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /**
  * Roles allowed to add warehouse stock manually (the Warehouse tab's "Add Item").
@@ -11,7 +11,8 @@ import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
  * "Nirmaan Admin Profile" by `useUserData`, so it needs no separate entry.
  */
 export const WAREHOUSE_ADD_STOCK_ROLES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;

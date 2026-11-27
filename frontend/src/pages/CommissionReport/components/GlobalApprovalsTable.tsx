@@ -32,6 +32,7 @@ import { ApprovalActionDialog, type ApprovalTaskRef } from "./ApprovalActionDial
 import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { useMasterTaskMap } from "../report-wizard/data/useMasterTaskMap";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const PARENT_DOCTYPE = "Project Commission Report";
 const PREVIEW_PORTRAIT = "Project Commission Report - Filled Task";
@@ -72,7 +73,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh, 
     const { map: masterMap } = useMasterTaskMap();
     const { role, user_id } = useUserData();
     // Approve / Reject actions are Admin-only; PMO sees the queue read-only.
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
 
     const [preview, setPreview] = useState<{ open: boolean; url: string; title: string; direct: boolean }>({ open: false, url: "", title: "", direct: false });
     // `direct` renders the URL straight in the iframe. Required for the uploaded vendor

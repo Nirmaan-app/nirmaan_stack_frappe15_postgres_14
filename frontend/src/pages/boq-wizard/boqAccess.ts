@@ -20,7 +20,7 @@
  * right if that ever stops being true.
  */
 
-import { isNirmaanAdmin, UPLOAD_BOQ_ACCESS } from "@/constants/roles";
+import { isNirmaanAdmin, UPLOAD_BOQ_ACCESS, ADMIN_PROFILE, DEVELOPER_PROFILE, isDeveloperProfile } from "@/constants/roles";
 
 /**
  * Admins + PMO + estimation + billing.
@@ -35,7 +35,8 @@ import { isNirmaanAdmin, UPLOAD_BOQ_ACCESS } from "@/constants/roles";
  * affordance that promises something the very next click refuses. The two are edited together.
  */
 const BOQ_WIZARD_PROFILES: ReadonlySet<string> = new Set([
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Estimates Executive Profile",
   "Nirmaan Billing Executive Profile",
@@ -102,7 +103,7 @@ export function canOpenBoqHub(role: string | undefined, userId: string | undefin
  * test: Administrator or the Nirmaan Admin Profile).
  */
 export function canAddBoqToWonProject(role: string | undefined, userId: string | undefined): boolean {
-  return isNirmaanAdmin(role, userId);
+  return isNirmaanAdmin(role, userId) || isDeveloperProfile(role);
 }
 
 /**
@@ -117,7 +118,7 @@ export function canManageWonProjectBoqs(
   role: string | undefined,
   userId: string | undefined,
 ): boolean {
-  return isNirmaanAdmin(role, userId);
+  return isNirmaanAdmin(role, userId) || isDeveloperProfile(role);
 }
 
 /**

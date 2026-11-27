@@ -73,6 +73,7 @@ import { workbookForPath } from "./pricingWorkbooks";
 import { PRICING_ROOT_CLASS_NORMAL, pricingRootClass, shouldExitPricingFullscreenOnEsc } from "./pricingHelpers";
 import { cn } from "@/lib/utils";
 import { PricingCalculator, calculatorDisciplineForPath } from "./PricingCalculator";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /** Calculator slice 2: the sheet's NORMAL root class when it is a tab-strip child -- the strip's column
  * already carries the page height, so the sheet fills what is left instead of re-claiming the viewport. */
@@ -258,7 +259,7 @@ function PricingWorkbookSheet({ inTabs = false }: { inTabs?: boolean }) {
 	// (_require_pricing_write_access in api/pricing/workbook.py); nothing here is a
 	// security boundary, and the page still handles a server refusal.
 	const roleResolved = role !== "Loading";
-	const isPricingAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+	const isPricingAdmin = user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
 	const [status, setStatus] = useState<PageStatus>("loading");
 	const [errorMsg, setErrorMsg] = useState<string>("");

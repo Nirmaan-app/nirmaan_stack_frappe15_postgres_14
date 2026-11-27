@@ -62,7 +62,7 @@ import { RocketIcon } from "@radix-ui/react-icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "../sidebar-nav";
-import { isProcurementProfile } from "@/constants/roles";
+import { isProcurementProfile, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 const RoleDashboard = ({ selectedValue }) => {
     const { logout } = useContext(UserContext);
@@ -78,7 +78,7 @@ const RoleDashboard = ({ selectedValue }) => {
                     {selectedValue === 'Project_Lead' && <ProjectLead />}
                     {selectedValue === 'Procurement_Executive' && <ProcurementDashboard />}
 
-                    {(userData.has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(userData.role)) ? (
+                    {(userData.has_project === "false" && ![ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(userData.role)) ? (
                         <Alert className="ml-[25%] w-[50%] mt-[15%]">
                             <RocketIcon className="h-4 w-4" />
                             <AlertTitle>Sorry !!!</AlertTitle>

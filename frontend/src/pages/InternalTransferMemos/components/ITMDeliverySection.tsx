@@ -34,6 +34,7 @@ import {
 } from "@/pages/DeliveryNotes/components/VendorDCDialog";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { InternalTransferMemoItem } from "@/types/NirmaanStack/InternalTransferMemo";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface ITMDeliverySectionProps {
   itmName: string;
@@ -86,7 +87,7 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
   const userData = useUserData();
   // Delete button mirrors PO DN convention — Admin role / Administrator user only.
   const isAdmin =
-    userData?.role === "Nirmaan Admin Profile" ||
+    isAdminProfile(userData?.role) || isDeveloperProfile(userData?.role) ||
     userData?.user_id === "Administrator";
 
   const [isAdding, setIsAdding] = useState(false);

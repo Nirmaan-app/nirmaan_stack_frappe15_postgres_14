@@ -10,7 +10,7 @@
 
 import { format, parseISO } from "date-fns";
 
-import { ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES } from "@/constants/roles";
+import { PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 import { EMPTY_PAYMENT_MODE, PAYMENT_MODE_CHEQUE, type PaymentModeValue } from "./paymentMode";
 
@@ -38,7 +38,7 @@ export const isEarlyCreditCheque = (
  * Who sees Pay by Cheque on a credit term not yet due, on the PO page and on Credit Payments: Admin (the
  * Administrator user reads as Admin), PMO and every Procurement profile (owner, 2026-10-31).
  */
-export const PAY_BY_CHEQUE_PROFILES: readonly string[] = [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...PROCUREMENT_PROFILES];
+export const PAY_BY_CHEQUE_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, ...PROCUREMENT_PROFILES];
 
 export const canPayCreditByCheque = (role?: string | null): boolean =>
 	!!role && PAY_BY_CHEQUE_PROFILES.includes(role);

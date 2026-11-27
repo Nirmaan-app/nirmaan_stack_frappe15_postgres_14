@@ -14,14 +14,14 @@ import {
   DEFAULT_PROJECT_STATUS_FILTER,
 } from "@/components/common/projectStatus";
 import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const API_PATH = "nirmaan_stack.api.critical_po_tasks.get_projects_with_stats.get_projects_with_critical_po_stats";
-const ADMIN_ROLE = "Nirmaan Admin Profile";
 
 const CriticalPOTrackerList: React.FC = () => {
   const navigate = useNavigate();
   const { role } = useUserData();
-  const isAdmin = role === ADMIN_ROLE;
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] =

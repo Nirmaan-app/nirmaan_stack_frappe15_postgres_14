@@ -37,6 +37,7 @@ import { useUserData } from "@/hooks/useUserData";
 
 import { ProjectSnagCard } from "./components/ProjectSnagCard";
 import { useProjectSnagSummaries } from "./hooks/useProjectSnagSummaries";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /**
  * Who may hide/unhide a project's snag list.
@@ -45,7 +46,8 @@ import { useProjectSnagSummaries } from "./hooks/useProjectSnagSummaries";
  * is the real boundary; this is UX only, so the server refusing is not a bug here.
  */
 const MODULE_CONTROL_PROFILES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
 ];
 

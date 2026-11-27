@@ -19,7 +19,7 @@ import { Ban, Check, FileDown, Eye, ExternalLink, Loader2, Search, X } from 'luc
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
-import { ADMIN_PROFILE } from "@/constants/roles";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import type { TdsHistoryRow } from '../../data/tds/useTdsQueries';
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
 import {
@@ -164,7 +164,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     initialSelectedIds,
 }) => {
     const { role } = useUserData();
-    const isAdmin = role === ADMIN_PROFILE;
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
 
     // Each mount (each open) starts from the caller's statuses, all packages and an empty search.
     const [tickedStatuses, setTickedStatuses] = useState<PdfStatus[]>(() =>

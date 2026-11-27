@@ -40,6 +40,10 @@ import {
   canRemoveProjectAssignee,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
+  isAdminProfile,
+  isDeveloperProfile,
 } from "@/constants/roles";
 import { getFrappeError } from "@/utils/frappeErrors";
 import {
@@ -301,7 +305,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </AlertDescription>
         </Alert>
       )}
-      {role == "Nirmaan Admin Profile" && (
+      {(isAdminProfile(role) || isDeveloperProfile(role)) && (
         <ProjectModuleDeactivationStatus projectId={projectData.name} projectStatus={projectData.status} />)}
       <Card>
         <CardHeader>
@@ -447,7 +451,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Assignees
-            {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+            {[ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
               <Dialog open={assignUserDialog} onOpenChange={toggleAssignUserDialog}>
                 <DialogTrigger asChild>
                   <Button asChild>

@@ -6,6 +6,7 @@ import { useUserData } from '@/hooks/useUserData'
 import { canManageTendering } from '@/pages/projects/tendering/tenderingAuth'
 import { useExpenseAccess } from '@/hooks/useExpenseAccess'
 import { expenseRouteState } from '@/utils/expenseAccess'
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /**
  * What RoleRoute shows (S6 F4 / U3, owner ruling Q-e). Pure.
@@ -46,7 +47,7 @@ export const ProtectedRoute = () => {
 export const AdminRoute = () => {
     const {role, user_id} = useUserData()
 
-    if(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator") {
+    if(isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator") {
         return <Outlet />
     }
 }
@@ -79,7 +80,7 @@ export const UsersRoute = () => {
     const { role, user_id } = useUserData()
 
     const canAccessUsers =
-        role === "Nirmaan Admin Profile" ||
+        isAdminProfile(role) || isDeveloperProfile(role) ||
         role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan HR Executive Profile" ||
         user_id === "Administrator"
@@ -103,7 +104,7 @@ export const UserProfileRoute = () => {
     const { userId } = useParams<{ userId: string }>()
 
     const isAuthorizedRole =
-        role === "Nirmaan Admin Profile" ||
+        isAdminProfile(role) || isDeveloperProfile(role) ||
         role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan HR Executive Profile" ||
         user_id === "Administrator"
@@ -132,7 +133,7 @@ export const InflowPaymentsRoute = () => {
     // PMO Executive opens the page view-only (owner, 2026-10-28; `canAddInflow` /
     // `canActOnInflow` in constants/roles.ts keep the buttons away).
     const canAccessInflowPayments =
-        role === "Nirmaan Admin Profile" ||
+        isAdminProfile(role) || isDeveloperProfile(role) ||
         role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan Accountant Profile" ||
         role === "Nirmaan Accountant Lead Profile" ||
@@ -198,7 +199,7 @@ export const PricingRoute = () => {
 
     if (
         user_id === "Administrator" ||
-        role === "Nirmaan Admin Profile" ||
+        isAdminProfile(role) || isDeveloperProfile(role) ||
         role === "Nirmaan Estimates Executive Profile"
     ) {
         return <Outlet />
@@ -229,7 +230,7 @@ export const OutflowImportRoute = () => {
 
     if (
         user_id === "Administrator" ||
-        role === "Nirmaan Admin Profile" ||
+        isAdminProfile(role) || isDeveloperProfile(role) ||
         role === "Nirmaan Accountant Profile" ||
         role === "Nirmaan Accountant Lead Profile"
     ) {

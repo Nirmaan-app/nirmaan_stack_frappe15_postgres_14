@@ -14,14 +14,14 @@ import {
   DEFAULT_PROJECT_STATUS_FILTER,
 } from "@/components/common/projectStatus";
 import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const API_PATH = "nirmaan_stack.api.seven_days_planning.get_projects_material_plan_stats.get_projects_with_material_plan_stats";
-const ADMIN_ROLE = "Nirmaan Admin Profile";
 
 const MaterialPlanTrackerList: React.FC = () => {
   const navigate = useNavigate();
   const { role } = useUserData();
-  const isAdmin = role === ADMIN_ROLE;
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] =

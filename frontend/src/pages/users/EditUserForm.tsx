@@ -23,6 +23,7 @@ import { DepartmentSelect } from "@/components/common/DepartmentSelect";
 import { canEditDepartments } from "@/constants/departments";
 import { useDepartmentOptions } from "@/hooks/useDepartmentOptions";
 import { normalizeDepartment } from "@/utils/assetDepartment";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -164,7 +165,7 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
     }
   };
 
-  const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile";
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile";
   const isOwnProfile = actual_user_id === data?.email;
   // Only allow role editing if user is Admin/PMO/HR AND not editing their own profile
   const canEditRole = isAdmin && !isOwnProfile;

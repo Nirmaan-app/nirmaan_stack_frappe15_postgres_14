@@ -9,10 +9,11 @@
 // no bank line = an Admin, while it waits. Delete = an Admin or material Procurement, once Cancelled.
 
 import {
-    isNirmaanAdmin,
-    REFUND_ACCOUNTANT_PROFILES,
-    REFUND_DELETE_PROFILES,
-    REFUND_PAPERWORK_PROFILES,
+  isNirmaanAdmin,
+  REFUND_ACCOUNTANT_PROFILES,
+  REFUND_DELETE_PROFILES,
+  REFUND_PAPERWORK_PROFILES,
+  isDeveloperProfile,
 } from "@/constants/roles";
 import { VENDOR_REFUND_STATUS, type VendorRefundStatus } from "@/types/NirmaanStack/VendorRefunds";
 
@@ -88,7 +89,7 @@ export const canCancelRefund = (refund: RefundState, user: string, role: string)
 
 /** May this user mark this refund Received with no bank line? An Admin, while it waits. */
 export const canMarkReceivedWithoutBankLine = (refund: RefundState, user: string, role: string): boolean =>
-    refund.status === WAITING && isNirmaanAdmin(role, user);
+    refund.status === WAITING && (isNirmaanAdmin(role, user) || isDeveloperProfile(role));
 
 /** May this user delete this refund? An Admin or material Procurement, once it is Cancelled. The server
  *  also keeps one a bank line was once matched to. */

@@ -21,6 +21,15 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-red-500 to-rose-600",
     ring: "ring-red-500/30",
   },
+  // ADR-0051: mirrors Admin's access, but keeps a badge of its own so the two stay tellable apart.
+  "Nirmaan Software Developer Profile": {
+    bg: "bg-orange-50",
+    text: "text-orange-700",
+    border: "border-orange-200",
+    dot: "bg-orange-500",
+    gradient: "bg-gradient-to-br from-orange-500 to-amber-600",
+    ring: "ring-orange-500/30",
+  },
   "Nirmaan Project Lead Profile": {
     bg: "bg-amber-50",
     text: "text-amber-700",
@@ -178,6 +187,7 @@ export function getRoleLabel(roleProfile: string | undefined | null): string {
  */
 export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Admin", value: "Nirmaan Admin Profile" },
+  { label: "Software Developer", value: "Nirmaan Software Developer Profile" },
   { label: "PMO Executive", value: "Nirmaan PMO Executive Profile" },
   { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
   { label: "Project Manager", value: "Nirmaan Project Manager Profile" },

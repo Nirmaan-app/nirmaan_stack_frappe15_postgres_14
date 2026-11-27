@@ -33,6 +33,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { FileText, Truck, ClipboardCheck, Package, Receipt, IndianRupee, AlertTriangle } from "lucide-react";
 import { useProjectAssignees } from "@/hooks/useProjectAssignees";
 import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface SelectOption {
     label: string;
@@ -229,14 +230,16 @@ export default function POAttachmentReconcileReport() {
             const allowedRoles = [
                 "Nirmaan Project Manager Profile",
                 "Nirmaan Procurement Profile",
-                "Nirmaan Admin Profile",
+                ADMIN_PROFILE,
+                DEVELOPER_PROFILE,
                 "Nirmaan Accountant Profile",
                 "Nirmaan Accountant Lead Profile",
             ];
             const roleMap: Record<string, string> = {
                 "Nirmaan Project Manager Profile": "Project Manager",
                 "Nirmaan Procurement Profile": "Procurement",
-                "Nirmaan Admin Profile": "Admin",
+                [ADMIN_PROFILE]: "Admin",
+                [DEVELOPER_PROFILE]: "Software Developer",
                 "Nirmaan Accountant Profile": "Accountant",
                 "Nirmaan Accountant Lead Profile": "Accountant Lead",
             };

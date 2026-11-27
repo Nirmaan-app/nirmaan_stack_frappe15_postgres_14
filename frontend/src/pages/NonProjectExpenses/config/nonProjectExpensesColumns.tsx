@@ -51,7 +51,7 @@ import {
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
-import { isProcurementProfile } from "@/constants/roles";
+import { isProcurementProfile, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
@@ -105,7 +105,7 @@ export const getNonProjectExpenseColumns = ({
   editableStatuses = [],
 }: GetNonProjectExpenseColumnsOptions): ColumnDef<NonProjectExpenses>[] => {
   // --- Role gating (frontend-only enforcement, mirrors Project Expenses) ---
-  const isAdmin = role === "Nirmaan Admin Profile";
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
   // Accountant Lead mirrors Accountant for role checks (parity by design).
   const isAccountant =
     role === "Nirmaan Accountant Profile" ||

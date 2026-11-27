@@ -22,6 +22,7 @@ import {
   LineMatch,
   POItem,
 } from "@/pages/ProcurementOrders/invoices-and-dcs/components/LineItemMappingReview";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface UnresolvedInvoice {
   po: string; project: string; project_name: string; invoice: string;
@@ -30,7 +31,7 @@ interface UnresolvedInvoice {
 
 export default function ResolveInvoices() {
   const { user_id, role } = useUserData();
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const isAdmin = user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
   const { data, isLoading, error, mutate } = useFrappeGetCall(
     "nirmaan_stack.api.invoices.temp_resolve.get_unresolved_invoices",

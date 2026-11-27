@@ -29,6 +29,7 @@ import {
   CATEGORY_LIST_FIELDS_TO_FETCH,
 } from "./items.constants"; // Adjust path
 import { useDialogStore } from "@/zustand/useDialogStore";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 export default function ItemsPage() {
   const userData = useUserData();
@@ -39,7 +40,7 @@ export default function ItemsPage() {
   const [editItem, setEditItem] = useState<ItemsType | null>(null);
 
   const canManageItems =
-    userData?.role === "Nirmaan Admin Profile" ||
+    isAdminProfile(userData?.role) || isDeveloperProfile(userData?.role) ||
     userData?.role === "Nirmaan PMO Executive Profile"; // Define roles that can add/edit
   const {
     data: categoryList,

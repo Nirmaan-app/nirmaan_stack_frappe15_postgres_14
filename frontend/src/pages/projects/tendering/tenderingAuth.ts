@@ -8,8 +8,12 @@
  * Used by the lightweight stub detail view and the Tendering list-tab row
  * actions to gate Edit / Delete (Convert is Slice 7).
  */
+
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
+
 export const TENDERING_MANAGER_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Estimates Executive Profile",
   "Nirmaan Billing Executive Profile",

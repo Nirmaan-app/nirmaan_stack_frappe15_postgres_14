@@ -3,7 +3,7 @@
  * Used by ProcurementRequests.tsx for consistent tab values and role-based access
  */
 
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 export const PR_TABS = {
     APPROVE_PR: 'Approve PR',
@@ -48,13 +48,15 @@ export const PR_ALL_TAB_OPTIONS: PRTabOption[] = [
 // New PR Request / In Progress / Sent Back visibility via PR_EXEC_ROLES below.
 // Do NOT re-add PMO here without owner sign-off.
 export const PR_ADMIN_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan Project Lead Profile",
 ];
 
 export const PR_EXEC_ROLES = [
     ...MATERIAL_PROCUREMENT_PROFILES,
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
 ];

@@ -22,6 +22,7 @@
 // both gates. An earlier revision forced every refund to L1+L2 and the owner reversed it.
 
 import { parseNumber } from "./parseNumber";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /** Strictly BELOW this needs no human at all. */
 export const TIER_AUTO_APPROVE_BELOW = 15000;
@@ -134,7 +135,7 @@ export const raiserLevelOf = (
   ceoUser: string
 ): RaiserLevel | null => {
   if (userId && userId === ceoUser) return RAISER_LEVELS.ceo;
-  if (userId === "Administrator" || role === "Nirmaan Admin Profile") return RAISER_LEVELS.l1;
+  if (userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role)) return RAISER_LEVELS.l1;
   return null;
 };
 

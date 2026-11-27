@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { RemindersSection } from "./RemindersSection";
 import { ActionTabs, ActionTab } from "./ActionTabs";
 import { FinanceActionTabs } from "./FinanceActionTabs";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 export type ActionCenterSection = "reminders" | "proj-manager" | "finance";
 
@@ -48,7 +49,8 @@ const FINANCE_ROLES = [
 
 const ADMIN_ROLES = [
   "Administrator",
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
 ];
 
 const PM_ROLES = [

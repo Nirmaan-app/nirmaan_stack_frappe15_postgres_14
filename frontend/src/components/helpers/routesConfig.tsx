@@ -985,7 +985,7 @@ export const appRoutes: RouteObject[] = [
           // (rate-master/rateMasterRegistry.ts) for more disciplines.
           // RM-ACCESS-1 (owner 2026-10-20): ADMIN ONLY. It left PricingRoute, so Estimates lost
           // their read-only view; the calculator and the BoQ pricing panel keep pricing (they
-          // never route here). RATE_MASTER_ACCESS admits the population isNirmaanAdmin does.
+          // never route here). RATE_MASTER_ACCESS admits the population `isNirmaanAdmin || isDeveloperProfile` does.
           {
             path: "rate-master",
             element: <RoleRoute allowed={RATE_MASTER_ACCESS} what="the Rate Master" />,
