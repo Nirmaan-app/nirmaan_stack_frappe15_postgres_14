@@ -47,11 +47,28 @@ frappe.db.sql('''
 
 ## Admin Permission Check
 
-Handle both system Administrator and Nirmaan Admin role:
+`ADMIN_PROFILE` in `services/role_profiles.py` is the Admin profile alone. The Software Developer
+(`DEVELOPER_PROFILE`, [ADR-0051](../../../docs/adr/0051-software-developer-profile-mirrors-admin.md)) is allowed
+wherever Admin is, and every check names it beside Admin; `frontend/src/constants/roles.ts` mirrors both. Never
+write either profile as an inline string, and never name Admin without the developer outside the guard's exception
+list: `services/test_software_developer_profile.py` refuses both.
+
 ```python
-is_admin = current_user == "Administrator" or \
-           frappe.get_value("Nirmaan Users", current_user, "role_profile") == "Nirmaan Admin Profile"
+from nirmaan_stack.services.role_profiles import (
+    ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE,
+    has_role_profile, is_admin_profile, is_developer, is_developer_profile, is_nirmaan_admin,
+)
+
+is_nirmaan_admin(user) or is_developer(user)               # the Administrator user, an Admin or a developer
+is_admin_profile(p) or is_developer_profile(p)             # for a profile string already in hand (no Administrator pass)
+has_role_profile(user, (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE))   # a list: both, side by side
 ```
+
+`is_nirmaan_admin` alone is the Administrator user or the Admin profile, and `is_admin_profile` alone the Admin
+profile; each is on the guard's exception list only where it is defined.
+
+Renaming a user's email (`api/users.rename_user_email`): the caller must be the Administrator user, an Admin or a
+developer, and the person renamed must be neither (an Admin or Software Developer account is never renamed).
 
 ---
 

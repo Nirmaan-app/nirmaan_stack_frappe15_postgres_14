@@ -297,9 +297,16 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
 Matrix of roles, sidebar entries, per-page actions and the PMO exceptions: `.claude/context/role-access.md`.
 
 - **Read the role with `useUserData()`** (`src/hooks/useUserData.ts`, returning `role` and `user_id`) and compare
-  Role Profile names: `["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)`. The
+  Role Profile names: `[ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE].includes(role)`. The
   `Administrator` user (`user_id`) has hardcoded Admin access, so admin checks include
   `user_id === "Administrator"`.
+- **Name the Software Developer beside Admin at every check** (ADR-0051). `ADMIN_PROFILE` and `isAdminProfile` mean
+  the Admin profile alone, and `isNirmaanAdmin` the Administrator user or the Admin profile, so a check that allows
+  Admin says so for the developer too: `[ADMIN_PROFILE, DEVELOPER_PROFILE, ...]`,
+  `isAdminProfile(role) || isDeveloperProfile(role)`, `isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)`.
+  Never write either profile name as an inline string. `constants/roles.softwareDeveloper.test.ts` refuses an inline
+  name, and any list or check that names Admin without the developer unless it is on the test's exception list
+  with its reason.
 - **Reuse the shared role lists** (`src/constants/roles.ts`, and per-feature lists such as `PR_ADMIN_ROLES` in
   `pages/ProcurementRequests/config/prTabs.constants.ts`) rather than retyping profile strings.
 - **Gate a page's controls on role and document status only, never on which route opened it.** Every PO URL

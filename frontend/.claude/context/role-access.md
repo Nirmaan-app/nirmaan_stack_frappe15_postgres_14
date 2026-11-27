@@ -7,6 +7,7 @@ This document contains detailed page-level role access control mappings for the 
 | Role Profile | Short Name | Color |
 |---|---|---|
 | `Nirmaan Admin Profile` | Admin | Red |
+| `Nirmaan Software Developer Profile` | Software Developer | Orange |
 | `Nirmaan PMO Executive Profile` | PMO Executive | Teal |
 | `Nirmaan Project Lead Profile` | Project Lead | Amber |
 | `Nirmaan Project Manager Profile` | Project Manager | Blue |
@@ -20,6 +21,8 @@ This document contains detailed page-level role access control mappings for the 
 | `Nirmaan HR Executive Profile` | HR Executive | Lime |
 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
+
+**Software Developer = Admin, everywhere** ([ADR-0051](../../../docs/adr/0051-software-developer-profile-mirrors-admin.md)): `Nirmaan Software Developer Profile` sees and does exactly what Admin does, with no exception, and is included wherever Admin is picked to receive work or a message. Wherever this document says **Admin**, read **Admin and Software Developer**. In code, `ADMIN_PROFILE` / `isAdminProfile` mean the Admin profile alone and `isNirmaanAdmin` the Administrator user or the Admin profile; every check names the developer beside them (`DEVELOPER_PROFILE`, `isDeveloperProfile`) in `src/constants/roles.ts`, mirrored by `services/role_profiles.py`. `roles.softwareDeveloper.test.ts` refuses an inline Admin or developer string, and any list or check naming Admin without the developer outside its exception list. Like Admin, it is never assigned a project and is not in `PROJECT_REQUIRED_PROFILES`. Its people go in the department Technology, which the patch `add_technology_department` creates on each site's migrate.
 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
 - **Project financials** *(owner, 2026-10-27 and 2026-10-28)*: PMO sees every Financials tile and sub-tab on the project page (including Project Value, Client Invoiced, Inflow and the Project Invoices / Inflow tabs), every financial column on the Projects list, the `/project-invoices` and `/in-flow-payments` pages (sidebar links + route guards), and every Reports → Projects report (Cash Sheet, Inflow, both Payments reports, Project Invoices, Project GST), and the Client Invoices card in every Bulk Download (project tab and Reports). PMO is **view-only** on client invoices and inflows everywhere: no Add Invoice / New Inflow, no invoice Edit/Delete, no inflow Actions menu. Rules: `canAddProjectInvoice`, `canAddInflow`, `canEditProjectInvoice`, `canActOnInflow`, `canDeleteInflow` in `src/constants/roles.ts`; `AllProjectInvoices` no longer counts PMO as Admin. Frontend only — the server already lets PMO read both doctypes.
@@ -96,14 +99,17 @@ assigned from the Users screens.
 ## Common Patterns
 
 ```typescript
-// Single role check
-role === "Nirmaan Admin Profile"
+// Admin check: the developer is named beside Admin (ADR-0051), never an inline profile string
+isAdminProfile(role) || isDeveloperProfile(role)
 
-// Multiple roles (Admin + PMO)
-["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
+// Administrator, Admin or developer
+isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)
 
-// Admin + PMO + Administrator bypass
-user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile"
+// Multiple roles (Admin + developer + PMO)
+[ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE].includes(role)
+
+// Admin + developer + PMO + Administrator bypass
+user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role) || role === PMO_EXECUTIVE_PROFILE
 ```
 
 ---
@@ -144,7 +150,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 ## Dashboard Routing
 
 Each role sees a different dashboard (`src/pages/dashboard.tsx`):
-- Admin → Default Dashboard
+- Admin, Software Developer → Default Dashboard
 - PMO Executive → Default Dashboard (mirrors Admin)
 - Project Lead → Project Lead Dashboard
 - Project Manager → Project Manager Dashboard
