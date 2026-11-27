@@ -393,6 +393,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
             {editingPlan && (
                 <EditMaterialPlanForm
                     plan={editingPlan}
+                    projectId={projectId}
                     onClose={() => setEditingPlan(null)}
                     onSuccess={() => {
                         refreshPlans();
