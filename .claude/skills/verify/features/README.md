@@ -112,6 +112,10 @@ footer's row total, a downloaded PDF shown as an image, and a `finish` that stam
   fake provider that answers 429 above K in flight never halt (#1718; `BIN/fake_ai_provider.py`). The N-worker check,
   `BIN/walk_background_operations.py --workers N`.
 - [Projects](./projects.md): the project list and a project's page.
+- [Software Developer profile](./software_developer.md): a developer and an Admin see the same sidebar, dashboard
+  and Reminders panel, Users badge and Rename Email, Payment Pending Approval, the Expenses review queue, Pending
+  Invoice Approvals and Projects list, each against the env DB (ADR-0051). Walked by
+  `BIN/walk_software_developer.py`.
 - [Vendors](./vendors.md): a vendor's Work Orders tab and its PDF, the Work Order lists' Project and Vendor ⓘ links,
   and Edit Vendor's MSME ID and certificate (#1731), walked by `BIN/walk_vendor_work_orders.py` and
   `BIN/walk_vendor_msme.py`; its Payments sub-tabs and its Cheques tab, read-only for PMO (#1732), walked by
