@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseJson } from "@/lib/parseJson";
 import type { ProjectPO } from "@/utils/materialPlan/poLink";
 
-import { cashflowPOLinkUpdate, cashflowWOLinkUpdate, woOptionLabel, type ProjectWO } from "./cashflowLink";
+import { cashflowPOLinkUpdate, cashflowWOLinkUpdate, woOptionLabel, woOptionSearchText, type ProjectWO } from "./cashflowLink";
 
 const entry = { critical_po_category: "HVAC Piping", critical_po_task: "Refnet", critical_po_sub_category: null };
 
@@ -70,9 +70,33 @@ describe("cashflowWOLinkUpdate", () => {
   });
 });
 
+describe("woOptionSearchText", () => {
+  it("joins the WO's descriptions", () => {
+    const wo = { ...forkliftWO, items: [{ description: "Forklift Unloading Charges" }, { description: null }, { description: "Night shift" }] };
+    expect(woOptionSearchText(wo)).toBe("Forklift Unloading Charges\nNight shift");
+  });
+  it("is empty for a WO with no items", () => {
+    expect(woOptionSearchText({ name: "SR-1" })).toBe("");
+  });
+});
+
 describe("woOptionLabel", () => {
-  it("shows WO, vendor, rounded total and status", () => {
-    expect(woOptionLabel(forkliftWO)).toBe("SR-00107-001158 · SRI AMMAN FORKLIFT · ₹7,670 · Approved");
+  it("shows WO, vendor, rounded total, status and the first description", () => {
+    expect(woOptionLabel(forkliftWO)).toBe(
+      "SR-00107-001158 · SRI AMMAN FORKLIFT · ₹7,670 · Approved — Forklift Unloading Charges",
+    );
+  });
+  it("shows only the first line of a long description, shortened, and how many more there are", () => {
+    const wo = {
+      name: "SR-2",
+      items: [
+        { description: "Unloading and shifting of Double Skin Plenum units to the second floor\nDate: 03-10-2026" },
+        { description: "Night shift" },
+        { description: "Crane" },
+      ],
+    };
+    // The first 50 characters, trailing space trimmed.
+    expect(woOptionLabel(wo)).toBe("SR-2 — Unloading and shifting of Double Skin Plenum units… (+2 more)");
   });
   it("leaves out what the WO does not have", () => {
     expect(woOptionLabel({ name: "SR-1" })).toBe("SR-1");

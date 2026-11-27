@@ -10,16 +10,18 @@ import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy
 import { criticalFieldsForPO, poOptionLabel, posForPicker, type PlanCriticalFields } from "@/utils/materialPlan/poLink";
 import type { POLinkPicker } from "./usePOLinkPicker";
 
-/** The picker searches the ID and the rest of the label (vendor, task). */
+/** The picker searches the ID, the rest of the label (vendor, task) and an option's hidden `searchText`. */
 const LINK_SEARCH_CONFIG: TokenSearchConfig = {
-    searchFields: ["label", "value"],
+    searchFields: ["label", "value", "searchText"],
     partialMatch: true,
-    fieldWeights: { value: 2.0, label: 1.5 },
+    fieldWeights: { value: 2.0, label: 1.5, searchText: 1.0 },
 };
 
 export interface LinkOption {
     value: string;
     label: string;
+    /** Searched but not shown, e.g. a WO's descriptions. */
+    searchText?: string;
 }
 
 interface EditableLinkBadgeProps {

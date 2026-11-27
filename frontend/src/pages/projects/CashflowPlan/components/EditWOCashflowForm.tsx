@@ -3,7 +3,7 @@ import { CheckCircle } from "lucide-react";
 import { useCashflowProjectWOs, useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditCashflowPlan } from "@/constants/roles";
-import { cashflowWOLinkUpdate, woOptionLabel, type ProjectWO } from "@/utils/cashflowPlan/cashflowLink";
+import { cashflowWOLinkUpdate, woOptionLabel, woOptionSearchText, type ProjectWO } from "@/utils/cashflowPlan/cashflowLink";
 import { EditableLinkBadge, LinkPickerPanel } from "@/pages/projects/components/planning/LinkPicker";
 import { useUpdateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -246,11 +246,11 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                     {canChangeWO && woPickerOpen && (
                         <LinkPickerPanel
                             title={isExistingWO ? "Change WO" : "Link a WO"}
-                            options={projectWOs.map((wo) => ({ value: wo.name, label: woOptionLabel(wo) }))}
+                            options={projectWOs.map((wo) => ({ value: wo.name, label: woOptionLabel(wo), searchText: woOptionSearchText(wo) }))}
                             value={targetWO ? { value: targetWO.name, label: woOptionLabel(targetWO) } : null}
                             onPick={pickWO}
                             isLoading={isLoadingWOs}
-                            placeholder="Search WO number or vendor…"
+                            placeholder="Search WO number, vendor or description…"
                             ariaLabel="Pick the WO for this entry"
                             emptyMessage={woResult && projectWOs.length === 0 ? "This project has no work orders yet." : null}
                             summary={woResult ? `${projectWOs.length} work order${projectWOs.length === 1 ? "" : "s"} on this project.` : "Loading WOs…"}

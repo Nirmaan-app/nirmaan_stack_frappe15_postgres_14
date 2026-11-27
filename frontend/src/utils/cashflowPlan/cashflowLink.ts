@@ -47,9 +47,34 @@ export function cashflowWOLinkUpdate(wo: ProjectWO) {
   };
 }
 
-/** A WO's line in the picker: "SR-00107-001158 · SRI AMMAN FORKLIFT · ₹7,670 · Approved". */
+/** What else a WO is searched by in the picker (not shown): its descriptions, so "unloading" finds the forklift WO. */
+export function woOptionSearchText(wo: ProjectWO): string {
+  return (wo.items ?? [])
+    .map((item) => item.description)
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** The longest piece of the first description shown in the picker line. */
+const DESCRIPTION_SNIPPET_LENGTH = 50;
+
+/** The first line of the WO's first description, shortened, plus "(+N more)" when it has more descriptions. */
+export function woDescriptionSnippet(wo: ProjectWO): string | null {
+  const descriptions = (wo.items ?? []).map((item) => item.description?.trim()).filter(Boolean) as string[];
+  if (descriptions.length === 0) return null;
+  const firstLine = descriptions[0].split("\n")[0].trim();
+  const snippet = firstLine.length > DESCRIPTION_SNIPPET_LENGTH
+    ? `${firstLine.slice(0, DESCRIPTION_SNIPPET_LENGTH).trimEnd()}…`
+    : firstLine;
+  return descriptions.length > 1 ? `${snippet} (+${descriptions.length - 1} more)` : snippet;
+}
+
+/**
+ * A WO's line in the picker: "SR-00107-001158 · SRI AMMAN FORKLIFT · ₹7,670 · Approved — Forklift Unloading Charges",
+ * so a WO found by its description shows why.
+ */
 export function woOptionLabel(wo: ProjectWO): string {
-  return [
+  const head = [
     wo.name,
     wo.vendor_name,
     wo.grand_total != null ? formatToRoundedIndianRupee(wo.grand_total) : null,
@@ -57,4 +82,6 @@ export function woOptionLabel(wo: ProjectWO): string {
   ]
     .filter(Boolean)
     .join(" · ");
+  const snippet = woDescriptionSnippet(wo);
+  return snippet ? `${head} — ${snippet}` : head;
 }
