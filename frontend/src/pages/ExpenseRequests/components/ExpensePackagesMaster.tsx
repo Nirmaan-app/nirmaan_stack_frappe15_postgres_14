@@ -55,6 +55,7 @@ import {
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
 import { RECORDS_WITHOUT_REVIEW_KEY, RecordsWithoutReviewSection } from "./RecordsWithoutReviewSection";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const SCOPE_STYLE: Record<ScopeLabel, string> = {
     Project: "bg-sky-100 text-sky-800",
@@ -125,7 +126,7 @@ export const ExpensePackagesMaster: React.FC = () => {
 
     // Rename is ADMIN ONLY. This hides the button; `rename_expense_type` is the real gate.
     const { role, user_id } = useUserData();
-    const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    const isAdmin = user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
     // Records without review offers only profiles that can raise a type, so a type's roles changing
     // refreshes it.
     const { mutate: mutateKey } = useSWRConfig();

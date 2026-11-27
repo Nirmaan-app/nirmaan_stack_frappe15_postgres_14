@@ -715,6 +715,7 @@ class TestAccessGate(unittest.TestCase):
             OUTFLOW_IMPORT_PROFILES,
             {
                 "Nirmaan Admin Profile",
+                "Nirmaan Software Developer Profile",  # ADR-0051: counts as Admin
                 "Nirmaan Accountant Profile",
                 "Nirmaan Accountant Lead Profile",
             },

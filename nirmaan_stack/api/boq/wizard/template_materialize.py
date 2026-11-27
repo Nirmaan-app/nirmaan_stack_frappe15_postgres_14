@@ -42,6 +42,7 @@ import json
 import frappe
 
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,8 @@ from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 # ---------------------------------------------------------------------------
 
 _SEED_ROLE_PROFILES = frozenset({
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan Estimates Executive Profile",
 })
 

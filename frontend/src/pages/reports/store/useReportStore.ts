@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 import {
-    AUDIT_VIEW_PROFILES,
-    MATERIAL_PROCUREMENT_PROFILES,
-    PROCUREMENT_PROFILES,
-    SERVICE_PROCUREMENT_PROFILES,
-    isProcurementProfile,
+  AUDIT_VIEW_PROFILES,
+  MATERIAL_PROCUREMENT_PROFILES,
+  PROCUREMENT_PROFILES,
+  SERVICE_PROCUREMENT_PROFILES,
+  isProcurementProfile,
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
 } from "@/constants/roles";
 import { paymentTabReports } from '../config/paymentTab.config';
 
@@ -56,17 +58,17 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Inventory Report';
         }
         // Only Admin and Accountant see Project reports
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Cash Sheet';
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.VENDORS) { // 👈 ADD THIS ENTIRE BLOCK
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Vendor Ledger';
         }
         return null;
     } else if (tab === REPORTS_TABS.CUSTOMERS) {
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Customer Receivable';
         }
         return null;
@@ -76,18 +78,18 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Dispatched for 1 days';
         }
         // Other roles (Admin, Accountant) who can see PO tab
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for Admin/Accountant on PO tab
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.SR) {
         // Assuming SR tab is visible to Admin, Accountant, PM
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for SR tab for allowed roles
         }
         return null;
     } else if (tab === REPORTS_TABS.DCS_MIRS) {
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'DC Report';
         }
         return null;

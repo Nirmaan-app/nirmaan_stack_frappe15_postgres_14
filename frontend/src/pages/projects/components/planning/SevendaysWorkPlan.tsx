@@ -41,6 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface SevendaysWorkPlanProps {
     projectId: string;
@@ -532,7 +533,8 @@ export const SevendaysWorkPlan = ({
 
     const canViewEmptyZones = useMemo(() => {
         const allowedRoles = [
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile",
             "Nirmaan Project Lead Profile"
         ];

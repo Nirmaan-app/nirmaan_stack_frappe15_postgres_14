@@ -8,7 +8,7 @@ import {
   isRateMasterWriteBlocked,
   type RateMasterFreezeState,
 } from "./rateMasterFreeze";
-import { isNirmaanAdmin } from "@/constants/roles";
+import { isDeveloperProfile, isNirmaanAdmin } from "@/constants/roles";
 
 const frozenAt = (msAgo: number) => {
   const d = new Date(Date.now() - msAgo);
@@ -53,9 +53,10 @@ describe("canManageRateMasterFreeze (owner ruling R5: the freeze population IS t
   it("IS the same predicate, not a second copy that could drift (R5)", () => {
     // The whole point of R5 is that these two populations are ONE population. Pinned across a
     // spread of inputs rather than by reading the implementation.
-    for (const role of ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile", "Loading", "Error", ""]) {
+    const roles = ["Nirmaan Admin Profile", "Nirmaan Software Developer Profile", "Nirmaan Estimates Executive Profile", "Loading", "Error", ""];
+    for (const role of roles) {
       for (const user of ["Administrator", "a@nirmaan.app", ""]) {
-        expect(canManageRateMasterFreeze(role, user)).toBe(isNirmaanAdmin(role, user));
+        expect(canManageRateMasterFreeze(role, user)).toBe(isNirmaanAdmin(role, user) || isDeveloperProfile(role));
       }
     }
   });

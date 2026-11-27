@@ -107,7 +107,7 @@ import {
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
-import { canAccessHod, canUseProjectBilling, isProcurementProfile } from "@/constants/roles";
+import { canAccessHod, canUseProjectBilling, isProcurementProfile, ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 // v3 dual-field model: this list covers the EXECUTION status (`status` field
 // — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
@@ -358,7 +358,7 @@ const getLandingTab = (role: string): ProjectPageTabValue => {
   // Privileged users (Admin / PMO / Accountant / Accountant Lead) land on Overview;
   // everyone else (PM / PL / Design / HR / ...) lands on Work Report.
   if (
-    role === "Nirmaan Admin Profile" ||
+    isAdminProfile(role) || isDeveloperProfile(role) ||
     role === "Nirmaan PMO Executive Profile" ||
     role === "Nirmaan Accountant Profile" ||
     role === "Nirmaan Accountant Lead Profile"
@@ -486,7 +486,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // Roles that can see all tabs (privileged users)
   const PRIVILEGED_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Accountant Profile",
     "Nirmaan Accountant Lead Profile",
@@ -1568,7 +1569,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1 md:ml-2">
             {data?.project_name.toUpperCase()}
           </span>
-          {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+          {[ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
             <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet} modal={false}>
               <SheetTrigger>
                 <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3 max-md:-mt-1" />
@@ -1581,7 +1582,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
         {/* </div> */}
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
-          {(role === "Nirmaan Admin Profile") && (
+          {(isAdminProfile(role) || isDeveloperProfile(role)) && (
             <>
               <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
                 <PopoverTrigger asChild>

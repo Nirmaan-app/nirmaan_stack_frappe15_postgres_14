@@ -4,10 +4,11 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { isCreatedToday } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 const ALWAYS_EDIT_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,

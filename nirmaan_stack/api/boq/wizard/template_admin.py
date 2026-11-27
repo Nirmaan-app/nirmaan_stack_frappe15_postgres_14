@@ -19,12 +19,14 @@ Administrator user (ADR-0013 A1-D10).
 
 import frappe
 from frappe import _
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 # Roles allowed to author / manage the master BoQ template (ADR-0013 A1-D10). The
 # Administrator user is always allowed (handled in the gate).
 MANAGE_TEMPLATE_ROLES = frozenset(
     {
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan Estimates Executive Profile",
     }
 )
@@ -40,7 +42,7 @@ def _user_role_profile(user: str) -> str:
     convention (pricing.py / draft_lock.py). The Administrator user has no Nirmaan Users
     row so it is mapped to admin explicitly."""
     if user == "Administrator":
-        return "Nirmaan Admin Profile"
+        return ADMIN_PROFILE
     return frappe.db.get_value("Nirmaan Users", user, "role_profile") or ""
 
 

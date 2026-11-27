@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 from typing import TypedDict, Optional
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 
 # Constants
@@ -207,7 +208,7 @@ def release_lock(task_name: str) -> LockResponse:
     is_admin = current_user == "Administrator"
     if not is_admin:
         user_role = frappe.db.get_value("Nirmaan Users", current_user, "role_profile")
-        is_admin = user_role == "Nirmaan Admin Profile"
+        is_admin = is_admin_profile(user_role) or is_developer_profile(user_role)
 
     if is_admin:
         _clear_lock(task_name)

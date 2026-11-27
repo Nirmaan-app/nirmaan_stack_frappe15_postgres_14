@@ -46,6 +46,7 @@ import {
 } from '../hooks/useProjectScheduler';
 import { ProgressTrackingSettingsCard } from '@/pages/projects/components/ProgressTrackingSettingsCard';
 import { EditMilestoneDatesDialog } from './EditMilestoneDatesDialog';
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const toInputDate = (d: Date): string => {
   const year = d.getFullYear();
@@ -168,7 +169,7 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
   const { role, user_id } = useUserData();
   const canEditDates =
     user_id === 'Administrator' ||
-    role === 'Nirmaan Admin Profile' ||
+    isAdminProfile(role) || isDeveloperProfile(role) ||
     role === 'Nirmaan PMO Executive Profile';
   // Admin + PMO see milestones disabled in the latest report; everyone else
   // has them filtered out.

@@ -15,19 +15,18 @@ there is no separate approval step. This controller handles:
 
 import frappe
 from frappe.utils import flt, now
-from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, MATERIAL_PROCUREMENT_PROFILES
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-ADMIN_ROLE = "Nirmaan Admin Profile"
-
 # Roles allowed to dispatch an Approved ITM. Mirrors `ITM_DISPATCH_ROLES`
 # on the frontend so UI gating and backend enforcement stay in sync.
 DISPATCH_ROLES = (
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     *MATERIAL_PROCUREMENT_PROFILES,
 )
@@ -37,7 +36,8 @@ DISPATCH_ROLES = (
 # is intentionally NOT required — any creator-eligible role can clean up an
 # Approved ITM regardless of who originally raised it.
 DELETE_ROLES = (
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     *MATERIAL_PROCUREMENT_PROFILES,
 )
@@ -276,10 +276,14 @@ def _emit_transition_events(doc):
 
 
 def _get_admins():
-    """Return set of users with the Admin role profile."""
+    """Return set of users holding a Role named after the Admin profile or the developer profile.
+
+    Note: this reads `Has Role`, and no user holds a Role of those names, so it finds nobody today, Admin or
+    developer alike. That is an older defect, listed for the owner rather than fixed here: reading `role_profile`
+    instead would change who Admin's own messages reach."""
     return {
         r.parent for r in frappe.get_all(
-            "Has Role", filters={"role": ADMIN_ROLE, "parenttype": "User"},
+            "Has Role", filters={"role": ["in", [ADMIN_PROFILE, DEVELOPER_PROFILE]], "parenttype": "User"},
             fields=["parent"],
         )
     }

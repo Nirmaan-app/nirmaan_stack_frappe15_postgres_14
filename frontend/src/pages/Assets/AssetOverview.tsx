@@ -94,6 +94,7 @@ import {
 import { useAssetProjectOptions } from './hooks/useAssetProjectOptions';
 import { getAssetPermissions } from './utils/permissions';
 import { AssetsAccessDenied } from './AssetsRoute';
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface AssetMaster {
     name: string;
@@ -350,7 +351,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const canViewCredentials = useMemo(() => {
         if (!userData) return false;
         if (userData.user_id === 'Administrator') return true;
-        if (['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile', 'Nirmaan HR Lead Profile'].includes(userData.role || '')) return true;
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile', 'Nirmaan HR Lead Profile'].includes(userData.role || '')) return true;
         if (asset?.current_assignee && asset.current_assignee === userData.user_id) return true;
         return false;
     }, [userData, asset?.current_assignee]);

@@ -16,7 +16,7 @@ import {
     getSubjectBadgeClass,
     SRRemarkData,
 } from "../hooks/useSRRemarks";
-import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { SERVICE_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface SRRemarksPopoverProps {
     srId: string;
@@ -34,7 +34,8 @@ export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
 
     const canAddRemarks = useMemo(() => {
         const allowedRoles = [
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",

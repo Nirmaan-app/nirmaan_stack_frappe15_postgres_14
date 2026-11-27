@@ -91,6 +91,7 @@ import { StatusBadge, AttachmentCell } from "./components/cells";
 import { TDSItem, TDSItemMember } from "@/types/NirmaanStack/TDSItem";
 import { TDSRepository } from "@/types/NirmaanStack/TDSRepository";
 import { TDS_REPOSITORY_PATH, whereAfterTdsItemDelete } from "@/utils/tdsRepositoryNavigation";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /** Frappe's link errors arrive with `<a href>` markup inside `_server_messages`;
  *  a toast renders text, so the tags have to come off before display. */
@@ -222,7 +223,7 @@ export const TDSItemDetail: React.FC = () => {
     const location = useLocation();
 
     const { user_id, role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
 
     // ---- Fetch the TDS Item (group) ----
     const {

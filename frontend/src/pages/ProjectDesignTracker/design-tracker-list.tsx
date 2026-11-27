@@ -47,6 +47,7 @@ import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import {useUserData} from "@/hooks/useUserData";
 import { NewTrackerModal } from "./components/NewTrackerModal";
 import { TeamPerformanceSummary } from "./components/TeamPerformanceSummary";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
@@ -331,8 +332,8 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
-    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     const [isModalOpen, setIsModalOpen] = useState(false);

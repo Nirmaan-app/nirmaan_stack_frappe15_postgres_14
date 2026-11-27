@@ -8,7 +8,7 @@ import { useNirmaanUserNames, useTdsHistoryItems, useProjectDoc } from '../data/
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { ADMIN_PROFILE } from "@/constants/roles";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog, type TdsExportItem, type TdsExportOptions } from './components';
 import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel, projectHistoryTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
 import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
@@ -29,9 +29,9 @@ interface TDSRepositoryViewProps {
 
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const { role } = useUserData();
-    const canEditTDS = role === "Nirmaan Admin Profile" || role === "Administrator" || role === "Nirmaan PMO Executive Profile";
+    const canEditTDS = isAdminProfile(role) || isDeveloperProfile(role) || role === "Administrator" || role === "Nirmaan PMO Executive Profile";
     // Only Admins can save a PDF holding Pending sheets; everyone else previews it (`isPdfPreviewOnly`).
-    const isAdmin = role === ADMIN_PROFILE;
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);

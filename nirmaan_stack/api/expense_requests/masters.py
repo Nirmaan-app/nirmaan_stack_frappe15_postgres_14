@@ -18,7 +18,8 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, is_admin
+from nirmaan_stack.api.expense_requests.access import is_admin
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 from nirmaan_stack.services.payees.expense_rules import PAYEE_RULES
 
 
@@ -53,9 +54,9 @@ def _normalise_roles(allowed_roles) -> list[str] | None:
 		profile = (value or "").strip() if isinstance(value, str) else ""
 		if not profile or profile in out:
 			continue
-		if profile == ADMIN_PROFILE:
+		if is_admin_profile(profile) or is_developer_profile(profile):
 			frappe.throw(
-				f"{ADMIN_PROFILE} already sees every expense type -- leave it out.",
+				f"{profile} already sees every expense type -- leave it out.",
 				title="Admin is implicit",
 			)
 		if not frappe.db.exists("Role Profile", profile):
@@ -96,7 +97,7 @@ def get_expense_type_access():
 	_require_admin()
 	profiles = [
 		p for p in frappe.get_all("Role Profile", pluck="name", order_by="name asc")
-		if p != ADMIN_PROFILE
+		if not (is_admin_profile(p) or is_developer_profile(p))
 	]
 	by_type: dict[str, list[str]] = {}
 	for r in frappe.get_all(

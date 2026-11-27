@@ -4,7 +4,7 @@ from firebase_admin import messaging
 import frappe
 import time
 
-from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, MATERIAL_PROCUREMENT_PROFILES
 
 # def PrNotification(lead_users, notification_title, notification_body):
 #         # Send push notifications to each project lead
@@ -35,10 +35,10 @@ def PrNotification(lead, notification_title, notification_body, click_action_url
 
 
 def get_admin_users():
-    """Retrieves all Nirmaan Admin users."""
+    """Every user of the Admin or the developer profile (ADR-0051: developers get Admin's messages)."""
     return frappe.db.get_list(
         'Nirmaan Users',
-        filters={'role_profile': 'Nirmaan Admin Profile'},
+        filters={'role_profile': ['in', [ADMIN_PROFILE, DEVELOPER_PROFILE]]},
         fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
     )
 

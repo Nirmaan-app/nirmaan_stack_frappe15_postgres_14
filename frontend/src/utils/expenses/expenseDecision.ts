@@ -1,3 +1,4 @@
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 // The browser's half of the one call that changes an Expense's status (spec #1494 seam 2, #1497).
 //
 // The server decides: `nirmaan_stack/services/expense_decision.py` (who may, from which status, to
@@ -31,7 +32,8 @@ export type ExpenseAction = (typeof EXPENSE_ACTIONS)[number];
  *  (`role_profiles.PAYMENT_SETTLE_PROFILES`), pinned by `expenseDecision.test.ts`. The server refuses
  *  anyone else; this only decides whether the button shows. */
 export const MARK_PAID_PROFILES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];

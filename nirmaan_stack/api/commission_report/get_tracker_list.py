@@ -1,10 +1,12 @@
 import frappe
 from collections import defaultdict
 import json
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 # Roles that can see hidden trackers
 FULL_VISIBILITY_ROLES = {
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Design Lead Profile",
 }
@@ -12,7 +14,7 @@ FULL_VISIBILITY_ROLES = {
 def _get_user_role_profile(user: str) -> str:
     """Get user's role profile."""
     if user == "Administrator":
-        return "Nirmaan Admin Profile"
+        return ADMIN_PROFILE
     return frappe.db.get_value("Nirmaan Users", user.strip().lower(), "role_profile") or ""
 
 @frappe.whitelist()

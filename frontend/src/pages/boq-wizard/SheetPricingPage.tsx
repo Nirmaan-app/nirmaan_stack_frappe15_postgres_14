@@ -30,7 +30,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
-import { isNirmaanAdmin } from "@/constants/roles";
+import { isNirmaanAdmin, isDeveloperProfile } from "@/constants/roles";
 import type { RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { BoqPresence } from "./BoqPresence";
 import { AlertTriangle, ArrowDownToLine, ArrowLeft, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
@@ -956,7 +956,7 @@ const SheetPricingPage = () => {
   // `role` read + everything marked "G3b" when the override is removed (owner commitment: once
   // classification engines cover all disciplines).
   const { user_id: currentUser, role } = useUserData();
-  const showCategoryOverrideControl = isNirmaanAdmin(role, currentUser);
+  const showCategoryOverrideControl = isNirmaanAdmin(role, currentUser) || isDeveloperProfile(role);
   const { call: acquirePricingLock } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
   );

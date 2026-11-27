@@ -5,7 +5,7 @@ import { useFrappeDeleteDoc } from 'frappe-react-sdk';
 import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { canViewTargetProgress } from "@/constants/roles";
+import { canViewTargetProgress, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -65,7 +65,7 @@ export const MilestoneDailySummary: React.FC = () => {
 
   // Permission checks
   const canDeleteReport = user_id === "Administrator" ||
-    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
+    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
 
   // Admin gate for Target Progress column / dialog
   const canSeeTargetProgress = canViewTargetProgress(role, user_id);

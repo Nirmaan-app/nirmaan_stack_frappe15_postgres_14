@@ -2,7 +2,7 @@ import frappe
 from collections import defaultdict
 from datetime import date
 from frappe.utils import create_batch
-from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, PROCUREMENT_PROFILES
 
 
 # Roles that require project-level filtering based on user permissions
@@ -14,7 +14,8 @@ FILTERED_ACCESS_ROLES = {
 
 # Roles with full access to all projects
 FULL_ACCESS_ROLES = {
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
 }
 

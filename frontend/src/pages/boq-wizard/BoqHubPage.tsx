@@ -80,6 +80,7 @@ import {
   summariseCostBlocks,
 } from "./PricedTenderBcsDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // Keyword list for presentation-only "likely non-data" hint.
 const LIKELY_SKIP_KEYWORDS = [
@@ -312,7 +313,7 @@ const BoqHubPage = () => {
   const { user_id, role } = useUserData();
   const isTemplateAdmin =
     user_id === "Administrator" ||
-    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string);
+    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Estimates Executive Profile"].includes(role as string);
 
   // get_review_rows imperative call (Slice D2b) -- per-card CSV export fetch.
   // GET-capable endpoint (whitelist bare); useFrappePostCall gives the .call() form.

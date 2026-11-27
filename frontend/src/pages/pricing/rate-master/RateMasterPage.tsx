@@ -32,7 +32,7 @@ import { exampleCrossTargets } from "./pricingInputExamples";
 import type { RateMasterItem } from "./rateMasterTypes";
 import { RateMasterDerivation, calculatorPageLabel } from "./RateMasterDerivation";
 import { CALCULATOR_WORKBOOKS } from "../PricingCalculator";
-import { isNirmaanAdmin } from "@/constants/roles";
+import { isNirmaanAdmin, isDeveloperProfile } from "@/constants/roles";
 import {
   FREEZE_COPY,
   UNFROZEN,
@@ -211,7 +211,7 @@ export function RateMasterPage() {
   useEffect(() => { setImpactInputUid(null); }, [activeCategoryId, disciplineId]);
 
   const { user_id: currentUser, role } = useUserData();
-  const isAdmin = isNirmaanAdmin(role, currentUser);
+  const isAdmin = isNirmaanAdmin(role, currentUser) || isDeveloperProfile(role);
   // RMF-1: the freeze population IS the rate-master edit population (owner ruling R5), so this
   // DELEGATES to the same predicate rather than minting a second one that could drift.
   const canManageFreeze = canManageRateMasterFreeze(role, currentUser);

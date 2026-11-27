@@ -41,6 +41,7 @@ from nirmaan_stack.services.role_profiles import (
     REFUND_DELETE_PROFILES,
     REFUND_PAPERWORK_PROFILES,
     has_role_profile,
+    is_developer,
     is_nirmaan_admin,
 )
 from nirmaan_stack.services.vendor_refunds import (
@@ -250,7 +251,7 @@ def mark_received_without_bank_line(refund: str, reason: str | None = None):
     is matched to it. Returns `{refund, status, held_credit, usable_credit}`.
     """
     user = frappe.session.user
-    if not is_nirmaan_admin(user):
+    if not (is_nirmaan_admin(user) or is_developer(user)):
         raise frappe.PermissionError(_("Only an Admin can mark a refund Received with no bank line."))
     doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
     problem = no_bank_line_problem(doc.status, reason)

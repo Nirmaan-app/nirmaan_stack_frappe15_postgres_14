@@ -89,7 +89,7 @@ import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/Reques
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import { useMTCsForPO } from "@/pages/MaterialTestCertificates/hooks/useMTCs";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
@@ -665,7 +665,8 @@ export const PurchaseOrder = () => {
   // Dispatch, Revert and Delete Custom PO.
   const canMergePO = [
     ...MATERIAL_PROCUREMENT_PROFILES,
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
   ].includes(userData?.role || "");

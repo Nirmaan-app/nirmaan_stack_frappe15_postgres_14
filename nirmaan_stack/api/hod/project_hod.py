@@ -21,7 +21,7 @@ from nirmaan_stack.api.hod.from_app import commission_categories, system_meta
 from nirmaan_stack.api.hod.package_files import drop_signed_copy, has_signed_copy, signed_copies
 from nirmaan_stack.api.hod.project_info import as_dict, project_info
 from nirmaan_stack.services.hod import blanks, checklist, index, sources
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 DOCTYPE = "Project HOD Document"
 ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "form_data", "modified", "creation"]
@@ -124,7 +124,7 @@ def get_payload(project: str) -> dict:
 		"library_empty": not frappe.db.count("HOD System"),
 		# "Edit library" is offered to Admins only (owner 2026-10-06) -- the same rule as the library
 		# screen's own `can_edit` (`api/hod/library.get_hod_library`).
-		"can_edit_library": is_nirmaan_admin(frappe.session.user),
+		"can_edit_library": is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user),
 	}
 
 

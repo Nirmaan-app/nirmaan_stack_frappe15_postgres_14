@@ -59,12 +59,14 @@ from nirmaan_stack.api.boq.wizard.row_renumber import (
     _insert_shift_attached,
     derive_source_row_offset,
 )
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 # Roles allowed to seed / hand-edit the master template (ADR-0013 A1-D10). The Administrator
 # user is always allowed (handled in the gate). Mirrors template_admin's manager set.
 _TEMPLATE_EDIT_ROLES: frozenset[str] = frozenset(
     {
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan Estimates Executive Profile",
     }
 )

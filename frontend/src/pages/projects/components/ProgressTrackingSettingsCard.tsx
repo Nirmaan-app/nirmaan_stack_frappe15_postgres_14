@@ -22,6 +22,7 @@ import {
     generateCombinedHeaders,
     LocalProjectWorkHeaderEntry,
 } from "../data/tab/work-report/projectTrackingHelpers";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface ProjectsWithZones extends Projects {
     project_zones: ProjectZoneEntry[];
@@ -286,7 +287,7 @@ export const ProgressTrackingSettingsCard: React.FC<ProgressTrackingSettingsCard
         setIsSetupDialogOpen(false);
     };
 
-    const hasAdminAccess = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(
+    const hasAdminAccess = [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(
         current_role
     );
 

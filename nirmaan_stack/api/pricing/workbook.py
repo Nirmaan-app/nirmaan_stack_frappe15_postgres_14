@@ -24,6 +24,7 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import get_datetime, now_datetime, time_diff_in_seconds
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 # Hard ceiling on the DECOMPRESSED workbook payload. gzip on this data runs ~10:1,
 # so a hostile or corrupt archive could expand far beyond the request-size limit
@@ -45,7 +46,8 @@ MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024
 # DB-verified 2026-07-22. Re-query the DB before editing this set; do not guess.
 PRICING_ACCESS_SET = frozenset(
 	{
-		"Nirmaan Admin Profile",                # role_profile_name AND role
+		ADMIN_PROFILE,  # role_profile_name; the Admin one is also a Role (ADR-0051: the developer's is not)
+		DEVELOPER_PROFILE,
 		"Nirmaan Estimates Executive Profile",  # role_profile_name
 		"Nirmaan Estimates Executive",          # role
 	}
@@ -61,11 +63,12 @@ PRICING_ACCESS_SET = frozenset(
 # them nothing they previously had, because before PW-2a they could not edit
 # without also taking the single-editor lock away from an admin.
 #
-# "Nirmaan Admin Profile" exists BOTH as a role_profile_name and as a Role
+# The Admin profile name exists BOTH as a role_profile_name and as a Role
 # (DB-verified 2026-07-22, re-verified 2026-07-23), which is why the check below
-# tests both, exactly like the read gate. The Administrator USER is handled by its
+# tests both, exactly like the read gate. The Software Developer profile (ADR-0051)
+# is a role_profile_name only, so a developer passes through the first test. The Administrator USER is handled by its
 # own branch.
-PRICING_WRITE_SET = frozenset({"Nirmaan Admin Profile"})
+PRICING_WRITE_SET = frozenset((ADMIN_PROFILE, DEVELOPER_PROFILE))
 
 WORKBOOK_DT = "Pricing Workbook"
 VERSION_DT = "Pricing Workbook Version"

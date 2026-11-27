@@ -20,6 +20,8 @@ describe("isNirmaanAdmin (the server's role_profiles.is_nirmaan_admin)", () => {
     ["Nirmaan Admin Profile", "Administrator", true],
     ["Nirmaan Admin Profile", "shanu@nirmaan.app", true],
     ["Nirmaan Accountant Profile", "someone@nirmaan.app", false],
+    // ADR-0051: the developer is named beside it at each check (`|| isDeveloperProfile(role)`), not inside it.
+    ["Nirmaan Software Developer Profile", "dev@example.com", false],
     ["Loading", "shanu@nirmaan.app", false],
     ["Error", "shanu@nirmaan.app", false],
     ["", "", false],
@@ -125,7 +127,7 @@ describe("client money pages and reports: PMO opens them view-only (owner, 2026-
 
   it("does not count PMO as Admin on the Project Invoices sheet (source)", () => {
     const src = read("pages/ProjectInvoices/AllProjectInvoices.tsx");
-    expect(src).toContain('const isAdmin = role === "Nirmaan Admin Profile";');
+    expect(src).toContain("const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);");
   });
 
   it("gates both header Add buttons on the view-only rules (source)", () => {

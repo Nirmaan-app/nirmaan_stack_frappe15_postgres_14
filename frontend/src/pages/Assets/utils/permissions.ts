@@ -5,12 +5,13 @@
  * Granular permissions allow different roles to have specific capabilities.
  */
 
-import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile, ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import type { AssetCategoryType } from "../assets.constants";
 
 // Roles that can manage ALL aspects of assets (add, edit, delete, assign, categories)
 export const ASSET_ADMIN_ROLES = [
-    'Nirmaan Admin Profile',
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     'Nirmaan PMO Executive Profile',
 ] as const;
 
@@ -26,21 +27,21 @@ export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
  * Owner, 2026-10-12: "only admin and HR". Mirrors `ASSET_HISTORY_PROFILES` in
  * `nirmaan_stack/services/role_profiles.py`, which the server enforces.
  */
-export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 /**
  * Roles that assign and unassign EVERY asset; procurement does Project assets only (owner, 2026-10-13).
  * Mirrors `ASSET_ASSIGN_ALL_PROFILES` / `ASSET_ASSIGN_PROJECT_PROFILES` in
  * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
  */
-export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE];
+export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE];
 
 /**
  * Roles that mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only --
  * not PMO, not procurement, not the holder. Mirrors `ASSET_LOST_DAMAGED_PROFILES` in
  * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
  */
-export const ASSET_LOST_DAMAGED_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+export const ASSET_LOST_DAMAGED_ROLES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 // Combined list of all roles that can access assets module
 export const ASSET_ACCESS_ROLES: readonly string[] = [
@@ -149,7 +150,7 @@ export function getAssetPermissions(
         // No declaration upload for anyone (owner, 2026-10-15): everyone signs their own in the app, Admin too.
 
         // Monthly asset audit (owner, 2026-10-14)
-        canSwitchCategoryAudit: isAdmin || role === ADMIN_PROFILE,
+        canSwitchCategoryAudit: isAdmin || isAdminProfile(role) || isDeveloperProfile(role),
 
         // Lost/Damaged and Found/Repaired (owner, 2026-10-31)
         canMarkLostDamaged: isAdmin || ASSET_LOST_DAMAGED_ROLES.includes(role ?? ''),

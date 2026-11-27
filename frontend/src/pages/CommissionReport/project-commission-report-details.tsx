@@ -47,6 +47,7 @@ import { useMasterTaskMap } from './report-wizard/data/useMasterTaskMap';
 import { ApprovedReportsDialog } from './components/ApprovedReportsDialog';
 import { BulkUpdateDialog } from './components/BulkUpdateDialog';
 import { canBulkEdit } from './commissionBulk';
+import { ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const DOCTYPE = 'Project Commission Report';
 
@@ -312,19 +313,20 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
-    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     // Approvers (Admin / PMO) get the Approvals queue tab + Approve/Reject actions.
-    const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const isApprover = isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     // Strictly Admin — NOT PMO. Gates the bulk-update STATUS section, mirroring the
     // Design Tracker's `isAdmin` (its bulk_update_task_status is Admin-only too).
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
     // Bulk Update is ADMIN + PMO only — narrower than hasEditStructureAccess, which
     // also carries Design Lead. Shared with the server via commissionBulk.ts.
     const canBulkUpdate = canBulkEdit(role, user_id);
     // Who may open the "Bulk Approved Reports" export: Administrator + Admin + PMO + Project Manager
     // (the tracker-access roles) + Design Lead (kept from the prior hasEditStructureAccess gate).
     const canExportApprovedReports = user_id === "Administrator" || [
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan PMO Executive Profile",
         "Nirmaan Project Manager Profile",
         "Nirmaan Design Lead Profile",

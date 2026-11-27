@@ -2,6 +2,9 @@
  * Purchase Orders tabs configuration
  * Used by release-po-select.tsx for consistent tab values and role-based access
  */
+
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
+
 export const PO_TABS = {
     APPROVE_PO: 'Approve PO',
     APPROVE_SENT_BACK_PO: 'Approve Sent Back PO',
@@ -65,7 +68,8 @@ export const PO_ALL_TAB_OPTIONS: POTabOption[] = [
 // guard (routesConfig.tsx). PMO Executive was intentionally REMOVED on 2026-09-17 (PMO access
 // review, same as PR_ADMIN_ROLES on 2026-07-04). Do NOT re-add PMO without owner sign-off.
 export const PO_ADMIN_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan Project Lead Profile",
 ];
 

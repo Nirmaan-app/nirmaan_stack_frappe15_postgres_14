@@ -7,6 +7,7 @@ import type { KeyedMutator } from "swr";
 import { Card, CardContent } from "@/components/ui/card";
 import { MilestonesSummary } from "../Manpower-and-WorkMilestones/MilestonesSummary";
 import { ProgressTrackingSettingsCard } from "./components/ProgressTrackingSettingsCard";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface ProjectWorkReportTabProps {
     projectData: Projects;
@@ -19,7 +20,8 @@ interface ProjectsWithZones extends Projects {
 }
 
 const ADMIN_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
 ];

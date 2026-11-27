@@ -35,6 +35,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { useUpdateCommissionTaskChild } from '../data/useCommissionMutations';
 import { type MasterTaskInfo, masterMapKey } from './FillReportButton';
 import { ReportPreviewDialog } from './ReportPreviewDialog';
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const PREVIEW_PRINT_FORMAT_PORTRAIT = 'Project Commission Report - Filled Task';
 const PREVIEW_PRINT_FORMAT_LANDSCAPE = 'LSProject Commission Report - Filled Task';
@@ -68,7 +69,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     const { upload } = useFrappeFileUpload();
     const { updateTaskChild } = useUpdateCommissionTaskChild();
     const { role, user_id } = useUserData();
-    const isAdmin = role === 'Nirmaan Admin Profile' || user_id === 'Administrator';
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === 'Administrator';
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [busy, setBusy] = useState(false);

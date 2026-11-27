@@ -21,6 +21,7 @@ import { TaskWiseTable } from "./components/TaskWiseTable";
 import { GlobalApprovalsTable } from "./components/GlobalApprovalsTable";
 import { useCommissionTrackerList } from "./data/useCommissionQueries";
 import { useToggleCommissionReportVisibility } from "./data/useCommissionMutations";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const COMMISSION_TABS = {
     PROJECT_WISE: "project",
@@ -44,9 +45,9 @@ export default function CommissionReportList() {
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
-    const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
-    const hasHideAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
+    const isApprover = isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const hasHideAccess = role === "Nirmaan Design Lead Profile" || isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
 
     // Non-admins are locked to the default WIP + Handover view
     const effectiveStatusFilter = isAdmin ? statusFilter : DEFAULT_PROJECT_STATUS_FILTER;

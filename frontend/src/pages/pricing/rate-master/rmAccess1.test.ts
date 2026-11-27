@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ADMIN_PROFILE, RATE_MASTER_ACCESS, UPLOAD_BOQ_ACCESS, isNirmaanAdmin } from "@/constants/roles";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE, RATE_MASTER_ACCESS, UPLOAD_BOQ_ACCESS, isDeveloperProfile, isNirmaanAdmin } from "@/constants/roles";
 import { roleRouteState } from "@/utils/auth/ProtectedRoute";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { buildExtractionByRow, makePricingSheetHelper } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
@@ -14,6 +14,8 @@ const SRC = join(__dirname, "..", "..", "..");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
 
 const ESTIMATES = "Nirmaan Estimates Executive Profile";
+/** The Rate Master admin check as every gate writes it: Administrator or Admin, and the developer named beside it. */
+const rateMasterAdmin = (role: string | null, uid: string) => isNirmaanAdmin(role, uid) || isDeveloperProfile(role);
 const PMO = "Nirmaan PMO Executive Profile";
 const PLAIN = "Nirmaan Project Manager Profile";
 
@@ -21,6 +23,7 @@ const PLAIN = "Nirmaan Project Manager Profile";
 const POPULATION: Array<[string, string, boolean]> = [
   [ADMIN_PROFILE, "admin@nirmaan.app", true],
   [ADMIN_PROFILE, "Administrator", true], // useUserData maps Administrator to the Admin profile
+  ["Nirmaan Software Developer Profile", "dev@example.com", true], // ADR-0051
   ["", "Administrator", true],            // the sidebar's own role state is null/"" for Administrator
   [ESTIMATES, "est@nirmaan.app", false],  // LOSES the read-only view (owner ruling 1)
   [PMO, "pmo@nirmaan.app", false],
@@ -30,18 +33,19 @@ const POPULATION: Array<[string, string, boolean]> = [
 ];
 
 describe("RM-ACCESS-1: the one Rate Master admin check", () => {
-  it("the list is exactly the Admin profile (Administrator passes by user id)", () => {
-    expect([...RATE_MASTER_ACCESS]).toEqual([ADMIN_PROFILE]);
+  // ADR-0051: Admin, with the Software Developer named beside it; the rule (Admin only) is unchanged.
+  it("the list is exactly Admin and the developer (Administrator passes by user id)", () => {
+    expect([...RATE_MASTER_ACCESS]).toEqual([ADMIN_PROFILE, DEVELOPER_PROFILE]);
     expect(RATE_MASTER_ACCESS).not.toContain(ESTIMATES);
   });
 
-  it("POSITIVE + NEGATIVE: isNirmaanAdmin per role (sidebar entry, edit and freeze controls, freeze read)", () => {
+  it("POSITIVE + NEGATIVE: the admin check per role (sidebar entry, edit and freeze controls, freeze read)", () => {
     for (const [role, uid, want] of POPULATION) {
-      expect(isNirmaanAdmin(role, uid), `${role || "(none)"} / ${uid}`).toBe(want);
+      expect(rateMasterAdmin(role, uid), `${role || "(none)"} / ${uid}`).toBe(want);
     }
-    expect(isNirmaanAdmin(null, "Administrator")).toBe(true);
-    expect(isNirmaanAdmin(null, "someone@nirmaan.app")).toBe(false);
-    expect(isNirmaanAdmin("Loading", "someone@nirmaan.app")).toBe(false); // never flashes in
+    expect(rateMasterAdmin(null, "Administrator")).toBe(true);
+    expect(rateMasterAdmin(null, "someone@nirmaan.app")).toBe(false);
+    expect(rateMasterAdmin("Loading", "someone@nirmaan.app")).toBe(false); // never flashes in
   });
 
   it("POSITIVE + NEGATIVE: the route guard admits exactly the same population, and loads while the role loads", () => {
@@ -53,7 +57,7 @@ describe("RM-ACCESS-1: the one Rate Master admin check", () => {
 
   it("the predicate and the route agree for every role (rateMasterEdit no longer carries its own check)", () => {
     for (const [role, uid] of POPULATION) {
-      expect(isNirmaanAdmin(role, uid), `${role || "(none)"} / ${uid}`)
+      expect(rateMasterAdmin(role, uid), `${role || "(none)"} / ${uid}`)
         .toBe(roleRouteState(role, uid, RATE_MASTER_ACCESS) === "allow");
     }
     expect(read("pages", "pricing", "rate-master", "rateMasterEdit.ts")).not.toContain("export function isRateMasterAdmin");
@@ -85,7 +89,7 @@ describe("RM-ACCESS-1: the route and the sidebar entry", () => {
     const at = side.indexOf('{ key: "/rate-master", icon: Table2, label: "Rate Master" }');
     expect(at).toBeGreaterThan(-1);
     const gate = side.slice(side.lastIndexOf("...(", at), at);
-    expect(gate).toContain("isNirmaanAdmin(role, user_id)");
+    expect(gate).toContain("isNirmaanAdmin(role, user_id) || isDeveloperProfile(role)");
     // INVERTED: the old gate (Admin + Estimates) is gone from the Rate Master item
     expect(gate).not.toContain("Nirmaan Estimates Executive Profile");
   });

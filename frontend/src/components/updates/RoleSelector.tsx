@@ -51,6 +51,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useUserData } from "@/hooks/useUserData";
 import { NavBar } from "../nav/nav-bar";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 const RoleSelector = ({ selectedValue, setSelectedValue }) => {
     const userData = useUserData();
@@ -61,14 +62,14 @@ const RoleSelector = ({ selectedValue, setSelectedValue }) => {
 
 
     useEffect(() => {
-        if ((userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && selectedValue === '') {
+        if ((userData.user_id === "Administrator" || isAdminProfile(userData.role) || isDeveloperProfile(userData.role) || userData.role === "Nirmaan PMO Executive Profile") && selectedValue === '') {
             setSelectedValue("default");
         }
     }, []);
 
     return (
         <>
-        {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && (
+        {(userData.user_id === "Administrator" || isAdminProfile(userData.role) || isDeveloperProfile(userData.role) || userData.role === "Nirmaan PMO Executive Profile") && (
             <div className="flex flex-col justify-center">
                 <div className="flex space-y-2 justify-center bg-red-100 pb-2">
                     <h1 className="pt-4 pl-12 pr-10 text-xl font-bold text-red-500 hidden md:flex">Role Selector:</h1>

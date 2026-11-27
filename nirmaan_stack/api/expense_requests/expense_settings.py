@@ -16,13 +16,13 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
-	ADMIN_PROFILE,
 	EXPENSE_SETTINGS,
 	RECORDS_WITHOUT_REVIEW_FIELD,
 	is_admin,
 	listed_records_without_review,
 	profile_can_raise,
 )
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 
 def _require_admin() -> None:
@@ -45,7 +45,7 @@ def get_records_without_review():
 	_require_admin()
 	eligible = [
 		p for p in frappe.get_all("Role Profile", pluck="name", order_by="name asc")
-		if p != ADMIN_PROFILE and profile_can_raise(p)
+		if not (is_admin_profile(p) or is_developer_profile(p)) and profile_can_raise(p)
 	]
 	listed = set(listed_records_without_review())
 	return {

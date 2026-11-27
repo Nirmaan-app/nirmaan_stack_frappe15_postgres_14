@@ -297,5 +297,18 @@
   "restrict_to_domain": null,
   "role_name": "Nirmaan Procurement Lead",
   "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2026-11-27 12:00:00.000000",
+  "name": "Nirmaan Software Developer",
+  "restrict_to_domain": null,
+  "role_name": "Nirmaan Software Developer",
+  "two_factor_auth": 0
  }
 ]

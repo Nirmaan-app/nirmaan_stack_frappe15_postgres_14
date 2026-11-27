@@ -53,6 +53,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/taskTableColumns';
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
@@ -808,8 +809,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
 
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
-    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || isAdminProfile(role) || isDeveloperProfile(role) || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = useCallback((task: DesignTrackerTask) => {
         const designers = parseDesignersFromField(task.assigned_designers);

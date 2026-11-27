@@ -11,6 +11,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { amountOverLimit, fyLabel, rupees, useVendorGstHold } from "@/hooks/useVendorGstHold";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface VendorGstHoldCardProps {
     vendor: Vendors;
@@ -28,7 +29,7 @@ interface VendorGstHoldCardProps {
  */
 export const VendorGstHoldCard: React.FC<VendorGstHoldCardProps> = ({ vendor, mutateVendor, onEditVendor }) => {
     const { role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
     const [dialogOpen, setDialogOpen] = useState(false);
 
     const { summary, mutate } = useVendorGstHold(vendor.gst_hold ? vendor.name : undefined);

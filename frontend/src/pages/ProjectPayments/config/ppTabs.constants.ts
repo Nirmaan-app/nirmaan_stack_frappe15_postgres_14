@@ -3,7 +3,7 @@
  * Used by RenderProjectPaymentsComponent.tsx for consistent tab values and role-based access
  */
 
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /**
  * ⚠️ THE VALUES BELOW ARE IDENTIFIERS, NOT LABELS — DO NOT RENAME THEM.
@@ -119,7 +119,8 @@ export const PP_BY_ME_TAB_OPTIONS: PPTabOption[] = [
 // "Payment Done / Reconciliation Pending" (Mark Reconciled). PMO Executive was intentionally
 // REMOVED on 2026-09-17 (PMO access review). Do NOT re-add PMO without owner sign-off.
 export const PP_ADMIN_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
 ];
 
 export const PP_ACCOUNTANT_ROLES = [

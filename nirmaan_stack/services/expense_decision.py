@@ -70,6 +70,7 @@ from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
     ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     PAID_BILL_APPROVER_PROFILES,
     PAYMENT_SETTLE_PROFILES,
     has_role_profile,
@@ -204,7 +205,7 @@ def apply_starting_status(doc) -> None:
 #   * a Rejected one is closed to everyone.
 EDIT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 EDITABLE_STATUSES = (EXPENSE_REQUESTED, EXPENSE_CEO_PENDING, EXPENSE_APPROVED, EXPENSE_RECONCILIATION_PENDING)
-PAID_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+PAID_EDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `projects` and `vendor` exist on Project Expenses only. A changed `type` still meets the ledger
 # check (`expense_type_ledger.check_expense_type`).
 PAID_EDITABLE_FIELDS = ("description", "comment", "invoice_attachment", "invoice_ref", "invoice_date",

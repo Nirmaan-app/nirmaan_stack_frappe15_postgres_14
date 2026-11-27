@@ -10,14 +10,16 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
 import { paymentTabReports } from './config/paymentTab.config';
 import {
-    AMOUNT_PAID_MISMATCH_PROFILES,
-    AUDIT_VIEW_PROFILES,
-    MATERIAL_PROCUREMENT_PROFILES,
-    PROCUREMENT_PROFILES,
-    RECONCILE_2B_REPORT_PROFILES,
-    SERVICE_PROCUREMENT_PROFILES,
-    canBulkDownloadAllProjects,
-    isProcurementProfile,
+  AMOUNT_PAID_MISMATCH_PROFILES,
+  AUDIT_VIEW_PROFILES,
+  MATERIAL_PROCUREMENT_PROFILES,
+  PROCUREMENT_PROFILES,
+  RECONCILE_2B_REPORT_PROFILES,
+  SERVICE_PROCUREMENT_PROFILES,
+  canBulkDownloadAllProjects,
+  isProcurementProfile,
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
 } from "@/constants/roles";
 
 // Lazy load report components
@@ -192,20 +194,20 @@ export default function ReportsContainer() {
     // Define available tabs based on role
     const tabs = useMemo(() => {
         const availableTabs: { label: string; value: string }[] = [];
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role)) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role)) {
             availableTabs.push({ label: "Projects", value: REPORTS_TABS.PROJECTS });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "Vendors", value: REPORTS_TABS.VENDORS });
             availableTabs.push({ label: "Customers", value: REPORTS_TABS.CUSTOMERS });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "PO", value: REPORTS_TABS.PO });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "WO", value: REPORTS_TABS.SR });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+        if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
         // ⚠️ READS THE SHARED HELPER rather than listing profiles inline, unlike its
@@ -259,15 +261,15 @@ export default function ReportsContainer() {
                 return projectReportOptions.filter(option => option.value === 'Inventory Report');
             }
             // PMO gets every Projects report again, money ones included (owner, 2026-10-28).
-            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
+            return [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.VENDORS) {
-            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
+            return [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? VendorReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.CUSTOMERS) {
-            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
+            return [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? CustomerReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.PO) {
@@ -276,17 +278,17 @@ export default function ReportsContainer() {
                     ['Dispatched for 1 days', 'Dispatched (ITM)'].includes(option.value)
                 );
             }
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+            if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 return poReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.SR) {
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+            if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 return srReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.DCS_MIRS) {
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+            if ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 return dcmirReportOptions;
             }
             return [];

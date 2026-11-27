@@ -1,3 +1,4 @@
+import { ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 // Bulk task actions on the commission tracker — the PURE eligibility rules.
 //
 // These rules MIRROR the per-row actions and must never drift from them:
@@ -236,7 +237,8 @@ export const rejectableTasks = <T extends ApprovalTaskLike>(tasks: readonly T[])
  * drive the selected-rows CSV export) but gets no Bulk Update button.
  */
 export const BULK_EDIT_PROFILES: readonly string[] = [
-    'Nirmaan Admin Profile',
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     'Nirmaan PMO Executive Profile',
 ];
 
@@ -245,7 +247,7 @@ export const canBulkEdit = (role?: string | null, userId?: string | null): boole
 
 /** Marking Not Applicable is a STATUS change -> Admin only, as in the Design Tracker. */
 export const canBulkMarkNotApplicable = (role?: string | null, userId?: string | null): boolean =>
-    userId === 'Administrator' || role === 'Nirmaan Admin Profile';
+    userId === 'Administrator' || isAdminProfile(role) || isDeveloperProfile(role);
 
 /** Both status actions take the Admin gate; the deadline takes the wider one. */
 export const isBulkStatusAction = (action: BulkAction): boolean =>

@@ -7,7 +7,7 @@ The pure rule -- what that level clears -- is `approval_tiers.initial_status_for
 `steps_cleared_by_raiser`. This module only answers "who is this user", which needs the database.
 
     the CEO (`CEO_AUTHORIZED_USER`)             -> RAISER_CEO   (clears L1 and L2)
-    `Administrator`, or the Admin role profile  -> RAISER_L1    (clears L1)
+    `Administrator`, Admin or developer profile -> RAISER_L1    (clears L1)
     anyone else                                 -> None         (the normal path)
 
 L1 is exactly the set the "Payment Pending Approval" tab lets approve (`canApprovePayments`).
@@ -18,7 +18,7 @@ import frappe
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.approval_tiers import RAISER_CEO, RAISER_L1
-from nirmaan_stack.services.role_profiles import ADMIN_PROFILE
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 
 def raiser_level(user: str | None) -> str | None:
@@ -28,7 +28,8 @@ def raiser_level(user: str | None) -> str | None:
         return RAISER_CEO
     if user == "Administrator":
         return RAISER_L1
-    if frappe.db.get_value("Nirmaan Users", user, "role_profile") == ADMIN_PROFILE:
+    profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
+    if is_admin_profile(profile) or is_developer_profile(profile):
         return RAISER_L1
     return None
 

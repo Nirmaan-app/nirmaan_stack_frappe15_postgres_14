@@ -9,11 +9,10 @@ import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-pl
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 import { REMARKS_REQUIRED_MESSAGE, remarksMissing, remarksRequired as isRemarksRequired, remarksToSave } from "@/utils/materialPlan/planRemarks";
 
-const ADMIN_ROLE = "Nirmaan Admin Profile";
-const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
+const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
 
 interface EditMaterialPlanFormProps {
     plan: any;
@@ -38,7 +37,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
     const isNewPO = plan.po_type === "New PO";
     const { toast } = useToast();
     const { role } = useUserData();
-    const isAdmin = role === ADMIN_ROLE;
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
     const canEditDeliveryStatus = DELIVERY_STATUS_AUTHORIZED_ROLES.includes(role || "");
     // Admin + PMO can edit everything; Procurement can only change delivery_status.
     const canEditAll = isAdmin || role === PMO_EXECUTIVE_PROFILE;

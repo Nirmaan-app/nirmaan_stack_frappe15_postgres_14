@@ -46,7 +46,7 @@ from nirmaan_stack.services.reimbursements.rules import (
     rejection_problem,
     reviewer_for,
 )
-from nirmaan_stack.services.role_profiles import REIMBURSEMENT_HR_PROFILES, is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import REIMBURSEMENT_HR_PROFILES, is_developer, is_nirmaan_admin
 
 DOCTYPE = "Reimbursement"
 
@@ -209,7 +209,7 @@ def get_pending_for_me() -> list[dict]:
     the same `decide_problem` the endpoints enforce.
     """
     user = frappe.session.user
-    decider_is_admin = is_nirmaan_admin(user)
+    decider_is_admin = is_nirmaan_admin(user) or is_developer(user)
     decider_is_hr = is_hr(user)
     if not (decider_is_admin or decider_is_hr):
         return []

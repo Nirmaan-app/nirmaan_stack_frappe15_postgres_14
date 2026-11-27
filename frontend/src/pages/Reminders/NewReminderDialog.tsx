@@ -44,6 +44,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { cn } from "@/lib/utils";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 /**
  * May this user RENAME a Reminder Schedule? Mirrors the server gate
@@ -56,7 +57,7 @@ import { cn } from "@/lib/utils";
  */
 export function canRenameReminder(role: string, userId: string): boolean {
   if (role === "Loading") return false;
-  return userId === "Administrator" || role === "Nirmaan Admin Profile";
+  return userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

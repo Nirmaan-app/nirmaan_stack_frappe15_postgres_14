@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
 import { HelpViewTab } from "./components/HelpViewTab";
 import { HelpManageTab } from "./components/HelpManageTab";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 const TABS = [
     { key: "view", label: "View" },
@@ -13,7 +14,7 @@ type TabKey = (typeof TABS)[number]["key"];
 export const HelpRepositoryPage: React.FC = () => {
     const { role, user_id } = useUserData();
     const canManage =
-        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ||
+        [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile"].includes(role) ||
         user_id === "Administrator";
 
     const [tab, setTab] = useState<TabKey>("view");

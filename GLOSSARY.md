@@ -350,7 +350,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **RA number** — the running number of a Work Order's *generated invoices*: 1, 2, 3, … per Work Order, assigned by the system, never typed, one above the highest number the Work Order still holds (a voided invoice keeps its number; a deleted one frees it, so the next invoice takes it again when no later one holds a higher number; a gap below the highest is never filled), and not restarted by a new financial year. A FINAL takes the next number too, but prints no "RA-n" (and no "FINAL"): its invoice number is the bare one, -2 or -3 after a voided FINAL still kept (a deleted FINAL frees its place). On an older Work Order the first one starts after the highest "RA-n" already written on its saved invoice number or its Pending / Approved Vendor Invoices. "RA" is a running-account bill. *Avoid*: RA No. (typed), bill number.
 
-- **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user or a holder of the *Nirmaan Admin Profile*. Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
+- **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user, an *Admin* or a *Software Developer* (see Users and logins). Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
 
 ## Work Order lifecycle
 
@@ -589,7 +589,7 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
 
 ### Who can do what (TDS)
 
-- **Admin** (`Nirmaan Admin Profile`) — full control of the TDS Repository (groups and entries). The
+- **Admin** (and the *Software Developer*, allowed wherever Admin is) — full control of the TDS Repository (groups and entries). The
   **only** approver of Project TDS rows. Sets and clears a row's Client Status. Deletes any Project TDS
   row, at any status, unless it has a Client Status.
 - **PMO Executive** — project-level manager. Uses **Request New** to request a new Make or a Project Custom Item, manages
@@ -677,8 +677,23 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 ## Users and logins
 
-- **User admin** — a person who may create users and give or change role profiles: an Admin, a PMO Executive or
-  an HR Executive (the same people who see the Users page). A User admin may give any role profile, Admin
+- **Admin** — a person holding the Admin role profile, and only that profile. The Administrator login passes every
+  Admin check too, but is not an Admin. A *Software Developer* is not an Admin, but wherever a rule in this glossary
+  allows an Admin, it allows a Software Developer too. *Avoid*: Admin profiles (plural), counts as Admin.
+  ([ADR-0051](docs/adr/0051-software-developer-profile-mirrors-admin.md); owner, 2026-11-27.)
+
+- **Software Developer** — a person of the company's software development team, holding the Software Developer role
+  profile. Allowed wherever an *Admin* is, with no exception, and included wherever Admin is picked to receive work
+  or a message; every such rule names the Software Developer beside Admin. One way only: a Software Developer sees
+  the reminders aimed at Admin, an Admin does not see those aimed only at Software Developers. A badge of their own;
+  there is no Software Developer Lead. *Avoid*: developer admin, tech admin, IT.
+  ([ADR-0051](docs/adr/0051-software-developer-profile-mirrors-admin.md); owner, 2026-11-27.)
+
+- **Technology** — the department the software development team belongs to, a department like any other. *Avoid*:
+  IT, Tech, Software. (Owner, 2026-11-27.)
+
+- **User admin** — a person who may create users and give or change role profiles: an Admin, a Software Developer, a
+  PMO Executive or an HR Executive (the same people who see the Users page). A User admin may give any role profile, Admin
   included. Nobody else may, on the screen, in Desk or through the API. *Avoid*: user manager, HR access.
   (Owner, 2026-11-05.)
 

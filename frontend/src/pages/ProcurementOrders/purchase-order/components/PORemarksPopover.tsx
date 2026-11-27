@@ -17,7 +17,7 @@ import {
     getSubjectBadgeClass,
     PORemarkData,
 } from "../hooks/usePORemarks";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface PORemarksPopoverProps {
     poId: string;
@@ -37,7 +37,8 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
     // Check if user can add remarks
     const canAddRemarks = useMemo(() => {
         const allowedRoles = [
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",

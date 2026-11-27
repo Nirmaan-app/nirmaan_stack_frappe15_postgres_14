@@ -17,6 +17,7 @@ from nirmaan_stack.services.role_profiles import (
     REIMBURSEMENT_HR_PROFILES,
     REIMBURSEMENT_VIEW_ALL_PROFILES,
     has_role_profile,
+    is_developer,
     is_nirmaan_admin,
 )
 
@@ -52,6 +53,6 @@ def claim_decide_problem(claim, user: str) -> str | None:
     return decide_problem(
         claim.get("status"),
         claimant_is_hr=claimant_is_hr(claim),
-        decider_is_admin=is_nirmaan_admin(user),
+        decider_is_admin=is_nirmaan_admin(user) or is_developer(user),
         decider_is_hr=is_hr(user),
     )

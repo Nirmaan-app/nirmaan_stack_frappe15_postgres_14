@@ -1,0 +1,21 @@
+[
+ ["Role profile", "The job a user holds in the app (Admin, Accountant, Procurement Executive, ...). It decides which screens and buttons they get."],
+ ["Admin", "A user with the role profile Nirmaan Admin Profile: sees every project and may approve, pay, delete and manage users."],
+ ["Software Developer", "The new role profile Nirmaan Software Developer Profile (ADR-0051). It sees and does exactly what Admin does, everywhere, with its own orange badge."],
+ ["DEVELOPER_PROFILE", "The Software Developer profile's constant, in services/role_profiles.py and frontend/src/constants/roles.ts. Every check that names Admin (ADMIN_PROFILE) names it beside Admin."],
+ ["Badge", "The coloured label with a user's role in the Users list and on their profile. Admin's is its own colour; the developer's is orange."],
+ ["Access gate", "The check that locks a user on Dashboard when their role needs a project and they have none. Admin and the developer are not subject to it."],
+ ["Reminder schedule", "A compliance reminder (TDS filing, GST, PF ...) aimed at one or more role profiles. Its Pending reminders show in the dashboard's Action Center."],
+ ["One-way reminders", "A developer sees reminders aimed at the Admin profile as well as its own; an Admin does not see reminders aimed only at developers."],
+ ["Review queue", "Expenses › Pending Approval: the Expense Requests the viewer may approve or reject. A type with no reviewer of its own routes to Admin, so to developers too."],
+ ["Rename Email", "Users › a user › Actions › Rename Email: changes a user's login email. Admin-profile accounts cannot be renamed; developer accounts neither."],
+ ["Snag bulk edit", "Set status on several ticked snags at once. Admin only on develop; the developer too on this branch."],
+ ["Departments", "Assets › Departments: the list of departments people belong to. Admin and HR add, rename and switch them off."],
+ ["TDS Approval", "The screen where Admin approves the Technical Data Sheet requests raised on projects (not tax TDS). A viewer who may not approve sees a read-only banner on its Pending tab."],
+ ["PO Invoices 2B Recon", "Vendor Invoice Recon's list of approved Purchase Order invoices, with their GSTR-2B reconciliation. Admin's Actions column there edits or deletes an invoice."],
+ ["Technology", "The department this branch's patch adds (add_technology_department), for the Software Developers."],
+ ["Made-up users", "dev.walker@example.com (Software Developer) and rename.target@example.com (Accountant) exist only on the walk's after env, seeded for this walk."],
+ ["Developer-only reminder", "\"Walk check: developer-only reminder\": a made-up schedule seeded on the after env that targets only the Software Developer profile."],
+ ["Before / After", "Before is GitHub develop at 1434d6262. After is the branch roles/software-developer (the commit walked is in the header). Both run on copies of the same backup."],
+ ["Must / Should / Nit / Note", "How serious a pinned point is: must fix before merge, should fix, small polish, or just worth knowing."]
+]

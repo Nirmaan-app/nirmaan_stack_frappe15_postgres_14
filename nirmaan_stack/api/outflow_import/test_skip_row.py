@@ -166,7 +166,8 @@ class SkipFixture(unittest.TestCase):
 
 class TestTheUndoAccessCheck(SkipFixture):
     def test_the_undo_set_is_admin_and_accountant_lead_inside_the_module_set(self):
-        self.assertEqual(OUTFLOW_UNDO_PROFILES, {ADMIN, ACCOUNTANT_LEAD})
+        # ADR-0051: Admin is the Admin and Software Developer profiles.
+        self.assertEqual(OUTFLOW_UNDO_PROFILES, {ADMIN, "Nirmaan Software Developer Profile", ACCOUNTANT_LEAD})
         self.assertTrue(OUTFLOW_UNDO_PROFILES <= OUTFLOW_IMPORT_PROFILES)
 
     def test_who_has_it(self):

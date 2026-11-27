@@ -69,6 +69,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { useBackgroundOperation } from "@/hooks/useBackgroundOperation";
 import { TemplateRowsEditor } from "./TemplateRowsEditor";
 import { UPLOAD_METHOD, uploadOutcome, type UploadOutcome } from "./boqUploadOperation";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // ── Admin endpoint response types ───────────────────────────────────────────
 // get_master_template_admin is Admin+Estimates-only and NOT part of the shared
@@ -144,7 +145,7 @@ export function TemplateEditorPage() {
 
   const isAuthorized =
     user_id === "Administrator" ||
-    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
+    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Estimates Executive Profile"].includes(
       role as string
     );
 

@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { toast } from "./ui/use-toast";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { KeyedMutator } from "swr";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 
 const PRSummary: React.FC = () => {
@@ -307,7 +308,7 @@ useEffect(() => {
                         </div>
                     )}
                     {
-                        [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) && user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
+                        [...((!["Nirmaan Project Lead Profile", ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile"].includes(role) && user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
                             <AlertDialog>
                                 <AlertDialogTrigger>
                                     <Button className="flex items-center gap-1">

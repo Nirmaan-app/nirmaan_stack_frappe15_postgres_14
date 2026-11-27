@@ -45,15 +45,17 @@ from nirmaan_stack.api.tds.submit import (
 )
 from nirmaan_stack.services.role_profiles import (
 	ADMIN_PROFILE,
+	DEVELOPER_PROFILE,
 	PMO_EXECUTIVE_PROFILE,
 	has_role_profile,
+	is_developer,
 	is_nirmaan_admin,
 )
 
 # A From Repository row still waiting: the waiting statuses but New, which only a New Make carries.
 WAITING_PICK_STATUSES = tuple(s for s in WAITING_STATUSES if s != STATUS_NEW_MAKE)
 # Who may resolve a Rejected row. Mirrors `canManageTDS` in `TdsHistoryTable.tsx`.
-RESOLVE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+RESOLVE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -248,7 +250,7 @@ def _refuse_rejected_duplicate(doc, plan):
 
 
 def _require_admin():
-	if not is_nirmaan_admin(frappe.session.user):
+	if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
 		frappe.throw(_("Only Admin can edit a TDS request."), frappe.PermissionError)
 
 

@@ -24,6 +24,7 @@ from nirmaan_stack.services.role_profiles import (
 	PROJECT_BILLING_PACKAGE_WRITE_PROFILES,
 	can_write_project_billing,
 	has_role_profile,
+	is_developer,
 	is_nirmaan_admin,
 )
 
@@ -54,7 +55,7 @@ def _require_package_editor(tracker: str, managers: list[str] | None = None):
 	`managers` defaults to the package's saved managers.
 	"""
 	user = frappe.session.user
-	admin = is_nirmaan_admin(user)
+	admin = is_nirmaan_admin(user) or is_developer(user)
 	if managers is None and not admin:
 		managers = frappe.get_all(
 			"Project Billing Manager",
@@ -119,7 +120,7 @@ def billing_on_trash(doc, method):
 def tracker_on_trash(doc, method):
 	"""Removing a package from a project deletes its billing history: Admin only (owner, 2026-10-05)."""
 	_require_billing_writer()
-	if not is_nirmaan_admin(frappe.session.user):
+	if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
 		frappe.throw(_("Only Admin can remove a billing package from a project."), frappe.PermissionError)
 
 
@@ -183,7 +184,7 @@ def _guard_saved_dc_rows(doc):
 	Everyone else may only add rows; a mistake is corrected with a negative row.
 	"""
 	previous = doc.get_doc_before_save()
-	if not previous or is_nirmaan_admin(frappe.session.user):
+	if not previous or is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user):
 		return
 
 	current = {row.name: row for row in doc.dc_log}

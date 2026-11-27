@@ -34,6 +34,7 @@ import { InvoiceDataDialog } from "../ProcurementOrders/purchase-order/component
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
 import PaymentSummaryCards from "./PaymentSummaryCards";
 import { paymentOverAmountWarning } from "./paymentOverAmount";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 type ProjectFilter = Filter<FrappeDoc<Projects>>;
 export const projectPaymentsQueryKeys = {
@@ -67,7 +68,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     const { role, user_id } = useUserData();
     const roleReady = role !== "Loading" && role !== "Error";
     const isFullAccess = user_id === "Administrator" ||
-        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+        [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
 
     const projectFilters = useMemo(() => {
         const filters: ProjectFilter[] = []

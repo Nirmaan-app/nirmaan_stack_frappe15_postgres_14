@@ -1,6 +1,6 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 /** A single row in the pivot table — one per PO item */
 export interface PivotRow {
@@ -44,7 +44,8 @@ export const ADDITIONAL_CHARGES_CATEGORY = "Additional Charges";
 
 /** Roles allowed to edit delivery notes */
 export const DELIVERY_EDIT_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Manager Profile",
   "Nirmaan Project Lead Profile",
@@ -59,13 +60,15 @@ export const DELIVERY_EDIT_ROLES = [
  * vendor credit via the backend `after_delete` hook.
  */
 export const DELIVERY_DELETE_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
 ] as const;
 
 /** Roles allowed to create return notes */
 export const RETURN_NOTE_ROLES = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,

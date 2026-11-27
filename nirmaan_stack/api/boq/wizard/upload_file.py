@@ -11,6 +11,7 @@ from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_confi
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 from nirmaan_stack.services.series_lock import boq_series, series_lock
 from nirmaan_stack.services.stored_files import store_file
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 _MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
 _ALLOWED_EXTENSIONS = frozenset({".xlsx", ".xlsm"})
@@ -57,7 +58,8 @@ def upload_file(op_id=None):
         _u = frappe.session.user
         _role = frappe.db.get_value("Nirmaan Users", _u, "role_profile")
         if _u != "Administrator" and _role not in (
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan Estimates Executive Profile",
         ):
             frappe.throw(

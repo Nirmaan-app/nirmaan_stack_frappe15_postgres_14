@@ -95,7 +95,7 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
-import { ADMIN_PROFILE, MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { PO_STATUS_TAB, PO_TABS } from "../config/poTabs.constants";
 
 interface PODetailsProps {
@@ -676,7 +676,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               poName={po?.name || ""}
               projectId={po?.project || ""}
               onUpdate={poMutate}
-              canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role)}
+              canEdit={[ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role)}
             />
           </div>
 
@@ -779,7 +779,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 // Gated by ROLE and STATUS, never by the route the PO was opened from -- the
                 // rule this button set first (2026-09) and now the rule for all of them.
                 !estimatesViewing &&
-                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
+                [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -804,7 +804,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
               {/* Adjust Payments Button */}
               {po?.name && onAdjustPayments && !estimatesViewing &&
-                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
+                [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <POAdjustmentButton poId={po.name} onClick={() => {
                     if (isVendorHoldBlocked) {
                       showVendorBlockedToast();
@@ -819,7 +819,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 !isItemLocked &&
                 ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
                 !(poPayments?.length) &&
-                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -842,7 +842,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   user cancel an approved PO. */}
               {onCancelPO &&
                 !po?.custom &&
-                [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES].includes(role) &&
+                [ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES].includes(role) &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) && (
                   <Tooltip>
@@ -868,7 +868,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <>
                   {/* Upload DC - shown for delivered statuses */}
                   {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
+                    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span tabIndex={0} className="shrink-0">
@@ -892,7 +892,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
                   {/* Upload MIR - shown for delivered statuses */}
                   {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
+                    [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span tabIndex={0} className="shrink-0">
@@ -977,7 +977,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 !estimatesViewing &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) &&
-                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -997,7 +997,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {/* Dispatch PO Button */}
               {!estimatesViewing &&
                 ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
-                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1034,7 +1034,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 po.status !== "PO Approved" &&
                 (po?.amount_paid ?? 0) <= 100 &&
                 !PoPaymentTermsValidationSafe &&
-                (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role)) && (
+                ([ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role)) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

@@ -45,6 +45,7 @@ import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PendingUploadOrderSummaryCard } from "@/pages/tasks/invoices/components/PendingUploadSummaryCards";
 import { summarisePendingUploadOrders } from "@/pages/tasks/invoices/utils/pendingUploadSummary";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 const PO_UNIT = ["PO", "POs"] as const;
 
@@ -411,14 +412,16 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
       const allowedRoles = [
         "Nirmaan Project Manager Profile",
         "Nirmaan Procurement Profile",
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan Accountant Profile",
         "Nirmaan Accountant Lead Profile",
       ];
       const roleMap: Record<string, string> = {
         "Nirmaan Project Manager Profile": "Project Manager",
         "Nirmaan Procurement Profile": "Procurement",
-        "Nirmaan Admin Profile": "Admin",
+        [ADMIN_PROFILE]: "Admin",
+        [DEVELOPER_PROFILE]: "Software Developer",
         "Nirmaan Accountant Profile": "Accountant",
         "Nirmaan Accountant Lead Profile": "Accountant Lead",
       };

@@ -42,6 +42,7 @@ import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRe
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -307,7 +308,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 enableColumnFilter: true
             } as ColumnDef<SentBackCategory>
         ] : []),
-        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
+        ...((["Nirmaan Project Lead Profile", ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan PMO Executive Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>

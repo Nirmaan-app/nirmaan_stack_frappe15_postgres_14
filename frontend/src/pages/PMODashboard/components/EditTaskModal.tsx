@@ -24,6 +24,7 @@ import ReactSelect from "react-select";
 import { getSelectStyles } from "@/config/selectTheme";
 import { useUserData } from "@/hooks/useUserData";
 import { parseAssignedFromField } from "../utils";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface PMOUserOption {
   value: string;
@@ -57,7 +58,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   onSuccess,
 }) => {
   const { user_id, role } = useUserData();
-  const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+  const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
   const isRecurring = task?.is_recurring === 1;
 
   const [status, setStatus] = useState<string>("");

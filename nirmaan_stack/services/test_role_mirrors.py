@@ -86,6 +86,11 @@ class TheScreensShowWhatTheServerAllows(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(frontend_list(name, file), set(server))
 
+    def test_the_admin_and_developer_profile_names_match(self):
+        sources = [_source(ROLES_TS)]
+        self.assertEqual(_string_const("ADMIN_PROFILE", sources), role_profiles.ADMIN_PROFILE)
+        self.assertEqual(_string_const("DEVELOPER_PROFILE", sources), role_profiles.DEVELOPER_PROFILE)
+
     def test_the_payments_tabs_approve_by_the_l1_list(self):
         """`canApprove` reads `PAYMENT_L1_PROFILES`, the list pinned above, not a profile of its own."""
         text = _source(FRONTEND / "pages/ProjectPayments/config/paymentsTabSet.ts")

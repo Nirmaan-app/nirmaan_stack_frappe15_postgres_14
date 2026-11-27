@@ -60,6 +60,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, now, nowdate
 
 from nirmaan_stack.api.commission_report.editing_lock import _get_current_lock
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 CHILD_DOCTYPE = "Commission Report Task Child Table"
 PARENT_DOCTYPE = "Project Commission Report"
@@ -108,18 +109,19 @@ DEFAULT_REACTIVATION_DAYS = 7
 # `hasEditStructureAccess`, which also carries Design Lead: a Design Lead keeps the
 # row checkboxes (they drive the selected-rows CSV export) but gets no bulk write.
 BULK_EDIT_PROFILES = {
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
 }
 
 # MIRRORS the Design Tracker's split: `bulk_update_task_status` refuses anyone but
 # an Admin, while its dialog's assign/deadline sections stay open to the wider set.
 # Marking Not Applicable IS a status change, so it takes the narrow gate.
-BULK_STATUS_PROFILES = {"Nirmaan Admin Profile"}
+BULK_STATUS_PROFILES = {ADMIN_PROFILE, DEVELOPER_PROFILE}
 
 # Approving / rejecting is ADMIN-ONLY, matching the per-row ✓/✗ in the approval
 # queue (`isAdmin` in GlobalApprovalsTable) -- PMO sees that queue read-only.
-BULK_APPROVE_PROFILES = {"Nirmaan Admin Profile"}
+BULK_APPROVE_PROFILES = {ADMIN_PROFILE, DEVELOPER_PROFILE}
 
 # Guards a runaway request; the table pages at 50 rows, so this is far above any
 # real selection while still bounding one transaction.

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { NewTrackerModal } from "./NewTrackerModal";
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
 import { useUserData } from "@/hooks/useUserData";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface NoCommissionReportViewProps {
     projectId: string;
@@ -27,7 +28,7 @@ export const NoCommissionReportView: React.FC<NoCommissionReportViewProps> = ({
     // button flash. UX gate only; the doctype permissions are the real boundary.
     const roleResolved = role !== "Loading" && role !== "Error";
     const isAdmin = useMemo(
-        () => user_id === "Administrator" || role === "Nirmaan Admin Profile",
+        () => user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role),
         [role, user_id]
     );
 

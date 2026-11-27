@@ -21,7 +21,7 @@ from frappe import _
 from frappe.utils import cint, today
 import json
 
-from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
 
 
 @frappe.whitelist()
@@ -236,7 +236,8 @@ def _get_user_allowed_projects(user: str):
     """
     # Roles with full access
     full_access_roles = [
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan PMO Executive Profile",
         "Nirmaan Accountant Profile",
         "Nirmaan Accountant Lead Profile",

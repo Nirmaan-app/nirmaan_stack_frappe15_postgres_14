@@ -24,6 +24,7 @@
 
 import { CARD_SOURCE } from "./creditCardImport";
 import { PORTER_SOURCE } from "./porterImport";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 export const ROW_PENDING_MATCH = "Pending match run";
 export const ROW_MATCHED = "Matched";
@@ -219,7 +220,8 @@ export const SKIP_ORIGIN_MANUAL = "Manual";
  * and fails if the two sets differ.
  */
 export const OUTFLOW_UNDO_PROFILES: ReadonlySet<string> = new Set([
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan Accountant Lead Profile",
 ]);
 

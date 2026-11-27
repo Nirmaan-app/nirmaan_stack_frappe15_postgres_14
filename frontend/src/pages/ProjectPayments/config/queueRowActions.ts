@@ -15,14 +15,15 @@
  *
  * A PO / WO payment gets no pencil at all, so it cannot be edited from the app in any status.
  */
-import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE } from "@/constants/roles";
+import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
 /** Mirrors `services/role_profiles.PAYMENT_SETTLE_PROFILES` — keep the two lists in sync. */
 export const QUEUE_EDIT_PROFILES: readonly string[] = [
-  "Nirmaan Admin Profile",
+  ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];

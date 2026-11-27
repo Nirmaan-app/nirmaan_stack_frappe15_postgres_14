@@ -36,6 +36,7 @@ import {
 } from "./components/TDSItemPeekDialogs";
 import { ItemsSKUTab } from "./components/ItemsSKUTab";
 import { DerivedFacetFilter, useDerivedFacetParam } from "./components/DerivedFacetFilter";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TDS Repository master — two tabs after the 3-level grouping restructure:
@@ -802,7 +803,7 @@ export const TDSRepositoryMaster: React.FC = () => {
     const { role } = useUserData();
     // useUserData maps the Administrator user_id to "Nirmaan Admin Profile",
     // so this single check also covers the Administrator user.
-    const isAdmin = role === "Nirmaan Admin Profile";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role);
 
     const [tab, setTab] = useStateSyncedWithParams<TabKey>("tab", "items");
     const activeTab: TabKey =

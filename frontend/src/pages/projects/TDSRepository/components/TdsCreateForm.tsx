@@ -52,6 +52,7 @@ import {
     rejectedRowFor,
     type RequestType,
 } from "@/utils/tdsRequestRules";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 2 (ADR-0025) — group-driven project TDS consumption.
@@ -249,7 +250,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         return set;
     }, [existingProjectItems]);
 
-    const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || role === "Administrator";
     const isPMO = role === "Nirmaan PMO Executive Profile";
     const canRequestNew = isAdmin || isPMO;
 

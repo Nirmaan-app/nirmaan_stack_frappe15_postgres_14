@@ -1,10 +1,11 @@
 import frappe
 from datetime import date
-from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, MATERIAL_PROCUREMENT_PROFILES
 
 
 ALWAYS_EDIT_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
     *MATERIAL_PROCUREMENT_PROFILES,

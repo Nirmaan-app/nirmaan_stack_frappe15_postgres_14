@@ -29,7 +29,8 @@
  * `canEditStatus` is the whole answer.
  */
 
-export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
+
 export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
@@ -43,6 +44,7 @@ export const ROLE_LOADING = "Loading";
 /** Manage the batch lifecycle: import, rename or delete a batch, add a manual snag. */
 export const SNAG_MANAGE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PROJECT_LEAD_PROFILE,
   PMO_EXECUTIVE_PROFILE,
 ];
@@ -50,13 +52,14 @@ export const SNAG_MANAGE_PROFILES: readonly string[] = [
 /** Edit one row at a time: its status, and the remark that rides that change. */
 export const SNAG_ROW_EDIT_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PROJECT_LEAD_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_MANAGER_PROFILE,
 ];
 
 /** Bulk status change — Admin only (mirrors Design Tracker's bulk update). */
-export const SNAG_BULK_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE];
+export const SNAG_BULK_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
 /** The identity a permission question is asked about. Both halves come from `useUserData()`. */
 export interface SnagActor {

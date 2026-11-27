@@ -35,6 +35,7 @@ from frappe import _
 
 from nirmaan_stack.services.role_profiles import (
 	ADMIN_PROFILE,
+	DEVELOPER_PROFILE,
 	PMO_EXECUTIVE_PROFILE,
 	has_role_profile,
 )
@@ -61,7 +62,7 @@ CLIENT_STATUS_REJECTED = "Rejected by Client"
 PROJECT_CUSTOM_ID_PREFIX = "PCUS-"
 
 # Mirrors `canRequestNew` in `TdsCreateForm.tsx`, which only decides whether "Request New" shows.
-REQUEST_NEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+REQUEST_NEW_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE)
 
 _SAVEPOINT = "tds_submit_request"
 

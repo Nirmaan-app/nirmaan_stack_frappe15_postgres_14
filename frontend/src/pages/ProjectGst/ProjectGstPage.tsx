@@ -34,6 +34,7 @@ import { Pencil, Trash2, Plus, Building2, ClipboardList, X } from "lucide-react"
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { DialogClose as PrimitiveDialogClose } from "@radix-ui/react-dialog";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 export default function ProjectGstPage() {
   const { role } = useUserData();
@@ -53,7 +54,7 @@ export default function ProjectGstPage() {
             Manage GSTINs and addresses for project print formats & POs and WOs.
           </p>
         </div>
-        {role === "Nirmaan Admin Profile" && (
+        {(isAdminProfile(role) || isDeveloperProfile(role)) && (
           <Dialog>
             <DialogTrigger asChild>
               <Button className="flex items-center gap-2">
@@ -133,7 +134,7 @@ export default function ProjectGstPage() {
                   <TableCell className="hidden md:table-cell">{gst.state || "--"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      {role === "Nirmaan Admin Profile" && (
+                      {(isAdminProfile(role) || isDeveloperProfile(role)) && (
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button variant="ghost" size="icon">

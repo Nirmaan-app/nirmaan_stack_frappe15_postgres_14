@@ -25,6 +25,7 @@ import { parseAssignedFromField, type AssignedPMODetail } from "../utils";
 import EditTaskModal from "./EditTaskModal";
 import { AssignPMODialog } from "./AssignPMODialog";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface FlattenedPMOTask {
     name: string;
@@ -234,7 +235,7 @@ const getTaskWiseColumns = (
 
 export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) => {
     const { user_id, role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isAdmin = isAdminProfile(role) || isDeveloperProfile(role) || user_id === "Administrator";
     const isPMO = role === "Nirmaan PMO Executive Profile";
 
     const [editingTask, setEditingTask] = useState<FlattenedPMOTask | null>(null);

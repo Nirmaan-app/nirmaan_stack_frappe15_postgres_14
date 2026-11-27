@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface ProjectModuleDeactivationStatusProps {
   projectId: string;
@@ -34,7 +35,7 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
   const { role, user_id } = useUserData();
 
   const isAdmin = useMemo(() => {
-    return user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    return user_id === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
   }, [role, user_id]);
 
   // --- Fetching Project details for DPR and Inventory status ---

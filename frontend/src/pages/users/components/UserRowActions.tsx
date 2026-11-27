@@ -26,6 +26,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { useUserData } from "@/hooks/useUserData";
 import { mutate } from "swr";
 import { getFrappeErrorText } from "@/utils/frappeErrors";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface UserRowActionsProps {
   user: NirmaanUsers;
@@ -35,8 +36,8 @@ export function UserRowActions({ user }: UserRowActionsProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { role: currentUserRole, user_id: currentUserId } = useUserData();
-  const isAdmin = currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile" || currentUserRole === "Nirmaan HR Executive Profile";
-  const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
+  const isAdmin = isAdminProfile(currentUserRole) || isDeveloperProfile(currentUserRole) || currentUserRole === "Nirmaan PMO Executive Profile" || currentUserRole === "Nirmaan HR Executive Profile";
+  const isTargetAdmin = isAdminProfile(user.role_profile) || isDeveloperProfile(user.role_profile) || user.role_profile === "Nirmaan PMO Executive Profile";
   const isOwnProfile = currentUserId === user.name;
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

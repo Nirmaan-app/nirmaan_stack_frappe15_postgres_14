@@ -12,7 +12,7 @@
 // from the pricing screen's concern: no pricing path writes the rate master.
 
 import { formatDistanceToNow } from "date-fns";
-import { isNirmaanAdmin } from "@/constants/roles";
+import { isNirmaanAdmin, isDeveloperProfile } from "@/constants/roles";
 
 /** The freeze state as `get_rate_master_freeze` returns it. */
 export type RateMasterFreezeState = {
@@ -60,7 +60,7 @@ export const FREEZE_COPY = {
  * The server re-gates on `_require_rate_admin` and is authoritative.
  */
 export function canManageRateMasterFreeze(role: string, userId: string): boolean {
-  return isNirmaanAdmin(role, userId);
+  return isNirmaanAdmin(role, userId) || isDeveloperProfile(role);
 }
 
 /**

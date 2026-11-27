@@ -43,6 +43,7 @@ from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_PROFILES,
     assert_generate_wo_invoice_access,
     can_generate_wo_invoice,
+    is_developer,
     is_nirmaan_admin,
 )
 from nirmaan_stack.services.work_order_gst import gst_is_explicitly_off
@@ -70,7 +71,7 @@ def get_generated_invoices(work_order: str) -> dict:
         "invoices": frappe.get_all(gi.DOCTYPE, filters={"work_order": sr.name}, fields=_ROW_FIELDS,
                                    order_by="ra_number desc"),
         "can_generate": can_generate_wo_invoice(frappe.session.user),
-        "can_delete": is_nirmaan_admin(frappe.session.user),
+        "can_delete": is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user),
         "blocked": _work_order_problem(sr) or _final_problem(state),
         "next_ra_number": state["next_ra_number"],
         "min_amount": state["min_amount"],
@@ -159,7 +160,7 @@ def void_invoice(name: str, reason: str) -> dict:
 def delete_generated_invoice(name: str) -> dict:
     """Delete a Voided generated invoice: Admin only. Its RA number (and a FINAL's place in the -n count)
     is freed: Generate gives it again when no later record holds a higher one (ADR-0040 Amdt B)."""
-    if not is_nirmaan_admin(frappe.session.user):
+    if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
         raise frappe.PermissionError(_("Only an Admin can delete a voided generated invoice."))
     work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
     if not work_order:

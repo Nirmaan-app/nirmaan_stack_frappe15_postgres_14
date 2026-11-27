@@ -10,7 +10,7 @@ import ServiceProcurementDashboard from "@/components/layout/dashboards/service-
 import { DesignDashboard } from "@/components/layout/dashboards/design-dashboard";
 import { SalesDashboard } from "@/components/layout/dashboards/dashboard-sales";
 import { useUserData } from "@/hooks/useUserData";
-import { isProcurementProfile, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { isProcurementProfile, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 
 export default function Dashboard() {
@@ -24,7 +24,7 @@ export default function Dashboard() {
 
             {/* "No project assigned" is no longer an alert here: the app access gate (utils/appAccess.ts) shows its
                 card on this page before any of these dashboards render. */}
-            {(role === 'Nirmaan Admin Profile' || role === 'Nirmaan PMO Executive Profile') && <DefaultDashboard />}
+            {(isAdminProfile(role) || isDeveloperProfile(role) || role === 'Nirmaan PMO Executive Profile') && <DefaultDashboard />}
             {role === 'Nirmaan Project Manager Profile' && <ProjectManager />}
             {role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
             {isProcurementProfile(role) && role !== SERVICE_PROCUREMENT_EXECUTIVE_PROFILE && <ProcurementDashboard />}

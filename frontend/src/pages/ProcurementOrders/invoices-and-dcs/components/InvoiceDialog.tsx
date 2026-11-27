@@ -69,6 +69,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineItemMappingReview, LineMatch } from "./LineItemMappingReview";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 type DocumentType = ProcurementOrder | ServiceRequests;
 
@@ -153,7 +154,7 @@ export function InvoiceDialog<T extends DocumentType>({
   const userData = useUserData();
   // Nirmaan Admins may edit the AI line-item mapping even after an invoice is Approved
   // (backend update_invoice_data mirrors this: admin can rebuild a locked mapping).
-  const isNirmaanAdmin = userData?.user_id === "Administrator" || userData?.role === "Nirmaan Admin Profile";
+  const isAdminOrDeveloper = userData?.user_id === "Administrator" || isAdminProfile(userData?.role) || isDeveloperProfile(userData?.role);
 
   const isEditMode = !!selectedInvoice;
   const isOpen = newInvoiceDialog || editInvoiceDialog;
@@ -238,7 +239,7 @@ export function InvoiceDialog<T extends DocumentType>({
   // line → PO-item mapping rebuilt from the fresh extraction on save.
   const canReExtract = isEditMode && (
     selectedInvoice?.status === "Pending" ||
-    (isNirmaanAdmin && selectedInvoice?.status === "Approved")   // admins can also fix approved invoices
+    (isAdminOrDeveloper && selectedInvoice?.status === "Approved")   // admins can also fix approved invoices
   );
   const canEditMapping = canReExtract && docType === "Procurement Orders";
   // True once a replaced file has actually been re-extracted (drives rebuild).

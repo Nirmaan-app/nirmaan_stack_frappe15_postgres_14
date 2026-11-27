@@ -34,6 +34,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 
 interface UserProfileActionsProps {
   user: NirmaanUsers;
@@ -60,7 +61,7 @@ export function UserProfileActions({
   const [renameEmailDialog, setRenameEmailDialog] = useState(false);
   const [newEmail, setNewEmail] = useState("");
 
-  const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
+  const isTargetAdmin = isAdminProfile(user.role_profile) || isDeveloperProfile(user.role_profile) || user.role_profile === "Nirmaan PMO Executive Profile";
 
   const toggleResetPasswordDialog = () => setResetPasswordDialog((prev) => !prev);
   const toggleDeleteUserDialog = () => setDeleteUserDialog((prev) => !prev);

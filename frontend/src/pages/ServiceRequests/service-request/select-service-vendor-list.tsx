@@ -40,6 +40,7 @@ import {
   SR_SEARCHABLE_FIELDS,
 } from "../config/srTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 // --- Constants ---
 const DOCTYPE = "Service Requests";
@@ -311,7 +312,8 @@ export const SelectServiceVendorList: React.FC = () => {
           const canDelete =
             serviceRequest.owner === user_id ||
             [
-              "Nirmaan Admin Profile",
+              ADMIN_PROFILE,
+              DEVELOPER_PROFILE,
               "Nirmaan PMO Executive Profile",
               "Nirmaan Accountant Profile",
               "Nirmaan Accountant Lead Profile",
@@ -320,7 +322,8 @@ export const SelectServiceVendorList: React.FC = () => {
           const canEdit =
             serviceRequest.owner === user_id ||
             [
-              "Nirmaan Admin Profile",
+              ADMIN_PROFILE,
+              DEVELOPER_PROFILE,
               "Nirmaan PMO Executive Profile",
               "Nirmaan Accountant Profile",
               "Nirmaan Accountant Lead Profile",

@@ -3,6 +3,7 @@ from frappe import _
 
 from nirmaan_stack.services.role_profiles import (
     ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     PMO_EXECUTIVE_PROFILE,
     has_role_profile,
 )
@@ -10,7 +11,7 @@ from nirmaan_stack.services.role_profiles import (
 # Admin + PMO may enable/disable a project module. These are ROLE PROFILE names,
 # resolved by `has_role_profile` — never by `frappe.get_roles()` alone, which
 # matched nobody and locked out every real Admin and PMO user.
-MODULE_CONTROL_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+MODULE_CONTROL_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE)
 
 
 def _require_module_control_access(action: str) -> None:

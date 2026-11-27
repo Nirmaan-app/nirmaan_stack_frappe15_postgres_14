@@ -28,6 +28,7 @@ import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesFromChildTableForMultipleWPs } from '@/hooks/useMakeOptions';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { derivePRPackages } from '@/utils/prPackages';
+import { ADMIN_PROFILE, DEVELOPER_PROFILE, isAdminProfile, isDeveloperProfile } from "@/constants/roles";
 // import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
@@ -302,7 +303,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     {/* Added Items Section */}
                     {/* {addedItems.length > 0 && ( */}
                     <ItemListSection
-                        canCreateItem={["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
+                        canCreateItem={[ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
                         toggleNewItemsCard={toggleNewItemsCard}
                         categories={addedCategoriesForDisplay}
                         items={addedItems}
@@ -332,7 +333,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 onAdd={handleAddItemToList}
                 onClose={() => toggleNewItemsCard()}
                 onToggleNewItemDialog={handleOpenNewItemDialog}
-                canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')}
+                canCreateItem={isAdminProfile(userData?.role) || isDeveloperProfile(userData?.role)}
                 isLoading={isLoading}
                 // --- Pass Make Props ---
                 initialCategoryMakes={initialCategoryMakes || {}}

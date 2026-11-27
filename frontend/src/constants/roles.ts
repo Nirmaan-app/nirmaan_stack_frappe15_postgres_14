@@ -107,7 +107,20 @@ export const BILLING_PROFILES: readonly string[] = [
 export const isBillingProfile = (role?: string | null): boolean =>
   !!role && BILLING_PROFILES.includes(role);
 
+/** The Admin profile, and only it. */
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+/**
+ * The Software Developer profile. ADR-0051: it is allowed wherever Admin is, with no exceptions, and every check
+ * names it next to `ADMIN_PROFILE` -- `[ADMIN_PROFILE, DEVELOPER_PROFILE, ...]`,
+ * `isAdminProfile(role) || isDeveloperProfile(role)`, `isNirmaanAdmin(role, id) || isDeveloperProfile(role)` -- so
+ * the reader sees it at the check. `roles.softwareDeveloper.test.ts` refuses a check that names Admin without it.
+ * Server twin: `role_profiles.DEVELOPER_PROFILE`.
+ */
+export const DEVELOPER_PROFILE = "Nirmaan Software Developer Profile";
+/** The Admin profile alone. Pure: the Administrator user is not a profile (see `isNirmaanAdmin`), nor is the developer. */
+export const isAdminProfile = (role?: string | null): boolean => role === ADMIN_PROFILE;
+/** The Software Developer profile alone. Pure, like `isAdminProfile`. */
+export const isDeveloperProfile = (role?: string | null): boolean => role === DEVELOPER_PROFILE;
 export const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
 export const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
 /** The accountants. Server twin: `role_profiles.ACCOUNTANT_PROFILES`. */
@@ -138,6 +151,7 @@ export const PROJECT_REQUIRED_PROFILES: readonly string[] = [
  */
 export const PROJECT_BILLING_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ...BILLING_PROFILES,
 ];
@@ -152,7 +166,7 @@ export const canUseProjectBilling = (role?: string | null, userId?: string | nul
  * accepts every billing writer, so this decides whether the ✏️ renders.
  */
 export const canEditBillingPackage = (role?: string | null, userId?: string | null): boolean =>
-  userId === "Administrator" || role === ADMIN_PROFILE;
+  userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
 /**
  * May add, rename and delete packages in the Billing Packages tab (Admin Options →
@@ -161,7 +175,7 @@ export const canEditBillingPackage = (role?: string | null, userId?: string | nu
  * whether the Add / Edit / Delete controls render.
  */
 export const canManageBillingPackages = (role?: string | null, userId?: string | null): boolean =>
-  userId === "Administrator" || role === ADMIN_PROFILE || role === BILLING_LEAD_PROFILE;
+  userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role) || role === BILLING_LEAD_PROFILE;
 
 /**
  * May delete a DC / MIR (PO or ITM) — admin, PMO, procurement (they file them)
@@ -171,6 +185,7 @@ export const canManageBillingPackages = (role?: string | null, userId?: string |
  */
 export const PDD_DELETE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ...BILLING_PROFILES,
@@ -190,6 +205,7 @@ export const canDeleteDeliveryDocument = (
  */
 export const MTC_MANAGE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
 ];
@@ -236,7 +252,7 @@ export const MTC_PAGE_PROFILES: readonly string[] = [
 export const canRemoveProjectAssignee = (
   role?: string | null,
   userId?: string | null
-): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+): boolean => userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
 /**
  * May EDIT a Cashflow Plan row (PO / WO / Misc / Inflow) — Admin + PMO (owner ruling).
@@ -248,7 +264,7 @@ export const canEditCashflowPlan = (
   role?: string | null,
   userId?: string | null
 ): boolean =>
-  userId === "Administrator" || role === ADMIN_PROFILE || role === PMO_EXECUTIVE_PROFILE;
+  userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role) || role === PMO_EXECUTIVE_PROFILE;
 
 /**
  * May DELETE a Cashflow Plan row — Admin only; PMO may edit but not delete (owner
@@ -257,7 +273,7 @@ export const canEditCashflowPlan = (
 export const canDeleteCashflowPlan = (
   role?: string | null,
   userId?: string | null
-): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+): boolean => userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
 /**
  * May act on the "Pending Invoice Approvals" queue — approve, reject, or re-run
@@ -272,7 +288,7 @@ export const canDeleteCashflowPlan = (
  * PMO Executive was REMOVED on 2026-09-17 (PMO access review). Do not re-add PMO
  * without owner sign-off.
  */
-const INVOICE_APPROVAL_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+const INVOICE_APPROVAL_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /** True when `role` (a role PROFILE) may action pending invoice approvals. */
 export const canActionInvoiceApprovals = (
@@ -289,6 +305,7 @@ export const canActionInvoiceApprovals = (
  */
 export const WO_GENERATED_INVOICE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
   ...SERVICE_PROCUREMENT_PROFILES,
@@ -302,20 +319,20 @@ export const canGenerateWoInvoice = (role?: string | null, userId?: string | nul
  * May use Match GST to vendor and see the GST mismatch list (#1538, ADR-0028 Amendment A).
  * Mirrored server-side by `role_profiles.MATCH_GST_TO_VENDOR_PROFILES`, the enforcement boundary.
  */
-export const MATCH_GST_TO_VENDOR_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+export const MATCH_GST_TO_VENDOR_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /**
  * May edit a Work Order invoice's number, date and amounts while it is Pending or Rejected (#1531,
  * ADR-0014 Amendment A); an Approved one only Admin. Mirrored server-side by
  * `role_profiles.WO_INVOICE_EDIT_PROFILES`, the enforcement boundary.
  */
-export const WO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+export const WO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /**
  * Shown the Edit dialog on a Purchase Order invoice: Admin and the accountants, as before spec #1528, which
  * left PO invoice rules unchanged. A UI gate only: no server role check backs PO invoice edits.
  */
-export const PO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+export const PO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /** True when `role` (a role PROFILE) may edit a Work Order invoice. */
 export const canEditWoInvoice = (role?: string | null, userId?: string | null): boolean =>
@@ -325,7 +342,7 @@ export const canEditWoInvoice = (role?: string | null, userId?: string | null): 
  * The L1 payment approvers (`canApprove` in `pages/ProjectPayments/config/paymentsTabSet.ts`), with the
  * Administrator user. Mirrored server-side by `role_profiles.PAYMENT_L1_PROFILES`, the enforcement boundary.
  */
-export const PAYMENT_L1_PROFILES: readonly string[] = [ADMIN_PROFILE];
+export const PAYMENT_L1_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
 /** True when `role` (a role PROFILE) may use Match GST to vendor. */
 export const canMatchGstToVendor = (role?: string | null, userId?: string | null): boolean =>
@@ -336,7 +353,7 @@ export const canMatchGstToVendor = (role?: string | null, userId?: string | null
  * their other Financials sub-tabs. UI gate only: `api/projects/project_ledger` refuses anyone outside
  * `services/role_profiles.PROJECT_LEDGER_PROFILES`. Change the two together.
  */
-export const PROJECT_LEDGER_PROFILES: readonly string[] = [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...ACCOUNTANT_PROFILES];
+export const PROJECT_LEDGER_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /** True when `role` (a role PROFILE) may see the Project Ledger. */
 export const canSeeProjectLedger = (role?: string | null, userId?: string | null): boolean =>
@@ -372,6 +389,7 @@ export const canViewPendingInvoiceUploads = (
  */
 const PAYMENT_SUMMARY_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];
@@ -407,6 +425,7 @@ export const canViewPaymentSummary = (
  */
 export const TARGET_PROGRESS_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
 ];
@@ -445,6 +464,7 @@ const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
 /** `/customers` -- Admin Options entry plus the Accountant sidebar entry. */
 export const CUSTOMERS_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -457,6 +477,7 @@ export const CUSTOMERS_ACCESS: readonly string[] = [
  */
 export const CARD_NO_INVOICE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
 
@@ -473,7 +494,7 @@ export const canMarkCardNoInvoice = (
  * Lead. Mirrors `role_profiles.READ_AGAIN_PROFILES`, the enforcement boundary (pinned by
  * `cardInvoiceAccessParity.test.ts`); this only decides whether the button renders.
  */
-export const READ_AGAIN_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+export const READ_AGAIN_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 
 /** True when `role` (a role PROFILE) may read an expense bill again. */
 export const canReadExpenseBillAgain = (role?: string | null, userId?: string | null): boolean =>
@@ -504,6 +525,7 @@ export const canReadExpenseBillAgain = (role?: string | null, userId?: string | 
  */
 export const UPLOAD_BOQ_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ESTIMATES_EXECUTIVE_PROFILE,
@@ -519,6 +541,7 @@ export const UPLOAD_BOQ_ACCESS: readonly string[] = [
  */
 export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ESTIMATES_EXECUTIVE_PROFILE,
 ];
 
@@ -533,11 +556,12 @@ export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
  * pricing panel on `UPLOAD_BOQ_ACCESS`; both read the catalogue through `get_rate_master_items` /
  * `get_rate_category_config`, which stay open to every logged-in user. Never gate those on this list.
  */
-export const RATE_MASTER_ACCESS: readonly string[] = [ADMIN_PROFILE];
+export const RATE_MASTER_ACCESS: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
 /** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
 export const PROJECT_INVOICES_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
   SALES_EXECUTIVE_PROFILE,
@@ -560,14 +584,14 @@ export const canAddProjectInvoice = (role?: string | null): boolean =>
 export const canAddInflow = (role?: string | null): boolean => canAddProjectInvoice(role);
 
 /** Edit / delete a client invoice row. */
-export const canEditProjectInvoice = (role?: string | null): boolean => role === ADMIN_PROFILE;
+export const canEditProjectInvoice = (role?: string | null): boolean => isAdminProfile(role) || isDeveloperProfile(role);
 
 /** The inflow row's Actions menu (Edit). */
 export const canActOnInflow = (role?: string | null): boolean =>
-  role === ADMIN_PROFILE || ACCOUNTANT_PROFILES.includes(role ?? "");
+  isAdminProfile(role) || isDeveloperProfile(role) || ACCOUNTANT_PROFILES.includes(role ?? "");
 
 /** Delete inside that menu. */
-export const canDeleteInflow = (role?: string | null): boolean => role === ADMIN_PROFILE;
+export const canDeleteInflow = (role?: string | null): boolean => isAdminProfile(role) || isDeveloperProfile(role);
 
 /**
  * Reports > "Payment" tab — who may open the Tax Deducted at Source ledger (report "TDS Deduction").
@@ -591,6 +615,7 @@ export const canDeleteInflow = (role?: string | null): boolean => role === ADMIN
  */
 export const PAYMENT_TDS_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -609,18 +634,21 @@ export const PAYMENT_TDS_ACCESS: readonly string[] = [
  */
 export const NON_PROJECT_INFLOWS_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
 export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
-export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
+export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE];
 
 /** Reports > PO and Reports > WO: the "2B Reconcile Report". Admin and the Accountants. UI gate only. */
 export const RECONCILE_2B_REPORT_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -635,6 +663,7 @@ export const RECONCILE_2B_REPORT_PROFILES: readonly string[] = [
  */
 export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
 
@@ -647,6 +676,7 @@ export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
  */
 export const AUDIT_VIEW_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -659,6 +689,7 @@ export const AUDIT_VIEW_PROFILES: readonly string[] = [
  */
 export const PAYEE_MANAGE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -674,6 +705,7 @@ export const canManagePayees = (role?: string | null, userId?: string | null): b
  */
 export const VENDOR_PAYEE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
   ...PROCUREMENT_PROFILES,
@@ -695,6 +727,7 @@ export const canSetVendorPayee = (role?: string | null, userId?: string | null):
  */
 export const HOD_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
   PROJECT_MANAGER_PROFILE,
@@ -718,6 +751,7 @@ export const canAccessHod = (
  */
 export const VENDOR_BULK_DOWNLOAD_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
@@ -742,6 +776,7 @@ export const canBulkDownloadVendor = (
  */
 export const REPORTS_BULK_DOWNLOAD_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -762,6 +797,7 @@ export const canBulkDownloadAllProjects = (
  */
 export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
@@ -772,7 +808,7 @@ export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
  * (owner, 2026-09-23).
  *
  * ⚠️ MIRRORS THE SERVER SET, which is the real boundary:
- * `api/expense_requests/access.ADMIN_PROFILE | PM_REQUEST_REVIEWERS`. `guard_reviewer`
+ * `api/expense_requests/access.is_admin_profile | PM_REQUEST_REVIEWERS`. `guard_reviewer`
  * refuses an approve/reject from anybody outside it, so this constant only decides which
  * TABS render -- it grants nothing. Change the two together.
  *
@@ -788,6 +824,7 @@ export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
  */
 export const EXPENSE_REQUEST_REVIEW_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
   HR_EXECUTIVE_PROFILE,
@@ -808,13 +845,13 @@ export const reviewsExpenseRequests = (
 // ---------------------------------------------------------------------------
 
 /**
- * The Admin user or an Admin profile: the server's `role_profiles.is_nirmaan_admin` (and
- * `pricing._is_nirmaan_admin`). False while `useUserData` still reports the role as "Loading", so an
- * admin-only control never flashes in. Decides only what renders: every admin-only endpoint re-checks on
- * the server, which is authoritative.
+ * The Administrator user or the Admin profile: the server's `role_profiles.is_nirmaan_admin`. Not the developer: a
+ * check that admits it says so with `|| isDeveloperProfile(role)`, as `pricing._is_nirmaan_admin` does. False
+ * while `useUserData` still reports the role as "Loading", so an admin-only control never flashes in. Decides
+ * only what renders: every admin-only endpoint re-checks on the server, which is authoritative.
  */
 export const isNirmaanAdmin = (role?: string | null, userId?: string | null): boolean =>
-  role !== "Loading" && (userId === "Administrator" || role === ADMIN_PROFILE);
+  role !== "Loading" && (userId === "Administrator" || isAdminProfile(role));
 
 /** `REFUND_ACCOUNTANT_PROFILES`: "an Accountant" for a waiting refund. Besides its creator, may correct its
  *  amount or PO while it waits, or cancel it. */
@@ -823,6 +860,7 @@ export const REFUND_ACCOUNTANT_PROFILES: readonly string[] = [ACCOUNTANT_PROFILE
 /** `ADJUST_PAYMENTS_PROFILES`: may open "Adjust Payments" on a PO and record a waiting refund from it. */
 export const ADJUST_PAYMENTS_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   PMO_EXECUTIVE_PROFILE,
   ...MATERIAL_PROCUREMENT_PROFILES,
 ];
@@ -834,7 +872,7 @@ export const REFUND_PAPERWORK_PROFILES: readonly string[] = [
 ];
 
 /** `REFUND_DELETE_PROFILES`: may delete a Cancelled Vendor Refund (an Admin or material Procurement). */
-export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
+export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
 
 /**
  * Cheques (spec #1407). Mirrors `services/role_profiles.CHEQUE_ACCOUNTS_PROFILES` /
@@ -847,7 +885,7 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  * (`utils/cheques/chequeRowActions`). No one sets a Cheque's status otherwise: payment approval and the bank
  * import move it.
  */
-export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
 /**
  * Who may VIEW cheques (owner, 2026-11-20): the Vendor page's Cheques tab, for everyone with a Vendors link in the
@@ -869,6 +907,7 @@ export const REIMBURSEMENT_HR_PROFILES: readonly string[] = [HR_EXECUTIVE_PROFIL
 /** See every claim, and work the Approved (tick + Export) and Rejected tabs. */
 export const REIMBURSEMENT_VIEW_ALL_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  DEVELOPER_PROFILE,
   HR_EXECUTIVE_PROFILE,
   HR_LEAD_PROFILE,
   ACCOUNTANT_PROFILE,

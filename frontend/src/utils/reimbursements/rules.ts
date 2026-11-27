@@ -10,10 +10,11 @@
 
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import {
-    ADMIN_PROFILE,
-    PROJECT_MANAGER_PROFILE,
-    REIMBURSEMENT_HR_PROFILES,
-    REIMBURSEMENT_VIEW_ALL_PROFILES,
+  PROJECT_MANAGER_PROFILE,
+  REIMBURSEMENT_HR_PROFILES,
+  REIMBURSEMENT_VIEW_ALL_PROFILES,
+  isAdminProfile,
+  isDeveloperProfile,
 } from "@/constants/roles";
 import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -170,7 +171,7 @@ export interface Viewer {
 }
 
 export const isReimbursementAdmin = ({ role, userId }: Viewer): boolean =>
-    userId === "Administrator" || role === ADMIN_PROFILE;
+    userId === "Administrator" || isAdminProfile(role) || isDeveloperProfile(role);
 
 export const isReimbursementHr = ({ role }: Viewer): boolean =>
     !!role && REIMBURSEMENT_HR_PROFILES.includes(role);

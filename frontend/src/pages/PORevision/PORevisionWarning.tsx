@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { usePOLockCheck } from "./data/usePORevisionQueries";
 import { useUserData } from "@/hooks/useUserData";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 
 interface PORevisionWarningProps {
   poId: string | undefined;
@@ -14,7 +15,7 @@ export const PORevisionWarning: React.FC<PORevisionWarningProps> = ({ poId }) =>
   const { data: warningData, isLoading } = usePOLockCheck(poId);
   const { role } = useUserData();
 
-  const canViewRevision = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role);
+  const canViewRevision = [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role);
 
   const isItemLocked = warningData?.is_item_locked || false;
   const isPaymentLocked = warningData?.is_payment_locked || false;
