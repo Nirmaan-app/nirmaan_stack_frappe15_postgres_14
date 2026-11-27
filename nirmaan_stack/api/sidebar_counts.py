@@ -7,7 +7,7 @@ from nirmaan_stack.api.credits.get_credits_list import (
 )
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
-from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
 
 @frappe.whitelist()
 def sidebar_counts(user: str) -> str:
@@ -18,7 +18,8 @@ def sidebar_counts(user: str) -> str:
     """
     # Roles that have full access without project filtering
     full_access_roles = [
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan PMO Executive Profile",
         "Nirmaan Accountant Profile",  # Accountants need access to all projects for financial operations
         "Nirmaan Accountant Lead Profile",  # Accountant Leads mirror Accountant access

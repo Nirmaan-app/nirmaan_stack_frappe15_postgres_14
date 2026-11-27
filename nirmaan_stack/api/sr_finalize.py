@@ -2,11 +2,12 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, format_datetime
 from nirmaan_stack.integrations.controllers.service_requests import notify_finalized
-from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, SERVICE_PROCUREMENT_PROFILES
 
 # Admin roles that can finalize and revert
 ADMIN_ROLES = [
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
     *SERVICE_PROCUREMENT_PROFILES,
@@ -16,7 +17,7 @@ ADMIN_ROLES = [
 def get_user_role_profile(user: str) -> str:
     """Get the role profile for a user from Nirmaan Users doctype."""
     if user == "Administrator":
-        return "Nirmaan Admin Profile"
+        return ADMIN_PROFILE
 
     # Nirmaan Users uses lowercased email as name
     user_key = user.strip().lower() if user else ""

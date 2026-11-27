@@ -8,7 +8,7 @@ from nirmaan_stack.api.tds.submit import (
 	delete_row_datasheet,
 	is_project_custom_id,
 )
-from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,8 +62,6 @@ PROJECT_ROW_DOCTYPE = "Project TDS Item List"
 ENTRY_DOCTYPE = "TDS Repository"
 GROUP_DOCTYPE = "TDS Items"
 
-ADMIN_ROLE = ADMIN_PROFILE  # back-compat alias; prefer ADMIN_PROFILE
-
 # A New Make whose entry already exists: which datasheet is correct (#1378).
 # Pinned to the frontend's `DATASHEET_CHOICE` by a parity test.
 CHOICE_REPOSITORY = "repository"  # keep the entry's sheet; the project row borrows it
@@ -89,20 +87,14 @@ class DatasheetChoiceNeeded(Exception):
 		self.repository_sheet = repository_sheet
 
 
-# Admin is identified by the user's ROLE PROFILE, never by `frappe.get_roles()` —
-# see the warning above the resolvers in `services/role_profiles.py`. This module
-# had its own correct copy of that rule; it now delegates to the shared one so
-# there is a single definition to keep right.
-_is_admin = is_nirmaan_admin
-
-
 def _require_admin():
-	"""Admin-only gate. Raises PermissionError for anyone who is neither the
-	Administrator superuser nor a Nirmaan admin (by role profile)."""
+	"""Admin-only gate. Raises PermissionError for anyone who is not the Administrator superuser, an Admin or a
+	developer (by role profile, never `frappe.get_roles()`: see the warning above the resolvers in
+	`services/role_profiles.py`)."""
 	user = frappe.session.user
 	if user == "Guest":
 		frappe.throw(_("Authentication required."), frappe.PermissionError)
-	if not _is_admin(user):
+	if not (is_nirmaan_admin(user) or is_developer(user)):
 		frappe.throw(
 			_("Only Admin can approve or reject TDS submittals."),
 			frappe.PermissionError,

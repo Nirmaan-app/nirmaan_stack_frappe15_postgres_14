@@ -1,6 +1,7 @@
 import frappe
 
 from nirmaan_stack.api.sr_finalize import get_user_role_profile
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 
 @frappe.whitelist()
@@ -10,7 +11,8 @@ def delete_zone(tracker_id, zone_name):
     1. Removes the row from the 'zone' child table.
     2. Removes every 'design_tracker_task' row in that zone (all phases).
     """
-    if get_user_role_profile(frappe.session.user) != "Nirmaan Admin Profile":
+    profile = get_user_role_profile(frappe.session.user)
+    if not (is_admin_profile(profile) or is_developer_profile(profile)):
         frappe.throw("Only Admin users can delete a zone.", frappe.PermissionError)
 
     doc = frappe.get_doc("Project Design Tracker", tracker_id)

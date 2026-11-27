@@ -13,19 +13,19 @@
 import frappe
 import json
 
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 def _require_admin():
     """Nirmaan-admin-only gate. Mirrors the page's own `isAdmin`
-    (Administrator OR role profile "Nirmaan Admin Profile") — PMO is deliberately
+    (Administrator, the Admin profile or the developer profile) — PMO is deliberately
     excluded, matching `pages/temp/ResolveInvoices.tsx`.
 
     The previous check gated on `frappe.get_roles()` with a role-PROFILE name,
     which matched nobody, AND fell through without raising — so this gate
     admitted every logged-in user.
     """
-    if is_nirmaan_admin(frappe.session.user):
+    if is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user):
         return
 
     frappe.throw(

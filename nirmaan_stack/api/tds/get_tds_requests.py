@@ -3,6 +3,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 from nirmaan_stack.services.role_profiles import (
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
 )
@@ -16,7 +18,8 @@ FILTERED_ACCESS_ROLES = {
 
 # Roles with full access to all projects
 FULL_ACCESS_ROLES = {
-    "Nirmaan Admin Profile",
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan Project Lead Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Accountant Profile",

@@ -53,6 +53,7 @@ from nirmaan_stack.services.boq_category.persist import (
     node_is_qty_bearing,
 )
 from nirmaan_stack.services.boq_revision.normalize import normalize_n2
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -671,11 +672,12 @@ def reset_category_gate_override_on_reclassify(boq_name, sheet_name, committed_v
 # the lock state propagate LIVE instead of on-load / on-failed-save.
 
 def _is_nirmaan_admin(user: str) -> bool:
-    """Administrator or a Nirmaan Admin Profile user (mirrors pr_editing_lock's force-release
+    """Administrator, or a user of the Admin or the developer profile (mirrors pr_editing_lock's force-release
     rule). Used ONLY for the admin force-RELEASE path here."""
     if user == "Administrator":
         return True
-    return frappe.db.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
+    profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
+    return is_admin_profile(profile) or is_developer_profile(profile)
 
 
 def _validate_lock_args(boq_name, sheet_name, committed_version) -> None:

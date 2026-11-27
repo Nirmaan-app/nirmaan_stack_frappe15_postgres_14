@@ -6,7 +6,7 @@ from frappe.model.rename_doc import rename_doc
 
 from nirmaan_stack.services.asset_history import rename_person as rename_person_in_asset_history
 from nirmaan_stack.services.departments import assert_active_department, is_department_editor
-from nirmaan_stack.services.role_profiles import assert_user_admin
+from nirmaan_stack.services.role_profiles import assert_user_admin, is_admin_profile, is_developer_profile
 
 
 @frappe.whitelist(methods=["POST"])
@@ -260,7 +260,7 @@ def rename_user_email(old_email: str, new_email: str):
 		is_admin = True
 	else:
 		current_user_role = frappe.get_value("Nirmaan Users", current_user, "role_profile")
-		if current_user_role == "Nirmaan Admin Profile":
+		if is_admin_profile(current_user_role) or is_developer_profile(current_user_role):
 			is_admin = True
 
 	if not is_admin:
@@ -280,7 +280,7 @@ def rename_user_email(old_email: str, new_email: str):
 
 	# 5. Cannot rename other admins
 	target_user_role = frappe.get_value("Nirmaan Users", old_email, "role_profile")
-	if target_user_role == "Nirmaan Admin Profile":
+	if is_admin_profile(target_user_role) or is_developer_profile(target_user_role):
 		frappe.throw(_("Cannot rename admin users"))
 
 	# 6. Validate email format

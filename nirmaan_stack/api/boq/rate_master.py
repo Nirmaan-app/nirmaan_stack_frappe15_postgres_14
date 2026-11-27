@@ -1219,7 +1219,7 @@ _MANUAL_SOURCE_SHEET = "Manual entry"
 
 def _require_rate_admin():
     """Admin gate for the RM-4a editors -- BEFORE any resolution/write. Reuses the wizard's
-    pricing._is_nirmaan_admin (Administrator OR Nirmaan Admin Profile); never a re-minted copy."""
+    pricing._is_nirmaan_admin (Administrator, the Admin profile or the developer profile); never a re-minted copy."""
     user = frappe.session.user
     if not pricing._is_nirmaan_admin(user):
         frappe.throw(

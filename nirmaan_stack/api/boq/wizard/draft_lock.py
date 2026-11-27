@@ -27,6 +27,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.api.boq.wizard import pricing_lock
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 # Sentinel version for the draft tier -- real committed versions start at 1, so this never
 # collides with a pricing-lock identity.
@@ -62,10 +63,11 @@ def broadcast_lock_changed(boq: str, sheet_name: str, action: str, locked_by) ->
 
 
 def _is_nirmaan_admin(user: str) -> bool:
-    """Administrator or a Nirmaan Admin Profile user (used only for the force-release path)."""
+    """Administrator, or a user of the Admin or the developer profile (used only for the force-release path)."""
     if user == "Administrator":
         return True
-    return frappe.db.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
+    profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
+    return is_admin_profile(profile) or is_developer_profile(profile)
 
 
 def _validate(boq_name, sheet_name) -> None:

@@ -8,6 +8,7 @@ The old API using (doctype, docname, date_key) is deprecated but supported for c
 import frappe
 from frappe import _
 from typing import Optional
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 
 # Valid reconciliation status values
@@ -93,7 +94,7 @@ def update_invoice_reconciliation(
         frappe.throw(_("You must be logged in to perform this action."))
 
     # Check if user has Accountant or Admin role
-    allowed_roles = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"]
+    allowed_roles = [ADMIN_PROFILE, DEVELOPER_PROFILE, "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"]
 
     if current_user != "Administrator":
         try:

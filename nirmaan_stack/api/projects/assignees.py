@@ -11,7 +11,7 @@ Wire contract: `frontend/src/pages/projects/data/tab/overview/useProjectOverview
 import frappe
 
 from nirmaan_stack.integrations.controllers.user_permission import sync_has_project
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 @frappe.whitelist(methods=["POST"])
@@ -42,7 +42,7 @@ def remove_project_assignee(project=None, user=None):
         frappe.throw("project is required.", title="Missing field: project")
     if not user:
         frappe.throw("user is required.", title="Missing field: user")
-    if not is_nirmaan_admin(frappe.session.user):
+    if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
         frappe.throw(
             "Only an Admin can remove a user from a project.",
             frappe.PermissionError,

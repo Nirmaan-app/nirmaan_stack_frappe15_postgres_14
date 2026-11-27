@@ -24,6 +24,7 @@ from frappe.utils import cint, date_diff, getdate, today
 
 from nirmaan_stack.services import reminders as reminders_service
 from nirmaan_stack.services.reminders import MONTHS_ORDER
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_developer_profile
 
 
 @frappe.whitelist()
@@ -57,7 +58,7 @@ def get_my_reminders():
 		# Schedules whose role_profiles child table references the caller's profile.
 		schedule_names = frappe.get_all(
 			"Reminder Role Profile",
-			filters={"role_profile": profile, "parenttype": "Reminder Schedule"},
+			filters={"role_profile": ["in", _profiles_seen_as(profile)], "parenttype": "Reminder Schedule"},
 			pluck="parent",
 		)
 		schedule_names = list(dict.fromkeys(schedule_names))  # de-dupe, preserve order
@@ -151,14 +152,14 @@ def get_my_reminder_logs(include_done=0):
 	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
 	
 	if user == "Administrator" and not profile:
-		profile = "Nirmaan Admin Profile"
+		profile = ADMIN_PROFILE
 		
 	if not profile:
 		return {"logs": []}
 
 	schedule_names = frappe.get_all(
 		"Reminder Role Profile",
-		filters={"role_profile": profile, "parenttype": "Reminder Schedule"},
+		filters={"role_profile": ["in", _profiles_seen_as(profile)], "parenttype": "Reminder Schedule"},
 		pluck="parent",
 	)
 	schedule_names = list(dict.fromkeys(schedule_names))
@@ -204,16 +205,25 @@ def _my_schedule_names(user=None):
 	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
 	
 	if user == "Administrator" and not profile:
-		profile = "Nirmaan Admin Profile"
+		profile = ADMIN_PROFILE
 		
 	if not profile:
 		return []
 	names = frappe.get_all(
 		"Reminder Role Profile",
-		filters={"role_profile": profile, "parenttype": "Reminder Schedule"},
+		filters={"role_profile": ["in", _profiles_seen_as(profile)], "parenttype": "Reminder Schedule"},
 		pluck="parent",
 	)
 	return list(dict.fromkeys(names))
+
+
+def _profiles_seen_as(profile):
+	"""The target profiles whose schedules a caller of `profile` sees and acts on: their own, and for a developer
+	the Admin profile's too (ADR-0051: a developer sees Admin's reminders as well as their own). One way only: an
+	Admin, and the Administrator user mapped to the Admin profile, see as before."""
+	if is_developer_profile(profile):
+		return [profile, ADMIN_PROFILE]
+	return [profile]
 
 
 def _ordinal(n):

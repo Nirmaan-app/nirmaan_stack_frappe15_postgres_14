@@ -17,6 +17,7 @@ correct to include and would be invisible to a users-table-only check.
 """
 
 import frappe
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 __all__ = [
     "OUTFLOW_IMPORT_PROFILES",
@@ -30,7 +31,8 @@ __all__ = [
 # Owner ruling: Accountant, Accountant Lead, Admin.
 OUTFLOW_IMPORT_PROFILES = frozenset(
     {
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan Accountant Profile",
         "Nirmaan Accountant Lead Profile",
     }
@@ -76,7 +78,8 @@ def require_outflow_access(user: str | None = None) -> str:
 # `outflowUndoAccessParity.test.ts` reads this file to keep the two in step.
 OUTFLOW_UNDO_PROFILES = frozenset(
     {
-        "Nirmaan Admin Profile",
+        ADMIN_PROFILE,
+        DEVELOPER_PROFILE,
         "Nirmaan Accountant Lead Profile",
     }
 )

@@ -15,7 +15,7 @@ from nirmaan_stack.services.project_billing.rules import (
 	can_edit_package_bills,
 	next_bill,
 )
-from nirmaan_stack.services.role_profiles import can_write_project_billing, is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import can_write_project_billing, is_developer, is_nirmaan_admin
 
 
 def require_billing_access():
@@ -63,7 +63,7 @@ def stamp_can_edit_bills(rows: list[dict]) -> list[dict]:
 	the controller hooks enforce the same rule on every save.
 	"""
 	user = frappe.session.user
-	admin = is_nirmaan_admin(user)
+	admin = is_nirmaan_admin(user) or is_developer(user)
 	for row in rows:
 		row["can_edit_bills"] = can_edit_package_bills(user, [m["user"] for m in row["billing_managers"]], admin)
 	return rows

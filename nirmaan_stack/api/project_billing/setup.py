@@ -7,7 +7,7 @@ from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.services.project_billing.rules import APPROVED_STATUSES, NA_STATUS, removal_confirmed
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 def _managers(entry: dict) -> list[str]:
@@ -65,7 +65,7 @@ def setup_project_billing(project: str, packages) -> dict:
 
 
 def _require_admin():
-	if not is_nirmaan_admin(frappe.session.user):
+	if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
 		frappe.throw(_("Only Admin can remove a billing package from a project."), frappe.PermissionError)
 
 

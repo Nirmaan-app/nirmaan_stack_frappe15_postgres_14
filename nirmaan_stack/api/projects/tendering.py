@@ -4,6 +4,7 @@ import frappe
 
 from nirmaan_stack.api.projects._project_population import apply_full_project_details
 from nirmaan_stack.integrations.controllers.boqs import select_project_boqs
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 
 # --- Authorization ---------------------------------------------------------
@@ -20,7 +21,10 @@ from nirmaan_stack.integrations.controllers.boqs import select_project_boqs
 # Profile" is only a Role Profile bundle, which get_roles() never returns).
 # Using "Nirmaan PMO Executive Profile" here silently locked PMO users out.
 TENDERING_MANAGER_ROLES = {
-    "Nirmaan Admin Profile",
+    # Only the Admin profile's name is also a Role. A Software Developer (ADR-0051) gets in, like an Admin, through
+    # the "Nirmaan Estimates Executive" Role both profiles carry.
+    ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     "Nirmaan PMO Executive",
     # Estimates may create + manage tendering projects. The underlying Role is
     # "Nirmaan Estimates Executive" (no "Profile"); the Profile variant is added

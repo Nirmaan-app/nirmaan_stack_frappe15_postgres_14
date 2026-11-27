@@ -11,7 +11,7 @@ here, together with the two lists the screen's pickers need (the 16 documents an
 import frappe
 
 from nirmaan_stack.services.hod import checklist, index
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 SYSTEM = "HOD System"
 CONTENT = "HOD Library Content"
@@ -77,7 +77,8 @@ def get_hod_library() -> dict:
 		"work_packages": frappe.get_all("Work Packages", pluck="name", order_by="name asc"),
 		# Editing the library is for Admins only (owner 2026-10-06); everyone else who can open Packages
 		# Settings (PMO) sees it read-only.
-		"can_edit": is_nirmaan_admin(frappe.session.user) and bool(frappe.has_permission(SYSTEM, "write")),
+		"can_edit": (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user))
+		and bool(frappe.has_permission(SYSTEM, "write")),
 	}
 
 

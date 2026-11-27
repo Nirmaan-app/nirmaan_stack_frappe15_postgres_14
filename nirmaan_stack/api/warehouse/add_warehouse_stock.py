@@ -20,6 +20,7 @@ from nirmaan_stack.integrations.controllers.warehouse_stock import (
 )
 from nirmaan_stack.services.role_profiles import (
 	ADMIN_PROFILE,
+	DEVELOPER_PROFILE,
 	MATERIAL_PROCUREMENT_PROFILES,
 	PMO_EXECUTIVE_PROFILE,
 )
@@ -27,7 +28,7 @@ from nirmaan_stack.services.role_profiles import (
 
 # Profiles that may add stock by hand. Mirrors `WAREHOUSE_ADD_STOCK_ROLES` in
 # frontend/src/constants/warehouse.ts, which only decides whether the button renders.
-ADD_STOCK_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+ADD_STOCK_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
 
 # Stamped onto the ledger row's ``doctype_ref``. Not a real doctype — a manual
 # entry has no source document, and the Ledger tab renders this verbatim.

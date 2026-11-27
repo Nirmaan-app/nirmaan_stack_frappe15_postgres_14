@@ -1,7 +1,6 @@
 import frappe
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
-
-ADMIN_ROLE = "Nirmaan Admin Profile"
 
 # Statuses that have a mapped sub_status per SUB_STATUS_MAP in the frontend.
 # For any other status, sub_status must be cleared.
@@ -14,7 +13,7 @@ def bulk_update_task_status(tracker_id, task_names, task_status, task_sub_status
     
     if user != "Administrator":
         role_profile = frappe.db.get_value("User", user, "role_profile_name")
-        if role_profile != ADMIN_ROLE:
+        if not (is_admin_profile(role_profile) or is_developer_profile(role_profile)):
             frappe.throw("Only Admin can perform bulk status updates.", frappe.PermissionError)
 
     task_names = frappe.parse_json(task_names) or []

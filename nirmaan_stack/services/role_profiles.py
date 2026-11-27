@@ -81,7 +81,13 @@ PROCUREMENT_PROFILES = (
     SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
 )
 
+#: The Admin profile, and only it.
 ADMIN_PROFILE = "Nirmaan Admin Profile"
+#: The Software Developer profile. ADR-0051: it is allowed wherever Admin is, with no exceptions, and every check
+#: names it next to `ADMIN_PROFILE` -- `(ADMIN_PROFILE, DEVELOPER_PROFILE, ...)`, `is_admin_profile(p) or
+#: is_developer_profile(p)`, `is_nirmaan_admin(u) or is_developer(u)` -- so the reader sees it at the check.
+#: `test_software_developer_profile` refuses a check that names Admin without it. Client twin in `constants/roles.ts`.
+DEVELOPER_PROFILE = "Nirmaan Software Developer Profile"
 PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
 ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
@@ -103,6 +109,7 @@ ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # PMO Executive was REMOVED on 2026-09-17 (PMO access review), on both sides.
 INVOICE_APPROVAL_PROFILES = (
     ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     ACCOUNTANT_PROFILE,
     ACCOUNTANT_LEAD_PROFILE,
 )
@@ -115,12 +122,12 @@ PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PRO
 
 # May mark a card spend *No invoice* (ADR-0039 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
-CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # May press Read again on an Expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
 # Lead. ENFORCEMENT boundary of `api/expenses/expense_bill_approval.read_expense_bill_again`; mirrored by
 # `canReadExpenseBillAgain` in `constants/roles.ts`.
-READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+READ_AGAIN_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
@@ -130,14 +137,14 @@ READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # revert; the expense edits go through the doctype's own permissions. Mirrored client-side by
 # `QUEUE_EDIT_PROFILES` in `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` --
 # keep the two lists in sync.
-PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # The L1 step of a payment's approval: approve or reject a Requested payment, alone or in bulk
 # (#1530). The Admin profile, plus `Administrator` and the CEO. Mirrored client-side by `canApprove`
 # in `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts` (the Approve Payments tab) and
 # matching `services/approval_raiser.raiser_level`. ENFORCEMENT boundary: the Project Payments
 # `validate` hook (`services/payment_steps.py`) and `api/payments/bulk_actions._authorize_lead`.
-PAYMENT_L1_PROFILES = (ADMIN_PROFILE,)
+PAYMENT_L1_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE)
 
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
@@ -147,25 +154,25 @@ PAYMENT_L1_PROFILES = (ADMIN_PROFILE,)
 # Lead profiles. Role rows cannot say "Admin only", so `integrations/controllers/
 # non_project_inflows.py` narrows them per profile. Mirrored client-side by
 # `NON_PROJECT_INFLOWS_ACCESS` / `_EDIT` / `_DELETE` in `frontend/src/constants/roles.ts`.
-NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
-NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
-NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
+NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE)
 
 # The Amount Paid Mismatch report and its Recount (#1455, ADR-0034): Admin and Accountant Lead only --
 # the people who can judge a wrong payment. Narrower than the 2B Reconcile report (no Accountant).
 # ENFORCEMENT boundary for `api/reports/amount_paid_mismatch`, whose recount writes with `set_value`.
 # Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
-AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Match GST to vendor and the GST mismatch list (#1538, ADR-0028 Amendment A): Admin and Accountants.
 # ENFORCEMENT boundary for `api/service_requests/match_gst_to_vendor`, which saves with
 # `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
-MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # The Audit View report (Reports → Audit View): Admin and Accountants. Read-only, but it reads every
 # order, invoice and payment with `frappe.get_all`, so this is the ENFORCEMENT boundary for
 # `api/reports/audit_view`. Mirrored client-side by `frontend/src/constants/roles.ts::AUDIT_VIEW_PROFILES`.
-AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
@@ -175,7 +182,7 @@ HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 # ENFORCEMENT boundary: `api/users.create_user` / `reset_password` and the User `validate` hook
 # (`integrations/controllers/user.py`). Mirrored client-side by `UsersRoute` in
 # `frontend/src/utils/auth/ProtectedRoute.tsx` -- keep the two in sync.
-USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE)
+USER_ADMIN_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE)
 
 # Upload / replace a Paid expense's invoice from the Payments queue's Payment Done tab (owner, 2026-10-31): the
 # queue's settle roles plus HR. The invoice file, number and date only; no other field of a Paid expense opens
@@ -187,18 +194,18 @@ PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD
 # Of those, the ones whose new bill on a paid wallet spend or card spend is approved at once in their name (#1643,
 # spec #1637, GLOSSARY *Expense bill approval*): Admin and Accountant Lead. Anyone else's new bill there waits like
 # any other (auto-approved when Matched). Enforced in `expense_decision.save_paid_invoice`; no screen reads it.
-PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
 # `frontend/src/constants/departments.ts` -- keep the two lists in sync.
-DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # See the asset history -- the cross-asset log (`api/assets/history.get_asset_history`) and the
 # History card on an asset (owner, 2026-10-12: "only admin and HR"). Mirrored client-side by
 # `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
-ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # Assign and unassign assets (owner, 2026-10-13): Admin, HR and PMO handle every asset; procurement
 # handles Project assets only. Nobody else, whatever Roles their profile bundles (System Manager on
@@ -206,20 +213,20 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 # asset permission HR Executive has (owner, 2026-10-15). `services/asset_assign_access.py` enforces it;
 # mirrored client-side by `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep
 # the two in sync.
-ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
+ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 
 # Mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only -- not PMO,
 # not procurement, not the holder. `api/assets/lost_damaged.py` enforces it; mirrored client-side by
 # `canMarkLostDamaged` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
-ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
 # Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
 # Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
 # ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
-ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
-ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
+ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE)
+ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
 
 # Reimbursements (owner, 2026-10-21/22). Everyone raises and sees their own claims. HR decides a claim of
 # any amount raised outside HR; Admin decides every claim (`services/reimbursements/rules.py`; the monthly
@@ -230,6 +237,7 @@ ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_
 REIMBURSEMENT_HR_PROFILES = (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 REIMBURSEMENT_VIEW_ALL_PROFILES = (
     ADMIN_PROFILE,
+    DEVELOPER_PROFILE,
     HR_EXECUTIVE_PROFILE,
     HR_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
@@ -280,9 +288,26 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
     return bool(allowed & set(frappe.get_roles(user)))
 
 
+def is_admin_profile(profile: str | None) -> bool:
+    """True when `profile` is the Admin profile. A pure profile test: the Administrator user is not a profile, so it
+    does not pass here, and neither does the developer (name it with `is_developer_profile`)."""
+    return profile == ADMIN_PROFILE
+
+
+def is_developer_profile(profile: str | None) -> bool:
+    """True when `profile` is the Software Developer profile. A pure profile test, like `is_admin_profile`."""
+    return profile == DEVELOPER_PROFILE
+
+
 def is_nirmaan_admin(user: str) -> bool:
-    """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
+    """True for the Administrator superuser or a user of the Admin profile. Not the developer: a check that admits
+    it says so with `or is_developer(user)`."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def is_developer(user: str) -> bool:
+    """True for a user of the Software Developer profile. The Administrator user does not pass here."""
+    return has_role_profile(user, (DEVELOPER_PROFILE,), superuser_passes=False)
 
 
 def assert_user_admin(user: str) -> None:
@@ -334,7 +359,7 @@ BILLING_PROFILES = (
 # Mirrored client-side by `frontend/src/constants/roles.ts::PDD_DELETE_PROFILES`,
 # which only decides whether the trash icon renders. Keep the two in sync.
 PDD_DELETE_PROFILES = (
-    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES + BILLING_PROFILES
+    (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES + BILLING_PROFILES
 )
 
 
@@ -344,10 +369,10 @@ PDD_DELETE_PROFILES = (
 # doctypes grant `System Manager`, which also rides on the Project Lead and
 # other profiles, so a DocPerm alone cannot express "Admin + PMO + billing".
 # Mirrored client-side by `frontend/src/constants/roles.ts::PROJECT_BILLING_WRITE_PROFILES`.
-PROJECT_BILLING_WRITE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + BILLING_PROFILES
+PROJECT_BILLING_WRITE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE) + BILLING_PROFILES
 
 # The billing package master list: Admin and the Billing Lead only.
-PROJECT_BILLING_PACKAGE_WRITE_PROFILES = (ADMIN_PROFILE, BILLING_LEAD_PROFILE)
+PROJECT_BILLING_PACKAGE_WRITE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, BILLING_LEAD_PROFILE)
 
 
 def can_write_project_billing(user: str) -> bool:
@@ -377,8 +402,8 @@ def can_action_invoice_approvals(user: str) -> bool:
 #   uploads it again.
 # Uploading a new invoice is NOT narrowed: PMO and Procurement upload WO invoices today.
 WO_INVOICE_DECIDE_PROFILES = INVOICE_APPROVAL_PROFILES
-WO_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
-WO_APPROVED_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE,)
+WO_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+WO_APPROVED_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE)
 
 
 def can_decide_wo_invoice(user: str) -> bool:
@@ -406,7 +431,7 @@ PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
 # profiles, so the doctype's Role rows cannot say this. Mirrored client-side by `SR_ADMIN_ROLES` in
 # `frontend/src/pages/ServiceRequests/config/srTabs.constants.ts` -- keep the two in sync. PMO was removed
 # on 2026-09-17 (PMO access review).
-WO_DECIDE_PROFILES = (ADMIN_PROFILE, PROJECT_LEAD_PROFILE)
+WO_DECIDE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PROJECT_LEAD_PROFILE)
 
 
 def can_decide_work_order(user: str) -> bool:
@@ -420,7 +445,7 @@ def can_decide_work_order(user: str) -> bool:
 # `Nirmaan Procurement Executive` also ride on the Project Lead profile, which must NOT
 # change MTCs. Mirrored client-side by `frontend/src/constants/roles.ts::MTC_MANAGE_PROFILES`
 # (display only). Keep the two in sync.
-MTC_MANAGE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES
+MTC_MANAGE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES
 
 # Use the MTC list page, and see only the projects assigned to them through
 # `User Permission` -- strictly: no assignment means no projects, NOT Frappe's
@@ -455,7 +480,7 @@ def can_edit_mtc(user: str, owner: str | None) -> bool:
 # Invoice the upload creates stays with WO_INVOICE_DECIDE_PROFILES. ENFORCEMENT boundary for
 # `api/service_requests/generated_invoices`, which writes with `ignore_permissions` (the doctype grants
 # read only). Mirrored client-side by `frontend/src/constants/roles.ts::WO_GENERATED_INVOICE_PROFILES`.
-WO_GENERATED_INVOICE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + SERVICE_PROCUREMENT_PROFILES
+WO_GENERATED_INVOICE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + SERVICE_PROCUREMENT_PROFILES
 
 
 def can_generate_wo_invoice(user: str) -> bool:
@@ -476,7 +501,7 @@ def assert_generate_wo_invoice_access(user: str) -> None:
 # procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
 # ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.record_waiting_refund`, which writes
 # with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
-ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
 
 # "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits, or
 # cancel it, besides the user who recorded it. Mirrored client-side by
@@ -494,7 +519,7 @@ REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILE
 # material Procurement (waiting refunds, and so Cancelled ones, are PO-only). ENFORCEMENT boundary for
 # `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
 # `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
-REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
+REFUND_DELETE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
 
 # Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
 # view the Cheque Payments report and add a Cheque, but never change its status.
@@ -551,7 +576,7 @@ def assert_cheque_form_access(user: str) -> None:
 # `mtc_api.get_mtcs(all_projects=1)`), so a typed URL or a crafted call fetches nothing. The project and
 # vendor Bulk Download tabs keep their own rules. Mirrored client-side by
 # `frontend/src/constants/roles.ts::REPORTS_BULK_DOWNLOAD_PROFILES` -- keep the two in sync.
-REPORTS_BULK_DOWNLOAD_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+REPORTS_BULK_DOWNLOAD_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 
 def assert_reports_bulk_download_access(user: str) -> None:
@@ -567,7 +592,7 @@ def assert_reports_bulk_download_access(user: str) -> None:
 # endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
 # boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored
 # client-side by `frontend/src/constants/roles.ts::PAYEE_MANAGE_PROFILES`.
-PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 
 def can_manage_payees(user: str) -> bool:
@@ -588,7 +613,7 @@ def assert_payee_manager(user: str) -> None:
 # and `api/create_vendor_and_address`, which write with `ignore_permissions`. Mirrored client-side by
 # `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Edit bank details and Use a different payee (#1426, #1435).
 VENDOR_PAYEE_PROFILES = (
-    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
+    (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
 )
 
 
@@ -600,4 +625,4 @@ def assert_vendor_payee_access(user: str) -> None:
         frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)
 
 # Project Ledger (owner, 2026-10-28), enforced by `api/projects/project_ledger`; client twin in `roles.ts`.
-PROJECT_LEDGER_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+PROJECT_LEDGER_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)

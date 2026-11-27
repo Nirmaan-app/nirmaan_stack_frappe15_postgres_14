@@ -2,7 +2,7 @@ import json
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 def next_boq_version(project, boq_name, is_template_source=False, exclude=None):
@@ -64,7 +64,8 @@ def assert_can_add_boq(project, user=None):
         frappe.throw(_(
             "This project's BoQs were merged into a Won project. Undo the merge to add a BoQ here."
         ))
-    if tendering_status != "Won" or is_nirmaan_admin(user or frappe.session.user):
+    user = user or frappe.session.user
+    if tendering_status != "Won" or is_nirmaan_admin(user) or is_developer(user):
         return
     frappe.throw(_("Only an Admin can add a BoQ to a Won project."), frappe.PermissionError)
 
@@ -249,7 +250,7 @@ def change_boq_selection(project, boq_names, to_status):
     from_status = _SELECTION_MOVES.get(to_status)
     if not from_status:
         frappe.throw(_("Unknown BoQ status '{0}'.").format(to_status))
-    if not is_nirmaan_admin(frappe.session.user):
+    if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
         frappe.throw(_("Only an Admin can change which BoQs are Selected."), frappe.PermissionError)
     if not is_won_project(project):
         frappe.throw(_("Project '{0}' is not Won.").format(project))

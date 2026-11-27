@@ -1,7 +1,7 @@
 import frappe
 from datetime import datetime
 from frappe.model.document import Document
-from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, MATERIAL_PROCUREMENT_PROFILES
 
 
 def safe_float(value, default=0.0):
@@ -71,7 +71,8 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
         # Return-specific role validation
         RETURN_ROLES = [
-            "Nirmaan Admin Profile",
+            ADMIN_PROFILE,
+            DEVELOPER_PROFILE,
             "Nirmaan PMO Executive Profile",
             "Nirmaan Project Lead Profile",
             *MATERIAL_PROCUREMENT_PROFILES,

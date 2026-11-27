@@ -18,12 +18,12 @@ No GST number is needed. A vendor that still qualifies is put back on hold by th
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 @frappe.whitelist(methods=["POST"])
 def remove_gst_hold(vendor: str) -> dict:
-    if not is_nirmaan_admin(frappe.session.user):
+    if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
         frappe.throw(_("Only an Admin can remove GST Hold."), frappe.PermissionError)
 
     held = frappe.db.get_value("Vendors", vendor, "gst_hold")

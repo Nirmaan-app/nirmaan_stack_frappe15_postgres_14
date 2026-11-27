@@ -20,6 +20,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.reminders.read import _my_schedule_names
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 # Role profiles allowed to RENAME a schedule — deliberately NARROWER than the page's
 # `canCreate` set (which also has PMO Executive + Accountant Lead behind the Add/Edit
@@ -27,9 +28,7 @@ from nirmaan_stack.api.reminders.read import _my_schedule_names
 # Resolved from `Nirmaan Users.role_profile`, NOT `frappe.get_roles` — the reminders
 # module scopes on the PROFILE everywhere else, and the two name spaces differ (the
 # DocPerm role is "Nirmaan Accountant Lead", the profile is "... Lead Profile").
-REMINDER_EDITOR_PROFILES = frozenset({
-	"Nirmaan Admin Profile",
-})
+REMINDER_EDITOR_PROFILES = frozenset((ADMIN_PROFILE, DEVELOPER_PROFILE))
 
 
 def _require_reminder_editor():

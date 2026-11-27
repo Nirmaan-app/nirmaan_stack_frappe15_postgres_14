@@ -25,8 +25,10 @@ from nirmaan_stack.api.tds.submit import (
 )
 from nirmaan_stack.services.role_profiles import (
 	ADMIN_PROFILE,
+	DEVELOPER_PROFILE,
 	PMO_EXECUTIVE_PROFILE,
 	has_role_profile,
+	is_developer,
 	is_nirmaan_admin,
 )
 
@@ -36,7 +38,7 @@ ACTION_MARK_REJECTED = "mark_rejected"
 ACTION_CLEAR = "clear"
 
 # Who may mark (set or switch). Only an Admin may clear.
-MARK_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+MARK_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE)
 
 _MARKS = {ACTION_MARK_APPROVED: CLIENT_STATUS_APPROVED, ACTION_MARK_REJECTED: CLIENT_STATUS_REJECTED}
 _ROW_SAVEPOINT = "tds_client_status_row"
@@ -47,7 +49,7 @@ def _require_rights(action):
 	if user == "Guest":
 		frappe.throw(_("Authentication required."), frappe.PermissionError)
 	if action == ACTION_CLEAR:
-		if not is_nirmaan_admin(user):
+		if not (is_nirmaan_admin(user) or is_developer(user)):
 			frappe.throw(_("Only Admin can clear a Client Status."), frappe.PermissionError)
 	elif not has_role_profile(user, MARK_PROFILES):
 		frappe.throw(_("Only Admin or PMO Executive can mark a Client Status."), frappe.PermissionError)

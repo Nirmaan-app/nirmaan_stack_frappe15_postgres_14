@@ -55,7 +55,7 @@ There is deliberately no staleness concept anywhere in this module -- contrast t
 lock's `LOCK_STALE_SECONDS`, which is a concurrency device and a different kind of thing.
 
 WHO: the freeze is set and lifted by the population that can already edit the rate master
-(Administrator or `Nirmaan Users.role_profile == "Nirmaan Admin Profile"`). That gate stays in
+(Administrator, or a `Nirmaan Users.role_profile` of Admin or the developer). That gate stays in
 `api/boq/rate_master.py`, where request context belongs; this module NEVER reads
 `frappe.session.user` and takes the actor as a parameter.
 

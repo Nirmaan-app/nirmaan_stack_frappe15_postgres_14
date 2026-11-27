@@ -14,6 +14,8 @@ Routing ONLY. The form a type asks for lives on the type itself
 
 import frappe
 
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_admin_profile, is_developer_profile
+
 # ⚠️ A reviewer is a `Nirmaan Users.role_profile` VALUE, not a Frappe Role -- the axis
 # `useUserData` and `pricing._is_nirmaan_admin` gate on.
 #
@@ -21,7 +23,10 @@ import frappe
 # `Nirmaan Project Manager` among seven others, and a *Role* of that exact name is assigned
 # to nobody -- so a `frappe.get_roles()` check would match no reviewer and read every Admin
 # as a PM.
-DEFAULT_REVIEWER_ROLE = "Nirmaan Admin Profile"
+#
+# The Admin profile and the developer profile (ADR-0051) both review what is routed to the Admin profile:
+# `types_reviewed_by` matches them all.
+DEFAULT_REVIEWER_ROLE = ADMIN_PROFILE
 
 _CACHE_KEY = "_expense_request_routing"
 
@@ -84,4 +89,12 @@ def allowed_roles_for_type(expense_type: str) -> frozenset:
 
 def types_reviewed_by(role_profile: str) -> tuple[str, ...]:
 	"""Every type whose reviewer is `role_profile` -- how a reviewer's queue is scoped."""
-	return tuple(t for t, entry in _routing().items() if entry[0] == role_profile)
+	return tuple(t for t, entry in _routing().items() if _reviews_as(role_profile, entry[0]))
+
+
+def _reviews_as(role_profile: str, reviewer: str) -> bool:
+	"""Does `role_profile` review what is routed to `reviewer`: the same profile, or both count as Admin."""
+	return role_profile == reviewer or (
+		(is_admin_profile(role_profile) or is_developer_profile(role_profile))
+		and (is_admin_profile(reviewer) or is_developer_profile(reviewer))
+	)

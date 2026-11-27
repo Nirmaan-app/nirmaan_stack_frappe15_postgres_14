@@ -10,7 +10,8 @@ Not a fixture, so an Admin's edits survive migrate. Edited through
 import frappe
 from frappe.model.document import Document
 
-from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, profile_can_raise
+from nirmaan_stack.api.expense_requests.access import profile_can_raise
+from nirmaan_stack.services.role_profiles import is_admin_profile, is_developer_profile
 
 
 class ExpenseSettings(Document):
@@ -20,9 +21,9 @@ class ExpenseSettings(Document):
 		seen = set()
 		for row in self.records_without_review:
 			profile = row.role_profile
-			if profile == ADMIN_PROFILE:
+			if is_admin_profile(profile) or is_developer_profile(profile):
 				frappe.throw(
-					f"{ADMIN_PROFILE} always records without review. Leave it out.",
+					f"{profile} always records without review. Leave it out.",
 					title="Admin is implicit",
 				)
 			if profile in seen:

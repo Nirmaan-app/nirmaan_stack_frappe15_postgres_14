@@ -45,7 +45,7 @@ from nirmaan_stack.services.reimbursements.rules import (
     edit_problem,
     reviewer_for,
 )
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 from nirmaan_stack.services.stored_files import delete_files
 
 DOCTYPE = "Reimbursement"
@@ -86,7 +86,7 @@ def _check_cap(user: str, amount, when, exclude: str | None = None) -> None:
 
 def _refuse_delete(claim, user: str) -> None:
     is_claimant = claim.owner == user
-    is_admin = is_nirmaan_admin(user)
+    is_admin = is_nirmaan_admin(user) or is_developer(user)
     problem = delete_problem(claim.status, is_claimant=is_claimant, is_admin=is_admin)
     if problem:
         frappe.throw(_(problem), frappe.ValidationError if is_claimant or is_admin else frappe.PermissionError)

@@ -1,6 +1,7 @@
 import frappe
 
 from nirmaan_stack.api.tds.members import rebuild_group_members_bulk
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,7 +58,8 @@ BILLABLE = "Billable"
 # Roles allowed to author membership from the bulk write surfaces (ADR-0026).
 # DB-verified `Nirmaan Users.role_profile` strings (2026-08-03).
 MEMBERSHIP_WRITE_ROLES = (
-	"Nirmaan Admin Profile",
+	ADMIN_PROFILE,
+	DEVELOPER_PROFILE,
 	"Nirmaan PMO Executive Profile",
 )
 

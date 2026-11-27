@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE, SERVICE_PROCUREMENT_PROFILES
 
 # Role to subject mapping. Every procurement profile files under the same
 # subject, so this is built from SERVICE_PROCUREMENT_PROFILES rather than listing them.
@@ -9,7 +9,7 @@ ROLE_SUBJECT_MAP = {
     "Nirmaan Accountant Profile": "accountant_remark",
     "Nirmaan Accountant Lead Profile": "accountant_remark",
     **{profile: "procurement_remark" for profile in SERVICE_PROCUREMENT_PROFILES},
-    "Nirmaan Admin Profile": "admin_remark",
+    **{profile: "admin_remark" for profile in (ADMIN_PROFILE, DEVELOPER_PROFILE)},
     "Nirmaan PMO Executive Profile": "admin_remark",
     "Nirmaan Project Lead Profile": "admin_remark",
     "Nirmaan Project Manager Profile": "admin_remark",
@@ -26,7 +26,7 @@ SUBJECT_LABELS = {
 def get_user_role_profile(user: str) -> str:
     """Get the role profile for a user from Nirmaan Users doctype."""
     if user == "Administrator":
-        return "Nirmaan Admin Profile"
+        return ADMIN_PROFILE
 
     # Nirmaan Users uses lowercased email as name
     user_key = user.strip().lower() if user else ""

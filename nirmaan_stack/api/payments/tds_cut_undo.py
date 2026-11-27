@@ -18,11 +18,11 @@ from frappe.utils import flt
 
 from nirmaan_stack.services import tds_cut_undo
 from nirmaan_stack.services.payment_tds import COMPANY_BEARS_TDS, MARK_AS_DEPOSIT, PAYMENT_DOCTYPE
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import is_developer, is_nirmaan_admin
 
 
 def _refuse_unless_admin(action: str) -> None:
-    if not is_nirmaan_admin(frappe.session.user):
+    if not (is_nirmaan_admin(frappe.session.user) or is_developer(frappe.session.user)):
         raise frappe.PermissionError(_("Only an Admin may use {0}.").format(action))
 
 

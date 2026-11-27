@@ -17,8 +17,8 @@ Role resolution mirrors `api/design_tracker/bulk_update_task_status.py`:
 
 import frappe
 from frappe.permissions import has_user_permission
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, DEVELOPER_PROFILE
 
-ADMIN_ROLE = "Nirmaan Admin Profile"
 PROJECT_LEAD_ROLE = "Nirmaan Project Lead Profile"
 PMO_ROLE = "Nirmaan PMO Executive Profile"
 PROJECT_MANAGER_ROLE = "Nirmaan Project Manager Profile"
@@ -26,7 +26,7 @@ ACCOUNTANT_ROLE = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD_ROLE = "Nirmaan Accountant Lead Profile"
 
 #: Import a workbook / delete a batch / add a manual snag.
-IMPORT_ROLES = frozenset({ADMIN_ROLE, PROJECT_LEAD_ROLE, PMO_ROLE})
+IMPORT_ROLES = frozenset({ADMIN_PROFILE, DEVELOPER_PROFILE, PROJECT_LEAD_ROLE, PMO_ROLE})
 
 #: Edit ONE row's DATA fields -- area / category / description (Revision 3, owner Q8a).
 #:
@@ -36,13 +36,13 @@ IMPORT_ROLES = frozenset({ADMIN_ROLE, PROJECT_LEAD_ROLE, PMO_ROLE})
 #: are free to diverge -- reusing `require_import_access` here would silently move both
 #: whenever either moved, and the drift would present as a permission nobody granted.
 #: Project Manager is EXCLUDED (they may change a status, ADR-0018, but not the text).
-ROW_EDIT_ROLES = frozenset({ADMIN_ROLE, PROJECT_LEAD_ROLE, PMO_ROLE})
+ROW_EDIT_ROLES = frozenset({ADMIN_PROFILE, DEVELOPER_PROFILE, PROJECT_LEAD_ROLE, PMO_ROLE})
 
 #: Change ONE row's status, and the `remark` that rides that change (ADR-0018).
 STATUS_ROLES = frozenset(IMPORT_ROLES | {PROJECT_MANAGER_ROLE})
 
 #: BULK status change -- Admin only (mirrors Design Tracker's bulk_update_task_status).
-BULK_ROLES = frozenset({ADMIN_ROLE})
+BULK_ROLES = frozenset((ADMIN_PROFILE, DEVELOPER_PROFILE))
 
 #: READ is the ONE tier expressed as a DENY list, and the inversion is deliberate.
 #: Plan section 6 grants the tab to "everyone with project access except Accountant",

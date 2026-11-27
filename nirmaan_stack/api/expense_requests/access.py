@@ -19,8 +19,8 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_admin_profile, is_developer_profile
 
-ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
 
 # Who ELSE may review a request a Project Manager raised (owner, 2026-09-19). Additive: Admin
@@ -72,7 +72,7 @@ def can_request_type(expense_type: str, user: str | None = None) -> bool:
 	and is never listed, so an EMPTY list means Admin only (owner ruling 2026-09-16).
 	"""
 	profile = caller_role_profile(user)
-	if profile == ADMIN_PROFILE:
+	if is_admin_profile(profile) or is_developer_profile(profile):
 		return True
 	return bool(profile) and profile in allowed_roles_for_type(expense_type)
 
@@ -104,7 +104,7 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 
 def profile_can_raise(profile: str | None) -> bool:
 	"""May a role profile raise at least one requestable type? Admin always may."""
-	if profile == ADMIN_PROFILE:
+	if is_admin_profile(profile) or is_developer_profile(profile):
 		return True
 	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
 
@@ -138,7 +138,7 @@ def records_without_review(user: str | None = None) -> bool:
 	the list, even while its row has not been pruned). It skips the Reviewer, never the amount rule.
 	"""
 	profile = caller_role_profile(user)
-	if profile == ADMIN_PROFILE:
+	if is_admin_profile(profile) or is_developer_profile(profile):
 		return True
 	return bool(profile) and profile in listed_records_without_review() and profile_can_raise(profile)
 
@@ -160,7 +160,7 @@ def prune_records_without_review() -> None:
 def reviews_requests(profile: str | None) -> bool:
 	"""Does this role profile review expense requests: Admin every one, Accountant / HR a Project
 	Manager's (`PM_REQUEST_REVIEWERS`)? Mirrored client-side by `EXPENSE_REQUEST_REVIEW_PROFILES`."""
-	return profile == ADMIN_PROFILE or profile in PM_REQUEST_REVIEWERS
+	return is_admin_profile(profile) or is_developer_profile(profile) or profile in PM_REQUEST_REVIEWERS
 
 
 def opens_expenses(user: str | None = None) -> bool:
@@ -236,7 +236,8 @@ def may_review(req, user: str, profile: str | None, requester_profile: str | Non
 	Accountant / HR on a Project Manager's request (`reviews_pm_request`)."""
 	if req.get("owner") == user:
 		return False
-	return (profile == ADMIN_PROFILE or profile == reviewer_role_for_type(req.get("type"))
+	return (is_admin_profile(profile) or is_developer_profile(profile)
+	        or profile == reviewer_role_for_type(req.get("type"))
 	        or reviews_pm_request(profile, requester_profile))
 
 
@@ -265,7 +266,7 @@ def get_permission_query_conditions(user: str | None = None) -> str:
 		return ""
 
 	profile = caller_role_profile(user)
-	if profile == ADMIN_PROFILE:
+	if is_admin_profile(profile) or is_developer_profile(profile):
 		return ""
 
 	clauses = [f'"tabExpense Request".owner = {frappe.db.escape(user)}']
