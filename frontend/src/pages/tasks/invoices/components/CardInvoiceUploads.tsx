@@ -30,6 +30,8 @@ import {
     cardInvoiceFilterOptions,
     filterCardInvoices,
     summariseCardSpendsByType,
+    toggleExpenseTypeFilter,
+    withPickedExpenseTypes,
 } from "../utils/cardInvoicesView";
 import { getCardInvoiceColumns } from "./cardInvoiceColumns";
 import { InvoiceQueueDialogs, type QueueTarget, useInvoiceQueue } from "./InvoiceQueue";
@@ -100,6 +102,25 @@ export const CardInvoiceUploads: React.FC = () => {
         }
     }, [filteredRowCount]); // never `table`: it is a new object every render (CODING_STANDARDS § React effects)
     const summary = useMemo(() => summariseCardSpendsByType(filteredRows.map((r) => r.original)), [filteredRows]);
+
+    // The Expense Type boxes count the rows every filter but Expense Type leaves (TanStack's faceted row model for
+    // the column, search included), so all types stay in view while some are picked and a click can switch
+    // between them. The strip above the boxes stays the table's own rows.
+    const pickedTypes = useMemo(
+        () => (columnFilters.find((f) => f.id === "expense_type")?.value as string[] | undefined) ?? [],
+        [columnFilters],
+    );
+    const typeFacetRows = table.getColumn("expense_type")?.getFacetedRowModel().rows ?? filteredRows;
+    const typeBoxes = useMemo(
+        () => withPickedExpenseTypes(summariseCardSpendsByType(typeFacetRows.map((r) => r.original)).byType, pickedTypes),
+        [typeFacetRows, pickedTypes],
+    );
+    // A box click is the Expense Type column filter itself, so the filter button, the URL and Export follow it;
+    // the table's filter handler sends the pager back to page 1.
+    const onTypeClick = (expenseType: string) =>
+        table.getColumn("expense_type")?.setFilterValue((current: unknown) =>
+            toggleExpenseTypeFilter(current as string[] | undefined, expenseType),
+        );
     const isFiltered = month !== ALL || columnFilters.length > 0 || !!searchTerm;
 
     const facetOptions = useMemo(() => {
@@ -125,7 +146,16 @@ export const CardInvoiceUploads: React.FC = () => {
                 columns={columns}
                 isLoading={false}
                 totalCount={filteredRowCount}
-                summaryCard={<CardSpendsSummaryCard summary={summary} isFiltered={isFiltered} />}
+                summaryCard={
+                    <CardSpendsSummaryCard
+                        summary={summary}
+                        isFiltered={isFiltered}
+                        byType={typeBoxes}
+                        selectedTypes={pickedTypes}
+                        onTypeClick={onTypeClick}
+                        onClearTypes={() => table.getColumn("expense_type")?.setFilterValue(undefined)}
+                    />
+                }
                 searchFieldOptions={CARD_INVOICE_SEARCHABLE_FIELDS}
                 selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}

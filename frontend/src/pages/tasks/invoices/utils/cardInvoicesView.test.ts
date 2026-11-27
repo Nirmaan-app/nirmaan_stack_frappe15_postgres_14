@@ -9,6 +9,8 @@ import {
     statementMonthLabel,
     summariseCardSpendsByType,
     statementMonthsLabel,
+    toggleExpenseTypeFilter,
+    withPickedExpenseTypes,
     type CardInvoiceRow,
 } from "./cardInvoicesView";
 
@@ -180,5 +182,58 @@ describe("the Expense Type and Holder column filters", () => {
         const { expenseTypes } = cardInvoiceFacetOptions([spend("A", null), spend("A", "")]);
         expect(expenseTypes).toEqual([{ label: `${NO_EXPENSE_TYPE} (2)`, value: NO_EXPENSE_TYPE }]);
         expect(summariseCardSpendsByType([spend("A", null)]).byType[0].expenseType).toBe(NO_EXPENSE_TYPE);
+    });
+});
+
+describe("clicking an Expense Type box on the summary card", () => {
+    it("picks the type when nothing is picked", () => {
+        expect(toggleExpenseTypeFilter(undefined, "Travel")).toEqual(["Travel"]);
+        expect(toggleExpenseTypeFilter([], "Travel")).toEqual(["Travel"]);
+    });
+
+    it("adds a second type alongside the first", () => {
+        expect(toggleExpenseTypeFilter(["Travel"], "Fuel")).toEqual(["Travel", "Fuel"]);
+    });
+
+    it("drops a picked type and keeps the others", () => {
+        expect(toggleExpenseTypeFilter(["Travel", "Fuel"], "Travel")).toEqual(["Fuel"]);
+    });
+
+    it("clears the filter when the last picked type is clicked off", () => {
+        expect(toggleExpenseTypeFilter(["Travel"], "Travel")).toBeUndefined();
+    });
+
+    it("picks spends with no Expense Type by the label their box shows", () => {
+        expect(toggleExpenseTypeFilter(undefined, NO_EXPENSE_TYPE)).toEqual([NO_EXPENSE_TYPE]);
+    });
+
+    it("does not change the filter it was given", () => {
+        const current = ["Travel"];
+        toggleExpenseTypeFilter(current, "Fuel");
+        toggleExpenseTypeFilter(current, "Travel");
+        expect(current).toEqual(["Travel"]);
+    });
+});
+
+describe("the boxes shown while types are picked", () => {
+    const byType = [
+        { expenseType: "Travel", amount: 300, count: 2 },
+        { expenseType: "Fuel", amount: 100, count: 1 },
+    ];
+
+    it("leaves the boxes as they are when every picked type has spends", () => {
+        expect(withPickedExpenseTypes(byType, ["Fuel"])).toBe(byType);
+        expect(withPickedExpenseTypes(byType, [])).toBe(byType);
+    });
+
+    it("adds a picked type with no spends left at ₹0, after the others", () => {
+        expect(withPickedExpenseTypes(byType, ["Travel", "Food"])).toEqual([
+            ...byType,
+            { expenseType: "Food", amount: 0, count: 0 },
+        ]);
+    });
+
+    it("shows a picked type even when no spend is left at all", () => {
+        expect(withPickedExpenseTypes([], ["Travel"])).toEqual([{ expenseType: "Travel", amount: 0, count: 0 }]);
     });
 });
