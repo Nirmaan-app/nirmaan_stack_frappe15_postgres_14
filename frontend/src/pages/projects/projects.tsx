@@ -7,7 +7,6 @@ import {
   HardHat,
   OctagonMinus,
   ChevronDown,
-  Info,
 } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -21,11 +20,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -59,7 +53,16 @@ import {
 } from "./data/root/useProjectRootApi";
 import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
-import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
+import {
+  CASHFLOW_GAP_POINTS,
+  CURRENT_LIABILITIES_POINTS,
+  INFLOW_POINTS,
+  NOTIONAL_GST_POINTS,
+  PROJECT_OUTFLOW_POINTS,
+  TOTAL_CREDIT_PURCHASE_POINTS,
+} from "@/constants/projectOutflow";
+// The same ⓘ as the Projects report's columns (F3): a column's points shown as a bullet list.
+import { HeaderWithInfo } from "@/pages/reports/components/columns/projectColumns";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -227,32 +230,6 @@ const SUMMARY_CARD_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
 ];
-
-// Wraps a column header with a small info icon that reveals a definition tooltip on hover.
-// The icon is a sibling of the sort trigger so clicks don't toggle sort.
-const HeaderWithInfo: React.FC<{
-  tooltip: string;
-  children: React.ReactNode;
-}> = ({ tooltip, children }) => (
-  <div className="flex items-center gap-1">
-    {children}
-    <Tooltip delayDuration={150}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label="Column definition"
-          className="text-muted-foreground hover:text-foreground focus:outline-none"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Info className="h-3 w-3" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-xs text-xs leading-snug">
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
-  </div>
-);
 
 export const Projects: React.FC<ProjectsProps> = ({
   customersView = false,
@@ -595,7 +572,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "notional_gst",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip="Sum of GST Amount for Work Orders where GST is marked off in the system">
+          <HeaderWithInfo tooltip={NOTIONAL_GST_POINTS}>
             <DataTableColumnHeader column={column} title="Notional GST" />
           </HeaderWithInfo>
         ),
@@ -620,7 +597,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "inflow",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip="Total client payments received for this project.">
+          <HeaderWithInfo tooltip={INFLOW_POINTS}>
             <DataTableColumnHeader column={column} title="Inflow" />
           </HeaderWithInfo>
         ),
@@ -645,7 +622,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "outflow",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip={PROJECT_OUTFLOW_TOOLTIP}>
+          <HeaderWithInfo tooltip={PROJECT_OUTFLOW_POINTS}>
             <DataTableColumnHeader column={column} title="Project Outflow" />
           </HeaderWithInfo>
         ),
@@ -670,7 +647,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "total_liabilities",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip="Unpaid value of goods already delivered. Per PO: delivered amount − payments made (capped to delivered value, so prepayments don't reduce it below zero).">
+          <HeaderWithInfo tooltip={CURRENT_LIABILITIES_POINTS}>
             <DataTableColumnHeader column={column} title="Current Liabilities" />
           </HeaderWithInfo>
         ),
@@ -695,7 +672,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "cashflow_gap",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip={CASHFLOW_GAP_TOOLTIP}>
+          <HeaderWithInfo tooltip={CASHFLOW_GAP_POINTS}>
             <DataTableColumnHeader column={column} title="Cashflow Gap" />
           </HeaderWithInfo>
         ),
@@ -720,10 +697,9 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "TotalCreditAmt",
         header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Total Purchase Over Credit"
-          />
+          <HeaderWithInfo tooltip={TOTAL_CREDIT_PURCHASE_POINTS}>
+            <DataTableColumnHeader column={column} title="Total Purchase Over Credit" />
+          </HeaderWithInfo>
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);
