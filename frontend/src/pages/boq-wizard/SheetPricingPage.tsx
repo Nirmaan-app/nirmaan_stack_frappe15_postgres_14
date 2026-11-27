@@ -234,6 +234,8 @@ import {
   matchPhaseOf,
   matchSlot,
   suggestSlot,
+  suggestButtonReason,
+  suggestModalOpensFor,
   suggestViewOf,
 } from "./rate-helper/suggestOperation";
 // Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
@@ -1278,6 +1280,14 @@ const SheetPricingPage = () => {
   });
   const suggestView = useMemo(() => suggestViewOf(suggestOp.view), [suggestOp.view]);
   const suggestRunning = suggestView.running;
+  // #1654 story 18: a suggest (or its match) this tab picked up after a reload shows its modal again, once per operation.
+  const suggestModalOpenedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    const opId = suggestModalOpensFor(suggestOp.view, matchOp.view, suggestModalOpenedForRef.current);
+    if (opId === null) return;
+    suggestModalOpenedForRef.current = opId;
+    setSuggestModalOpen(true);
+  }, [suggestOp.view, matchOp.view]);
   const shownMatchPhase = matchNotStarted !== undefined
     ? { state: "failed" as const, done: 0, total: 0, elapsedS: 0, leftS: null, reason: matchNotStarted }
     : matchPhase;
@@ -2888,6 +2898,8 @@ const SheetPricingPage = () => {
                 ? "Every eligible row needs a category first"
                 : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
+  // The button alone also waits for this sheet's suggest in flight; the row ticks (which re-render the grid) do not.
+  const suggestButtonBlockedReason = suggestButtonReason(suggestOp.view, suggestRatesReason);
 
   // RM-3/EA-2: the N-category configs + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single
   // compute source). The helper resolves a config PER row category from configsByCategory.
@@ -4426,10 +4438,10 @@ const SheetPricingPage = () => {
               size="sm"
               variant="outline"
               className="gap-1.5"
-              disabled={suggestRatesDisabled}
+              disabled={suggestButtonBlockedReason !== null}
               onClick={openSuggestConfirm}
               title={
-                suggestRatesReason ??
+                suggestButtonBlockedReason ??
                 (selectedCount > 0
                   ? `Suggest rates for ${selectedCount} selected row${selectedCount === 1 ? "" : "s"}`
                   : "Suggest rates for the whole sheet")

@@ -84,3 +84,19 @@ export function matchPhaseOf(view: OpView): MatchPhaseState | null {
       return { state: "failed", ...zero, reason: view.error };
   }
 }
+
+const inFlightId = (view: OpView): string | null => (isInFlight(view) && "opId" in view ? view.opId : null);
+
+/** PURE. The operation the suggest modal opens for: a suggest in flight, or, once no suggest is followed, a match in
+ *  flight (a reload picks either up again, #1654 story 18). Null when that operation already opened the modal, so a
+ *  modal the user closed stays closed, and the match a suggest of this session handed off reuses its open modal. */
+export function suggestModalOpensFor(suggest: OpView, match: OpView, openedFor: string | null): string | null {
+  const opId = inFlightId(suggest) ?? (suggest.phase === "idle" ? inFlightId(match) : null);
+  return opId !== null && opId !== openedFor ? opId : null;
+}
+
+/** PURE. Why "Suggest rates" is disabled: the sheet's own reason first, then this sheet's suggest still in flight. A
+ *  second press would follow a new operation the server refuses and drop the one still running (#1654 story 6). */
+export function suggestButtonReason(suggest: OpView, sheetReason: string | null): string | null {
+  return sheetReason ?? (isInFlight(suggest) ? "Rate suggestions are already running on this sheet" : null);
+}
