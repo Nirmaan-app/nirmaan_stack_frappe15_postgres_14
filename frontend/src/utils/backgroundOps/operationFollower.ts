@@ -154,6 +154,8 @@ export class OperationFollower {
   private reading = false;
   private readAgain = false;
   private disposed = false;
+  /** The operation whose start request is still in flight: the server has no record of it yet. */
+  private posting: string | null = null;
 
   constructor(private readonly edge: FollowerEdge) {}
 
@@ -161,11 +163,14 @@ export class OperationFollower {
   async start(startOnServer: (opId: string) => Promise<void>, context?: unknown): Promise<void> {
     const opId = this.edge.makeId();
     this.follow(opId, context);
+    this.posting = opId;
     try {
       await startOnServer(opId);
     } catch (e) {
       if (this.opId === opId) this.end({ phase: "failed", opId, error: errorText(e) });
       return;
+    } finally {
+      if (this.posting === opId) this.posting = null;
     }
     if (this.opId === opId) await this.read();
   }
@@ -190,9 +195,10 @@ export class OperationFollower {
     if (opId === this.opId && !isEnded(this.view) && !this.disposed) void this.read();
   }
 
-  /** The socket connected or dropped: wait for the next read at the interval that now applies. */
+  /** The socket connected or dropped: wait for the next read at the interval that now applies. Not while the start
+   *  request is in flight: the record does not exist yet, so a read then would say lost (`start` reads once it lands). */
   socketChanged(): void {
-    if (!this.opId || this.reading || this.disposed || isEnded(this.view)) return;
+    if (!this.opId || this.reading || this.disposed || isEnded(this.view) || this.posting === this.opId) return;
     this.schedule();
   }
 

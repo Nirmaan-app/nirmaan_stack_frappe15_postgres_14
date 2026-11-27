@@ -131,6 +131,28 @@ describe("OperationFollower", () => {
     expect(f.last()).toEqual({ phase: "lost", opId: A, error: "The server has no record of this operation." });
   });
 
+  it("reads nothing while its start request is in flight, even when the socket connects or drops", async () => {
+    // Until the start request lands the server has no record, and a missing record reads as lost.
+    const f = fakeEdge();
+    f.serverSays({ state: "lost", error: "The server has no record of this operation." });
+    let land: () => void = () => undefined;
+    const follower = new OperationFollower(f.edge);
+    const started = follower.start(() => new Promise<void>((resolve) => { land = resolve; }));
+
+    follower.socketChanged();
+    await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_UP * 3);
+    expect(f.reads()).toBe(0);
+    expect(f.last()).toEqual({ phase: "starting", opId: A });
+
+    f.serverSays({ state: "queued" });
+    land();
+    await started;
+    expect(f.last()).toEqual({ phase: "queued", opId: A });
+    f.serverSays({ state: "finished", result: { ok: true } });
+    await vi.advanceTimersByTimeAsync(POLL_MS_SOCKET_DOWN);
+    expect(f.finished).toEqual([{ result: { ok: true }, context: undefined }]);
+  });
+
   it("handles a finish once, however many reads and messages see it", async () => {
     const f = fakeEdge({ socketUp: () => true });
     const follower = new OperationFollower(f.edge);
