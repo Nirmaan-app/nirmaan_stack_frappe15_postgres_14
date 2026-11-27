@@ -20,7 +20,7 @@ describe("canViewHistory", () => {
 
   it("matches the server's ASSET_HISTORY_PROFILES", () => {
     const source = readFileSync(resolve(__dirname, "../../../../../nirmaan_stack/services/role_profiles.py"), "utf-8");
-    expect(source).toContain("ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
+    expect(source).toContain("ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
   });
 });
 
@@ -64,7 +64,7 @@ describe("canAssignAssetType", () => {
 
   it("matches the server's ASSET_ASSIGN_ALL_PROFILES / ASSET_ASSIGN_PROJECT_PROFILES", () => {
     const source = readFileSync(resolve(__dirname, "../../../../../nirmaan_stack/services/role_profiles.py"), "utf-8");
-    expect(source).toContain("ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)");
+    expect(source).toContain("ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)");
     expect(source).toContain("ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES");
   });
 });
@@ -86,7 +86,7 @@ describe("canMarkLostDamaged", () => {
 
   it("matches the server's ASSET_LOST_DAMAGED_PROFILES", () => {
     const source = readFileSync(resolve(__dirname, "../../../../../nirmaan_stack/services/role_profiles.py"), "utf-8");
-    expect(source).toContain("ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
+    expect(source).toContain("ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
   });
 });
 
@@ -103,6 +103,6 @@ describe("HR Lead", () => {
 
   it("is in the server's ASSET_AUDIT_VIEW_PROFILES too", () => {
     const source = readFileSync(resolve(__dirname, "../../../../../nirmaan_stack/services/role_profiles.py"), "utf-8");
-    expect(source).toContain("ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
+    expect(source).toContain("ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
   });
 });

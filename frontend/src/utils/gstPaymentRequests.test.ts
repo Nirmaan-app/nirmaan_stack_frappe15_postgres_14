@@ -47,7 +47,7 @@ describe("who decides a GST request", () => {
 
 	it("matches the server's deciders, PAYMENT_SETTLE_PROFILES", () => {
 		const py = readFileSync(resolve(__dirname, "../../../nirmaan_stack/services/role_profiles.py"), "utf8");
-		expect(py).toMatch(/PAYMENT_SETTLE_PROFILES = \(ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE\)/);
+		expect(py).toMatch(/PAYMENT_SETTLE_PROFILES = \(ADMIN_PROFILE, DEVELOPER_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE\)/);
 	});
 });
 

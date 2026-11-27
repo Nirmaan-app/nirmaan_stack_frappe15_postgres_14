@@ -9,6 +9,7 @@
 // ⚠️ THE FIRST CASE GUARDS THE PATH. Everything below parses a file read from disk; a moved file would
 // parse to an empty set, and an empty set on both sides "matches".
 import { readFileSync } from "node:fs";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -43,13 +44,16 @@ const sourcesSource = pyFile("services/outflow_import/sources.py");
 const frozensetStrings = (source: string, name: string): Set<string> | null => {
     const match = source.match(new RegExp(`^${name} = frozenset\\(\\s*\\{([^}]*)\\}`, "m"));
     if (!match) return null;
-    const constant = (id: string) => {
+    const constant = (id: string): string => {
+        // Imported from role_profiles; the names are pinned to roles.ts by test_role_mirrors.
+        if (id === "ADMIN_PROFILE") return ADMIN_PROFILE;
+        if (id === "DEVELOPER_PROFILE") return DEVELOPER_PROFILE;
         const found = source.match(new RegExp(`^${id} = "([^"]+)"`, "m"));
         if (!found) throw new Error(`${name} names ${id}, which is not a string constant of this file`);
         return found[1];
     };
     return new Set(
-        [...match[1].matchAll(/"([^"]+)"|\b([A-Z][A-Z0-9_]*)\b/g)].map((m) => m[1] ?? constant(m[2])),
+        [...match[1].matchAll(/"([^"]+)"|\b([A-Z][A-Z0-9_]*)\b/g)].flatMap((m) => m[1] ?? constant(m[2])),
     );
 };
 

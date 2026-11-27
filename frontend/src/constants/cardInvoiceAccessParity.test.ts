@@ -51,13 +51,13 @@ describe("card invoice access parity -- the screen shows exactly what the server
 
   it("★ CARD_NO_INVOICE_PROFILES is the same set on both sides", () => {
     const python = new Set(pythonProfiles(roleProfilesSource, "CARD_NO_INVOICE_PROFILES"));
-    expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Accountant Lead Profile"]));
+    expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Software Developer Profile", "Nirmaan Accountant Lead Profile"]));
     expect(python).toEqual(new Set(CARD_NO_INVOICE_PROFILES));
   });
 
   it("★ READ_AGAIN_PROFILES (Read again on a Not read expense bill, #1645) is the same set on both sides", () => {
     const python = new Set(pythonProfiles(roleProfilesSource, "READ_AGAIN_PROFILES"));
-    expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Accountant Lead Profile"]));
+    expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Software Developer Profile", "Nirmaan Accountant Lead Profile"]));
     expect(python).toEqual(new Set(READ_AGAIN_PROFILES));
   });
 

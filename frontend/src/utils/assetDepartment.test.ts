@@ -85,6 +85,6 @@ describe("canEditDepartments", () => {
 
   it("matches the server's DEPARTMENT_EDIT_PROFILES", () => {
     const source = readFileSync(resolve(APP, "services/role_profiles.py"), "utf-8");
-    expect(source).toContain("DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
+    expect(source).toContain("DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, DEVELOPER_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
   });
 });

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { ADMIN_PROFILE, DEVELOPER_PROFILE } from "@/constants/roles";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -17,6 +18,9 @@ const read = (path: string) => readFileSync(resolve(__dirname, "../../../../nirm
 const DECISION_PY = read("services/expense_decision.py");
 const ROLE_PROFILES_PY = read("services/role_profiles.py");
 
+/** The profile constants role_profiles exports, pinned to roles.ts by test_role_mirrors. */
+const IMPORTED: Record<string, string> = { ADMIN_PROFILE, DEVELOPER_PROFILE };
+
 /** `NAME = "value"` constants of a Python module. */
 const pyStrings = (source: string): Record<string, string> =>
   Object.fromEntries([...source.matchAll(/^([A-Z0-9_]+)\s*=\s*"([^"]+)"/gm)].map((m) => [m[1], m[2]]));
@@ -27,7 +31,7 @@ const pyTuple = (source: string, name: string): string[] => {
   expect(m, `${name} not found`).toBeTruthy();
   const strings = pyStrings(source);
   return m![1].split(",").map((s) => s.trim()).filter(Boolean)
-    .map((item) => (/^"[^"]*"$/.test(item) ? item.slice(1, -1) : strings[item] ?? item));
+    .map((item) => (/^"[^"]*"$/.test(item) ? item.slice(1, -1) : strings[item] ?? IMPORTED[item] ?? item));
 };
 
 describe("parity with the server", () => {
